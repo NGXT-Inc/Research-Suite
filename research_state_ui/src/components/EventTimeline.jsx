@@ -22,7 +22,7 @@ function targetHref(targetType, targetId) {
     case 'project':    return `/projects`;
     case 'resource':   return `/resources`;
     case 'review':     return `/reviews`;
-    case 'job':        return `/jobs`;
+    case 'sandbox':    return `/experiments/${targetId}#execution`;
     default:           return null;
   }
 }

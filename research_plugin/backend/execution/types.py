@@ -1,141 +1,96 @@
-"""Backend-neutral execution types, the ExecutionBackend protocol, and shared
-output-status helpers.
+"""Backend-neutral sandbox-execution types and the SandboxBackend protocol.
 
 Everything in this module is dependency-free with respect to the rest of the
-app: backends and the JobService talk only through these contracts.
+app: backends and the SandboxService talk only through these contracts.
+
+The execution model is sandbox-centric, not job-centric. The registry asks a
+backend to *acquire* a live sandbox wired for SSH, *check* whether it is still
+alive, *terminate* it, and *read* its terminal transcript. The agent runs
+commands over SSH itself — the backend never wraps or queues commands.
 """
 
 from __future__ import annotations
 
-from collections.abc import Callable
-from dataclasses import dataclass, field
-from pathlib import Path
-from typing import Any, Literal, Mapping, Protocol, Sequence
+from dataclasses import dataclass
+from typing import Callable, Protocol
 
 
-JobState = Literal["queued", "running", "succeeded", "failed", "cancelled"]
+SANDBOX_STATES = ("provisioning", "running", "terminated", "failed", "unknown")
 
-TERMINAL_STATUSES: frozenset[str] = frozenset({"succeeded", "failed", "cancelled"})
-
-
-@dataclass(frozen=True)
-class JobSpec:
-    command: str
-    cwd: str
-    env: Mapping[str, str]
-    expected_outputs: Sequence[str]
-    backend_hints: Mapping[str, Any] = field(default_factory=dict)
-    metadata: Mapping[str, str] = field(default_factory=dict)
+# Provisioning progress callbacks. The registry passes these to acquire() so it
+# can persist the sandbox id the instant it exists (before the slow SSH-tunnel
+# wait) and surface a live phase. Either callback may raise to abort the acquire
+# cooperatively (cancellation); the backend then terminates anything it created
+# before re-raising, so a canceled or failed acquire never leaks a sandbox.
+OnPhase = Callable[[str, str], None]      # (phase, detail)
+OnCreated = Callable[[str, str], None]    # (sandbox_id, sandbox_name)
 
 
 @dataclass(frozen=True)
-class JobStatus:
-    state: JobState
-    runtime_job_id: str
-    error: str | None = None
-    started_at: str | None = None
-    finished_at: str | None = None
-    # Optional finer-grained substate within `state`. Used to distinguish
-    # queued.waiting_sandbox (Modal hasn't provisioned the GPU yet) from
-    # queued.runner_starting (sandbox ready, runner hasn't written
-    # state=running). Surfaces in the API as the nested_status suffix.
-    # None means "no useful substate" — most state/backend combinations.
-    phase: str | None = None
+class SandboxRequest:
+    """A request to procure a sandbox for one experiment.
 
-
-@dataclass(frozen=True)
-class ExecutionProgress:
-    phase: str
-    message: str = ""
-    runtime_job_id: str | None = None
-    metadata: Mapping[str, str] | None = None
-
-
-ProgressCallback = Callable[[ExecutionProgress], None]
-
-
-@dataclass(frozen=True)
-class SubmitStatusReport:
-    """Snapshot of an in-flight submission's progress, safe to consume from
-    any thread. Returned by backends that expose a multi-stage submission
-    pipeline (currently Modal); other backends may return None.
-
-    Semantics:
-      • not started: current is None, completed is empty, failed_at is None
-      • running stage X: current == X, completed contains the prefix before X
-      • finished: current is None, completed contains every stage name,
-        failed_at is None
-      • failed at stage X: current is None, failed_at == X, completed
-        contains the successful prefix before X (X itself is NOT in completed)
+    `public_key` is the registry-owned per-experiment SSH public key that the
+    backend authorizes inside the sandbox. `remote_workdir` is filled from the
+    backend's default when left empty.
     """
 
-    stages: tuple[str, ...]
-    current: str | None
-    completed: tuple[str, ...]
-    failed_at: str | None = None
-    runtime_job_id: str = ""
+    experiment_id: str
+    project_id: str
+    public_key: str
+    gpu: str | None = None
+    cpu: float = 2.0
+    memory: int = 8192
+    time_limit: int = 3600
+    image_packages: tuple[str, ...] = ()
+    cuda_devel: bool = False
+    remote_workdir: str = ""
 
 
 @dataclass(frozen=True)
-class OutputStatus:
-    path: str
-    exists: bool
-    is_file: bool
+class ProvisionedSandbox:
+    """SSH connection facts for a live sandbox.
+
+    Timing/persistence (expires_at, key_path, …) live in the registry, not here.
+    """
+
+    sandbox_id: str
+    ssh_host: str
+    ssh_port: int
+    ssh_user: str
+    workdir: str
+    volume_name: str
+    reused: bool = False
 
 
 @dataclass(frozen=True)
 class BackendCapabilities:
     name: str
-    supports_local_working_dir: bool
-    materializes_outputs: bool
 
 
-# ---------------------------------------------------------------------------
-# Execution backend protocol
-# ---------------------------------------------------------------------------
-
-
-class ExecutionBackend(Protocol):
+class SandboxBackend(Protocol):
     capabilities: BackendCapabilities
 
-    def submit(self, *, spec: JobSpec, progress: ProgressCallback | None = None) -> str: ...
-
-    def status(self, *, runtime_job_id: str) -> JobStatus: ...
-
-    def logs(self, *, runtime_job_id: str) -> str: ...
-
-    def cancel(self, *, runtime_job_id: str) -> bool: ...
-
-    def materialize_outputs(
+    def acquire(
         self,
         *,
-        runtime_job_id: str,
-        expected_outputs: Sequence[str],
-        repo_root: Path,
-    ) -> Sequence[OutputStatus]: ...
+        request: SandboxRequest,
+        on_phase: OnPhase | None = None,
+        on_created: OnCreated | None = None,
+    ) -> ProvisionedSandbox: ...
+
+    def is_alive(self, *, sandbox_id: str) -> bool: ...
+
+    def terminate(self, *, sandbox_id: str) -> bool: ...
+
+    def read_transcript(
+        self,
+        *,
+        sandbox_id: str,
+        experiment_id: str,
+        volume_name: str,
+        workdir: str,
+        tail: int | None = None,
+    ) -> str: ...
 
     def health(self) -> dict: ...
-
-
-# ---------------------------------------------------------------------------
-# Shared helpers
-# ---------------------------------------------------------------------------
-
-
-def local_output_statuses(
-    *, repo_root: Path, expected_outputs: Sequence[str]
-) -> list[OutputStatus]:
-    """Canonical no-op materialization for backends whose job outputs are
-    already on the local filesystem (e.g. Ray local cluster, fake backend)."""
-    results: list[OutputStatus] = []
-    for rel_path in expected_outputs:
-        path = repo_root / rel_path
-        exists = path.exists()
-        results.append(
-            OutputStatus(
-                path=rel_path,
-                exists=exists,
-                is_file=path.is_file() if exists else False,
-            )
-        )
-    return results

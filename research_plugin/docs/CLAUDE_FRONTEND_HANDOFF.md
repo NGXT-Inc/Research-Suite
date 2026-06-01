@@ -105,10 +105,10 @@ Minimum useful screens:
    - show verdicts and findings
    - do not implement reviewer-agent chat
 
-6. Jobs
-   - show execution job list/status/logs
-   - expose cancel for running jobs
-   - show expected outputs and whether output files exist
+6. Sandboxes
+   - show the per-experiment sandbox status + SSH details (read-only)
+   - show the live terminal transcript for the experiment's sandbox
+   - expose release for a running sandbox
 
 ## Important UX Rules
 
@@ -151,11 +151,11 @@ Review display:
 GET /api/projects/{project_id}/reviews?target_type=experiment&target_id={experiment_id}
 ```
 
-Job display:
+Sandbox display:
 
 ```http
-GET /api/projects/{project_id}/jobs?experiment_id={experiment_id}
-GET /api/projects/{project_id}/jobs/{job_id}/logs?tail=200
+GET /api/projects/{project_id}/experiments/{experiment_id}/sandbox
+GET /api/projects/{project_id}/experiments/{experiment_id}/sandbox/terminal?tail=50000
 ```
 
 ## Differences From Old UI

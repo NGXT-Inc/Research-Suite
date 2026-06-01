@@ -116,7 +116,7 @@ class ResourceAssociateInput(ProjectScopedInput):
     target_type: str = Field(json_schema_extra={"enum": sorted(RESOURCE_TARGET_TYPES)})
     target_id: str
     role: str = Field(
-        description="Resource association role. Use 'result' for experiment or job output files.",
+        description="Resource association role. Use 'result' for experiment output files.",
         json_schema_extra={"enum": sorted(RESOURCE_ROLES)},
     )
 
@@ -161,31 +161,35 @@ class ReviewStatusInput(ProjectScopedInput):
     target_id: str
 
 
-class JobSubmitInput(ProjectScopedInput):
+class SandboxRequestInput(ProjectScopedInput):
     experiment_id: str
-    command: str
-    cwd: str = "."
-    expected_outputs: list[str] = Field(default_factory=list)
-    env: dict[str, str] = Field(default_factory=dict)
-    backend_hints: dict[str, Any] = Field(default_factory=dict)
+    gpu: str | None = Field(
+        default=None,
+        description="Optional GPU type (e.g. 'A100', 'H100'). Omit for a CPU-only sandbox.",
+    )
+    cpu: float | None = Field(default=None, description="Requested vCPUs. Default 2.")
+    memory: int | None = Field(default=None, description="Requested memory in MiB. Default 8192.")
+    time_limit: int | None = Field(
+        default=None,
+        description="Max sandbox lifetime in seconds (60..86400). Default 3600.",
+    )
 
 
-class JobStatusInput(ProjectScopedInput):
-    job_id: str
+class SandboxGetInput(ProjectScopedInput):
+    experiment_id: str
 
 
-class JobLogsInput(ProjectScopedInput):
-    job_id: str
+class SandboxListInput(ProjectScopedInput):
+    pass
+
+
+class SandboxReleaseInput(ProjectScopedInput):
+    experiment_id: str
+
+
+class SandboxTerminalInput(ProjectScopedInput):
+    experiment_id: str
     tail: int | None = None
-
-
-class JobCancelInput(ProjectScopedInput):
-    job_id: str
-
-
-class JobListInput(ProjectScopedInput):
-    experiment_id: str | None = None
-    status: str | None = None
 
 
 TOOL_INPUT_MODELS: dict[str, type[ContractModel]] = {
@@ -213,10 +217,10 @@ TOOL_INPUT_MODELS: dict[str, type[ContractModel]] = {
     "review.start": ReviewStartInput,
     "review.submit": ReviewSubmitInput,
     "review.status": ReviewStatusInput,
-    "job.submit": JobSubmitInput,
-    "job.status": JobStatusInput,
-    "job.logs": JobLogsInput,
-    "job.cancel": JobCancelInput,
-    "job.list": JobListInput,
-    "job.health": EmptyInput,
+    "sandbox.request": SandboxRequestInput,
+    "sandbox.get": SandboxGetInput,
+    "sandbox.list": SandboxListInput,
+    "sandbox.release": SandboxReleaseInput,
+    "sandbox.terminal": SandboxTerminalInput,
+    "sandbox.health": EmptyInput,
 }

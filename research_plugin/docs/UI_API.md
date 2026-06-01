@@ -162,12 +162,11 @@ Create payload:
 `experiments` remains the full project experiment list. `active_experiments`
 contains non-terminal experiments only (`planned`, `design_review`,
 `ready_to_run`, `running`, `experiment_review`), sorted by active-work priority
-and then recency. Each active experiment includes its current `workflow`, all
-known `jobs`, and its active `active_processes`.
+and then recency. Each active experiment includes its current `workflow`, its
+`sandboxes`, and its active `active_processes`.
 
-`active_processes` contains active execution job rows with status `submitting`,
-`queued`, or `running`, plus `process_type: "execution_job"` and a compact
-`experiment` summary.
+`active_processes` contains running sandbox rows (status `running`), plus
+`process_type: "sandbox"` and a compact `experiment` summary.
 
 ## Claims
 
@@ -315,39 +314,40 @@ Verdicts:
 - `needs_changes`
 - `fail`
 
-## Jobs
+## Sandboxes
 
-Execution jobs are exposed through HTTP for visibility and light control. The
-UI should not talk to execution providers directly.
+Sandboxes are exposed through HTTP for **observation** only. Procurement is an
+agent action (the `sandbox.request` MCP tool); the UI does not provision
+sandboxes or run commands. Each experiment has at most one sandbox.
 
 ```http
-GET /api/projects/{project_id}/jobs
-GET /api/projects/{project_id}/jobs?experiment_id={experiment_id}
-GET /api/projects/{project_id}/jobs?status=running
-POST /api/projects/{project_id}/jobs
-GET /api/projects/{project_id}/jobs/health
-GET /api/projects/{project_id}/jobs/{job_id}
-GET /api/projects/{project_id}/jobs/{job_id}/logs?tail=200
-GET /api/projects/{project_id}/jobs/{job_id}/outputs
-POST /api/projects/{project_id}/jobs/{job_id}/cancel
+GET  /api/projects/{project_id}/sandboxes
+GET  /api/sandboxes/health
+GET  /api/projects/{project_id}/experiments/{experiment_id}/sandbox
+GET  /api/projects/{project_id}/experiments/{experiment_id}/sandbox/terminal?tail=50000
+POST /api/projects/{project_id}/experiments/{experiment_id}/sandbox/release
 ```
 
-Submit payload:
+A sandbox row looks like:
 
 ```json
 {
   "experiment_id": "exp_...",
-  "command": "python scripts/train.py",
-  "cwd": ".",
-  "expected_outputs": [
-    "experiments/e001/results.json"
-  ]
+  "sandbox_id": "sb-...",
+  "status": "running",
+  "gpu": "A100",
+  "cpu": 2.0,
+  "memory": 8192,
+  "ssh_host": "...", "ssh_port": 50022, "ssh_user": "root",
+  "workdir": "/workspace/repo",
+  "volume_name": "research-plugin-proj_...",
+  "expires_at": "2026-06-01T18:00:00Z"
 }
 ```
 
-MCP validates command, cwd, env, and output paths before delegating to the
-configured execution backend. `backend_hints` is optional and opaque to
-JobService.
+The terminal endpoint returns `{ experiment_id, sandbox_id, status, transcript }`
+where `transcript` is the recorded command/output log for the experiment's
+sandbox. The release endpoint terminates the sandbox and returns the updated row.
 
 ## Events
 

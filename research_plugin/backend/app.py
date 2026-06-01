@@ -11,15 +11,15 @@ from pydantic import ValidationError as PydanticValidationError
 from .contracts import ContractModel, TOOL_INPUT_MODELS
 from .utils import ResearchPluginError
 from .utils import ValidationError as ToolValidationError
-from .execution import ExecutionBackend, build_execution_backend
+from .execution import SandboxBackend, build_sandbox_backend
 from .services import (
     ClaimService,
     ExperimentService,
-    JobService,
     PermissionService,
     ProjectService,
     ResourceService,
     ReviewService,
+    SandboxService,
     WorkflowService,
 )
 from .state import ActivityLogger, StateStore, monotonic_ms
@@ -60,7 +60,7 @@ class ResearchPluginApp:
         *,
         repo_root: Path,
         db_path: Path,
-        execution_backend: ExecutionBackend | None = None,
+        execution_backend: SandboxBackend | None = None,
     ) -> None:
         self.store = StateStore(db_path=db_path, repo_root=repo_root)
         self.activity = ActivityLogger(repo_root=self.store.repo_root)
@@ -78,21 +78,21 @@ class ResearchPluginApp:
             experiments=self.experiments,
         )
         if execution_backend is None:
-            execution_backend = build_execution_backend(
+            execution_backend = build_sandbox_backend(
                 repo_root=self.store.repo_root,
                 activity=self._activity_hook,
             )
         self.execution_backend = execution_backend
-        self.jobs = JobService(
+        self.sandboxes = SandboxService(
             store=self.store,
-            execution_backend=execution_backend,
+            sandbox_backend=execution_backend,
             activity=self.activity,
         )
         self.workflow = WorkflowService(
             store=self.store,
             experiments=self.experiments,
             reviews=self.reviews,
-            jobs=self.jobs,
+            sandboxes=self.sandboxes,
             resources=self.resources,
         )
         handlers: dict[str, tuple[str, Callable[..., dict[str, Any]]]] = {
@@ -112,7 +112,7 @@ class ResearchPluginApp:
             "resource.register_file": ("Register or observe one repo-relative file as a resource.", self.resources.register_file),
             "resource.observe_file": ("Observe one repo-relative resource file without changing kind metadata.", self.resources.observe_file),
             "resource.sync_changed_files": ("Register or observe changed repo-relative files.", self.resources.sync_changed_files),
-            "resource.associate": ("Associate a resource to a claim, experiment, review, job, or attempt.", self.resources.associate),
+            "resource.associate": ("Associate a resource to a claim, experiment, review, or attempt.", self.resources.associate),
             "resource.list": ("List registered resources.", self.resources.list_resources),
             "resource.resolve": ("Resolve one registered resource.", self.resources.resolve),
             "resource.history": ("List immutable observed versions for a resource.", self.resources.history),
@@ -120,12 +120,12 @@ class ResearchPluginApp:
             "review.start": ("Start a read-only reviewer session.", self.reviews.start),
             "review.submit": ("Submit a review from a reviewer session.", self.reviews.submit),
             "review.status": ("Inspect review requests and submissions for a target.", self.reviews.status),
-            "job.submit": ("Submit a job for the current experiment.", self.jobs.submit),
-            "job.status": ("Get one job's status and output availability.", self.jobs.get_status),
-            "job.logs": ("Get a job's logs.", self.jobs.logs),
-            "job.cancel": ("Cancel a running job.", self.jobs.cancel),
-            "job.list": ("List jobs for the project or experiment.", self.jobs.list_jobs),
-            "job.health": ("Check the execution backend is reachable.", self.jobs.health),
+            "sandbox.request": ("Procure (reuse or create) the experiment's sandbox and return SSH details.", self.sandboxes.request),
+            "sandbox.get": ("Get the experiment's sandbox status and SSH details.", self.sandboxes.get),
+            "sandbox.list": ("List sandboxes for the project.", self.sandboxes.list_sandboxes),
+            "sandbox.release": ("Terminate the experiment's sandbox.", self.sandboxes.release),
+            "sandbox.terminal": ("Read the experiment's terminal transcript.", self.sandboxes.terminal),
+            "sandbox.health": ("Check the execution backend is reachable.", self.sandboxes.health),
         }
         self._tools = {
             name: ToolSpec(description, TOOL_INPUT_MODELS[name], handler)
@@ -137,6 +137,19 @@ class ResearchPluginApp:
             {"name": name, "description": spec.description, "inputSchema": spec.input_schema()}
             for name, spec in self._tools.items()
         ]
+
+    def shutdown(self) -> None:
+        """Best-effort: stop background provisioning jobs and the sync poller."""
+        try:
+            self.sandboxes.shutdown()
+        except Exception:  # noqa: BLE001
+            pass
+        backend_shutdown = getattr(self.execution_backend, "shutdown", None)
+        if callable(backend_shutdown):
+            try:
+                backend_shutdown()
+            except Exception:  # noqa: BLE001
+                pass
 
     def call_tool(
         self,

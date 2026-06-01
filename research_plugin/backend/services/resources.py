@@ -343,7 +343,7 @@ class ResourceService:
         return rel.as_posix(), full
 
     def _ensure_target_exists(self, *, conn: sqlite3.Connection, target_type: str, target_id: str) -> str | None:
-        table_by_type = {"experiment": "experiments", "claim": "claims", "review": "reviews", "job": "jobs"}
+        table_by_type = {"experiment": "experiments", "claim": "claims", "review": "reviews"}
         table = table_by_type.get(target_type)
         if target_type == "attempt":
             # Attempts are implicit in v0.0001.

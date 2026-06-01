@@ -125,6 +125,7 @@ def main() -> int:
         pass
     finally:
         server.server_close()
+        app.shutdown()
     return 0
 
 

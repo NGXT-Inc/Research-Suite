@@ -14,7 +14,7 @@ implementation. The goal is to keep the durable model small:
 Codex owns local reasoning, editing, lightweight scripts, and reviewer-agent
 delegation. The backend (an HTTP daemon, fronted to Codex by a stdio MCP
 proxy) owns mutation permissions, workflow state, durable memory, review
-gates, and reliable ML job execution.
+gates, and Modal sandbox provisioning for ML execution.
 
 ## First reduction
 
@@ -38,12 +38,12 @@ See [docs/RESOURCE_MODEL.md](docs/RESOURCE_MODEL.md).
 
 The plugin runs as **one long-lived HTTP daemon** plus a **thin stdio MCP
 proxy** that Codex spawns on demand. The daemon owns SQLite state, the
-activity log, the job execution backend, and the volume sync poller. The MCP proxy is stateless — it forwards `tools/list` and `tools/call`
+activity log, the sandbox execution backend, and the volume sync poller. The MCP proxy is stateless — it forwards `tools/list` and `tools/call`
 to the daemon's `/mcp/*` endpoints. Both the browser UI and Codex go through
 the same daemon, eliminating the cross-process race the old split-brain setup
 had. **Start the daemon before opening Codex.**
 
-- [docs/STARTUP_CHEATSHEET.md](docs/STARTUP_CHEATSHEET.md) - local startup commands for the daemon, Codex, execution jobs, and activity logs
+- [docs/STARTUP_CHEATSHEET.md](docs/STARTUP_CHEATSHEET.md) - local startup commands for the daemon, Codex, sandboxes, and activity logs
 - [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) - full plug-in architecture
 - [docs/MCP_SERVER_CONTRACT.md](docs/MCP_SERVER_CONTRACT.md) - MCP tools and state ownership
 - [docs/UI_API.md](docs/UI_API.md) - lightweight HTTP API for frontend work
@@ -86,7 +86,7 @@ Run tests:
 PYTHONPATH=research_plugin research_plugin/.venv/bin/python -m unittest discover -s research_plugin/tests -v
 ```
 
-Start the HTTP daemon in the research repo **first** — it owns SQLite, jobs,
+Start the HTTP daemon in the research repo **first** — it owns SQLite, sandboxes,
 and sync, and writes `.research_plugin/daemon.json` so the MCP proxy can find
 it:
 
@@ -205,78 +205,82 @@ Fresh Codex session smoke checklist:
 9. Run design and experiment review.
 10. Confirm stale resources/reviews do not satisfy later attempts.
 
-## Execution job engine
+## Sandbox execution engine
 
-The MCP job tools use a backend-neutral execution layer. Modal is the default
-execution backend. Codex should call `job.submit`, `job.status`, `job.logs`, and
-`workflow.status_and_next`; it should not talk to Modal, Ray, or any other
-provider directly.
+There is no job abstraction. The agent **requests a sandbox** for an experiment
+and runs shell commands on it directly over SSH. Modal is the default backend.
+The agent calls `sandbox.request` / `sandbox.get` / `sandbox.terminal` /
+`sandbox.release`; it never talks to Modal directly.
+
+Provisioning is **best-effort-synchronous**: creating a sandbox (large first
+sync, cold GPU) can outlast the MCP call timeout, so `sandbox.request`
+provisions on a background thread and waits up to a budget (default 45s,
+`RESEARCH_PLUGIN_SANDBOX_REQUEST_WAIT`). If it comes up in time you get
+`status: running` with `ssh.command` inline; otherwise you get
+`status: provisioning` and **poll `sandbox.get`** (read-only) until it is
+`running` or `failed`. `get` reconciles a provisioning row whose job died
+(daemon restart) to `failed`, so a poll loop always terminates; the sandbox id
+is persisted the instant the sandbox is created and a partial failure terminates
+it, so a timed-out or canceled request never orphans a Modal sandbox.
 
 For Modal, make sure `MODAL_TOKEN_ID` and `MODAL_TOKEN_SECRET` are available to
-the **HTTP daemon process** (the MCP proxy does not need them). In a Papyrus
-source checkout, the daemon launcher auto-detects `project/backend/.env`. In
-any other deployment, point `RESEARCH_PLUGIN_MODAL_ENV_FILE` at the env file
-or export the token variables directly before starting the daemon.
-
-Install and start a local Ray head for development:
+the **HTTP daemon process** (the MCP proxy does not need them). The simplest way
+is a git-ignored `.env` at the plugin root — `research_plugin/.env` — which the
+daemon auto-detects:
 
 ```bash
-python3 -m venv .venv-ray
-. .venv-ray/bin/activate
-python -m pip install -r requirements-ray.txt
-ray start --head --dashboard-host=127.0.0.1 --dashboard-port=8265 --disable-usage-stats --block
+# research_plugin/.env  (git-ignored)
+MODAL_TOKEN_ID=...
+MODAL_TOKEN_SECRET=...
 ```
 
-In another terminal, run the live smoke test:
+Resolution order: `RESEARCH_PLUGIN_MODAL_ENV_FILE` (if set) → `research_plugin/.env`
+→ variables already exported in the environment (which always win). So you can
+also point at a file elsewhere or export the tokens directly:
 
 ```bash
-PYTHONPATH=. python3 scripts/smoke_ray_jobs.py --force-rest
+export RESEARCH_PLUGIN_MODAL_ENV_FILE=/path/to/backend/.env
 ```
 
-If the Python running the daemon has Ray installed, the backend uses Ray's
-SDK client and can upload a local repo as the Ray `working_dir`. If not, it
-uses the Ray Jobs REST API and runs the job from an absolute local cwd, which
-works for a local Ray head that can see the same filesystem. Override the Ray
-API address with `RESEARCH_PLUGIN_RAY_ADDRESS`.
+`SandboxService` is the central registry: **one sandbox per experiment**,
+reuse-if-alive-else-create. On `sandbox.request` it generates a per-experiment
+ed25519 keypair, creates a Modal sandbox with the project Volume mounted and
+`openssh-server` running, exposes SSH over an unencrypted Modal tunnel
+(`unencrypted_ports=[22]`), authorizes the public key, and returns SSH details.
 
-Override to Ray for local development by setting
-`RESEARCH_PLUGIN_EXECUTION_BACKEND=ray` in the daemon's environment after
-starting a local Ray head.
+To keep agent commands short, the registry also drops a static dispatcher at
+`.research_plugin/sbx` and a per-experiment connection file under
+`.research_plugin/sandboxes/conn/<experiment_id>` (regenerated each request,
+since the host/port change). The agent runs
+`.research_plugin/sbx <experiment_id> '<command>'` instead of a ~210-character
+`ssh` line; the response's `ssh.command` is that short form and `ssh.raw_command`
+is the full `ssh` invocation for use outside the repo root. Releasing or expiring
+a sandbox removes the conn file so the dispatcher fails loudly rather than
+connecting to a recycled host:port.
 
-For Modal, point the daemon process at the environment file that already
-contains the Modal token values:
-
-```bash
-export RESEARCH_PLUGIN_MODAL_ENV_FILE=/path/to/project/backend/.env
-```
+Visibility: an in-sandbox `sshd` `ForceCommand` wrapper records every command and
+its output to `.research_plugin_sessions/<experiment>/transcript.log` on the
+mounted Volume. `sandbox.terminal` reads it (live from the sandbox, falling back
+to the committed Volume); the UI renders it as a per-experiment terminal window.
 
 The Modal backend mirrors each project's local repo into a per-project Modal
-Volume (`research-plugin-<project_id>`) and mounts that volume writable at
-`/workspace/repo` inside every sandbox. Jobs run **inside** the volume — there
-is no separate workdir copy. The runner calls `volume.commit()` on exit so
-writes persist for the next sync.
-
-A `SyncEngine` keeps the volume and the local repo in agreement via a
-three-way diff against a baseline stored at
+Volume (`research-plugin-<project_id>`) and mounts it writable at
+`/workspace/repo`. A `SyncEngine` keeps the Volume and the local repo in
+agreement via a three-way diff against a baseline stored at
 `.research_plugin/modal/sync.sqlite`. It runs:
 
 - on `project.create` (initial volume + baseline registration),
-- on `job.submit` (blocking push; submission fails on conflict),
-- on `job.status` reaching a terminal state (pull; brings down whatever the
-  job committed, including partial outputs from failed/cancelled runs),
-- and every 60 s in a background poller (bidirectional, for both projects
-  and external edits while no job is running).
+- on `sandbox.request` (push current repo before the sandbox boots),
+- and every 60 s in a background poller (bidirectional, pulling sandbox writes
+  back to the local repo).
 
-`expected_outputs` on `job.submit` is a workflow hint used by the
-`result_sync_required` gate, **not** a transfer instruction — the sync engine
-moves every file that changed on either side. Conflicts (both sides changed
-since the last sync) halt that path until resolved.
+Conflicts (both sides changed since the last sync) are recorded and halt the
+next `sandbox.request` until resolved.
 
-Excluded paths: `.git`, `.research_plugin`, `.venv`/`venv`, `__pycache__`,
-`*.pyc`, `.mypy_cache`, `.pytest_cache`, `.ruff_cache`, `.cache`, `.aws`,
-`node_modules`, `.DS_Store`. Successful, failed, and cancelled jobs retain
-the Modal sandbox for 10 minutes before best-effort termination so a
-follow-up job can reuse the same instance.
+Excluded paths: `.git`, `.research_plugin`, `.research_plugin_sessions`,
+`.venv`/`venv`, `__pycache__`, `*.pyc`, `.mypy_cache`, `.pytest_cache`,
+`.ruff_cache`, `.cache`, `.aws`, `node_modules`, `.DS_Store`, `data/raw`,
+`data/processed`.
 
 Implemented MCP tools:
 
@@ -286,4 +290,4 @@ Implemented MCP tools:
 - `experiment.create`, `experiment.list`, `experiment.get_state`, `experiment.transition`
 - `resource.register_file`, `resource.observe_file`, `resource.sync_changed_files`, `resource.associate`, `resource.list`, `resource.resolve`, `resource.history`
 - `review.request`, `review.start`, `review.submit`, `review.status`
-- `job.submit`, `job.status`, `job.logs`, `job.cancel`, `job.list`, `job.health`
+- `sandbox.request`, `sandbox.get`, `sandbox.list`, `sandbox.release`, `sandbox.terminal`, `sandbox.health`

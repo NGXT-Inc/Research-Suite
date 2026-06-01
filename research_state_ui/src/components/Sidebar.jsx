@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react';
 import { NavLink, useLocation, useNavigate } from 'react-router-dom';
-import { useProjectStore, selectStats, selectResources } from '../store/useProjectStore';
+import { useProjectStore, selectStats, selectResources, selectSandboxes } from '../store/useProjectStore';
 import ProjectSwitcher from './ProjectSwitcher';
 import FileTree from './FileTree';
 import VolumeSyncIndicator from './VolumeSyncIndicator';
@@ -22,6 +22,8 @@ export default function Sidebar({ onRefresh }) {
   const isPolling = useProjectStore(s => s.isPolling);
   const lastSyncError = useProjectStore(s => s.lastSyncError);
   const resources = useProjectStore(selectResources);
+  const sandboxes = useProjectStore(selectSandboxes);
+  const runningSandboxes = sandboxes.filter(s => s.status === 'running').length;
   const projectId = useProjectStore(s => s.projectId);
   const location = useLocation();
   const navigate = useNavigate();
@@ -104,8 +106,13 @@ export default function Sidebar({ onRefresh }) {
           <span>Reviews</span>
           <span className="sidebar-link-count">{stats.open_reviews ?? stats.reviews ?? 0}</span>
         </NavLink>
-        <NavLink to="/jobs" className={({ isActive }) => 'sidebar-link' + (isActive ? ' active' : '')}>
-          Jobs
+        <NavLink to="/sandboxes" className={({ isActive }) => 'sidebar-link' + (isActive ? ' active' : '')}>
+          <span>Sandboxes</span>
+          {runningSandboxes > 0 && (
+            <span className="sidebar-link-count sidebar-link-count--live" title={`${runningSandboxes} running`}>
+              <span className="sidebar-live-dot" />{runningSandboxes}
+            </span>
+          )}
         </NavLink>
       </nav>
 

@@ -161,37 +161,36 @@ CREATE TABLE IF NOT EXISTS events (
   FOREIGN KEY(project_id) REFERENCES projects(id)
 );
 
-CREATE TABLE IF NOT EXISTS jobs (
-  id TEXT PRIMARY KEY,
+CREATE TABLE IF NOT EXISTS sandboxes (
+  experiment_id TEXT PRIMARY KEY,
   project_id TEXT NOT NULL,
-  experiment_id TEXT NOT NULL,
-  attempt_index INTEGER NOT NULL DEFAULT 0,
-  runtime_job_id TEXT,
-  backend TEXT NOT NULL DEFAULT 'ray',
-  command TEXT NOT NULL,
-  cwd TEXT NOT NULL DEFAULT '.',
-  expected_outputs_json TEXT NOT NULL DEFAULT '[]',
-  backend_hints_json TEXT NOT NULL DEFAULT '{}',
-  metadata_json TEXT NOT NULL DEFAULT '{}',
-  logs_cache TEXT NOT NULL DEFAULT '',
-  error TEXT,
-  materialized_at TEXT,
-  materialize_error TEXT,
-  materialize_attempts INTEGER NOT NULL DEFAULT 0,
-  status TEXT NOT NULL,
-  progress_phase TEXT NOT NULL DEFAULT '',
-  progress_message TEXT NOT NULL DEFAULT '',
-  progress_updated_at TEXT,
   sandbox_id TEXT NOT NULL DEFAULT '',
+  status TEXT NOT NULL DEFAULT 'none',
   gpu TEXT NOT NULL DEFAULT '',
-  ssh_address TEXT NOT NULL DEFAULT '',
-  submitted_at TEXT,
-  started_at TEXT,
-  finished_at TEXT,
+  cpu REAL NOT NULL DEFAULT 0,
+  memory INTEGER NOT NULL DEFAULT 0,
+  time_limit INTEGER NOT NULL DEFAULT 0,
+  ssh_host TEXT NOT NULL DEFAULT '',
+  ssh_port INTEGER NOT NULL DEFAULT 0,
+  ssh_user TEXT NOT NULL DEFAULT 'root',
+  key_path TEXT NOT NULL DEFAULT '',
+  workdir TEXT NOT NULL DEFAULT '',
+  volume_name TEXT NOT NULL DEFAULT '',
+  sandbox_name TEXT NOT NULL DEFAULT '',
+  phase TEXT NOT NULL DEFAULT '',
+  detail TEXT NOT NULL DEFAULT '',
+  error TEXT NOT NULL DEFAULT '',
+  provision_started_at TEXT,
+  requested_at TEXT,
+  expires_at TEXT,
+  last_seen_at TEXT,
+  terminated_at TEXT,
   created_at TEXT NOT NULL,
   updated_at TEXT NOT NULL,
   FOREIGN KEY(project_id) REFERENCES projects(id)
 );
+
+DROP TABLE IF EXISTS jobs;
 """
 
 
@@ -286,24 +285,25 @@ class StateStore:
             conn.close()
 
     def _ensure_forward_schema(self, *, conn: sqlite3.Connection) -> None:
-        self._ensure_columns(
-            conn=conn,
-            table="jobs",
-            columns={
-                "progress_phase": "TEXT NOT NULL DEFAULT ''",
-                "progress_message": "TEXT NOT NULL DEFAULT ''",
-                "progress_updated_at": "TEXT",
-                "sandbox_id": "TEXT NOT NULL DEFAULT ''",
-                "gpu": "TEXT NOT NULL DEFAULT ''",
-                "ssh_address": "TEXT NOT NULL DEFAULT ''",
-            },
-        )
         # Experiments now persist the accepted conclusion on `complete`; older
         # databases predate the column.
         self._ensure_columns(
             conn=conn,
             table="experiments",
             columns={"conclusion": "TEXT NOT NULL DEFAULT ''"},
+        )
+        # Async provisioning (June 2026): sandboxes gained a provisioning/failed
+        # lifecycle with progress + error fields. Older DBs predate these columns.
+        self._ensure_columns(
+            conn=conn,
+            table="sandboxes",
+            columns={
+                "sandbox_name": "TEXT NOT NULL DEFAULT ''",
+                "phase": "TEXT NOT NULL DEFAULT ''",
+                "detail": "TEXT NOT NULL DEFAULT ''",
+                "error": "TEXT NOT NULL DEFAULT ''",
+                "provision_started_at": "TEXT",
+            },
         )
         # The shadow-git unplug (May 2026) dropped these columns from the
         # SCHEMA constant, but pre-existing databases still have them. The

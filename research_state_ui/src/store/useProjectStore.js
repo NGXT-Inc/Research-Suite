@@ -20,8 +20,8 @@ export const useProjectStore = create((set, get) => ({
 
   // Live snapshot from GET /home
   home: null,            // {project, claims, experiments, resources, reviews, recent_events, stats, workflow, active_experiment, active_experiments, active_processes}
-  jobs: [],              // full project-wide jobs list from GET /jobs (powers ProcessTimeline; includes terminal statuses /home omits)
-  events: [],            // longer event window from GET /events?limit=500 — powers ProjectDashboard sparklines
+  sandboxes: [],         // project-wide sandbox list from GET /sandboxes (one per experiment)
+  events: [],            // longer event window from GET /events?limit=500 — powers dashboard sparklines
   lastSyncedAt: null,    // epoch ms of last successful refresh
   lastSyncError: null,
   isPolling: false,
@@ -31,7 +31,7 @@ export const useProjectStore = create((set, get) => ({
       if (pid) localStorage.setItem(PROJECT_KEY, pid);
       else localStorage.removeItem(PROJECT_KEY);
     } catch {}
-    set({ projectId: pid, home: null, jobs: [], events: [], lastSyncedAt: null, lastSyncError: null });
+    set({ projectId: pid, home: null, sandboxes: [], events: [], lastSyncedAt: null, lastSyncError: null });
   },
 
   async loadProjects() {
@@ -79,14 +79,14 @@ export const useProjectStore = create((set, get) => ({
     // recent_events is capped at ~25 which is too few for sparkline binning;
     // the dashboard wants ≥1h of history per active item.
     try {
-      const [home, jobsResp, eventsResp] = await Promise.all([
+      const [home, sandboxesResp, eventsResp] = await Promise.all([
         api.getHome(pid),
-        api.listJobs(pid).catch(() => ({ jobs: [] })),
+        api.listSandboxes(pid).catch(() => ({ sandboxes: [] })),
         api.listEvents(pid, 500).catch(() => ({ events: [] })),
       ]);
-      const jobs = Array.isArray(jobsResp?.jobs) ? jobsResp.jobs : [];
+      const sandboxes = Array.isArray(sandboxesResp?.sandboxes) ? sandboxesResp.sandboxes : [];
       const events = Array.isArray(eventsResp?.events) ? eventsResp.events : [];
-      set({ home, jobs, events, lastSyncedAt: Date.now(), lastSyncError: null });
+      set({ home, sandboxes, events, lastSyncedAt: Date.now(), lastSyncError: null });
       return home;
     } catch (err) {
       set({ lastSyncError: err.message });
@@ -131,6 +131,6 @@ export const selectWorkflow = (s) => s.home?.workflow || null;
 export const selectActiveExperiment = (s) => s.home?.active_experiment || null;
 export const selectActiveExperiments = (s) => s.home?.active_experiments || EMPTY_ARR;
 export const selectActiveProcesses = (s) => s.home?.active_processes || EMPTY_ARR;
-export const selectJobs = (s) => s.jobs || EMPTY_ARR;
+export const selectSandboxes = (s) => s.sandboxes || EMPTY_ARR;
 export const selectEventsAll = (s) => s.events || EMPTY_ARR;
 export const selectProject = (s) => s.home?.project || null;

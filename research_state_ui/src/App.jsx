@@ -13,7 +13,7 @@ import ExperimentDetail from './pages/ExperimentDetail';
 import Resources from './pages/Resources';
 import Reviews from './pages/Reviews';
 import Events from './pages/Events';
-import Jobs from './pages/Jobs';
+import Sandboxes from './pages/Sandboxes';
 import Activity from './pages/Activity';
 import VisualDag from './pages/VisualDag';
 
@@ -71,7 +71,7 @@ export default function App() {
           <Route path="/resources/:resourceId" element={<Resources />} />
           <Route path="/reviews" element={<Reviews />} />
           <Route path="/events" element={<Events />} />
-          <Route path="/jobs" element={<Jobs />} />
+          <Route path="/sandboxes" element={<Sandboxes />} />
           <Route path="/activity" element={<Activity />} />
           <Route path="/visual/dag" element={<VisualDag />} />
           <Route path="*" element={<Navigate to="/" replace />} />

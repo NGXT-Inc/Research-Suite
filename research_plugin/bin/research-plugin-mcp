@@ -34,10 +34,7 @@ if [ -z "${RESEARCH_PLUGIN_STORE:-}" ]; then
   export RESEARCH_PLUGIN_STORE="$RESEARCH_PLUGIN_REPO_ROOT/.research_plugin/state.sqlite"
 fi
 
-# Source checkout convenience; explicit deployment env always wins.
-DEFAULT_MODAL_ENV_FILE="$(cd "$PLUGIN_DIR/.." >/dev/null 2>&1 && pwd)/project/backend/.env"
-if [[ -z "${RESEARCH_PLUGIN_MODAL_ENV_FILE:-}" && -f "$DEFAULT_MODAL_ENV_FILE" ]]; then
-  export RESEARCH_PLUGIN_MODAL_ENV_FILE="$DEFAULT_MODAL_ENV_FILE"
-fi
+# No Modal env here: the proxy only forwards tool calls to the HTTP daemon over
+# HTTP. Modal credentials are a daemon-only concern (see bin/research-plugin-http).
 
 exec "$PYTHON_BIN" -m mcp_server "$@"

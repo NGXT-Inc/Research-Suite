@@ -5,15 +5,15 @@ from __future__ import annotations
 from typing import Any
 
 from .experiments import ExperimentService
-from .jobs import JobService
 from .permissions import RESOURCE_ROLES
 from .resources import ResourceService
 from .reviews import ReviewService
+from .sandboxes import SandboxService
 from ..state.store import StateStore, row_to_dict, rows_to_dicts
 
 
 TERMINAL_EXPERIMENT_STATUSES = {"complete", "failed", "abandoned"}
-ACTIVE_PROCESS_STATUSES = {"submitting", "queued", "running"}
+ACTIVE_PROCESS_STATUSES = {"provisioning", "running"}
 EXPERIMENT_STATUS_PRIORITY = {
     "running": 0,
     "experiment_review": 1,
@@ -23,8 +23,7 @@ EXPERIMENT_STATUS_PRIORITY = {
 }
 PROCESS_STATUS_PRIORITY = {
     "running": 0,
-    "queued": 1,
-    "submitting": 2,
+    "provisioning": 1,
 }
 
 
@@ -37,13 +36,13 @@ class WorkflowService:
         store: StateStore,
         experiments: ExperimentService,
         reviews: ReviewService,
-        jobs: JobService,
+        sandboxes: SandboxService,
         resources: ResourceService,
     ) -> None:
         self.store = store
         self.experiments = experiments
         self.reviews = reviews
-        self.jobs = jobs
+        self.sandboxes = sandboxes
         self.resources = resources
 
     def status_and_next(
@@ -89,8 +88,8 @@ class WorkflowService:
                     project_id=project_id,
                     conn=conn,
                 )
-            jobs = (
-                self.jobs.jobs_for_experiment(conn=conn, experiment_id=experiment_id)
+            sandboxes = (
+                self.sandboxes.sandboxes_for_experiment(conn=conn, experiment_id=experiment_id)
                 if experiment_id
                 else []
             )
@@ -113,7 +112,7 @@ class WorkflowService:
                     "active_experiments": rows_to_dicts(rows=exp_rows),
                 },
                 "experiment": experiment,
-                "jobs": jobs,
+                "sandboxes": sandboxes,
                 "workflow": workflow,
             }
             if resource_refresh["count"]:
@@ -153,15 +152,15 @@ class WorkflowService:
             experiments_by_id = {
                 experiment["id"]: experiment for experiment in experiments
             }
-            jobs = self.jobs.jobs_for_project(conn=conn, project_id=project_id)
+            sandboxes = self.sandboxes.sandboxes_for_project(conn=conn, project_id=project_id)
             active_processes = self._sort_active_processes(
                 processes=[
                     self._process_view(
-                        job=job,
-                        experiment=experiments_by_id.get(str(job.get("experiment_id"))),
+                        sandbox=sandbox,
+                        experiment=experiments_by_id.get(str(sandbox.get("experiment_id"))),
                     )
-                    for job in jobs
-                    if job.get("status") in ACTIVE_PROCESS_STATUSES
+                    for sandbox in sandboxes
+                    if sandbox.get("status") in ACTIVE_PROCESS_STATUSES
                 ]
             )
 
@@ -169,8 +168,8 @@ class WorkflowService:
             for experiment in experiments:
                 if experiment["status"] in TERMINAL_EXPERIMENT_STATUSES:
                     continue
-                experiment_jobs = [
-                    job for job in jobs if job.get("experiment_id") == experiment["id"]
+                experiment_sandboxes = [
+                    sandbox for sandbox in sandboxes if sandbox.get("experiment_id") == experiment["id"]
                 ]
                 experiment_active_processes = [
                     process
@@ -184,7 +183,7 @@ class WorkflowService:
                             conn=conn,
                             experiment=experiment,
                         ),
-                        "jobs": experiment_jobs,
+                        "sandboxes": experiment_sandboxes,
                         "active_processes": experiment_active_processes,
                     }
                 )
@@ -251,57 +250,19 @@ class WorkflowService:
             return self._next(
                 gate="execution_ready",
                 action="start_running",
-                allowed=["experiment.transition", "job.submit"],
+                allowed=["sandbox.request", "experiment.transition"],
             )
         if status == "running":
-            jobs = self.jobs.jobs_for_experiment(conn=conn, experiment_id=exp_id)
-            current_jobs = [
-                job
-                for job in jobs
-                if job.get("attempt_index") == experiment.get("attempt_index")
-            ]
-            active_jobs = [
-                job
-                for job in current_jobs
-                if job.get("status") in ACTIVE_PROCESS_STATUSES
-            ]
-            succeeded_jobs = [
-                job for job in current_jobs if job.get("status") == "succeeded"
-            ]
-            failed_jobs = [job for job in current_jobs if job.get("status") == "failed"]
-            if active_jobs:
-                return self._next(
-                    gate="execution_running",
-                    action="wait_for_job",
-                    allowed=["job.status", "job.logs", "job.cancel"],
-                )
+            sandboxes = self.sandboxes.sandboxes_for_experiment(conn=conn, experiment_id=exp_id)
+            active = any(sb.get("status") in ACTIVE_PROCESS_STATUSES for sb in sandboxes)
             if "result" not in roles:
-                if succeeded_jobs:
-                    return self._next(
-                        gate="result_sync_required",
-                        action="sync_result_resources",
-                        allowed=[
-                            "resource.register_file",
-                            "resource.associate",
-                            "resource.sync_changed_files",
-                            "job.status",
-                        ],
-                        missing=["result resource"],
-                        resource_guidance=self._result_resource_guidance(
-                            job=succeeded_jobs[0],
-                        ),
-                    )
-                if failed_jobs:
-                    return self._next(
-                        gate="execution_failed",
-                        action="inspect_job_failure",
-                        allowed=["job.status", "job.logs", "job.submit", "experiment.transition"],
-                        missing=["successful job outputs"],
-                    )
                 return self._next(
-                    gate="result_sync_required",
-                    action="sync_result_resources",
+                    gate="execution_active" if active else "execution_ready",
+                    action="run_experiment_and_sync_results",
                     allowed=[
+                        "sandbox.request",
+                        "sandbox.terminal",
+                        "sandbox.get",
                         "resource.register_file",
                         "resource.associate",
                         "resource.sync_changed_files",
@@ -451,16 +412,11 @@ class WorkflowService:
             gate["expires_at"] = request["expires_at"]
         return gate
 
-    def _result_resource_guidance(
-        self, job: dict[str, Any] | None = None
-    ) -> dict[str, Any]:
-        outputs = job.get("expected_outputs", []) if job else []
+    def _result_resource_guidance(self) -> dict[str, Any]:
         return {
             "target_type": "experiment",
             "association_role": "result",
             "allowed_resource_roles": sorted(RESOURCE_ROLES),
-            "expected_output_paths": outputs,
-            "job_id": job.get("id") if job else None,
         }
 
     def _next(
@@ -518,11 +474,11 @@ class WorkflowService:
         )
 
     def _process_view(
-        self, *, job: dict[str, Any], experiment: dict[str, Any] | None
+        self, *, sandbox: dict[str, Any], experiment: dict[str, Any] | None
     ) -> dict[str, Any]:
         process = {
-            **job,
-            "process_type": "execution_job",
+            **sandbox,
+            "process_type": "sandbox",
         }
         if experiment is not None:
             process["experiment"] = {

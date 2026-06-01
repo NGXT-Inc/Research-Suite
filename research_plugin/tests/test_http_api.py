@@ -12,7 +12,7 @@ from fastapi.testclient import TestClient
 from backend.app import ResearchPluginApp
 from backend.http_api import create_fastapi_app
 from backend.http_server import make_http_server
-from backend.execution.backends.fake import FakeBackend
+from backend.execution.backends.fake import FakeSandboxBackend
 from mcp_server.time_utils import now_iso
 
 
@@ -20,7 +20,7 @@ class ResearchPluginHttpApiTest(unittest.TestCase):
     def setUp(self) -> None:
         self.tmp = tempfile.TemporaryDirectory()
         self.repo = Path(self.tmp.name)
-        self.backend = FakeBackend()
+        self.backend = FakeSandboxBackend()
         self.app = ResearchPluginApp(
             repo_root=self.repo,
             db_path=self.repo / ".research_plugin" / "state.sqlite",
@@ -134,32 +134,37 @@ class ResearchPluginHttpApiTest(unittest.TestCase):
         self.assertEqual(updated["status"], "supported")
         self.assertEqual(updated["confidence"], "high")
 
-    def test_job_http_endpoints(self) -> None:
-        project = self.request("POST", "/api/projects", {"name": "Job UI Project"})
+    def test_sandbox_http_endpoints(self) -> None:
+        project = self.request("POST", "/api/projects", {"name": "Sandbox UI Project"})
         project_id = project["id"]
-        exp = self.request("POST", f"/api/projects/{project_id}/experiments", {"intent": "Run a job"})
+        exp = self.request("POST", f"/api/projects/{project_id}/experiments", {"intent": "Run an experiment"})
         exp_id = exp["id"]
-        (self.repo / "plan.md").write_text("metric: output exists\n")
-        (self.repo / "scripts").mkdir()
-        (self.repo / "scripts" / "train.py").write_text("print('ok')\n")
-        plan = self.request("POST", f"/api/projects/{project_id}/resources", {"path": "plan.md", "kind": "note"})
-        self.request("POST", f"/api/projects/{project_id}/resources/{plan['id']}/associate", {"target_type": "experiment", "target_id": exp_id, "role": "plan"})
-        self.request("POST", f"/api/projects/{project_id}/experiments/{exp_id}/transition", {"transition": "submit_design"})
-        req = self.request("POST", f"/api/projects/{project_id}/reviews/request", {"target_type": "experiment", "target_id": exp_id, "role": "design_reviewer"})
-        session = self.request("POST", f"/api/projects/{project_id}/reviews/start", {"review_request_id": req["review_request_id"], "reviewer_capability": req["reviewer_capability"], "caller_session_id": "design"})
-        self.request("POST", f"/api/projects/{project_id}/reviews/submit", {"review_session_id": session["review_session_id"], "verdict": "pass"})
-        self.request("POST", f"/api/projects/{project_id}/experiments/{exp_id}/transition", {"transition": "mark_ready_to_run"})
-        job = self.request("POST", f"/api/projects/{project_id}/jobs", {"experiment_id": exp_id, "command": "python scripts/train.py", "expected_outputs": ["out.json"]})
-        self.assertEqual(job["status"], "queued")
-        self.assertEqual(job["backend"], "fake")
-        self.assertIn("runtime_job_id", job)
-        self.assertEqual(self.request("GET", f"/api/projects/{project_id}/jobs/{job['id']}")["status"], "queued")
-        runtime_id = job["runtime_job_id"]
-        self.backend.logs_by_id[runtime_id] = "http fake logs\n"
-        self.assertIn("http fake logs", self.request("GET", f"/api/projects/{project_id}/jobs/{job['id']}/logs")["logs"])
-        # Health is process-global (no project scope) since the execution
-        # backend is a single instance shared across projects.
-        self.assertTrue(self.request("GET", "/api/jobs/health")["ok"])
+        # Drive the experiment to ready_to_run so a sandbox may be requested.
+        with self.app.store.transaction() as conn:
+            conn.execute("UPDATE experiments SET status = 'ready_to_run' WHERE id = ?", (exp_id,))
+        # Procuring is an agent action (MCP tool); the UI observes the result.
+        requested = self.app.call_tool(
+            "sandbox.request", {"project_id": project_id, "experiment_id": exp_id, "gpu": "A100"}
+        )
+        self.assertEqual(requested["status"], "running")
+        self.assertEqual(requested["ssh"]["command"], f".research_plugin/sbx {exp_id}")
+        self.assertTrue(requested["ssh"]["raw_command"].startswith("ssh -i "))
+
+        sandbox = self.request("GET", f"/api/projects/{project_id}/experiments/{exp_id}/sandbox")
+        self.assertEqual(sandbox["status"], "running")
+        self.assertTrue(sandbox["sandbox_id"])
+
+        listed = self.request("GET", f"/api/projects/{project_id}/sandboxes")["sandboxes"]
+        self.assertEqual(len(listed), 1)
+
+        self.backend.append_transcript(experiment_id=exp_id, text="$ ls\nplan.md\n")
+        terminal = self.request("GET", f"/api/projects/{project_id}/experiments/{exp_id}/sandbox/terminal")
+        self.assertIn("plan.md", terminal["transcript"])
+
+        released = self.request("POST", f"/api/projects/{project_id}/experiments/{exp_id}/sandbox/release")
+        self.assertEqual(released["status"], "terminated")
+
+        self.assertTrue(self.request("GET", "/api/sandboxes/health")["ok"])
 
     def test_home_exposes_active_experiments_and_processes(self) -> None:
         project = self.request("POST", "/api/projects", {"name": "Active Work Project"})
@@ -173,36 +178,32 @@ class ResearchPluginHttpApiTest(unittest.TestCase):
             conn.execute("UPDATE experiments SET status = 'complete', updated_at = ? WHERE id = ?", (now, complete["id"]))
             conn.execute(
                 """
-                INSERT INTO jobs (
-                  id, project_id, experiment_id, attempt_index, runtime_job_id, backend, command, cwd,
-                  expected_outputs_json, backend_hints_json, metadata_json, status,
-                  submitted_at, created_at, updated_at
+                INSERT INTO sandboxes (
+                  experiment_id, project_id, sandbox_id, status, created_at, updated_at
                 )
-                VALUES (?, ?, ?, 1, ?, 'fake', 'python train.py', '.', '[]', '{}', '{}', 'queued', ?, ?, ?)
+                VALUES (?, ?, 'sb_active', 'running', ?, ?)
                 """,
-                ("job_active_test", project_id, running["id"], "runtime_active_test", now, now, now),
+                (running["id"], project_id, now, now),
             )
             conn.execute(
                 """
-                INSERT INTO jobs (
-                  id, project_id, experiment_id, attempt_index, runtime_job_id, backend, command, cwd,
-                  expected_outputs_json, backend_hints_json, metadata_json, status,
-                  submitted_at, finished_at, created_at, updated_at
+                INSERT INTO sandboxes (
+                  experiment_id, project_id, sandbox_id, status, terminated_at, created_at, updated_at
                 )
-                VALUES (?, ?, ?, 1, ?, 'fake', 'python train.py', '.', '[]', '{}', '{}', 'succeeded', ?, ?, ?, ?)
+                VALUES (?, ?, 'sb_done', 'terminated', ?, ?, ?)
                 """,
-                ("job_done_test", project_id, complete["id"], "runtime_done_test", now, now, now, now),
+                (complete["id"], project_id, now, now, now),
             )
 
         home = self.request("GET", f"/api/projects/{project_id}/home")
 
         self.assertEqual([item["id"] for item in home["active_experiments"]], [running["id"], planned["id"]])
         self.assertEqual(home["active_experiment"]["id"], running["id"])
-        self.assertEqual(home["workflow"]["next_action"], "wait_for_job")
+        self.assertEqual(home["workflow"]["next_action"], "run_experiment_and_sync_results")
         self.assertEqual(home["stats"]["active_experiments"], 2)
         self.assertEqual(home["stats"]["active_processes"], 1)
-        self.assertEqual(home["active_processes"][0]["id"], "job_active_test")
-        self.assertEqual(home["active_processes"][0]["process_type"], "execution_job")
+        self.assertEqual(home["active_processes"][0]["experiment_id"], running["id"])
+        self.assertEqual(home["active_processes"][0]["process_type"], "sandbox")
         self.assertEqual(home["active_processes"][0]["experiment"]["id"], running["id"])
         self.assertNotIn(complete["id"], [item["id"] for item in home["active_experiments"]])
 

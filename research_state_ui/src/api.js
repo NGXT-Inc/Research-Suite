@@ -133,30 +133,14 @@ export const api = {
     return request(`/api/activity?${params.toString()}`);
   },
 
-  // Jobs (Ray-backed; see jobs.py)
-  listJobs: (pid, { experimentId, status } = {}) => {
-    const params = new URLSearchParams();
-    if (experimentId) params.set('experiment_id', experimentId);
-    if (status) params.set('status', status);
-    const q = params.toString();
-    return request(`/api/projects/${encodeURIComponent(pid)}/jobs${q ? '?' + q : ''}`);
-  },
-  submitJob: (pid, { experiment_id, command, cwd, expected_outputs }) =>
-    request(`/api/projects/${encodeURIComponent(pid)}/jobs`, {
-      method: 'POST',
-      body: {
-        experiment_id,
-        command,
-        cwd: cwd || '.',
-        expected_outputs: expected_outputs || [],
-      },
-    }),
-  getJob: (pid, jid) => request(`/api/projects/${encodeURIComponent(pid)}/jobs/${encodeURIComponent(jid)}`),
-  getJobLogs: (pid, jid, tail = 200) =>
-    request(`/api/projects/${encodeURIComponent(pid)}/jobs/${encodeURIComponent(jid)}/logs?tail=${tail}`),
-  getJobOutputs: (pid, jid) =>
-    request(`/api/projects/${encodeURIComponent(pid)}/jobs/${encodeURIComponent(jid)}/outputs`),
-  cancelJob: (pid, jid) =>
-    request(`/api/projects/${encodeURIComponent(pid)}/jobs/${encodeURIComponent(jid)}/cancel`, { method: 'POST' }),
-  jobsHealth: (pid) => request(`/api/projects/${encodeURIComponent(pid)}/jobs/health`),
+  // Sandboxes (Modal-backed; agent drives execution over SSH — see sandboxes.py).
+  // The UI observes; it does not procure sandboxes (that is an agent MCP action).
+  listSandboxes: (pid) => request(`/api/projects/${encodeURIComponent(pid)}/sandboxes`),
+  getSandbox: (pid, eid) =>
+    request(`/api/projects/${encodeURIComponent(pid)}/experiments/${encodeURIComponent(eid)}/sandbox`),
+  getSandboxTerminal: (pid, eid, tail = 50000) =>
+    request(`/api/projects/${encodeURIComponent(pid)}/experiments/${encodeURIComponent(eid)}/sandbox/terminal?tail=${tail}`),
+  releaseSandbox: (pid, eid) =>
+    request(`/api/projects/${encodeURIComponent(pid)}/experiments/${encodeURIComponent(eid)}/sandbox/release`, { method: 'POST' }),
+  sandboxesHealth: () => request(`/api/sandboxes/health`),
 };

@@ -24,7 +24,7 @@ The plug-in architecture keeps the hard boundary but shrinks the implementation:
 - Codex performs reasoning, editing, local scripting, and lightweight checks.
 - Codex skills define the operating procedure.
 - The MCP server owns durable memory and validates mutations.
-- The MCP server owns reliable ML job execution.
+- The MCP server owns Modal sandbox provisioning for ML execution.
 - The MCP server tells Codex the current status and next allowed workflow action.
 - Design review and full experiment review are separate read-only reviewer roles.
 - Reviewers submit structured reviews to MCP; MCP decides whether the gate passes.
@@ -43,7 +43,7 @@ flowchart TD
 
   Daemon --> Memory["Research memory (SQLite)"]
   Daemon --> Policy["Permission and workflow policy"]
-  Daemon --> Jobs["Reliable ML job engine"]
+  Daemon --> Jobs["Sandbox registry (Modal + SSH)"]
   Daemon --> ResourceIndex["Repo-file resource index"]
   Daemon --> ReviewGates["Review gates"]
   Daemon --> Sync["Volume sync engine"]
@@ -61,7 +61,7 @@ flowchart TD
 
 The plugin is split across two processes per research repo:
 
-1. **HTTP daemon** — long-lived. Owns SQLite, the activity log, the job
+1. **HTTP daemon** — long-lived. Owns SQLite, the activity log, the sandbox
    execution backend, and the volume sync poller. Exposes the full tool
    surface at `/mcp/*` and a UI-flavored view at `/api/*`.
 2. **MCP stdio proxy** — short-lived, spawned by Codex on demand. Stateless.
@@ -91,9 +91,9 @@ MCP owns:
 - project memory for claims, experiments, and resources
 - permissioned mutation checks
 - experiment state machine and next-action guidance
-- reliable ML job execution for expensive or long-running jobs
+- Modal sandbox provisioning for expensive or long-running ML work
 - resource registration and file observation
-- resource associations to claims, experiments, jobs, reviews, and attempts
+- resource associations to claims, experiments, reviews, and attempts
 - review records and required gates
 - reviewer capability tokens and read-only review sessions
 - final acceptance/rejection of proposed state changes
@@ -134,7 +134,7 @@ Resource:
 - kind/role
 - last observed version token: `path + mtime_ns + size_bytes`
 - optional git commit pointer
-- associations to experiments, claims, jobs, reviews, and attempts
+- associations to experiments, claims, reviews, and attempts
 
 Review:
 
@@ -162,7 +162,7 @@ Examples:
 - link experiment to claim
 - register resource file
 - mark experiment running
-- record job result
+- record sandbox result
 - record design review
 - record experiment review
 - propose claim status change
@@ -207,10 +207,10 @@ actions, blocked actions, missing evidence, and the next required step.
 
 The server never guesses the active project. Every project-scoped tool requires
 an explicit `project_id`; Codex and the UI must select or create a project before
-working on claims, experiments, resources, reviews, or jobs.
+working on claims, experiments, resources, reviews, or sandboxes.
 
-This tool is deliberately high-level. It can include known job summaries from
-durable state, but it should not poll Ray or perform detailed inspection itself.
+This tool is deliberately high-level. It can include a known sandbox summary from
+durable state, but it should not poll Modal or perform detailed inspection itself.
 Codex should use narrower tools when it needs fresh execution details.
 
 Detailed tools exist for deeper inspection:
@@ -218,8 +218,8 @@ Detailed tools exist for deeper inspection:
 ```text
 project.get(project_id)
 experiment.get_state(project_id, experiment_id)
-job.status(project_id, job_id)
-job.logs(project_id, job_id)
+sandbox.get(project_id, experiment_id)
+sandbox.terminal(project_id, experiment_id)
 ```
 
 Possible next steps include:
@@ -227,7 +227,7 @@ Possible next steps include:
 - write experiment plan
 - launch design reviewer
 - revise plan from design review feedback
-- run job
+- request a sandbox and run the experiment over SSH
 - sync resources
 - launch experiment reviewer
 - revise plan from experiment review feedback
@@ -238,32 +238,30 @@ If experiment review fails, the experiment returns to `planned`, but MCP carries
 forward prior run context: previous plan, result resources, failed review
 findings, and guidance about what should stay the same versus change.
 
-## Job execution
+## Sandbox execution
 
-The execution layer behind MCP job tools is backend-neutral. Codex does not talk
-to Ray, Modal, or any other provider directly in the normal workflow.
+There is no job abstraction. Codex requests a sandbox for an experiment and runs
+commands on it directly over SSH. It does not talk to Modal directly.
 
 ```text
 Codex
-  -> MCP job tools
-      -> execution ExecutionBackend
-          -> worker process
-              -> repo files and output files
+  -> sandbox.request (MCP)
+      -> SandboxService registry  (one sandbox per experiment, reuse-if-alive)
+          -> SandboxBackend (Modal)  ->  Modal sandbox + SSH tunnel + Volume mount
+  -> ssh <command>  (run by Codex itself, recorded to the experiment transcript)
 ```
 
 MCP owns policy, state, and visibility:
 
-- validate experiment gate before job submission
-- validate command, cwd, env, and expected output paths
-- record local job rows, backend name, and runtime job ids
-- expose job status, logs, cancellation, and output availability
+- gate `sandbox.request` on experiment status (`ready_to_run` / `running`)
+- own the per-experiment SSH keypair and the durable `sandboxes` row
+- procure / reuse / release sandboxes and reconcile liveness
+- expose the terminal transcript for visibility
 - tell Codex when output files should be synced as resources
 
-`execution` owns backend implementations. The default backend is Modal, and
-the contract is shaped so execution providers can materialize expected outputs
-back into the local repo without changing research workflow state, resource
-sync, or review gates. The local Ray backend remains available by setting
-`RESEARCH_PLUGIN_EXECUTION_BACKEND=ray`.
+`execution` owns the `SandboxBackend` implementations. The default backend is
+Modal; `fake` is used for tests. SSH-to-sandbox is Modal-specific and not a
+portable abstraction.
 
 ## Reviewer identity and independence
 
@@ -295,7 +293,7 @@ The primary skill should make Codex follow the research loop:
 3. create or update experiment plan through MCP
 4. edit local files as needed
 5. run lightweight checks locally
-6. submit long-running jobs to MCP
+6. request a sandbox from MCP and run long work on it over SSH
 7. sync created/modified files as resources
 8. launch design or experiment reviewer agent when MCP requires it
 9. ensure the reviewer submits review directly to MCP

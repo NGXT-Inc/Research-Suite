@@ -136,41 +136,59 @@ should return enough visibility for both Codex and the user:
 ### Execution tools
 
 ```text
-job.submit(project_id, experiment_id, command, cwd?, expected_outputs?, backend_hints?)
-job.status(project_id, job_id)
-job.logs(project_id, job_id, tail?)
-job.cancel(project_id, job_id)
-job.list(project_id, experiment_id?, status?)
-job.health()
+sandbox.request(project_id, experiment_id, gpu?, cpu?, memory?, time_limit?)
+sandbox.get(project_id, experiment_id)
+sandbox.list(project_id)
+sandbox.release(project_id, experiment_id)
+sandbox.terminal(project_id, experiment_id, tail?)
+sandbox.health()
 ```
 
-Codex can still run lightweight local commands itself. Use MCP jobs for
-expensive, long-running, resumable, or policy-sensitive ML runs.
+There is no job abstraction. Codex requests a sandbox for an experiment, gets
+back SSH connection details (including a short, ready-to-run `ssh.command`), and
+runs shell commands on the sandbox itself. Lightweight work still runs locally.
 
-The execution backend is not exposed directly to Codex. Codex calls MCP job
-tools; MCP validates the request, records local job state, and delegates to the
-configured execution backend.
+`sandbox.request` is the only procurement call. The registry keeps **one sandbox
+per experiment** and reuses the live one if it is still alive, otherwise creates
+a fresh one. The response carries `ssh` (host, port, user, key_path, command,
+raw_command), `workdir`, `volume`, `status`, `expires_at`, and `reused`.
+`ssh.command` is the short dispatcher form
+`.research_plugin/sbx <experiment_id>` (run from the repo root); `ssh.raw_command`
+is the full `ssh -i … user@host` line for use from any directory.
 
-`workflow.status_and_next` may return last-known job summaries, but it must stay
-a high-level orientation endpoint. Fresh backend polling belongs in
-`job.status`; log retrieval belongs in `job.logs`; output availability is
-reported in `job.status.outputs`.
+Provisioning is **best-effort-synchronous**. Creating a sandbox can outlast the
+MCP call timeout (large first sync, cold GPU), so `sandbox.request` provisions on
+a background thread and waits up to a budget (default 45s,
+`RESEARCH_PLUGIN_SANDBOX_REQUEST_WAIT`):
+
+- settles in time → `status: "running"` with `ssh.command`, exactly as before;
+- still working → `status: "provisioning"` with `phase`, `detail`, and
+  `poll_after_seconds`, and no `ssh.command` yet.
+
+`sandbox.get` is the **poll**: read-only, never provisions, and returns the
+current row — `provisioning` (keep polling), `running` (use `ssh.command`),
+`failed` (read `error`, then `sandbox.request` to retry), `terminated`, or
+`none` (never requested; not an error). It reconciles a `provisioning` row whose
+background job died (daemon restart) to `failed` so a poll loop always reaches a
+terminal state. `sandbox.release` also cancels an in-flight provision. The agent
+contract: call `request`, then if `provisioning` poll `get` every
+`poll_after_seconds` until `running`/`failed` — never re-call `request` to poll.
+
+Visibility: every SSH command and its output are recorded to a per-experiment
+transcript inside the sandbox. `sandbox.terminal` reads it (live from the
+sandbox, falling back to the committed Volume). The UI renders it as a terminal
+window. `workflow.status_and_next` may surface a last-known sandbox summary but
+stays a high-level orientation endpoint.
 
 The default backend is `modal`. Backend selection is controlled by
-`RESEARCH_PLUGIN_EXECUTION_BACKEND`; supported values are currently `modal`,
-`ray`, and `fake` for tests. Backend-specific configuration is supplied through
-environment variables and optional opaque `backend_hints` on `job.submit`.
-
-The Modal backend mirrors each project into a per-project Modal Volume, mounts
-that volume writable at the remote workdir, runs jobs inside the mounted repo,
-and syncs changes back to the local repo through the Modal sync engine.
-`expected_outputs` is a workflow hint for output availability and result
-resource association, not a per-file transfer instruction.
-
-The Ray backend remains available for local development. It supports SDK mode,
-when the MCP Python process has Ray installed, and REST mode otherwise. The
-execution contract remains backend-neutral so additional providers can live
-inside `execution/backends/`.
+`RESEARCH_PLUGIN_EXECUTION_BACKEND`; supported values are `modal` and `fake`
+(tests). The Modal backend mirrors each project into a per-project Modal Volume,
+mounts it writable at the remote workdir, and exposes SSH over an unencrypted
+Modal tunnel (`unencrypted_ports=[22]`). The registry generates a per-experiment
+SSH keypair and authorizes its public key in the sandbox. Repo changes sync back
+to the local repo through the Modal sync engine. The execution contract
+(`SandboxBackend`) stays narrow so additional providers can live inside
+`execution/backends/`.
 
 All project-scoped tools require an explicit `project_id`; the server does not
 fall back to the first-created project. The UI and skills must select a project
@@ -314,7 +332,7 @@ Tables can be minimal:
 - review_requests
 - review_sessions
 - events
-- jobs
+- sandboxes
 
 No resource version table is needed for v0.1. Store the last observed file token
 directly on the resource row and append a lightweight event when it changes.

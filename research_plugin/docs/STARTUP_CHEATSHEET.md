@@ -14,7 +14,7 @@ proxy that Codex spawns on demand:
                    │  (research-plugin-http --repo $REPO)      │
                    │                                           │
                    │  - SQLite state, activity log             │
-                   │  - JobService + Modal sandbox lifecycle   │
+                   │  - SandboxService + Modal SSH sandboxes   │
                    │  - SyncEngine + 60 s poller               │
                    │  - HTTP API at  /api/* and /mcp/*         │
                    └────────────▲──────────────▲───────────────┘
@@ -65,59 +65,33 @@ Inside Codex:
 
 Install or enable `research-plugin` from `Papyrus Local Plugins`.
 
-## Terminal 1: Execution Backend
+## Terminal 1: Execution Backend (Modal credentials)
 
-Modal is the default execution backend behind `job.*` tools. Codex talks to the
-MCP proxy, the proxy talks to the daemon, and the daemon talks to Modal/Ray.
-Only the daemon process needs backend credentials.
+Modal is the default execution backend behind the `sandbox.*` tools. Codex talks
+to the MCP proxy, the proxy talks to the daemon, and the daemon talks to Modal.
+Only the daemon process needs Modal credentials (the MCP proxy does not).
 
-For Modal, ensure the **daemon process** can read credentials (the MCP proxy
-does not need them):
-
-```bash
-export RESEARCH_PLUGIN_MODAL_ENV_FILE=/path/to/project/backend/.env
-```
-
-For local Ray development, override the backend and start a Ray head:
+Put `MODAL_TOKEN_ID` / `MODAL_TOKEN_SECRET` in a git-ignored `research_plugin/.env`
+(auto-detected by the daemon), or point at a file elsewhere / export them:
 
 ```bash
-cd "$RESEARCH_PLUGIN"
-export RESEARCH_PLUGIN_EXECUTION_BACKEND=ray
+# research_plugin/.env  (git-ignored, auto-detected)
+MODAL_TOKEN_ID=...
+MODAL_TOKEN_SECRET=...
 
-python3 -m venv .venv-ray
-. .venv-ray/bin/activate
-python -m pip install -r requirements-ray.txt
-
-ray start \
-  --head \
-  --dashboard-host=127.0.0.1 \
-  --dashboard-port=8265 \
-  --disable-usage-stats \
-  --block
+# ...or explicitly:
+export RESEARCH_PLUGIN_MODAL_ENV_FILE=/path/to/backend/.env
 ```
 
-Ray Jobs API should now be available at:
-
-```text
-http://127.0.0.1:8265
-```
-
-Useful checks:
+For tests without Modal, use the in-memory fake backend:
 
 ```bash
-curl -s http://127.0.0.1:8265/api/version
-```
-
-Stop Ray from another terminal when needed:
-
-```bash
-. "$RESEARCH_PLUGIN/.venv-ray/bin/activate"
-ray stop
+export RESEARCH_PLUGIN_EXECUTION_BACKEND=fake
 ```
 
 ## Terminal 2: Backend Daemon (required for Codex *and* UI)
 
-The HTTP daemon owns SQLite state, the activity log, the job execution
+The HTTP daemon owns SQLite state, the activity log, the sandbox execution
 backend, and the volume sync engine. Both the UI and the stdio MCP proxy
 forward through it. **Start this before opening Codex.** The MCP proxy writes
 a clear "daemon not running" error to Codex if you forget.
@@ -222,7 +196,7 @@ Use Research Plugin.
 
 First list existing projects. If there is no appropriate project, create one.
 After we select a project_id, call workflow.status_and_next for that project.
-Also check job.health so we know whether the configured execution backend is
+Also check sandbox.health so we know whether the configured execution backend is
 available.
 
 Use explicit project_id for every project-scoped MCP tool. Treat local repo
@@ -243,7 +217,7 @@ For an experiment run:
 Use Research Plugin with project_id proj_...
 Create or select the experiment, write/sync required plan resources, submit the
 design for review, launch a read-only design reviewer agent, and submit the
-review back to MCP. If approved, use MCP job tools for execution.
+review back to MCP. If approved, request a sandbox and run the experiment over SSH.
 After execution, sync changed output files as resources and run full experiment
 review before completing the experiment.
 ```
@@ -266,11 +240,6 @@ Additional, for the default Modal backend (daemon env only):
 
 - `MODAL_TOKEN_ID` and `MODAL_TOKEN_SECRET` available directly or through
   `RESEARCH_PLUGIN_MODAL_ENV_FILE`
-
-Additional, for the optional Ray backend:
-
-- Ray head running on `127.0.0.1:8265`
-- Daemon started with `RESEARCH_PLUGIN_EXECUTION_BACKEND=ray`
 
 Recommended while debugging:
 

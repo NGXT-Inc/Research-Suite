@@ -50,14 +50,14 @@ from their own repo's git history.
   "title": "Optional human title",
   "associations": [
     {
-	      "target_type": "experiment | claim | review | job",
+	      "target_type": "experiment | claim | review",
 	      "target_id": "exp_...",
 	      "role": "plan | input | code | config | result | note | model",
 	      "attempt_index": 2,
 	      "version_id": "rver_..."
 	    }
 	  ],
-  "created_by": "codex | user | job",
+  "created_by": "codex | user",
   "last_observed": {
     "mtime_ns": 1789520738123456789,
     "size_bytes": 42183,
@@ -83,7 +83,7 @@ The backend keeps its state under the project root:
 
 SQLite is the workflow/index store:
 
-- projects, claims, experiments, reviews, jobs
+- projects, claims, experiments, reviews, sandboxes
 - resource ids and current live path
 - resource version metadata (sha256, size, mtime, mimetype)
 - which version was associated to which attempt/role
@@ -133,7 +133,7 @@ Every resource operation is project-scoped. The server must reject missing
 `project_id` rather than guessing an active project.
 
 Allowed association roles are `plan`, `input`, `code`, `config`, `result`,
-`note`, `model`, and `other`. Experiment/job output files use the singular role
+`note`, `model`, and `other`. Experiment output files use the singular role
 `result`; the MCP tool schema and validation errors expose this vocabulary so
 agents do not need to guess.
 

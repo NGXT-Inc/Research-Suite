@@ -155,14 +155,26 @@ class ModalJobHints:
 
 
 def load_modal_env_file() -> None:
-    """Load Modal credentials from an explicit env file without importing dotenv."""
+    """Load Modal credentials from an env file without importing dotenv.
+
+    Resolution order:
+      1. ``RESEARCH_PLUGIN_MODAL_ENV_FILE`` when set (must exist).
+      2. A ``.env`` at the research_plugin package root (source-checkout default).
+
+    Values already present in the environment always win over file values, so an
+    explicit ``export MODAL_TOKEN_ID=...`` is never overridden.
+    """
 
     configured = os.environ.get("RESEARCH_PLUGIN_MODAL_ENV_FILE")
-    if not configured:
-        return
-    path = Path(configured).expanduser()
-    if not path.exists():
-        raise BackendValidationError(f"RESEARCH_PLUGIN_MODAL_ENV_FILE does not exist: {path}")
+    if configured:
+        path = Path(configured).expanduser()
+        if not path.exists():
+            raise BackendValidationError(f"RESEARCH_PLUGIN_MODAL_ENV_FILE does not exist: {path}")
+    else:
+        # research_plugin/backend/execution/backends/modal/config.py -> research_plugin/
+        path = Path(__file__).resolve().parents[4] / ".env"
+        if not path.exists():
+            return
     for raw_line in path.read_text().splitlines():
         line = raw_line.strip()
         if not line or line.startswith("#") or "=" not in line:

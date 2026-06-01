@@ -486,38 +486,31 @@ def create_fastapi_app(app: ResearchPluginApp) -> FastAPI:
     def submit_review(project_id: str, body: JsonBody = Body(default=None)) -> dict[str, Any]:
         return api.submit_review(project_id=project_id, body=body or {})
 
-    @http.get("/api/projects/{project_id}/jobs")
-    def list_jobs(project_id: str, experiment_id: str | None = None, status: str | None = None) -> dict[str, Any]:
-        return api.app.jobs.list_jobs_for_ui(
-            project_id=project_id,
-            experiment_id=experiment_id,
-            status=status,
-        )
+    @http.get("/api/projects/{project_id}/sandboxes")
+    def list_sandboxes(project_id: str) -> dict[str, Any]:
+        return api.app.sandboxes.list_for_ui(project_id=project_id)
 
-    @http.post("/api/projects/{project_id}/jobs", status_code=201)
-    def submit_job(project_id: str, body: JsonBody = Body(default=None)) -> dict[str, Any]:
-        submitted = api.call_tool(name="job.submit", arguments={"project_id": project_id, **(body or {})})
-        return api.app.jobs.get_status_for_ui(project_id=project_id, job_id=submitted["id"], reconcile=False)
+    @http.get("/api/sandboxes/health")
+    def sandbox_health() -> dict[str, Any]:
+        return api.app.sandboxes.health_for_ui()
 
-    @http.get("/api/jobs/health")
-    def job_health() -> dict[str, Any]:
-        return api.app.jobs.health_for_ui()
+    @http.get("/api/projects/{project_id}/experiments/{experiment_id}/sandbox")
+    def get_sandbox(project_id: str, experiment_id: str) -> dict[str, Any]:
+        return api.app.sandboxes.get_for_ui(project_id=project_id, experiment_id=experiment_id)
 
-    @http.get("/api/projects/{project_id}/jobs/{job_id}")
-    def job_status(project_id: str, job_id: str) -> dict[str, Any]:
-        return api.app.jobs.get_status_for_ui(project_id=project_id, job_id=job_id)
-
-    @http.get("/api/projects/{project_id}/jobs/{job_id}/logs")
-    def job_logs(project_id: str, job_id: str, tail: int | None = None) -> dict[str, Any]:
-        args = {"project_id": project_id, "job_id": job_id}
+    @http.get("/api/projects/{project_id}/experiments/{experiment_id}/sandbox/terminal")
+    def sandbox_terminal(project_id: str, experiment_id: str, tail: int | None = None) -> dict[str, Any]:
+        args: dict[str, Any] = {"project_id": project_id, "experiment_id": experiment_id}
         if tail is not None:
             args["tail"] = tail
-        return api.call_tool(name="job.logs", arguments=args)
+        return api.call_tool(name="sandbox.terminal", arguments=args)
 
-    @http.post("/api/projects/{project_id}/jobs/{job_id}/cancel")
-    def cancel_job(project_id: str, job_id: str) -> dict[str, Any]:
-        api.call_tool(name="job.cancel", arguments={"project_id": project_id, "job_id": job_id})
-        return api.app.jobs.get_status_for_ui(project_id=project_id, job_id=job_id, reconcile=False)
+    @http.post("/api/projects/{project_id}/experiments/{experiment_id}/sandbox/release")
+    def release_sandbox(project_id: str, experiment_id: str) -> dict[str, Any]:
+        return api.call_tool(
+            name="sandbox.release",
+            arguments={"project_id": project_id, "experiment_id": experiment_id},
+        )
 
     @http.get("/api/projects/{project_id}/events")
     def events(project_id: str, limit: int = Query(100, ge=1)) -> dict[str, Any]:

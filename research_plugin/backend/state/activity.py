@@ -13,6 +13,19 @@ from typing import Any
 from ..utils import now_iso
 
 
+# Bound how much of the activity log recent() pulls into memory. On a
+# long-lived daemon the JSONL file can reach gigabytes; reading the whole file
+# per /api/activity poll (the UI polls it every few seconds) balloons RSS and
+# stalls forwarded tool calls. We only ever need the tail, so cap the read to
+# the last slice of the file.
+TAIL_READ_BYTES = 16 * 1024 * 1024
+
+# Cap the per-event result payload written to the log. Tool results such as
+# experiment.get_state and the project home view can be many KB; logging them
+# verbatim on every call — including frequent UI polls — is what drives
+# multi-hundred-MB/day growth. The log is a visibility feed, not an archive.
+RESULT_LOG_MAX_BYTES = 16 * 1024
+
 SENSITIVE_KEYS = {"reviewer_capability", "capability"}
 ID_KEYS = {
     "project_id",
@@ -97,7 +110,7 @@ class ActivityLogger:
                 "status": "ok",
                 "duration_ms": duration_ms,
                 "args": summarize_arguments(arguments=arguments),
-                "result": jsonable(value=result),
+                "result": cap_result(value=result),
             },
         )
 
@@ -185,7 +198,7 @@ class ActivityLogger:
         empty_summary = {"total": 0, "source_counts": {}, "event_counts": {}, "status_counts": {"ok": 0, "error": 0}}
         if not self.log_path.exists():
             return {"events": [], "summary": empty_summary}
-        raw = self.log_path.read_text(encoding="utf-8").splitlines()[-window:]
+        raw = self._tail_lines(max_lines=window, max_bytes=TAIL_READ_BYTES)
         scanned: list[dict[str, Any]] = []
         for line in raw:
             try:
@@ -219,6 +232,24 @@ class ActivityLogger:
             },
         }
 
+    def _tail_lines(self, *, max_lines: int, max_bytes: int) -> list[str]:
+        """Return up to the last `max_lines` complete lines from the log.
+
+        Reads at most `max_bytes` from the end of the file, so memory stays
+        bounded no matter how large the log has grown. If the byte budget lands
+        mid-line, the first (partial) line is dropped.
+        """
+        with self.log_path.open("rb") as handle:
+            handle.seek(0, os.SEEK_END)
+            size = handle.tell()
+            read_size = min(size, max_bytes)
+            handle.seek(size - read_size)
+            chunk = handle.read(read_size)
+        lines = chunk.decode("utf-8", errors="replace").splitlines()
+        if read_size < size and lines:
+            lines = lines[1:]
+        return lines[-max_lines:]
+
 
 def effective_source(*, event: dict[str, Any]) -> str:
     """Treat http.request events as having an implicit source = http."""
@@ -243,6 +274,27 @@ def summarize_arguments(*, arguments: dict[str, Any]) -> dict[str, Any]:
         elif key in ID_KEYS:
             summary[key] = value
     return summary
+
+
+def cap_result(*, value: Any) -> Any:
+    """Return a JSON-safe result capped to RESULT_LOG_MAX_BYTES.
+
+    Oversized results are replaced with a compact truncation marker so the
+    activity log stays bounded. The caller still received the full result; the
+    log is a visibility feed, not an archive.
+    """
+    safe = jsonable(value=value)
+    try:
+        encoded = json.dumps(safe, separators=(",", ":"))
+    except (TypeError, ValueError):
+        return safe
+    if len(encoded) <= RESULT_LOG_MAX_BYTES:
+        return safe
+    return {
+        "_truncated": True,
+        "_bytes": len(encoded),
+        "preview": encoded[:2048],
+    }
 
 
 def jsonable(*, value: Any) -> Any:

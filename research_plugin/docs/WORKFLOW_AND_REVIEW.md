@@ -23,7 +23,7 @@ workflow.status_and_next(project_id, experiment_id?)
 ```
 
 `project_id` is required. Codex should select or create a project before any
-claim, experiment, resource, review, or job workflow.
+claim, experiment, resource, review, or sandbox workflow.
 
 The server response should be useful to both Codex and the user: current project
 summary, experiment status, active attempt, linked claims, plan resources, result
@@ -132,11 +132,11 @@ Resources from prior attempts remain visible as experiment history, but MCP only
 uses current-attempt resource associations to decide whether result sync or
 review gates are satisfied.
 
-When a current-attempt job has succeeded but result files are not yet associated,
-`workflow.status_and_next` returns `result_sync_required` with
-`resource_guidance`. Agents should sync the listed `expected_output_paths` and
-associate them to the experiment with `association_role: "result"`. A stale
-failed job from the same attempt must not hide a later successful retry.
+While an experiment is `running` and no result resource is associated yet,
+`workflow.status_and_next` returns `run_experiment_and_sync_results` with
+`resource_guidance`. Agents run the experiment on the sandbox over SSH, then sync
+the output files and associate them to the experiment with
+`association_role: "result"`.
 
 ## Completion rule
 
@@ -144,5 +144,5 @@ An experiment can complete only when:
 
 - its result resources are synced
 - its design and experiment review gates are satisfied
-- its conclusion is tied to resources and/or job outputs
+- its conclusion is tied to resources and/or sandbox outputs
 - MCP accepts the completion transition

@@ -48,7 +48,6 @@ function targetFromArgs(args) {
   if (args.experiment_id) return { type: 'experiment', id: args.experiment_id };
   if (args.claim_id) return { type: 'claim', id: args.claim_id };
   if (args.resource_id) return { type: 'resource', id: args.resource_id };
-  if (args.job_id) return { type: 'job', id: args.job_id };
   if (args.review_id || args.request_id) return { type: 'review', id: args.review_id || args.request_id };
   if (args.project_id) return { type: 'project', id: args.project_id };
   return null;
@@ -59,7 +58,7 @@ function targetHref(type, id) {
     case 'experiment': return `/experiments/${id}`;
     case 'claim':      return `/claims/${id}`;
     case 'resource':   return `/resources`;
-    case 'job':        return `/jobs`;
+    case 'sandbox':    return `/sandboxes`;
     case 'review':     return `/reviews`;
     case 'project':    return `/projects`;
     default:           return null;

@@ -15,6 +15,7 @@ HARDCODED_EXCLUDED_NAMES: frozenset[str] = frozenset(
         ".git",
         ".research_plugin",
         ".research_plugin_job",
+        ".research_plugin_sessions",
         ".venv",
         "venv",
         "__pycache__",

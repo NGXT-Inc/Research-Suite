@@ -7,7 +7,7 @@ import StatusPill from '../components/StatusPill';
 import FSMStrip from '../components/FSMStrip';
 import GateBanner from '../components/GateBanner';
 import PlanSpotlight from '../components/PlanSpotlight';
-import ExecutionDashboard from '../components/ExecutionDashboard';
+import SandboxTerminal from '../components/SandboxTerminal';
 import OutcomesSection from '../components/OutcomesSection';
 import ResourceList from '../components/ResourceList';
 import AddResourceToExperiment from '../components/AddResourceToExperiment';
@@ -64,8 +64,6 @@ export default function ExperimentDetail() {
   const [error, setError] = useState(null);
   const [busy, setBusy] = useState(new Set());
   const [actionError, setActionError] = useState(null);
-  const [jobs, setJobs] = useState([]);
-  const [jobsError, setJobsError] = useState(null);
   const [showAddPlan, setShowAddPlan] = useState(false);
   const [showAddInput, setShowAddInput] = useState(false);
   const [showAddOutcome, setShowAddOutcome] = useState(false);
@@ -85,25 +83,14 @@ export default function ExperimentDetail() {
     }
   }, [projectId, experimentId]);
 
-  const fetchJobs = useCallback(async () => {
-    try {
-      const data = await api.listJobs(projectId, { experimentId });
-      setJobs(data.jobs || []);
-      setJobsError(null);
-    } catch (err) {
-      setJobsError(err.message);
-    }
-  }, [projectId, experimentId]);
-
   useEffect(() => {
     let cancelled = false;
     fetchStatus();
-    fetchJobs();
-    const t = setInterval(() => { if (!cancelled) { fetchStatus(); fetchJobs(); } }, 3000);
-    const onVis = () => { if (document.visibilityState === 'visible') { fetchStatus(); fetchJobs(); } };
+    const t = setInterval(() => { if (!cancelled) fetchStatus(); }, 3000);
+    const onVis = () => { if (document.visibilityState === 'visible') fetchStatus(); };
     document.addEventListener('visibilitychange', onVis);
     return () => { cancelled = true; clearInterval(t); document.removeEventListener('visibilitychange', onVis); };
-  }, [fetchStatus, fetchJobs]);
+  }, [fetchStatus]);
 
   const experiment = statusData?.experiment;
   const workflow = statusData?.workflow;
@@ -183,7 +170,7 @@ export default function ExperimentDetail() {
 
   const testedClaims = experiment.tested_claims || [];
 
-  const refresh = async () => { await Promise.all([fetchStatus(), fetchJobs(), refreshHome()]); };
+  const refresh = async () => { await Promise.all([fetchStatus(), refreshHome()]); };
 
   return (
     <div className="page-stage">
@@ -259,16 +246,11 @@ export default function ExperimentDetail() {
         </div>
       )}
 
-      {/* ─────────────  EXECUTION DASHBOARD  ────────────────────────── */}
-      <ExecutionDashboard
+      {/* ─────────────  SANDBOX TERMINAL  ───────────────────────────── */}
+      <SandboxTerminal
         projectId={projectId}
         experimentId={experimentId}
-        experimentStatus={experiment.status}
-        jobs={jobs}
-        execResources={execRes}
-        onRefresh={refresh}
       />
-      {jobsError && <div className="error-message">{jobsError}</div>}
 
       {!['complete', 'failed', 'abandoned'].includes(experiment.status) && (
         <div className="spotlight-followup">

@@ -10,14 +10,14 @@ import {
   selectExperiments,
   selectEvents,
   selectEventsAll,
-  selectJobs,
+  selectSandboxes,
   selectReviewRequests,
 } from '../store/useProjectStore';
 import EventTimeline from '../components/EventTimeline';
 import ObjId from '../components/ObjId';
 import FSMStrip from '../components/FSMStrip';
+import StatusPill from '../components/StatusPill';
 import ActiveExperimentPager from '../components/ActiveExperimentPager';
-import ProjectDashboard from '../components/ProjectDashboard';
 import { parseIntent } from '../utils/intent';
 
 export default function Home() {
@@ -30,7 +30,8 @@ export default function Home() {
   const experiments = useProjectStore(selectExperiments);
   const events = useProjectStore(selectEvents);
   const eventsAll = useProjectStore(selectEventsAll);
-  const jobs = useProjectStore(selectJobs);
+  const sandboxes = useProjectStore(selectSandboxes);
+  const runningSandboxes = sandboxes.filter(s => s.status === 'running').length;
 
   // Pager state for the spotlight. Clamp on list shrink (e.g. an experiment
   // just completed and dropped out of active_experiments).
@@ -75,7 +76,15 @@ export default function Home() {
       </header>
 
       <section className="section">
-        <ProjectDashboard jobs={jobs} experiments={experiments} />
+        <div className="section-title">
+          Sandboxes
+          {runningSandboxes > 0 && (
+            <span className="section-title-badge">
+              <span className="sidebar-live-dot" />{runningSandboxes} running
+            </span>
+          )}
+        </div>
+        <ActiveSandboxes sandboxes={sandboxes} experiments={experiments} />
       </section>
 
       {workflow && (
@@ -110,6 +119,7 @@ export default function Home() {
           <StatCard label="Claims" value={stats.claims ?? claims.length} sub={countOf(claims, 'status', 'active') + ' active'} />
           <StatCard label="Experiments" value={stats.experiments ?? experiments.length} sub={countOf(experiments, 'status', 'running') + ' running'} />
           <StatCard label="Resources" value={stats.resources ?? 0} />
+          <StatCard label="Sandboxes" value={runningSandboxes} sub="running" />
           <StatCard label="Open reviews" value={stats.open_reviews ?? stats.reviews ?? 0} />
         </div>
       </section>
@@ -121,6 +131,38 @@ export default function Home() {
         </div>
         <EventTimeline events={events} limit={15} />
       </section>
+    </div>
+  );
+}
+
+function ActiveSandboxes({ sandboxes, experiments }) {
+  const expById = Object.fromEntries((experiments || []).map(e => [e.id, e]));
+  const rows = (sandboxes || [])
+    .slice()
+    .sort((a, b) => (a.status === 'running' ? -1 : 1) - (b.status === 'running' ? -1 : 1));
+  if (rows.length === 0) {
+    return (
+      <div className="empty-state empty-state--compact">
+        <p>No sandboxes yet. The agent provisions one per experiment with <span className="mono">sandbox.request</span> and runs it over SSH.</p>
+      </div>
+    );
+  }
+  return (
+    <div className="stack">
+      {rows.map((s) => {
+        const exp = expById[s.experiment_id];
+        return (
+          <Link to={`/experiments/${s.experiment_id}#execution`} key={s.experiment_id} className="sbx-row">
+            <div className="sbx-row-main">
+              <StatusPill value={s.status} />
+              <span className="sbx-row-intent">{exp ? parseIntent(exp.intent).title || exp.intent : s.experiment_id}</span>
+            </div>
+            <div className="sbx-row-meta mono">
+              {s.gpu ? `${s.gpu} · ` : ''}{s.sandbox_id || '—'}
+            </div>
+          </Link>
+        );
+      })}
     </div>
   );
 }

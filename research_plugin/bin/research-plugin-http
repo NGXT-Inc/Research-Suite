@@ -21,8 +21,8 @@ fi
 
 export PYTHONPATH="$PLUGIN_DIR${PYTHONPATH:+:$PYTHONPATH}"
 
-# Source checkout convenience; explicit deployment env always wins.
-DEFAULT_MODAL_ENV_FILE="$(cd "$PLUGIN_DIR/.." >/dev/null 2>&1 && pwd)/project/backend/.env"
+# Default to a .env at the plugin root; explicit deployment env always wins.
+DEFAULT_MODAL_ENV_FILE="$PLUGIN_DIR/.env"
 if [[ -z "${RESEARCH_PLUGIN_MODAL_ENV_FILE:-}" && -f "$DEFAULT_MODAL_ENV_FILE" ]]; then
   export RESEARCH_PLUGIN_MODAL_ENV_FILE="$DEFAULT_MODAL_ENV_FILE"
 fi

@@ -23,7 +23,7 @@ from mcp_server.daemon_marker import (
     write_marker,
 )
 from backend.http_server import make_http_server
-from backend.execution.backends.fake import FakeBackend
+from backend.execution.backends.fake import FakeSandboxBackend
 from mcp_server.proxy import HttpProxyMcpServer, ProxyConfig
 
 
@@ -76,7 +76,7 @@ class _LiveDaemonFixture:
         self.app = ResearchPluginApp(
             repo_root=repo,
             db_path=repo / ".research_plugin" / "state.sqlite",
-            execution_backend=FakeBackend(),
+            execution_backend=FakeSandboxBackend(),
         )
         self.server = make_http_server(self.app, "127.0.0.1", 0)
         self.host, self.port = self.server.server_address
@@ -131,7 +131,7 @@ class HttpProxyMcpServerLiveTest(unittest.TestCase):
         tool_names = {tool["name"] for tool in listed["result"]["tools"]}
         self.assertIn("workflow.status_and_next", tool_names)
         self.assertIn("project.create", tool_names)
-        self.assertIn("job.submit", tool_names)
+        self.assertIn("sandbox.request", tool_names)
 
     def test_tools_call_round_trips_with_structured_content(self) -> None:
         created = self.proxy.handle(
