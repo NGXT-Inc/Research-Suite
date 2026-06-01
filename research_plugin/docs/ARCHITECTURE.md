@@ -1,0 +1,327 @@
+# Research Plugin Architecture
+
+## Purpose
+
+`research_plugin` is a Codex plug-in that replaces the heavy backend with a
+small local research kernel exposed through MCP.
+
+The product model remains:
+
+- Claim: what we think
+- Experiment: what we try
+- Resource: a repo file we use or produce
+
+Everything else exists to help Codex and humans mutate that model correctly.
+
+## Design thesis
+
+The old backend had too many first-class subsystems for the MVP: resource
+versions, artifact refs, manifests, workflow persistence, agent telemetry,
+operation review, audits, execution, and API read models.
+
+The plug-in architecture keeps the hard boundary but shrinks the implementation:
+
+- Codex performs reasoning, editing, local scripting, and lightweight checks.
+- Codex skills define the operating procedure.
+- The MCP server owns durable memory and validates mutations.
+- The MCP server owns reliable ML job execution.
+- The MCP server tells Codex the current status and next allowed workflow action.
+- Design review and full experiment review are separate read-only reviewer roles.
+- Reviewers submit structured reviews to MCP; MCP decides whether the gate passes.
+
+## Components
+
+```mermaid
+flowchart TD
+  User["User"] --> Codex["Codex"]
+  Codex --> Skills["Research skills"]
+  Codex --> LocalRepo["Local repo files"]
+  Codex --> MCPProxy["research-plugin MCP proxy (stdio, stateless)"]
+
+  Browser["Browser UI"] --> Daemon["research-plugin HTTP daemon"]
+  MCPProxy --> Daemon
+
+  Daemon --> Memory["Research memory (SQLite)"]
+  Daemon --> Policy["Permission and workflow policy"]
+  Daemon --> Jobs["Reliable ML job engine"]
+  Daemon --> ResourceIndex["Repo-file resource index"]
+  Daemon --> ReviewGates["Review gates"]
+  Daemon --> Sync["Volume sync engine"]
+
+  Skills --> DesignReviewer["Design reviewer agent"]
+  Skills --> ExperimentReviewer["Experiment reviewer agent"]
+  DesignReviewer --> MCPProxy
+  ExperimentReviewer --> MCPProxy
+  Jobs --> LocalRepo
+  ResourceIndex --> LocalRepo
+  Sync --> LocalRepo
+```
+
+## Process topology
+
+The plugin is split across two processes per research repo:
+
+1. **HTTP daemon** — long-lived. Owns SQLite, the activity log, the job
+   execution backend, and the volume sync poller. Exposes the full tool
+   surface at `/mcp/*` and a UI-flavored view at `/api/*`.
+2. **MCP stdio proxy** — short-lived, spawned by Codex on demand. Stateless.
+   Discovers the daemon URL via `$REPO/.research_plugin/daemon.json` or
+   `RESEARCH_PLUGIN_DAEMON_URL` and forwards `tools/list` / `tools/call` over
+   HTTP.
+
+The daemon must be running before Codex makes any tool call. Multiple MCP
+proxies (e.g. parallel Codex sessions or reviewer agents) talk to the same
+daemon, which serializes mutations through its in-process locks.
+
+## Ownership
+
+Codex owns:
+
+- understanding the user's research intent
+- reading and editing repo files
+- writing scripts and lightweight experiment code
+- running local commands when cheap and safe
+- asking MCP for project memory, experiment status, and next action
+- launching separate reviewer agents when MCP requires design or experiment review
+- syncing created or modified files back into MCP as resources
+- reading MCP-returned resource paths directly from the local repo on later turns
+
+MCP owns:
+
+- project memory for claims, experiments, and resources
+- permissioned mutation checks
+- experiment state machine and next-action guidance
+- reliable ML job execution for expensive or long-running jobs
+- resource registration and file observation
+- resource associations to claims, experiments, jobs, reviews, and attempts
+- review records and required gates
+- reviewer capability tokens and read-only review sessions
+- final acceptance/rejection of proposed state changes
+
+## Simplified data model
+
+```text
+Project
+  Claim[]
+  Experiment[]
+  Resource[]
+  Review[]
+  Event[]
+```
+
+Claim:
+
+- statement
+- scope
+- status: draft | active | supported | weakened | contradicted | abandoned
+- confidence: low | medium | high
+- grounds: links to experiments/resources/reviews
+
+Experiment:
+
+- question or intent
+- tested_claim_ids
+- status: idea | planned | design_review | ready_to_run | running | experiment_review | complete | failed | abandoned
+- plan file resource
+- result file resources
+- review records
+- conclusion proposal
+- attempts with prior plans, runs, reviews, and revision context
+
+Resource:
+
+- repo-relative file path
+- kind/role
+- last observed version token: `path + mtime_ns + size_bytes`
+- optional git commit pointer
+- associations to experiments, claims, jobs, reviews, and attempts
+
+Review:
+
+- target: experiment plan | experiment attempt | claim update
+- role: design_reviewer | experiment_reviewer | human | automated-check
+- reviewer identity: server-issued review session and capability
+- verdict: pass | fail | needs_changes
+- notes and required follow-up
+
+Event:
+
+- append-only history of accepted mutations and workflow milestones
+
+## Mutation model
+
+All meaning-changing mutations go through MCP tools.
+
+Codex may edit files locally, but the research state is not changed until MCP
+accepts a mutation.
+
+Examples:
+
+- create claim
+- create experiment
+- link experiment to claim
+- register resource file
+- mark experiment running
+- record job result
+- record design review
+- record experiment review
+- propose claim status change
+- accept experiment conclusion
+
+The MCP server should return structured responses:
+
+```json
+{
+  "ok": true,
+  "state_changed": true,
+  "requires_review": false,
+  "next_action": "launch_experiment_reviewer",
+  "message": "Experiment result file registered. Launch experiment review next."
+}
+```
+
+## Workflow model
+
+The workflow should stay simple but server-directed:
+
+```text
+idea -> planned -> design_review -> ready_to_run -> running -> experiment_review -> complete
+            ^             |                                  |
+            |             v                                  v
+            +------ needs_changes                    needs_changes
+            |                                                |
+            +---------------- planned with revision context --+
+
+failed / abandoned are terminal exits.
+```
+
+The server decides which transitions are allowed. Codex first asks the large
+orientation question:
+
+```text
+workflow.status_and_next(project_id, experiment_id?)
+```
+
+The server answers with a project/experiment summary, the current gate, allowed
+actions, blocked actions, missing evidence, and the next required step.
+
+The server never guesses the active project. Every project-scoped tool requires
+an explicit `project_id`; Codex and the UI must select or create a project before
+working on claims, experiments, resources, reviews, or jobs.
+
+This tool is deliberately high-level. It can include known job summaries from
+durable state, but it should not poll Ray or perform detailed inspection itself.
+Codex should use narrower tools when it needs fresh execution details.
+
+Detailed tools exist for deeper inspection:
+
+```text
+project.get(project_id)
+experiment.get_state(project_id, experiment_id)
+job.status(project_id, job_id)
+job.logs(project_id, job_id)
+```
+
+Possible next steps include:
+
+- write experiment plan
+- launch design reviewer
+- revise plan from design review feedback
+- run job
+- sync resources
+- launch experiment reviewer
+- revise plan from experiment review feedback
+- propose claim update
+- complete experiment
+
+If experiment review fails, the experiment returns to `planned`, but MCP carries
+forward prior run context: previous plan, result resources, failed review
+findings, and guidance about what should stay the same versus change.
+
+## Job execution
+
+The execution layer behind MCP job tools is backend-neutral. Codex does not talk
+to Ray, Modal, or any other provider directly in the normal workflow.
+
+```text
+Codex
+  -> MCP job tools
+      -> execution ExecutionBackend
+          -> worker process
+              -> repo files and output files
+```
+
+MCP owns policy, state, and visibility:
+
+- validate experiment gate before job submission
+- validate command, cwd, env, and expected output paths
+- record local job rows, backend name, and runtime job ids
+- expose job status, logs, cancellation, and output availability
+- tell Codex when output files should be synced as resources
+
+`execution` owns backend implementations. The default backend is Modal, and
+the contract is shaped so execution providers can materialize expected outputs
+back into the local repo without changing research workflow state, resource
+sync, or review gates. The local Ray backend remains available by setting
+`RESEARCH_PLUGIN_EXECUTION_BACKEND=ray`.
+
+## Reviewer identity and independence
+
+Local reviewer identity cannot rely on IP addresses or machine boundaries. The
+MVP should model identity as server-issued workflow capability:
+
+1. Main Codex asks MCP for a review request.
+2. MCP creates `review_request_id` and a one-time `reviewer_capability`.
+3. The capability is scoped to one target, one role, read-only inspection tools,
+   and `review.submit` for that request.
+4. Main Codex spawns a separate reviewer agent with the appropriate review skill
+   and passes the capability plus target context.
+5. The reviewer starts a review session with MCP and submits the review directly.
+6. MCP rejects reviews from the same producer session, expired capabilities,
+   wrong role, wrong target, or capabilities minted before the target snapshot.
+
+This is not cryptographic proof that two independent local minds were involved.
+It is the practical local boundary: separate review assignment, separate tool
+scope, immutable target snapshot, session lineage, and audit trail. For stronger
+assurance, MCP can mark a review as `unverified_agent_review` and require human
+review for high-risk gates.
+
+## Plugin skills
+
+The primary skill should make Codex follow the research loop:
+
+1. inspect memory through MCP
+2. clarify claim or experiment intent
+3. create or update experiment plan through MCP
+4. edit local files as needed
+5. run lightweight checks locally
+6. submit long-running jobs to MCP
+7. sync created/modified files as resources
+8. launch design or experiment reviewer agent when MCP requires it
+9. ensure the reviewer submits review directly to MCP
+10. propose claim/experiment updates through MCP
+11. ask MCP for next action until terminal
+
+The review skills should make reviewer agents adversarial but bounded:
+
+- design review checks whether the planned experiment can test the claim
+- experiment review checks implementation, outputs, metrics, and conclusion
+- both inspect only via read-only context/tools
+- return a structured verdict
+- submit the review to MCP
+- never mutate project state directly
+
+## MVP exclusions
+
+Do not include in v0.1:
+
+- artifact object store
+- content-addressed manifests
+- generic backend REST API
+- browser UI
+- multi-project server
+- OAuth
+- complex RBAC
+- Temporal-style workflow engine
+- broad automatic claim rewriting
+- directory resources

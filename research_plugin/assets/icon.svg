@@ -1,0 +1,8 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 256 256" role="img" aria-label="Research Plugin icon">
+  <rect width="256" height="256" rx="48" fill="#101820"/>
+  <path d="M72 64h112a16 16 0 0 1 16 16v96a16 16 0 0 1-16 16H72a16 16 0 0 1-16-16V80a16 16 0 0 1 16-16Z" fill="#f4f7fb"/>
+  <path d="M84 94h88M84 122h56M84 150h72" stroke="#101820" stroke-width="12" stroke-linecap="round"/>
+  <circle cx="178" cy="148" r="31" fill="#2bb673"/>
+  <path d="M163 148l10 10 21-24" fill="none" stroke="#f4f7fb" stroke-width="10" stroke-linecap="round" stroke-linejoin="round"/>
+  <path d="M52 205l152-152" stroke="#4aa3ff" stroke-width="10" stroke-linecap="round" opacity=".9"/>
+</svg>

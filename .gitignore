@@ -1,0 +1,6 @@
+.DS_Store
+*.sqlite
+**/__pycache__/
+research_plugin/.venv/
+research_plugin/.research_plugin/
+research_plugin/.versioning_real_user_project/

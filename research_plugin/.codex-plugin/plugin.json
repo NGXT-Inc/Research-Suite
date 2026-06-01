@@ -1,0 +1,33 @@
+{
+  "name": "research-plugin",
+  "version": "0.0004",
+  "description": "Lean Codex research-state workflow with MCP-controlled memory, permissions, resources, and ML jobs.",
+  "license": "UNLICENSED",
+  "keywords": [
+    "research",
+    "ml",
+    "codex",
+    "mcp",
+    "experiments"
+  ],
+  "skills": "./skills/",
+  "mcpServers": "./.mcp.json",
+  "interface": {
+    "displayName": "Research Plugin",
+    "shortDescription": "Claims, experiments, repo-file resources, and ML jobs",
+    "longDescription": "A lean research-state plug-in where Codex operates through skills and an MCP server controls durable memory, permissioned mutations, resource sync, workflow state, adversarial review records, and reliable ML job execution.",
+    "developerName": "Papyrus",
+    "category": "Productivity",
+    "capabilities": [
+      "Read",
+      "Write",
+      "Interactive"
+    ],
+    "defaultPrompt": [
+      "Use Research Plugin to plan an experiment.",
+      "Use Research Plugin to run and review this experiment.",
+      "Use Research Plugin to sync resources and update claims."
+    ],
+    "composerIcon": "./assets/icon.svg"
+  }
+}

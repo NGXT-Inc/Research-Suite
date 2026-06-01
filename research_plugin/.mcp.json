@@ -1,0 +1,10 @@
+{
+  "mcpServers": {
+    "research-plugin": {
+      "command": "/Users/guraltoo/Documents/dev/proj/experiments/Papyrus/research_plugin/bin/research-plugin-mcp",
+      "args": [],
+      "env": {},
+      "default_tools_approval_mode": "approve"
+    }
+  }
+}

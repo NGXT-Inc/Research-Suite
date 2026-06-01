@@ -1,0 +1,43 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+SOURCE="${BASH_SOURCE[0]}"
+while [ -h "$SOURCE" ]; do
+  DIR="$(cd -P "$(dirname "$SOURCE")" >/dev/null 2>&1 && pwd)"
+  TARGET="$(readlink "$SOURCE")"
+  if [[ "$TARGET" == /* ]]; then
+    SOURCE="$TARGET"
+  else
+    SOURCE="$DIR/$TARGET"
+  fi
+done
+
+BIN_DIR="$(cd -P "$(dirname "$SOURCE")" >/dev/null 2>&1 && pwd)"
+PLUGIN_DIR="$(cd "$BIN_DIR/.." >/dev/null 2>&1 && pwd)"
+PYTHON_BIN="${RESEARCH_PLUGIN_PYTHON:-python3}"
+if [[ -x "$PLUGIN_DIR/.venv/bin/python" ]]; then
+  PYTHON_BIN="$PLUGIN_DIR/.venv/bin/python"
+fi
+
+export PYTHONPATH="$PLUGIN_DIR${PYTHONPATH:+:$PYTHONPATH}"
+
+if [ -z "${RESEARCH_PLUGIN_REPO_ROOT:-}" ]; then
+  export RESEARCH_PLUGIN_REPO_ROOT="$PWD"
+else
+  case "$RESEARCH_PLUGIN_REPO_ROOT" in
+    /*) ;;
+    *) export RESEARCH_PLUGIN_REPO_ROOT="$(cd "$RESEARCH_PLUGIN_REPO_ROOT" >/dev/null 2>&1 && pwd)" ;;
+  esac
+fi
+
+if [ -z "${RESEARCH_PLUGIN_STORE:-}" ]; then
+  export RESEARCH_PLUGIN_STORE="$RESEARCH_PLUGIN_REPO_ROOT/.research_plugin/state.sqlite"
+fi
+
+# Source checkout convenience; explicit deployment env always wins.
+DEFAULT_MODAL_ENV_FILE="$(cd "$PLUGIN_DIR/.." >/dev/null 2>&1 && pwd)/project/backend/.env"
+if [[ -z "${RESEARCH_PLUGIN_MODAL_ENV_FILE:-}" && -f "$DEFAULT_MODAL_ENV_FILE" ]]; then
+  export RESEARCH_PLUGIN_MODAL_ENV_FILE="$DEFAULT_MODAL_ENV_FILE"
+fi
+
+exec "$PYTHON_BIN" -m mcp_server "$@"
