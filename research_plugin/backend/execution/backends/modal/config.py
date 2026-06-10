@@ -8,6 +8,7 @@ from pathlib import Path, PurePosixPath
 from typing import Any, Mapping
 
 from ...errors import BackendValidationError
+from ...sync_dirs import DEFAULT_SYNC_DIR, DEFAULT_UNSYNCED_DIR
 
 
 VALID_GPUS: frozenset[str] = frozenset({"T4", "L4", "A10G", "L40S", "A100", "A100-80GB", "H100", "B200"})
@@ -21,9 +22,9 @@ COMPUTE_TIERS: dict[str, dict[str, int]] = {
 }
 
 DEFAULT_APP_NAME = "research-plugin-jobs"
-DEFAULT_REMOTE_WORKDIR = "/workspace/repo"
-DEFAULT_SANDBOX_DATA_DIR = "/workspace/sandbox_data"
-DEFAULT_RUNNER_DIR = "/workspace/repo/.research_plugin_job"
+DEFAULT_REMOTE_WORKDIR = DEFAULT_SYNC_DIR
+DEFAULT_SANDBOX_DATA_DIR = DEFAULT_UNSYNCED_DIR
+DEFAULT_RUNNER_DIR = f"{DEFAULT_SYNC_DIR}/.research_plugin_job"
 DEFAULT_VOLUME_NAME_PREFIX = "research-plugin"
 DEFAULT_VOLUME_VERSION = 2
 DEFAULT_RETENTION_SECONDS = 600
@@ -105,21 +106,10 @@ class ModalConfig:
         ).validated()
 
     def validated(self) -> "ModalConfig":
-        if not _is_under_path(self.runner_dir, self.remote_workdir):
-            raise BackendValidationError(
-                "RESEARCH_PLUGIN_MODAL_RUNNER_DIR must be under RESEARCH_PLUGIN_MODAL_WORKDIR "
-                "so runner status/logs are persisted in the mounted Modal Volume"
-            )
         if _is_under_path(self.sandbox_data_dir, self.remote_workdir):
             raise BackendValidationError(
                 "RESEARCH_PLUGIN_MODAL_DATA_DIR must be outside RESEARCH_PLUGIN_MODAL_WORKDIR "
-                "so large datasets stay off the mounted Modal Volume"
-            )
-        if self.volume_version != 2:
-            raise BackendValidationError(
-                "RESEARCH_PLUGIN_MODAL_VOLUME_VERSION must be 2 because sandbox.sync "
-                "commits live sandbox writes with `sync <workdir>`, which Modal "
-                "supports only for Volumes v2"
+                "so large datasets stay out of the rsynced workspace"
             )
         return self
 

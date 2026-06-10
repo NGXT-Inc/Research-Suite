@@ -380,7 +380,6 @@ class WorkflowService:
                         "sandbox.sync",
                         "resource.register_file",
                         "resource.associate",
-                        "resource.sync_changed_files",
                     ],
                     missing=["result resource"],
                     resource_guidance=self._result_resource_guidance(),
@@ -541,19 +540,22 @@ class WorkflowService:
             "allowed_resource_roles": sorted(RESOURCE_ROLES),
             "dataset_guidance": (
                 "Prefer CPU-only sandboxes for data inspection and data engineering "
-                "unless the command needs GPU. Download large datasets and caches to sandbox_data_dir "
-                "($RP_SANDBOX_DATA_DIR / $RP_DATASET_DIR inside the sandbox), "
-                "not under the mounted repo workdir. Keep reusable scripts and compact outputs "
-                "under workdir and call sandbox.sync so they persist. Prefer saving an "
-                "experiment-folder data.md that records dataset sources, splits, filters, "
-                "schema/row-count notes, caveats, and where ephemeral data lives."
+                "unless the command needs GPU. Work in $RP_SYNC_DIR for scripts, configs, "
+                "metrics, and compact results that should rsync back to the local experiment "
+                "folder. Download large datasets, caches, checkpoints, parquet files, and "
+                "other heavy intermediates to $RP_UNSYNCED_DIR / $RP_DATASET_DIR. If a large "
+                "artifact deliberately must persist locally, place it under "
+                "$RP_SYNC_DIR/artifacts_to_keep. Prefer saving an experiment-folder data.md "
+                "that records dataset sources, splits, filters, schema/row-count notes, "
+                "caveats, and where ephemeral data lives."
             ),
             "sync_guidance": (
-                "After the sandbox is running, make repo file changes inside "
-                "the sandbox. Before registering or associating result resources, "
-                "call sandbox.sync so remote result files exist in the local repo. "
-                "Also call sandbox.sync after major file changes so the user can "
-                "inspect the latest local files while the sandbox is still running."
+                "After the sandbox is running, make experiment file changes inside "
+                "$RP_SYNC_DIR. Before registering or associating result resources, call "
+                "sandbox.sync so remote synced files exist under the experiment's local "
+                "sync directory. The backend also rsyncs periodically while the sandbox is "
+                "running, but explicit sandbox.sync is the durable handoff before workflow "
+                "mutations."
             ),
         }
 

@@ -24,7 +24,7 @@ The plug-in architecture keeps the hard boundary but shrinks the implementation:
 - Codex performs reasoning, editing, local scripting, and lightweight checks.
 - Codex skills define the operating procedure.
 - The MCP server owns durable memory and validates mutations.
-- The MCP server owns Modal sandbox provisioning for ML execution.
+- The MCP server owns Modal/Lambda sandbox provisioning for ML execution.
 - The MCP server tells Codex the current status and next allowed workflow action.
 - Design review and full experiment review are separate read-only reviewer roles.
 - Reviewers submit structured reviews to MCP; MCP decides whether the gate passes.
@@ -43,10 +43,10 @@ flowchart TD
 
   Daemon --> Memory["Research memory (SQLite)"]
   Daemon --> Policy["Permission and workflow policy"]
-  Daemon --> Jobs["Sandbox registry (Modal + SSH)"]
+  Daemon --> Jobs["Sandbox registry (Modal/Lambda + SSH)"]
   Daemon --> ResourceIndex["Repo-file resource index"]
   Daemon --> ReviewGates["Review gates"]
-  Daemon --> Sync["Volume sync engine"]
+  Daemon --> Sync["SSH rsync syncer"]
 
   Skills --> DesignReviewer["Design reviewer agent"]
   Skills --> ExperimentReviewer["Experiment reviewer agent"]
@@ -62,7 +62,7 @@ flowchart TD
 The plugin is split across two processes per research repo:
 
 1. **HTTP daemon** — long-lived. Owns SQLite, the activity log, the sandbox
-   execution backend, and the volume sync poller. Exposes the full tool
+   execution backend, and the sandbox rsync poller. Exposes the full tool
    surface at `/mcp/*` and a UI-flavored view at `/api/*`.
 2. **MCP stdio proxy** — short-lived, spawned by Codex on demand. Stateless.
    Discovers the daemon URL via `$REPO/.research_plugin/daemon.json` or
@@ -91,7 +91,7 @@ MCP owns:
 - project memory for claims, experiments, and resources
 - permissioned mutation checks
 - experiment state machine and next-action guidance
-- Modal sandbox provisioning for expensive or long-running ML work
+- Modal/Lambda sandbox provisioning for expensive or long-running ML work
 - resource registration and file observation
 - resource associations to claims, experiments, reviews, and attempts
 - review records and required gates
@@ -254,8 +254,9 @@ commands on it directly over SSH. It does not talk to Modal directly.
 Codex
   -> sandbox.request (MCP)
       -> SandboxService registry  (one sandbox per experiment, reuse-if-alive)
-          -> SandboxBackend (Modal)  ->  Modal sandbox + SSH tunnel + Volume mount
+          -> SandboxBackend (Modal/Lambda)  ->  sandbox/VM + SSH endpoint
   -> ssh <command>  (run by Codex itself, recorded to the experiment transcript)
+  -> sandbox.sync  (pull /workspace/synced to the local experiment folder)
 ```
 
 MCP owns policy, state, and visibility:
@@ -267,8 +268,13 @@ MCP owns policy, state, and visibility:
 - tell Codex when output files should be synced as resources
 
 `execution` owns the `SandboxBackend` implementations. The default backend is
-Modal; `fake` is used for tests. SSH-to-sandbox is Modal-specific and not a
-portable abstraction.
+**Lambda Labs** (VM-backed GPU execution); Modal is also supported; `fake` is
+used for tests. File sync is owned by `SandboxService` through provider-neutral
+SSH rsync. Backends declare a `requires_hardware_selection` capability and may
+expose an optional `hardware_catalog()`: Lambda bundles GPU+CPU+RAM into fixed
+instance types, so `SandboxService` returns a live availability menu
+(`needs_selection`) when `sandbox.request` omits the `instance_type`; Modal
+composes the machine from `gpu`/`cpu`/`memory` and needs no selection step.
 
 ## Reviewer identity and independence
 

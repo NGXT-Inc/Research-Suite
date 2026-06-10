@@ -1,42 +1,32 @@
 # Sandbox Execution Model (SSH, no jobs)
 
 This backend gives the agent **direct access to a Modal sandbox over SSH**. There
-is no "job" abstraction: the agent requests a sandbox for an experiment, receives
+is no job abstraction: the agent requests a sandbox for an experiment, receives
 SSH connection details, and runs ordinary shell commands itself. The plugin's
-role is to *procure, track, and shut down* sandboxes and to *record what happened*
-so the user keeps visibility.
-
-Two design pillars:
-
-1. **Easiest for the agent.** Agents are good at running scripts and shell
-   commands. So we hand them exactly that: a live machine and an `ssh` command.
-   No bespoke submit/poll/materialize protocol to learn.
-2. **Visibility without a leash.** The agent runs whatever it wants over SSH, but
-   every command and its output is recorded to a per-experiment transcript that
-   the UI renders as a live terminal window.
+role is to procure, track, sync, and shut down sandboxes while recording what
+happened for user visibility.
 
 ## Concepts
 
-- **Experiment** is the unit of execution. An experiment has **at most one live
-  sandbox** at a time.
+- **Experiment** is the unit of execution. An experiment has at most one live
+  sandbox at a time.
 - **Sandbox registry** (`SandboxService`) is the central authority for
-  procurement, status, and shutdown. It owns the durable `sandboxes` table (one
-  row per experiment) and the per-experiment SSH keypair.
+  procurement, status, provider-neutral SSH rsync, and shutdown. It owns the
+  durable `sandboxes` table and the per-experiment SSH keypair.
 - **Sandbox backend** (`ModalSandboxBackend`) owns the Modal mechanics: create a
   sandbox, wire SSH, check liveness, terminate, and read the transcript.
-- **Project Volume** is unchanged: one Modal Volume per project, mirroring the
-  repo, mounted writable into every sandbox. Bidirectional sync (`SyncEngine`)
-  still reconciles the Volume with the local repo. See `sync/sync.md`.
+- **Sync contract** is provider-neutral. The remote synced directory is
+  `/workspace/synced`; the remote unsynced directory is `/workspace/unsynced`.
+  See `sync/sync.md`.
 
 ## Procurement: one sandbox per experiment, reuse-if-alive
 
 `sandbox.request(project_id, experiment_id, gpu?, cpu?, memory?, time_limit?)`:
 
 1. Look up the experiment's current sandbox row.
-2. If a row exists and the Modal sandbox is **still alive**, return its stored SSH
-   details (`reused: true`). The tunnel host/port are stable for the sandbox's
-   lifetime, so the cached details remain valid.
-3. Otherwise **create a fresh sandbox**, wire SSH, persist the row, and return the
+2. If a row exists and the Modal sandbox is still alive, return its stored SSH
+   details (`reused: true`).
+3. Otherwise create a fresh sandbox, wire SSH, persist the row, and return the
    new details (`reused: false`).
 
 Procurement is the registry's job, not the agent's. The agent always calls
@@ -44,184 +34,112 @@ Procurement is the registry's job, not the agent's. The agent always calls
 
 ## SSH wiring
 
-SSH over Modal uses an **unencrypted TCP tunnel** (TLS is wrong for SSH):
+SSH over Modal uses an unencrypted TCP tunnel because SSH already provides its
+own transport security:
 
 ```python
 sandbox = modal.Sandbox.create(
-    "/opt/rp/boot.sh",            # entrypoint: authorize key, start sshd -D
-    app=app, image=image, gpu=gpu, cpu=cpu, memory=memory,
-    timeout=time_limit, workdir=remote_workdir,
-    volumes={remote_workdir: volume},
+    "/opt/rp/boot.sh",
+    app=app,
+    image=image,
+    gpu=gpu,
+    cpu=cpu,
+    memory=memory,
+    timeout=time_limit,
+    workdir="/workspace/synced",
     unencrypted_ports=[22],
     env={
         "RP_AUTHORIZED_KEY": public_key,
         "RP_EXPERIMENT_ID": experiment_id,
-        "RP_WORKDIR": remote_workdir,
-        "RP_SANDBOX_DATA_DIR": sandbox_data_dir,
+        "RP_WORKDIR": "/workspace/synced",
+        "RP_SYNC_DIR": "/workspace/synced",
+        "RP_UNSYNCED_DIR": "/workspace/unsynced",
+        "RP_SANDBOX_DATA_DIR": "/workspace/unsynced",
     },
-    secrets=[modal.Secret.from_local_environ(["HF_TOKEN"])],  # only when set
 )
 host, port = sandbox.tunnels()[22].tcp_socket
 ```
 
-The **keypair is generated and owned by the registry**, per experiment, under
+The keypair is generated and owned by the registry, per experiment, under
 `.research_plugin/sandboxes/keys/<experiment_id>`. Daemon and agent share a host,
 so the registry returns a ready-to-run command:
 
-```
+```bash
 ssh -i <key_path> -p <port> -o StrictHostKeyChecking=no \
     -o UserKnownHostsFile=/dev/null root@<host> '<your shell command>'
 ```
 
-Reuse works because the same per-experiment public key stays authorized across
-the sandbox's life.
+Use `$RP_SYNC_DIR` for files that should sync back locally. Use
+`$RP_UNSYNCED_DIR` / `$RP_DATASET_DIR` for large datasets, caches, checkpoints,
+and temporary derived data. Put deliberately preserved large artifacts under
+`$RP_SYNC_DIR/artifacts_to_keep`.
 
-The mounted repo (`$RP_WORKDIR`, default `/workspace/repo`) is the project
-Modal Volume. Large downloaded datasets, model caches, and other disposable
-inputs belong in `$RP_SANDBOX_DATA_DIR` / `$RP_DATASET_DIR` (default
-`/workspace/sandbox_data`), which is created at boot and is not mounted to the
-Volume.
 Agents should use CPU-only sandboxes for dataset inspection and data engineering
 unless the command needs GPU acceleration. They can request more RAM with
-`memory` in MiB and more CPU with `cpu` in Modal CPU cores (Modal documents 1
-core as 2 vCPUs). Reusable preprocessing/analysis scripts belong under the
-mounted repo; temporary derived datasets left in `$RP_SANDBOX_DATA_DIR` are
-ephemeral.
-Agents should also save a Markdown data note in the experiment folder under the
-mounted repo, such as `experiments/<name>/data.md`, recording dataset sources,
-splits, filters, schema/row-count notes, caveats, and where large ephemeral data
-was placed. That note persists through Volume/local sync and gives future
-sandboxes the data context that ephemeral files do not preserve.
+`memory` in MiB and more CPU with `cpu` in Modal CPU cores.
 
 If the backend env file or process environment contains `HF_TOKEN`, sandbox
-creation passes it through with Modal's `secrets` API. Non-secret Research
-Plugin bootstrap values use `Sandbox.create(env=...)`; the Hugging Face token
-does not. The SSH wrapper exports both `HF_TOKEN` and
-`HUGGING_FACE_HUB_TOKEN` for Hugging Face tooling. The token value must not be
-written into the mounted repo, transcript, resources, or agent-visible API
-responses.
+creation passes it through with Modal's `secrets` API. The SSH wrapper exports
+both `HF_TOKEN` and `HUGGING_FACE_HUB_TOKEN` for Hugging Face tooling. The token
+value must not be written into synced files, transcripts, resources, or
+agent-visible API responses.
 
-### Image additions
+## Image additions
 
-The base image installs `openssh-server` and bakes two scripts:
+The base image installs the baseline agent tooling plus two scripts:
 
-- `/opt/rp/boot.sh` — entrypoint. Writes `$RP_AUTHORIZED_KEY` to
-  `~/.ssh/authorized_keys`, generates host keys, writes an `sshd_config` whose
-  `ForceCommand` is the transcript wrapper, then `exec`s `sshd -D` (which keeps
-  the container alive and serving SSH).
-- `/opt/rp/rec.sh` — the `ForceCommand` transcript wrapper (below).
+- `/opt/rp/boot.sh` writes `$RP_AUTHORIZED_KEY`, creates `/workspace/synced`,
+  `/workspace/unsynced`, and `/workspace/synced/artifacts_to_keep`, starts
+  observability servers, then `exec`s `sshd -D`.
+- `/opt/rp/rec.sh` is the `ForceCommand` transcript wrapper.
 
 ## Visibility: the transcript wrapper
 
-`sshd` is configured with `ForceCommand /opt/rp/rec.sh`. Every SSH channel —
-interactive shell or `ssh host 'cmd'` — is funneled through it. The wrapper:
+`sshd` is configured with `ForceCommand /opt/rp/rec.sh`. Every SSH channel is
+recorded to:
 
 ```bash
-LOG="$RP_WORKDIR/.research_plugin_sessions/$RP_EXPERIMENT_ID/transcript.log"
-mkdir -p "$(dirname "$LOG")"
-ts() { date -u +%Y-%m-%dT%H:%M:%SZ; }
-if [ -n "$SSH_ORIGINAL_COMMAND" ]; then
-  printf '\n[%s] $ %s\n' "$(ts)" "$SSH_ORIGINAL_COMMAND" >> "$LOG"
-  bash -lc "$SSH_ORIGINAL_COMMAND" 2>&1 | tee -a "$LOG"
-  rc=${PIPESTATUS[0]}
-  printf '[%s] (exit %d)\n' "$(ts)" "$rc" >> "$LOG"
-  exit $rc
-else
-  printf '\n[%s] (interactive shell)\n' "$(ts)" >> "$LOG"
-  exec bash -l
-fi
+$RP_SYNC_DIR/.research_plugin_sessions/$RP_EXPERIMENT_ID/transcript.log
 ```
 
-- The agent still sees command output (it's tee'd back to the SSH channel).
-- The transcript captures both stdout and stderr with timestamps and exit codes.
-- It lives on the mounted Volume, so it survives sandbox death.
-- `tee` preserves the real exit code via `${PIPESTATUS[0]}` so the agent's `ssh`
-  exit status is honest.
-- The wrapper records commands only. It does not commit the Volume after every
-  command; `sandbox.sync` is the explicit commit-and-pull boundary.
+The wrapper records commands, streams stdout/stderr back to the SSH channel, and
+preserves the real command exit status. `sandbox.terminal` reads the transcript
+live from the running sandbox.
 
-### Training observability: MLflow + TensorBoard
+## Training observability: MLflow + TensorBoard
 
-Every sandbox also runs **two observability servers** on the mounted Volume,
-launched from the boot script alongside `sshd`:
+Every sandbox also runs two observability servers:
 
-- **MLflow tracking server** on port `5000`, backed by
-  `sqlite:///$RP_DASH_DIR/mlflow.db` and serving artifacts from
-  `$RP_DASH_DIR/mlflow-artifacts`. The dashboard store lives under
-  `.research_plugin_sessions/<experiment_id>/`, so runs accumulate across
-  sandbox restarts of the same experiment.
-- **TensorBoard** on port `6006`, with `--logdir $RP_TB_LOGDIR`
-  (`= $RP_DASH_DIR/tb`). Auto-picked up by Hugging Face Trainer (`report_to`
-  defaults to `"all"`).
+- MLflow tracking server on port `5000`, backed by
+  `$RP_SYNC_DIR/.research_plugin_sessions/<experiment_id>/mlflow.db`.
+- TensorBoard on port `6006`, with `--logdir $RP_TB_LOGDIR`.
 
-Both ports ship as Modal `encrypted_ports`, so the daemon receives them as
-HTTPS URLs via `sandbox.tunnels()[port].url`. The `_dashboard_urls()` helper
-maps `{port → name}` and persists the result as JSON in the `dashboards_json`
-column. `_maybe_refresh_dashboards()` re-reads them whenever the SSH tunnel
-relocates, so a moved sandbox doesn't leave stale dashboard URLs in the row.
-
-The transcript wrapper (`/opt/rp/rec.sh`) exports `MLFLOW_TRACKING_URI`
-(`http://localhost:5000`) and `RP_TB_LOGDIR` into every SSH command, so any
-training framework that auto-detects MLflow logs to the local server without
-agent setup. For plain PyTorch the agent calls `mlflow.autolog()` once.
-
-The dashboard servers are best-effort: a missing pip package or port collision
-loses observability for the run, never breaks SSH. The fake test backend exposes
-the same `dashboard_urls(sandbox_id)` contract so registry behavior can be
-exercised without Modal.
-
-### Reading the transcript
-
-`sandbox.terminal(project_id, experiment_id, tail?)` and the UI read the
-transcript **live first, durable second**:
-
-1. **Live**: `sandbox.exec("tail", "-c", N, transcript)` against the running
-   sandbox — no commit latency.
-2. **Fallback**: `volume.read_file(rel_path)` reads the last committed copy when
-   the live read fails or the sandbox is already reaped.
-
-The transcript path (`.research_plugin_sessions/`) is excluded from normal repo
-sync — it is operational state, read directly from the sandbox/Volume.
+Both ports ship as Modal encrypted tunnels, so the daemon receives HTTPS URLs
+via `sandbox.tunnels()[port].url`. The dashboard servers are best-effort: a
+missing package or port collision loses observability for the run, never SSH.
 
 ## Shutdown / status
 
-- **Explicit**: `sandbox.release(project_id, experiment_id)` terminates the Modal
-  sandbox and marks the row `terminated`.
-- **Time limit**: `time_limit` is the Modal sandbox `timeout`; Modal reaps the
-  container when it elapses. `sandbox.get` refreshes liveness and reconciles the
-  row to `terminated` when Modal says the sandbox is gone.
-- **Tags**: sandboxes are tagged with `research_plugin`, `project_id`,
-  `experiment_id`, `sandbox role` so a daemon restart can rediscover them via
-  `Sandbox.list(tags=…)` even if the local row is lost.
+- `sandbox.release(project_id, experiment_id)` attempts a final rsync, then
+  terminates the Modal sandbox and marks the row `terminated`.
+- `time_limit` is the Modal sandbox `timeout`; Modal reaps the container when it
+  elapses. `sandbox.get` refreshes liveness and reconciles the row to
+  `terminated` when Modal says the sandbox is gone.
+- Sandboxes are tagged with `research_plugin`, `project_id`, `experiment_id`,
+  and sandbox role so a daemon restart can rediscover them.
 
 ## Tool surface (agent-facing)
 
 | Tool | Purpose |
 |------|---------|
-| `sandbox.request` | Procure (reuse-or-create) the experiment's sandbox; returns SSH details. |
+| `sandbox.request` | Procure or reuse the experiment's sandbox; returns SSH details and synced/unsynced paths. |
 | `sandbox.get` | Current sandbox status + SSH details for the experiment. |
-| `sandbox.sync` | Run Volumes v2 `sync <workdir>` in the live sandbox, then sync committed files to the local repo. |
+| `sandbox.sync` | Pull `$RP_SYNC_DIR` to the experiment's local sync directory with SSH rsync. |
 | `sandbox.list` | All experiment sandboxes in the project. |
-| `sandbox.release` | Terminate the experiment's sandbox. |
-| `sandbox.terminal` | Read the experiment's terminal transcript (tail). |
+| `sandbox.release` | Final best-effort sync, then terminate the experiment's sandbox. |
+| `sandbox.terminal` | Read the experiment's terminal transcript tail. |
 | `sandbox.health` | Is the execution backend reachable. |
 
-The agent's normal loop is: `sandbox.request` → run/edit/write files over SSH →
-`sandbox.sync` → register/associate local result resources →
-`experiment.transition` to review. No job lifecycle to manage.
-
-## What changed from the job model
-
-- **Removed**: `job.*` tools, `JobService`, the detached runner protocol, submit
-  pipeline stages, output materialization, `expected_outputs` transfer semantics,
-  and the `jobs` table. Backend `submit/status/logs/cancel/materialize` are gone.
-- **Kept**: the project Volume, `SyncEngine`/`SyncPoller` (repo ↔ Volume), Modal
-  app/image/tags machinery, and recovery-by-tag.
-- **Replaced**: the UI's job cards/dashboard with a per-experiment terminal view.
-
-## Non-goals
-
-- No re-introduction of a server-side command queue. The agent drives execution.
-- No interception of the agent's SSH traffic by the daemon — visibility comes
-  from the in-sandbox transcript, not a proxy.
-- The backend stays Modal-specific; SSH-to-sandbox is not a portable abstraction.
+The agent's normal loop is: `sandbox.request` -> run/edit/write files over SSH
+in `$RP_SYNC_DIR` and `$RP_UNSYNCED_DIR` -> `sandbox.sync` ->
+register/associate local result resources -> transition to review.

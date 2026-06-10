@@ -59,21 +59,31 @@ Do not reconstruct workflow state from memory.
 
 ## Execution environment
 
-Expensive or GPU work runs in a **Modal sandbox** that you drive directly over
-SSH. You run ordinary shell commands.
+Expensive or GPU work runs in a **cloud sandbox** that you drive directly over
+SSH. You run ordinary shell commands. The default provider is **Lambda Labs**
+(GPU VMs); Modal is also supported.
 
 1. Once the experiment is `ready_to_run` (or `running`), call
-   `sandbox.request(experiment_id, gpu?, cpu?, memory?, time_limit?)`.
-   - `gpu` is an optional type such as `"A100"` or `"H100"`; omit it for a
-     CPU-only sandbox. `time_limit` is the sandbox's max lifetime in seconds.
-   - For exploratory data inspection, dataset downloads, schema checks,
-     preprocessing scripts, joins, filtering, and other data engineering,
-     normally omit `gpu` and request a CPU-only sandbox. Set `memory` in MiB
-     when the dataset or operation needs more RAM; Modal treats `memory` as the
-     requested sandbox memory. Set `cpu` in Modal CPU cores, where 1 core is 2
-     vCPUs. Defaults are 2 cores and 8192 MiB.
+   `sandbox.request(experiment_id, instance_type?, region?, gpu?, cpu?, memory?, time_limit?)`.
+   - **Pick the hardware first (Lambda Labs).** Lambda sells fixed machine types
+     that bundle GPU + CPU + RAM, so you choose an `instance_type`. If you call
+     `sandbox.request` with no `instance_type` and there is no live sandbox yet,
+     the response is `status: "needs_selection"` with an `options` menu of the
+     machines available *right now* (cheapest first), each showing `instance_type`,
+     `gpu`, `gpu_count`, `vcpus`, `memory_gib`, `price_usd_per_hour`, and
+     `regions`. Re-call `sandbox.request(experiment_id, instance_type="<choice>")`
+     to provision it; omit `region` to auto-pick one with capacity. You can also
+     call `sandbox.options` anytime to browse availability without provisioning.
+     Prefer the smallest/cheapest viable machine for data engineering and CPU
+     work; pick a GPU SKU only when a command needs acceleration.
+   - **Modal** instead composes the machine from the request: pass `gpu`
+     (e.g. `"A100"`/`"H100"`, or omit for CPU-only), `cpu` (Modal CPU cores, 1
+     core = 2 vCPUs), and `memory` (MiB). On Modal, `instance_type`/`region` are
+     ignored.
+   - `time_limit` is the sandbox's max lifetime in seconds (both providers).
    - The registry keeps **one sandbox per experiment** and reuses the live one,
-     so it is safe to call `sandbox.request` again to get the current details.
+     so it is safe to call `sandbox.request` again (even without `instance_type`)
+     to get the current details — reuse skips the selection menu.
    - **Provisioning is best-effort-synchronous.** `request` returns SSH inline
      when the sandbox comes up quickly. If it can't finish in time (a large
      first sync or a cold GPU), it returns `status: "provisioning"` instead.
@@ -92,30 +102,31 @@ SSH. You run ordinary shell commands.
    from the repo root; if you are elsewhere, use `ssh.raw_command` (the fully
    qualified `ssh` line) instead. Output streams back to you and is recorded to
    the experiment's terminal transcript for the user.
-3. The sandbox starts with the files that the local repo had when the sandbox
-   was created. Once it is running, treat the sandbox as the source of truth for
-   experiment file changes: edit/run/write result files inside `workdir` through
-   SSH, not in the local repo.
-4. The repo is mounted at `workdir` on a shared Modal Volume. Write compact
-   scripts, configs, metrics, and result artifacts under `workdir`. Download
-   large datasets and caches to `sandbox_data_dir` / `$RP_SANDBOX_DATA_DIR`
-   / `$RP_DATASET_DIR`, which is sandbox-local ephemeral storage outside the
-   Volume. Data transformations written only under `sandbox_data_dir` are
-   ephemeral and will not be available to future sandboxes; keep the reusable
-   preprocessing/analysis scripts, configs, small manifests, and final compact
-   outputs under `workdir` and call `sandbox.sync` so they persist locally.
-   Prefer to write a Markdown data note in the experiment folder under `workdir`
+3. The sandbox starts with the experiment's local synced folder pushed to
+   `$RP_SYNC_DIR` (`/workspace/synced`). Once it is running, treat the sandbox as
+   the source of truth for experiment file changes: edit/run/write result files
+   inside `$RP_SYNC_DIR` through SSH, not in the local repo.
+4. Write compact scripts, configs, metrics, and result artifacts under
+   `$RP_SYNC_DIR`. Download large datasets and caches to `$RP_UNSYNCED_DIR` /
+   `$RP_SANDBOX_DATA_DIR` / `$RP_DATASET_DIR`, which is sandbox-local ephemeral
+   storage that is not pulled back locally. Data transformations written only
+   under `$RP_UNSYNCED_DIR` are ephemeral and will not be available to future
+   sandboxes; keep the reusable preprocessing/analysis scripts, configs, small
+   manifests, and final compact outputs under `$RP_SYNC_DIR` and call
+   `sandbox.sync` so they persist locally. Put deliberate large final artifacts
+   under `$RP_SYNC_DIR/artifacts_to_keep`. Prefer to write a Markdown data note
+   in the experiment folder under `$RP_SYNC_DIR`
    (for example `experiments/<name>/data.md`) describing datasets used, source
    identifiers, split/filter choices, important columns, row counts, caveats,
-   and where large ephemeral files were placed in `sandbox_data_dir`. This note
+   and where large ephemeral files were placed in `$RP_UNSYNCED_DIR`. This note
    should be synced so future sandboxes carry the data context forward.
 5. If the sandbox response includes `environment.available_tokens` with
    `HF_TOKEN`, Hugging Face credentials are already available inside SSH
    commands. Use them through Hugging Face tooling or environment variables; do
    not print the token, write it into files, or sync it as a resource.
    **Training observability.** Every sandbox runs an MLflow tracking server and
-   a TensorBoard side-by-side, with their stores on the mounted Volume so runs
-   persist across sandbox restarts of the same experiment. Inside SSH commands,
+   a TensorBoard side-by-side under `$RP_SYNC_DIR/.research_plugin_sessions`.
+   Inside SSH commands,
    `MLFLOW_TRACKING_URI=http://localhost:5000` is already exported and
    `$RP_TB_LOGDIR` points at the TensorBoard logdir. Frameworks that
    auto-detect MLflow — Hugging Face `Trainer` with the default
@@ -124,12 +135,11 @@ SSH. You run ordinary shell commands.
    the training script. The user sees the dashboards live in their UI; you do
    not need to fetch, share, or open the URLs yourself.
 6. Before registering or associating result resources, call
-   `sandbox.sync(experiment_id)`. This commits the sandbox's mounted
-   repo changes to the Modal Volume and syncs the Volume back to the local repo.
-   Resource tools only see local files, so remote result paths are not valid
-   resources until this sync completes. Also call `sandbox.sync` after major
-   file changes so the user can inspect the latest files locally while the
-   sandbox is still running.
+   `sandbox.sync(experiment_id)`. This pulls `$RP_SYNC_DIR` back to the local
+   experiment folder with SSH rsync. Resource tools only see local files, so
+   remote result paths are not valid resources until this sync completes. Also
+   call `sandbox.sync` after major file changes so the user can inspect the
+   latest files locally while the sandbox is still running.
 7. Use `sandbox.terminal(experiment_id)` to re-read the transcript,
    `sandbox.get` to check status, and `sandbox.release` to shut the sandbox down
    when finished (it also expires automatically at `time_limit`). Call
@@ -137,7 +147,7 @@ SSH. You run ordinary shell commands.
    sandbox.
 
 Do not embed secrets in commands. Treat the sandbox as ephemeral: durable
-outputs must be written into the mounted repo, synced with `sandbox.sync`, and
+outputs must be written into `$RP_SYNC_DIR`, synced with `sandbox.sync`, and
 then registered/associated as resources.
 
 ## Experiment creation

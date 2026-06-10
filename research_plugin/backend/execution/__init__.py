@@ -11,7 +11,6 @@ import os
 from pathlib import Path
 from typing import Any, Callable
 
-from backend.sync_config import SyncExclusionPolicy
 from .errors import (
     BackendPermissionError,
     BackendUnavailableError,
@@ -30,8 +29,6 @@ from .types import (
 
 
 ActivityHook = Callable[[str, dict[str, Any]], None]
-ShouldPollProject = Callable[[str], bool]
-SyncExclusionProvider = Callable[[str], SyncExclusionPolicy]
 
 
 def build_sandbox_backend(
@@ -39,16 +36,14 @@ def build_sandbox_backend(
     repo_root: Path,
     name: str | None = None,
     activity: ActivityHook | None = None,
-    should_poll_project: ShouldPollProject | None = None,
-    sync_exclusion_provider: SyncExclusionProvider | None = None,
 ) -> SandboxBackend:
     """Select and construct the configured sandbox backend.
 
     Backend name comes from (in order): `name=` arg,
-    `RESEARCH_PLUGIN_EXECUTION_BACKEND` env, or "modal" by default.
+    `RESEARCH_PLUGIN_EXECUTION_BACKEND` env, or "lambda_labs" by default.
     """
     selected = (
-        name or os.environ.get("RESEARCH_PLUGIN_EXECUTION_BACKEND") or "modal"
+        name or os.environ.get("RESEARCH_PLUGIN_EXECUTION_BACKEND") or "lambda_labs"
     ).strip().lower()
     if selected == "fake":
         from .backends.fake import FakeSandboxBackend
@@ -60,8 +55,6 @@ def build_sandbox_backend(
         return build_modal_sandbox_backend(
             repo_root=repo_root,
             activity=activity,
-            should_poll_project=should_poll_project,
-            sync_exclusion_provider=sync_exclusion_provider,
         )
     if selected in {"lambda", "lambda_labs", "lambdalabs"}:
         from .backends.lambda_labs import build_lambda_labs_sandbox_backend
@@ -83,7 +76,5 @@ __all__ = [
     "SANDBOX_STATES",
     "SandboxBackend",
     "SandboxRequest",
-    "ShouldPollProject",
-    "SyncExclusionProvider",
     "build_sandbox_backend",
 ]

@@ -121,7 +121,7 @@ def main() -> int:
     (repo / "experiments" / "smoke" / "marker.txt").write_text("smoke\n")
 
     cfg = ModalConfig.from_env()
-    backend = ModalSandboxBackend(repo_root=repo, config=cfg, start_poller=False)
+    backend = ModalSandboxBackend(repo_root=repo, config=cfg)
     if not args.full_image:
         log("Using slim image (openssh only). Pass --full-image for the shipped torch image.")
         backend._base_image = build_slim_image(backend)
@@ -169,7 +169,7 @@ def main() -> int:
             diagnose(backend, created_id)
             raise SystemExit("ssh never came up")
 
-        log("\n4) run a command over SSH (writes to the mounted repo)")
+        log("\n4) run a command over SSH (writes to the synced workspace)")
         workdir = req["workdir"]
         r = ssh_run(
             req,

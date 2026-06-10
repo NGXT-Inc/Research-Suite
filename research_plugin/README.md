@@ -14,7 +14,8 @@ implementation. The goal is to keep the durable model small:
 Codex owns local reasoning, editing, lightweight scripts, and reviewer-agent
 delegation. The backend (an HTTP daemon, fronted to Codex by a stdio MCP
 proxy) owns mutation permissions, workflow state, durable memory, review
-gates, and Modal sandbox provisioning for ML execution.
+gates, and cloud sandbox provisioning (Lambda Labs by default, Modal optional)
+for ML execution.
 
 ## First reduction
 
@@ -39,7 +40,7 @@ See [docs/RESOURCE_MODEL.md](docs/RESOURCE_MODEL.md).
 
 The plugin runs as **one long-lived HTTP daemon** plus a **thin stdio MCP
 proxy** that Codex spawns on demand. The daemon owns SQLite state, the
-activity log, the sandbox execution backend, and the volume sync poller. The MCP proxy is stateless — it forwards `tools/list` and `tools/call`
+activity log, the sandbox execution backend, and the SSH rsync poller. The MCP proxy is stateless — it forwards `tools/list` and `tools/call`
 to the daemon's `/mcp/*` endpoints. Both the browser UI and Codex go through
 the same daemon, eliminating the cross-process race the old split-brain setup
 had. **Start the daemon before opening Codex.**
@@ -60,7 +61,7 @@ had. **Start the daemon before opening Codex.**
 - `.mcp.codex.json` - Codex MCP server registration with absolute install path
 - `.env.example` - template for the per-user credentials file (see "Use with Claude Code" below)
 - `pyproject.toml` - package metadata, dependency declaration, `console_scripts`
-- `backend/` - HTTP daemon code: services, SQLite state, activity log, execution backends, volume sync (Python package `backend`)
+- `backend/` - HTTP daemon code: services, SQLite state, activity log, execution backends, and SSH rsync (Python package `backend`)
 - `mcp_server/` - thin stdio MCP proxy that forwards tool calls to the daemon (Python package `mcp_server`)
 - `bin/research-plugin-mcp` - launcher for the stdio MCP proxy
 - `bin/research-plugin-http` - launcher for the HTTP daemon
@@ -341,9 +342,17 @@ Fresh Codex session smoke checklist:
 ## Sandbox execution engine
 
 There is no job abstraction. The agent **requests a sandbox** for an experiment
-and runs shell commands on it directly over SSH. Modal is the default backend.
-The agent calls `sandbox.request` / `sandbox.get` / `sandbox.terminal` /
-`sandbox.release`; it never talks to Modal directly.
+and runs shell commands on it directly over SSH. **Lambda Labs is the default
+backend** (Modal is also supported). The agent calls `sandbox.options` /
+`sandbox.request` / `sandbox.get` / `sandbox.terminal` / `sandbox.release`; it
+never talks to the cloud provider directly.
+
+Because Lambda sells fixed GPU+CPU+RAM machine types, the agent **selects the
+hardware**: a `sandbox.request` with no `instance_type` (and no live sandbox)
+returns `status: needs_selection` with a live, cheapest-first menu of currently
+available machines, and the agent re-calls with a chosen `instance_type`.
+`sandbox.options` lists availability without provisioning. On Modal the agent
+instead passes `gpu`/`cpu`/`memory` directly and no selection step occurs.
 
 Provisioning is **best-effort-synchronous**: creating a sandbox (large first
 sync, cold GPU) can outlast the MCP call timeout, so `sandbox.request`
@@ -354,15 +363,21 @@ provisions on a background thread and waits up to a budget (default 45s,
 `running` or `failed`. `get` reconciles a provisioning row whose job died
 (daemon restart) to `failed`, so a poll loop always terminates; the sandbox id
 is persisted the instant the sandbox is created and a partial failure terminates
-it, so a timed-out or canceled request never orphans a Modal sandbox.
+it, so a timed-out or canceled request never orphans a cloud sandbox.
 
-For Modal, make sure `MODAL_TOKEN_ID` and `MODAL_TOKEN_SECRET` are available to
-the **HTTP daemon process** (the MCP proxy does not need them). The simplest way
-is a git-ignored `.env` at the plugin root — `research_plugin/.env` — which the
-daemon auto-detects:
+Credentials go to the **HTTP daemon process** (the MCP proxy does not need
+them), most simply via a git-ignored `.env` at the plugin root —
+`research_plugin/.env` — which the daemon auto-detects. For the default Lambda
+backend you only need an API key; region and instance type are chosen per
+request (optionally defaulted via `RESEARCH_PLUGIN_LAMBDA_REGION` /
+`RESEARCH_PLUGIN_LAMBDA_INSTANCE_TYPE`). For Modal
+(`RESEARCH_PLUGIN_EXECUTION_BACKEND=modal`) set the Modal tokens:
 
 ```bash
 # research_plugin/.env  (git-ignored)
+LAMBDA_LABS_API_KEY=...        # default backend (Lambda Labs)
+
+# Modal (only when RESEARCH_PLUGIN_EXECUTION_BACKEND=modal)
 MODAL_TOKEN_ID=...
 MODAL_TOKEN_SECRET=...
 ```
@@ -377,13 +392,19 @@ export RESEARCH_PLUGIN_MODAL_ENV_FILE=/path/to/backend/.env
 
 `SandboxService` is the central registry: **one sandbox per experiment**,
 reuse-if-alive-else-create. On `sandbox.request` it generates a per-experiment
-ed25519 keypair, creates a Modal sandbox with the project Volume v2 mounted and
-`openssh-server` running, exposes SSH over an unencrypted Modal tunnel
-(`unencrypted_ports=[22]`), authorizes the public key, and returns SSH details.
-The repo is mounted at `/workspace/repo`. Large datasets and caches should be
-downloaded to `sandbox_data_dir` (default `/workspace/sandbox_data`, also exposed
-inside SSH commands as `$RP_SANDBOX_DATA_DIR` and `$RP_DATASET_DIR`), which is
-sandbox-local ephemeral storage outside the Modal Volume.
+ed25519 keypair, creates a Modal sandbox or Lambda VM with `openssh-server`
+running, exposes SSH, authorizes the public key, and returns SSH details. A
+background **reaper** terminates any sandbox past its `time_limit`/`expires_at`
+(after a final sync), so a Lambda VM — which has no server-side lifetime — never
+bills past its deadline.
+The remote synced workspace is `/workspace/synced`; the remote unsynced scratch
+directory is `/workspace/unsynced`. The local side is
+`experiments/<experiment_id>/synced/`, created automatically by
+`experiment.create`. Fresh sandbox setup pushes that local folder to
+`/workspace/synced` before returning `status: running`.
+Large datasets and caches should be downloaded to `/workspace/unsynced` (also
+exposed inside SSH commands as `$RP_UNSYNCED_DIR`, `$RP_SANDBOX_DATA_DIR`, and
+`$RP_DATASET_DIR`), which is remote-only ephemeral storage.
 If `HF_TOKEN` is present in the backend `.env` or process environment, sandbox
 creation passes it with `modal.Secret.from_local_environ(["HF_TOKEN"])`, while
 non-secret bootstrap values use `Sandbox.create(env=...)`. The SSH wrapper then
@@ -402,14 +423,14 @@ a sandbox removes the conn file so the dispatcher fails loudly rather than
 connecting to a recycled host:port.
 
 Visibility: an in-sandbox `sshd` `ForceCommand` wrapper records every command and
-its output to `.research_plugin_sessions/<experiment>/transcript.log` on the
-mounted Volume. `sandbox.terminal` reads it (live from the sandbox, falling back
-to the committed Volume); the UI renders it as a per-experiment terminal window.
+its output to `.research_plugin_sessions/<experiment>/transcript.log` under
+`/workspace/synced`. `sandbox.terminal` reads it live from the sandbox; the UI
+renders it as a per-experiment terminal window.
 
 For training runs the sandbox also boots an **MLflow tracking server** (port
-5000) and a **TensorBoard** (port 6006) backed by the same Volume-mounted
-sessions directory, exposed to the user as HTTPS URLs through Modal encrypted
-tunnels. The sandbox row carries them as
+5000) and a **TensorBoard** (port 6006) backed by the synced sessions directory,
+exposed to the user as HTTPS URLs through Modal encrypted tunnels. The sandbox
+row carries them as
 `dashboards: {mlflow, tensorboard}` and the UI renders one iframe tab per
 non-empty entry. `MLFLOW_TRACKING_URI=http://localhost:5000` is exported into
 every SSH command, so Hugging Face `Trainer` and PyTorch Lightning's
@@ -418,47 +439,22 @@ every SSH command, so Hugging Face `Trainer` and PyTorch Lightning's
 `.research_plugin_sessions/<experiment>/{mlflow.db, mlflow-artifacts, tb}` so
 runs accumulate across re-acquires of the same experiment.
 
-The Modal backend mirrors each project's local repo into a per-project Modal
-Volume v2 (`research-plugin-<project_id>`) and mounts it writable at
-`/workspace/repo`. A `SyncEngine` keeps the Volume and the local repo in
-agreement via a three-way diff against a baseline stored at
-`.research_plugin/modal/sync.sqlite`. It runs:
-
-- on `project.create` (initial volume + baseline registration),
-- on `sandbox.request` (push current repo before the sandbox boots),
-- and every 60 s in a background poller (bidirectional, pulling committed
-  sandbox writes back to the local repo).
-
-`sandbox.sync` is the explicit live-sandbox visibility boundary: it runs Modal's
-Volumes v2-only `sync <workdir>` command inside the sandbox to commit mounted
-repo writes, then runs the daemon sync pass to pull committed files into the
-local repo. `RESEARCH_PLUGIN_MODAL_VOLUME_VERSION` defaults to `2` and any other
-value is rejected. Modal does not auto-migrate existing v1 Volumes; old project
-Volumes must be recreated or manually migrated before this command can work.
-Volumes v2 are beta, and Modal's current limits still apply: files must be under
-1 TiB, a single directory can contain at most 262,144 files, and concurrent
-writes to the same file are last-write-wins.
-
-Conflicts (both sides changed since the last sync) are recorded and halt the
-next `sandbox.request` until resolved.
-
-Excluded paths are configurable per project in the UI/API and fall back to
-`.research_plugin/sync_exclusions.json`, which is created with the current
-defaults on startup. The config has three lists: `names` (path components
-excluded anywhere), `prefixes`/`paths` (repo-relative path prefixes), and
-`suffixes`. Defaults: `.git`, `.research_plugin`, `.research_plugin_sessions`,
-`.venv`/`venv`, `__pycache__`, `*.pyc`, `.mypy_cache`, `.pytest_cache`,
-`.ruff_cache`, `.cache`, `.aws`, `node_modules`, `.DS_Store`, `data/raw`,
-`data/processed`. These exclusions prevent local sync pollution, but paths under
-the mounted repo still occupy the Modal Volume; use `sandbox_data_dir` for large
-downloaded datasets.
+`sandbox.sync` is the explicit live-sandbox visibility boundary: it pulls
+`/workspace/synced` back to `experiments/<experiment_id>/synced/` with SSH
+rsync. A best-effort background rsync also runs while sandboxes are active, and
+`sandbox.release` attempts one final pull before terminating the sandbox/VM.
+Regular rsync excludes common heavy file types and applies a conservative size
+cap. Deliberate large final artifacts belong under
+`/workspace/synced/artifacts_to_keep`, which is pulled by a separate higher-size
+rsync pass. Keep datasets, caches, checkpoints, parquet files, and scratch data
+under `/workspace/unsynced`.
 
 Implemented MCP tools:
 
 - `workflow.status_and_next`
-- `project.current`, `project.create`, `project.update`, `project.get`, `project.get_settings`, `project.update_settings`
+- `project.current`, `project.create`, `project.update`, `project.get`
 - `claim.create`, `claim.list`
 - `experiment.create`, `experiment.list`, `experiment.get_state`, `experiment.transition`
-- `resource.register_file`, `resource.observe_file`, `resource.sync_changed_files`, `resource.associate`, `resource.delete`, `resource.list`, `resource.resolve`, `resource.history`
+- `resource.register_file` (single `path` or a `paths` batch), `resource.associate`, `resource.delete`, `resource.list`, `resource.resolve` (with `include_history` for observed versions)
 - `review.request`, `review.start`, `review.submit`, `review.status`
 - `sandbox.request`, `sandbox.get`, `sandbox.sync`, `sandbox.list`, `sandbox.release`, `sandbox.terminal`, `sandbox.health`

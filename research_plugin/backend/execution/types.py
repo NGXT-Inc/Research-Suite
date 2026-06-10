@@ -33,6 +33,15 @@ class SandboxRequest:
     `public_key` is the registry-owned per-experiment SSH public key that the
     backend authorizes inside the sandbox. `remote_workdir` is filled from the
     backend's default when left empty.
+
+    Hardware selection is provider-shaped:
+
+      - On a backend with *configurable* resources (Modal), `gpu`/`cpu`/`memory`
+        are honored independently and `instance_type`/`region` are ignored.
+      - On a backend that bundles hardware into fixed SKUs (Lambda Labs),
+        `instance_type` picks the whole machine (GPU + vCPU + RAM together) and
+        `region` optionally pins the datacenter; `cpu`/`memory` are advisory
+        only (the SKU fixes them) and `gpu` acts as a filter/cross-check.
     """
 
     experiment_id: str
@@ -45,6 +54,10 @@ class SandboxRequest:
     image_packages: tuple[str, ...] = ()
     cuda_devel: bool = False
     remote_workdir: str = ""
+    # Provider-bundled hardware selection (Lambda Labs and similar). Empty/None
+    # on configurable backends.
+    instance_type: str | None = None
+    region: str | None = None
 
 
 @dataclass(frozen=True)
@@ -64,14 +77,32 @@ class ProvisionedSandbox:
     ssh_user: str
     workdir: str
     volume_name: str
+    sync_dir: str = ""
+    unsynced_dir: str = ""
     sandbox_data_dir: str = ""
     reused: bool = False
     dashboards: Mapping[str, str] = field(default_factory=dict)
+    # What the backend actually provisioned. Lets the registry record the real
+    # reserved hardware for the UI/metrics framing even when the request did not
+    # name it explicitly (e.g. Lambda resolves a fixed SKU's GPU/vCPU/RAM).
+    # Empty/None means "use the request's values".
+    gpu: str = ""
+    cpu: float | None = None
+    memory: int | None = None
+    instance_type: str = ""
+    region: str = ""
 
 
 @dataclass(frozen=True)
 class BackendCapabilities:
     name: str
+    # True when the agent must pick a provider-bundled machine SKU (GPU + CPU +
+    # RAM together) before a sandbox can be created, because the backend has no
+    # configurable per-resource knobs. Lambda Labs sets this; Modal does not.
+    requires_hardware_selection: bool = False
+    # True when cpu/memory (and gpu) can be requested independently. Modal: yes;
+    # Lambda Labs: no (the SKU fixes them).
+    configurable_resources: bool = True
 
 
 class SandboxBackend(Protocol):
@@ -97,16 +128,14 @@ class SandboxBackend(Protocol):
         volume_name: str,
         workdir: str,
         tail: int | None = None,
+        # The registry's stored SSH endpoint + per-experiment private key.
+        # Backends that read the transcript over plain SSH (Lambda Labs) need
+        # them; control-plane backends (Modal exec) ignore them.
+        ssh_host: str = "",
+        ssh_port: int = 0,
+        ssh_user: str = "",
+        key_path: str = "",
     ) -> str: ...
-
-    def sync_sandbox_files(
-        self,
-        *,
-        project_id: str,
-        sandbox_id: str,
-        workdir: str,
-        volume_name: str,
-    ) -> dict: ...
 
     def sandbox_environment(self) -> dict: ...
 

@@ -11,7 +11,7 @@ from typing import Any
 from ...errors import BackendUnavailableError
 
 
-# Retryable errors while Modal releases a prior Volume write lease.
+# Retryable errors while Modal releases a prior sandbox filesystem operation.
 TRANSIENT_VOLUME_ERRORS: tuple[str, ...] = (
     "Operation not permitted",
     "operation not permitted",
@@ -74,7 +74,7 @@ def exec_checked(
 
 
 def ensure_remote_dir(*, sandbox: Any, path: str) -> None:
-    # Control-plane mkdir may fail on mounted Volumes; shell mkdir works there.
+    # Control-plane mkdir may fail transiently; shell mkdir is more tolerant.
     filesystem_mkdir = getattr(getattr(sandbox, "filesystem", None), "make_directory", None)
     if callable(filesystem_mkdir):
         try:

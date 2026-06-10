@@ -44,6 +44,7 @@ class ProjectRouter:
         self._apps_by_repo: dict[Path, ResearchPluginApp] = {}
         self._routes_by_project: dict[str, ProjectRoute] = {}
         self._initialize()
+        self._resume_active_sandbox_projects()
 
     def set_marker_endpoint(self, *, host: str, port: int) -> None:
         self.marker_host = host
@@ -97,7 +98,6 @@ class ProjectRouter:
         repo_root: str | Path,
         name: str,
         summary: str = "",
-        sync_exclusions: dict[str, Any] | None = None,
     ) -> dict[str, Any]:
         repo = self._canonical_repo(repo_root)
         if not name.strip():
@@ -131,15 +131,14 @@ class ProjectRouter:
                     project_id=projects[0]["id"],
                     name=name,
                     summary=summary,
-                    sync_exclusions=sync_exclusions,
                 )
             else:
-                args: dict[str, Any] = {"name": name, "summary": summary}
-                if sync_exclusions is not None:
-                    args["sync_exclusions"] = sync_exclusions
-                project = app.call_tool("project.create", args, activity_source="http")
+                project = app.call_tool(
+                    "project.create",
+                    {"name": name, "summary": summary},
+                    activity_source="http",
+                )
             self._register_route(project_id=project["id"], repo_root=repo)
-            self._notify_project_created(app=app, project_id=project["id"])
             project = dict(project)
             project["repo_root"] = str(repo)
             return project
@@ -211,7 +210,6 @@ class ProjectRouter:
                 repo_root=context["repo_root"],
                 name=str(arguments.get("name") or ""),
                 summary=str(arguments.get("summary") or ""),
-                sync_exclusions=arguments.get("sync_exclusions"),
             )
             return project
         if name == "sandbox.health":
@@ -275,6 +273,41 @@ class ProjectRouter:
                 route = ProjectRoute(project_id=str(project_id), repo_root=Path(str(repo_root)))
                 self._routes_by_project[route.project_id] = route
             conn.commit()
+        finally:
+            conn.close()
+
+    def _resume_active_sandbox_projects(self) -> None:
+        """Eagerly instantiate apps for registered projects with live sandboxes.
+
+        Apps are otherwise created lazily on the first tool call, but the
+        expiration reaper runs inside each app's SandboxService — and Lambda
+        VMs have no server-side lifetime enforcement. After a daemon restart, a
+        project with a running sandbox would have no reaper (and an expired VM
+        would bill forever) until something happened to touch the project.
+        Best-effort per project: one unreadable state DB or a backend that
+        fails to construct must not block daemon startup or the other
+        projects' reapers.
+        """
+        with self._lock:
+            for route in list(self._routes_by_project.values()):
+                try:
+                    if self._has_active_sandboxes(route.repo_root):
+                        self._app_for_repo_locked(route.repo_root)
+                except Exception:  # noqa: BLE001
+                    pass
+
+    def _has_active_sandboxes(self, repo_root: Path) -> bool:
+        db_path = repo_root / ".research_plugin" / "state.sqlite"
+        if not db_path.exists():
+            return False
+        conn = sqlite3.connect(db_path)
+        try:
+            row = conn.execute(
+                "SELECT 1 FROM sandboxes WHERE status IN ('running', 'provisioning') LIMIT 1"
+            ).fetchone()
+            return row is not None
+        except sqlite3.Error:
+            return False
         finally:
             conn.close()
 
@@ -365,22 +398,3 @@ class ProjectRouter:
             write_marker(repo_root=repo_root, host=self.marker_host, port=self.marker_port)
         except Exception:  # noqa: BLE001
             pass
-
-    def _notify_project_created(self, *, app: ResearchPluginApp, project_id: str) -> None:
-        hook = getattr(app.execution_backend, "on_project_created", None)
-        if not callable(hook):
-            return
-        try:
-            hook(project_id=project_id)
-        except Exception as exc:  # noqa: BLE001
-            try:
-                app.activity.emit(
-                    event_type="modal.sync.error",
-                    payload={
-                        "phase": "project_router_created",
-                        "project_id": project_id,
-                        "message": str(exc),
-                    },
-                )
-            except Exception:  # noqa: BLE001
-                pass

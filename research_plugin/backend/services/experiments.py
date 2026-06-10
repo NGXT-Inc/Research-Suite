@@ -6,6 +6,7 @@ import json
 import re
 from typing import Any
 
+from ..execution.sync_dirs import local_experiment_sync_dir
 from ..utils import NotFoundError, ValidationError, WorkflowError
 from ..utils import new_id
 from ..state.store import StateStore, row_to_dict, rows_to_dicts
@@ -13,6 +14,51 @@ from ..utils import now_iso
 
 
 TERMINAL_STATUSES = frozenset({"complete", "failed", "abandoned"})
+
+# (from_status, transition) -> next_status. Single source of truth for the
+# forward workflow graph, shared by _next_status (enforcement) and
+# allowed_transitions_for (discovery surfaced on get_state + in errors).
+# `abandon`/`mark_failed` are handled separately (available from any
+# non-terminal status), so they are not listed here.
+TRANSITION_GRAPH: dict[tuple[str, str], str] = {
+    ("planned", "submit_design"): "design_review",
+    ("design_review", "mark_ready_to_run"): "ready_to_run",
+    ("ready_to_run", "start_running"): "running",
+    ("running", "submit_results"): "experiment_review",
+    ("experiment_review", "complete"): "complete",
+}
+# Plain-language precondition for transitions gated on more than just status, so
+# the agent learns the requirement up front instead of via a sequence of errors.
+TRANSITION_REQUIREMENTS: dict[str, str] = {
+    "submit_design": (
+        "a 'plan' resource must be synced & associated to this experiment, with "
+        "the required plan section headers present"
+    ),
+    "mark_ready_to_run": "a passing design_reviewer review",
+    "submit_results": "a 'result' resource must be synced & associated to this experiment",
+    "complete": "a passing experiment_reviewer review",
+}
+
+
+def allowed_transitions_for(status: str) -> list[dict[str, Any]]:
+    """Transitions available from ``status``, with precondition hints.
+
+    Surfaced on ``experiment.get_state`` and in 'not allowed' errors so the
+    agent can see what to do next (and what each step requires) without
+    trial-and-error.
+    """
+    if status in TERMINAL_STATUSES:
+        return []
+    out: list[dict[str, Any]] = []
+    for (frm, transition), nxt in TRANSITION_GRAPH.items():
+        if frm == status:
+            entry: dict[str, Any] = {"transition": transition, "leads_to": nxt}
+            if transition in TRANSITION_REQUIREMENTS:
+                entry["requires"] = TRANSITION_REQUIREMENTS[transition]
+            out.append(entry)
+    out.append({"transition": "abandon", "leads_to": "abandoned"})
+    out.append({"transition": "mark_failed", "leads_to": "failed"})
+    return out
 
 # --- Plan schema (PRD-style) -------------------------------------------------
 # plan.md is the face of the experiment in the UI and the artifact the design
@@ -104,6 +150,9 @@ def slim_experiment_state(full: dict[str, Any]) -> dict[str, Any]:
         "revision_context": full.get("revision_context"),
         "created_at": full.get("created_at"),
         "updated_at": full.get("updated_at"),
+        "allowed_transitions": full.get(
+            "allowed_transitions", allowed_transitions_for(str(full.get("status", "")))
+        ),
         "tested_claims": [
             {field: claim.get(field) for field in _SLIM_CLAIM_FIELDS}
             for claim in full.get("tested_claims", [])
@@ -194,6 +243,10 @@ class ExperimentService:
                 target_id=experiment_id,
                 payload={"intent": intent},
             )
+            local_experiment_sync_dir(
+                repo_root=self.store.repo_root,
+                experiment_id=experiment_id,
+            ).mkdir(parents=True, exist_ok=True)
             return self.get_state(experiment_id=experiment_id, conn=conn)
 
     def _compose_intent(
@@ -299,6 +352,7 @@ class ExperimentService:
                 review["findings"] = json.loads(review.pop("findings_json", "[]"))
                 review["evidence"] = json.loads(review.pop("evidence_json", "{}"))
             data["reviews"] = reviews
+            data["allowed_transitions"] = allowed_transitions_for(str(data.get("status", "")))
             return data
         finally:
             if owns_conn:
@@ -411,16 +465,13 @@ class ExperimentService:
             return "abandoned"
         if transition == "mark_failed":
             return "failed"
-        allowed = {
-            ("planned", "submit_design"): "design_review",
-            ("design_review", "mark_ready_to_run"): "ready_to_run",
-            ("ready_to_run", "start_running"): "running",
-            ("running", "submit_results"): "experiment_review",
-            ("experiment_review", "complete"): "complete",
-        }
-        next_status = allowed.get((status, transition))
+        next_status = TRANSITION_GRAPH.get((status, transition))
         if next_status is None:
-            raise WorkflowError(f"transition {transition!r} is not allowed from {status!r}")
+            options = ", ".join(t["transition"] for t in allowed_transitions_for(status))
+            raise WorkflowError(
+                f"transition {transition!r} is not allowed from {status!r}; "
+                f"allowed from here: {options}"
+            )
         if transition == "submit_design":
             if not self._has_resource_role(
                 conn=conn,

@@ -10,7 +10,33 @@ from backend.app import ResearchPluginApp
 from backend.http_api import create_fastapi_app
 from backend.project_router import ProjectRouter
 from backend.execution.backends.fake import FakeSandboxBackend
+from backend.execution.ssh_rsync import SshRsyncResult
 from mcp_server.time_utils import now_iso
+
+
+class FakeRsyncSyncer:
+    def push_initial(self, **kwargs) -> SshRsyncResult:
+        return SshRsyncResult(
+            pulled=1,
+            duration_seconds=0.1,
+            local_dir=str(kwargs["local_sync_dir"]),
+            remote_dir=str(kwargs["remote_sync_dir"]),
+            command_count=2,
+            stdout="seed.txt\n",
+            stderr="",
+            direction="push",
+        )
+
+    def sync(self, **kwargs) -> SshRsyncResult:
+        return SshRsyncResult(
+            pulled=1,
+            duration_seconds=0.1,
+            local_dir=str(kwargs["local_sync_dir"]),
+            remote_dir=str(kwargs["remote_sync_dir"]),
+            command_count=2,
+            stdout="metrics.json\n",
+            stderr="",
+        )
 
 
 class ResearchPluginHttpApiTest(unittest.TestCase):
@@ -22,6 +48,7 @@ class ResearchPluginHttpApiTest(unittest.TestCase):
             repo_root=self.repo,
             db_path=self.repo / ".research_plugin" / "state.sqlite",
             execution_backend=self.backend,
+            rsync_syncer=FakeRsyncSyncer(),
         )
         self.client = TestClient(create_fastapi_app(self.app))
 
@@ -153,61 +180,6 @@ class ResearchPluginHttpApiTest(unittest.TestCase):
         self.assertEqual(updated["status"], "supported")
         self.assertEqual(updated["confidence"], "high")
 
-    def test_project_sync_exclusions_roundtrip_and_reset(self) -> None:
-        project = self.request("POST", "/api/projects", {"name": "Sync Config"})
-        pid = project["id"]
-        self.assertIn("node_modules", project["sync_exclusions"]["names"])
-        self.assertIn("data/raw", project["sync_exclusions"]["prefixes"])
-
-        updated = self.request(
-            "PATCH",
-            f"/api/projects/{pid}",
-            {
-                "sync_exclusions": {
-                    "names": ["custom_cache"],
-                    "prefixes": ["datasets/local"],
-                    "suffixes": [".bin"],
-                }
-            },
-        )
-        self.assertEqual(updated["sync_exclusions_source"], "project")
-        self.assertEqual(updated["sync_exclusions"]["names"], ["custom_cache"])
-        self.assertEqual(updated["sync_exclusions"]["prefixes"], ["datasets/local"])
-        self.assertEqual(updated["sync_exclusions"]["suffixes"], [".bin"])
-
-        reset = self.request(
-            "PATCH",
-            f"/api/projects/{pid}",
-            {"reset_sync_exclusions": True},
-        )
-        self.assertNotEqual(reset["sync_exclusions_source"], "project")
-        self.assertIn("node_modules", reset["sync_exclusions"]["names"])
-
-    def test_project_settings_tools_expose_sync_exclusions_to_agents(self) -> None:
-        project = self.app.call_tool("project.create", {"name": "Agent Settings"})
-        pid = project["id"]
-
-        settings = self.app.call_tool("project.get_settings", {"project_id": pid})
-        self.assertEqual(settings["project_id"], pid)
-        self.assertIn("node_modules", settings["sync_exclusions"]["names"])
-        self.assertEqual(settings["config_file"], ".research_plugin/sync_exclusions.json")
-
-        updated = self.app.call_tool(
-            "project.update_settings",
-            {
-                "project_id": pid,
-                "sync_exclusions": {
-                    "names": ["agent_cache"],
-                    "paths": ["runs/tmp"],
-                    "suffixes": [".tmp"],
-                },
-            },
-        )
-        self.assertEqual(updated["sync_exclusions_source"], "project")
-        self.assertEqual(updated["sync_exclusions"]["names"], ["agent_cache"])
-        self.assertEqual(updated["sync_exclusions"]["prefixes"], ["runs/tmp"])
-        self.assertEqual(updated["sync_exclusions"]["suffixes"], [".tmp"])
-
     def test_sandbox_http_endpoints(self) -> None:
         project = self.request("POST", "/api/projects", {"name": "Sandbox UI Project"})
         project_id = project["id"]
@@ -252,7 +224,8 @@ class ResearchPluginHttpApiTest(unittest.TestCase):
         self.assertIn("plan.md", terminal["transcript"])
 
         synced = self.request("POST", f"/api/projects/{project_id}/experiments/{exp_id}/sandbox/sync")
-        self.assertTrue(synced["sync"]["committed"])
+        self.assertEqual(synced["sync"]["provider"], "ssh_rsync")
+        self.assertEqual(synced["sync"]["pulled"], 1)
 
         released = self.request("POST", f"/api/projects/{project_id}/experiments/{exp_id}/sandbox/release")
         self.assertEqual(released["status"], "terminated")

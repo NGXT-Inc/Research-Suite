@@ -9,10 +9,36 @@ from pathlib import Path
 
 from backend.app import ResearchPluginApp
 from backend.execution.backends.fake import FakeSandboxBackend
+from backend.execution.ssh_rsync import SshRsyncResult
 
 
 SLIM_RESOURCE_KEYS = {"id", "association_role", "path", "kind", "missing", "size_bytes"}
 HEAVY_RESOURCE_KEYS = {"version_token", "mtime_ns", "current_version_id", "association_version_id", "git_commit"}
+
+
+class FakeRsyncSyncer:
+    def push_initial(self, **kwargs) -> SshRsyncResult:
+        return SshRsyncResult(
+            pulled=0,
+            duration_seconds=0.1,
+            local_dir=str(kwargs["local_sync_dir"]),
+            remote_dir=str(kwargs["remote_sync_dir"]),
+            command_count=2,
+            stdout="",
+            stderr="",
+            direction="push",
+        )
+
+    def sync(self, **kwargs) -> SshRsyncResult:
+        return SshRsyncResult(
+            pulled=0,
+            duration_seconds=0.1,
+            local_dir=str(kwargs["local_sync_dir"]),
+            remote_dir=str(kwargs["remote_sync_dir"]),
+            command_count=2,
+            stdout="",
+            stderr="",
+        )
 
 
 class WorkflowSlimTest(unittest.TestCase):
@@ -24,6 +50,7 @@ class WorkflowSlimTest(unittest.TestCase):
             repo_root=self.repo,
             db_path=self.repo / ".research_plugin" / "state.sqlite",
             execution_backend=self.backend,
+            rsync_syncer=FakeRsyncSyncer(),
         )
         self.project_id = self.call("project.create", name="Slim Project")["id"]
 

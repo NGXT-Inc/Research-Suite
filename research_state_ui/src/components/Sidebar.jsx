@@ -3,7 +3,7 @@ import { NavLink, useLocation, useNavigate } from 'react-router-dom';
 import { useProjectStore, selectStats, selectResources, selectSandboxes } from '../store/useProjectStore';
 import ProjectSwitcher from './ProjectSwitcher';
 import FileTree from './FileTree';
-import VolumeSyncIndicator from './VolumeSyncIndicator';
+import ExperimentSyncIndicator from './ExperimentSyncIndicator';
 
 function fmtSyncedAgo(ms) {
   if (!ms) return 'never';
@@ -24,7 +24,6 @@ export default function Sidebar({ onRefresh }) {
   const resources = useProjectStore(selectResources);
   const sandboxes = useProjectStore(selectSandboxes);
   const runningSandboxes = sandboxes.filter(s => s.status === 'running').length;
-  const projectId = useProjectStore(s => s.projectId);
   const location = useLocation();
   const navigate = useNavigate();
   // Sidebar lives outside the <Routes> tree, so useParams() returns {}.
@@ -135,7 +134,7 @@ export default function Sidebar({ onRefresh }) {
       </NavLink>
 
       <div className="sidebar-foot">
-        <VolumeSyncIndicator projectId={projectId} />
+        <ExperimentSyncIndicator />
         <div className="sync-indicator">
           <span className={dotClass} />
           <span>ui {syncLabel} · synced {fmtSyncedAgo(lastSyncedAt)}</span>

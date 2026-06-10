@@ -9,7 +9,6 @@ from contextlib import contextmanager
 from pathlib import Path
 from typing import Any
 
-from ..sync_config import ensure_sync_exclusions_file
 from ..utils import NotFoundError, ValidationError
 from ..utils import new_id
 from ..utils import now_iso
@@ -22,7 +21,6 @@ CREATE TABLE IF NOT EXISTS projects (
   id TEXT PRIMARY KEY,
   name TEXT NOT NULL,
   summary TEXT NOT NULL DEFAULT '',
-  sync_exclusions_json TEXT NOT NULL DEFAULT '',
   created_at TEXT NOT NULL
 );
 
@@ -172,12 +170,20 @@ CREATE TABLE IF NOT EXISTS sandboxes (
   gpu TEXT NOT NULL DEFAULT '',
   cpu REAL NOT NULL DEFAULT 0,
   memory INTEGER NOT NULL DEFAULT 0,
+  -- Provider-bundled machine SKU + datacenter, for backends (Lambda Labs) that
+  -- procure a fixed instance type rather than composing cpu/memory. Empty for
+  -- Modal, which sets gpu/cpu/memory above instead.
+  instance_type TEXT NOT NULL DEFAULT '',
+  region TEXT NOT NULL DEFAULT '',
   time_limit INTEGER NOT NULL DEFAULT 0,
   ssh_host TEXT NOT NULL DEFAULT '',
   ssh_port INTEGER NOT NULL DEFAULT 0,
   ssh_user TEXT NOT NULL DEFAULT 'root',
   key_path TEXT NOT NULL DEFAULT '',
   workdir TEXT NOT NULL DEFAULT '',
+  sync_dir TEXT NOT NULL DEFAULT '',
+  unsynced_dir TEXT NOT NULL DEFAULT '',
+  local_sync_dir TEXT NOT NULL DEFAULT '',
   sandbox_data_dir TEXT NOT NULL DEFAULT '',
   volume_name TEXT NOT NULL DEFAULT '',
   -- Observability dashboards exposed inside the sandbox (MLflow at 5000,
@@ -271,7 +277,6 @@ class StateStore:
 
     def _initialize(self) -> None:
         self._migrate_resources_unique()
-        ensure_sync_exclusions_file(repo_root=self.repo_root)
         conn = self.connect()
         try:
             conn.executescript(SCHEMA)
@@ -300,11 +305,6 @@ class StateStore:
         # databases predate the column.
         self._ensure_columns(
             conn=conn,
-            table="projects",
-            columns={"sync_exclusions_json": "TEXT NOT NULL DEFAULT ''"},
-        )
-        self._ensure_columns(
-            conn=conn,
             table="experiments",
             columns={"conclusion": "TEXT NOT NULL DEFAULT ''"},
         )
@@ -325,11 +325,18 @@ class StateStore:
                 "error": "TEXT NOT NULL DEFAULT ''",
                 "provision_started_at": "TEXT",
                 "sandbox_data_dir": "TEXT NOT NULL DEFAULT ''",
+                "sync_dir": "TEXT NOT NULL DEFAULT ''",
+                "unsynced_dir": "TEXT NOT NULL DEFAULT ''",
+                "local_sync_dir": "TEXT NOT NULL DEFAULT ''",
                 # Phase 1 observability dashboards: MLflow + TensorBoard URLs
                 # surfaced from the in-sandbox servers through Modal encrypted
                 # tunnels. JSON object keyed by dashboard name; '{}' on older
                 # rows and any sandbox where no tunnels were exposed.
                 "dashboards_json": "TEXT NOT NULL DEFAULT '{}'",
+                # Lambda-default (June 2026): provider-bundled machine SKU +
+                # datacenter for backends that procure a fixed instance type.
+                "instance_type": "TEXT NOT NULL DEFAULT ''",
+                "region": "TEXT NOT NULL DEFAULT ''",
             },
         )
         # The shadow-git unplug (May 2026) dropped these columns from the

@@ -33,7 +33,7 @@ class ResourceVersioningTest(unittest.TestCase):
         plan_path.write_text("version one\n")
         plan = self.call("resource.register_file", project_id=self.project_id, path="plan.md", kind="note")
         first_id = plan["current_version_id"]
-        first_version = self.call("resource.history", project_id=self.project_id, resource_id=plan["id"])["versions"][0]
+        first_version = self.call("resource.resolve", project_id=self.project_id, resource_id=plan["id"], include_history=True)["versions"][0]
 
         plan_path.write_text("version two\n")
         associated = self.call(
@@ -48,7 +48,7 @@ class ResourceVersioningTest(unittest.TestCase):
         second_id = associated["current_version_id"]
         self.assertNotEqual(first_id, second_id)
         self.assertEqual(associated["associations"][0]["version_id"], second_id)
-        history = self.call("resource.history", project_id=self.project_id, resource_id=plan["id"])
+        history = self.call("resource.resolve", project_id=self.project_id, resource_id=plan["id"], include_history=True)
         second_version = history["versions"][-1]
         self.assertEqual(len(history["versions"]), 2)
         # New version must reflect new file contents — sha256 differs.
@@ -119,7 +119,7 @@ class ResourceVersioningTest(unittest.TestCase):
         deleted = self.call("resource.delete", project_id=self.project_id, resource_id=plan["id"])
         resources = self.call("resource.list", project_id=self.project_id)["resources"]
         state = self.call("experiment.get_state", project_id=self.project_id, experiment_id=self.exp_id)
-        history = self.call("resource.history", project_id=self.project_id, resource_id=plan["id"])
+        history = self.call("resource.resolve", project_id=self.project_id, resource_id=plan["id"], include_history=True)
 
         self.assertTrue(deleted["deleted"])
         self.assertEqual(deleted["removed_associations"], 1)
@@ -143,7 +143,7 @@ class ResourceVersioningTest(unittest.TestCase):
         self.assertEqual(revived["missing"], 0)
         self.assertEqual(len(revived["associations"]), 0)
         self.assertEqual([item["id"] for item in resources], [plan["id"]])
-        self.assertEqual(len(self.call("resource.history", project_id=self.project_id, resource_id=plan["id"])["versions"]), 2)
+        self.assertEqual(len(self.call("resource.resolve", project_id=self.project_id, resource_id=plan["id"], include_history=True)["versions"]), 2)
 
     def test_same_repo_file_is_a_distinct_resource_per_project(self) -> None:
         (self.repo / "shared.md").write_text("shared\n")

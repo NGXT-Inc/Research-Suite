@@ -1,19 +1,21 @@
 """Lambda Labs VM sandbox backend.
 
 This backend provisions a Lambda Cloud VM and returns SSH details to the agent.
-It intentionally does not implement repo/filesystem sync yet; the VM bootstrap
-only prepares a normal developer shell with the tools agents expect.
+File sync is handled by SandboxService through provider-neutral SSH rsync; this
+backend only prepares a normal developer shell with the tools agents expect.
 """
 
 from __future__ import annotations
 
 import base64
+import os
 import re
 import shlex
 import socket
+import subprocess
 import time
-from pathlib import Path
-from typing import Any
+from pathlib import Path, PurePosixPath
+from typing import Any, Callable, Mapping
 
 from backend.execution.bootstrap_tools import (
     LAMBDA_APT_PACKAGES,
@@ -27,31 +29,60 @@ from ...types import (
     ProvisionedSandbox,
     SandboxRequest,
 )
+from .catalog import find_option, summarize_instance_types, to_agent_options
 from .client import LambdaCloudClient
 from .config import LambdaSandboxConfig
 
 
 SESSIONS_DIR_NAME = ".research_plugin_sessions"
 TRANSCRIPT_FILENAME = "transcript.log"
+TRANSCRIPT_TAIL_DEFAULT = 50_000
+# Sentinel prefix for the daemon's transcript poll. rec.sh execs commands with
+# this prefix raw and UNRECORDED — recording the read would tee the tail output
+# back into the very log being read (the transcript would re-ingest itself on
+# every poll) and spam start/exit markers into the agent's command history.
+TRANSCRIPT_READ_PREFIX = "rp-transcript-read:"
+TRANSCRIPT_SSH_CONNECT_TIMEOUT = 10
+TRANSCRIPT_READ_TIMEOUT_SECONDS = 30
 ACTIVE_INSTANCE_STATUSES = frozenset({"active"})
 LIVE_INSTANCE_STATUSES = frozenset({"booting", "active", "unhealthy"})
+
+SshRunner = Callable[[list[str]], "subprocess.CompletedProcess[str]"]
 
 
 REC_SCRIPT = r"""#!/usr/bin/env bash
 [ -f /opt/rp/env ] && . /opt/rp/env
-RP_WORKDIR="${RP_WORKDIR:-/workspace/repo}"
+RP_WORKDIR="${RP_WORKDIR:-/workspace/synced}"
+RP_SYNC_DIR="${RP_SYNC_DIR:-$RP_WORKDIR}"
+RP_UNSYNCED_DIR="${RP_UNSYNCED_DIR:-${RP_SANDBOX_DATA_DIR:-/workspace/unsynced}}"
 RP_EXPERIMENT_ID="${RP_EXPERIMENT_ID:-unknown}"
-RP_SANDBOX_DATA_DIR="${RP_SANDBOX_DATA_DIR:-/workspace/sandbox_data}"
+RP_SANDBOX_DATA_DIR="$RP_UNSYNCED_DIR"
 RP_DATASET_DIR="${RP_DATASET_DIR:-$RP_SANDBOX_DATA_DIR}"
 RP_TB_LOGDIR="${RP_TB_LOGDIR:-$RP_WORKDIR/.research_plugin_sessions/$RP_EXPERIMENT_ID/tb}"
 MLFLOW_TRACKING_URI="${MLFLOW_TRACKING_URI:-http://localhost:5000}"
-export RP_WORKDIR RP_EXPERIMENT_ID RP_SANDBOX_DATA_DIR RP_DATASET_DIR RP_TB_LOGDIR MLFLOW_TRACKING_URI
-mkdir -p "$RP_WORKDIR" "$RP_SANDBOX_DATA_DIR" 2>/dev/null || true
+export RP_WORKDIR RP_SYNC_DIR RP_UNSYNCED_DIR RP_EXPERIMENT_ID RP_SANDBOX_DATA_DIR RP_DATASET_DIR RP_TB_LOGDIR MLFLOW_TRACKING_URI
+mkdir -p "$RP_SYNC_DIR" "$RP_UNSYNCED_DIR" "$RP_SYNC_DIR/artifacts_to_keep" 2>/dev/null || true
 LOG_DIR="$RP_WORKDIR/.research_plugin_sessions/$RP_EXPERIMENT_ID"
 LOG="$LOG_DIR/transcript.log"
 mkdir -p "$LOG_DIR" 2>/dev/null || true
 ts() { date -u +%Y-%m-%dT%H:%M:%SZ; }
 if [ -n "${SSH_ORIGINAL_COMMAND:-}" ]; then
+  # File-transfer protocols (rsync/scp/sftp) speak a binary protocol over stdio.
+  # The ForceCommand wrapper must hand them through untouched — teeing into the
+  # transcript log corrupts the stream. Only interactive/command shells get
+  # recorded. This is what lets the registry's rsync work once ForceCommand is
+  # active (it is set up early in user_data now).
+  case "$SSH_ORIGINAL_COMMAND" in
+    rsync\ --server*|*"sftp-server"*|internal-sftp*|scp\ -*)
+      exec bash -lc "$SSH_ORIGINAL_COMMAND"
+      ;;
+    rp-transcript-read:*)
+      # Daemon-internal transcript poll (sandbox.terminal). Runs raw and
+      # unrecorded: teeing it would feed the tail output back into the very
+      # log it reads, growing the transcript on every poll.
+      exec bash -c "${SSH_ORIGINAL_COMMAND#rp-transcript-read:}"
+      ;;
+  esac
   { printf '\n[%s] $ %s\n' "$(ts)" "$SSH_ORIGINAL_COMMAND" >> "$LOG"; } 2>/dev/null || true
   cd "$RP_WORKDIR" 2>/dev/null || true
   bash -lc "$SSH_ORIGINAL_COMMAND" 2>&1 | tee -a "$LOG"
@@ -67,16 +98,43 @@ fi
 
 
 class LambdaLabsSandboxBackend:
-    capabilities = BackendCapabilities(name="lambda_labs")
+    # Lambda Labs sells fixed machine SKUs (GPU + vCPU + RAM bundled), so the
+    # agent must pick an instance type — there are no independent cpu/memory
+    # knobs. ``requires_hardware_selection`` makes SandboxService return a live
+    # availability menu when ``sandbox.request`` arrives without an instance type.
+    capabilities = BackendCapabilities(
+        name="lambda_labs",
+        requires_hardware_selection=True,
+        configurable_resources=False,
+    )
 
     def __init__(
         self,
         *,
         config: LambdaSandboxConfig | None = None,
         client: LambdaCloudClient | None = None,
+        ssh_runner: SshRunner | None = None,
     ) -> None:
-        self.config = config or LambdaSandboxConfig.from_env()
-        self.client = client or LambdaCloudClient(config=self.config.cloud)
+        # Resolve config/client lazily so the daemon can boot (and report health)
+        # with only an API key present — region/instance type are per-request,
+        # and a missing key surfaces at call time as a clean health error rather
+        # than crashing construction of the default backend.
+        self._config = config
+        self._client = client
+        # Test seam: read_transcript shells out to ssh through this.
+        self._ssh_runner = ssh_runner or _run_ssh
+
+    @property
+    def config(self) -> LambdaSandboxConfig:
+        if self._config is None:
+            self._config = LambdaSandboxConfig.from_env()
+        return self._config
+
+    @property
+    def client(self) -> LambdaCloudClient:
+        if self._client is None:
+            self._client = LambdaCloudClient(config=self.config.cloud)
+        return self._client
 
     def acquire(
         self,
@@ -87,8 +145,23 @@ class LambdaLabsSandboxBackend:
     ) -> ProvisionedSandbox:
         instance_name = _sandbox_name(request.experiment_id)
         key_name = f"{instance_name}-key"
-        _call(on_phase, "checking_capacity", self.config.instance_type_name)
-        self._ensure_capacity(requested_gpu=request.gpu)
+        instance_type = (request.instance_type or self.config.instance_type_name or "").strip()
+        if not instance_type:
+            raise BackendValidationError(
+                "Lambda Labs requires an instance_type (it bundles GPU + CPU + RAM "
+                "into one machine). Call sandbox.options, or sandbox.request without "
+                "an instance_type, to see live availability, then pick a SKU."
+            )
+        # The config's default region pairs with the config's default instance
+        # type. If the agent overrode the instance type, don't force that region
+        # onto it — auto-pick a region with capacity for the chosen SKU instead.
+        default_region = "" if request.instance_type else self.config.region_name
+        _call(on_phase, "checking_capacity", instance_type)
+        region, specs = self._resolve_placement(
+            instance_type=instance_type,
+            region=(request.region or default_region or "").strip(),
+            requested_gpu=request.gpu,
+        )
 
         _call(on_phase, "registering_ssh_key", key_name)
         key_id = ""
@@ -97,16 +170,17 @@ class LambdaLabsSandboxBackend:
             key = self.client.add_ssh_key(name=key_name, public_key=request.public_key)
             key_id = str(key.get("id") or "")
 
-            _call(on_phase, "creating", f"{self.config.instance_type_name} in {self.config.region_name}")
+            _call(on_phase, "creating", f"{instance_type} in {region}")
             user_data = build_user_data(
                 public_key=request.public_key,
                 experiment_id=request.experiment_id,
                 workdir=request.remote_workdir or self.config.remote_workdir,
                 sandbox_data_dir=self.config.sandbox_data_dir,
+                tokens=_sandbox_tokens(),
             )
             instance_id = self.client.launch_instance(
-                region_name=self.config.region_name,
-                instance_type_name=self.config.instance_type_name,
+                region_name=region,
+                instance_type_name=instance_type,
                 ssh_key_name=key_name,
                 name=instance_name,
                 user_data=user_data,
@@ -126,9 +200,16 @@ class LambdaLabsSandboxBackend:
                 ssh_user=self.config.ssh_user,
                 workdir=request.remote_workdir or self.config.remote_workdir,
                 volume_name="",
+                sync_dir=request.remote_workdir or self.config.remote_workdir,
+                unsynced_dir=self.config.sandbox_data_dir,
                 sandbox_data_dir=self.config.sandbox_data_dir,
                 reused=False,
                 dashboards={},
+                gpu=str(specs.get("gpu") or request.gpu or ""),
+                cpu=float(specs["vcpus"]) if specs.get("vcpus") else None,
+                memory=int(specs["memory_gib"]) * 1024 if specs.get("memory_gib") else None,
+                instance_type=instance_type,
+                region=region,
             )
         except Exception:
             if instance_id:
@@ -168,34 +249,72 @@ class LambdaLabsSandboxBackend:
         *,
         sandbox_id: str,
         experiment_id: str,
-        volume_name: str,
+        volume_name: str,  # noqa: ARG002 — Lambda VMs have no volume
         workdir: str,
         tail: int | None = None,
+        ssh_host: str = "",
+        ssh_port: int = 0,
+        ssh_user: str = "",
+        key_path: str = "",
     ) -> str:
-        return (
-            "Lambda transcript retrieval over SSH is not implemented yet. "
-            "The VM records commands at "
-            f"{workdir}/{SESSIONS_DIR_NAME}/{experiment_id}/{TRANSCRIPT_FILENAME}."
-        )
+        """Tail the rec.sh transcript live over SSH.
 
-    def sync_sandbox_files(
-        self,
-        *,
-        project_id: str,
-        sandbox_id: str,
-        workdir: str,
-        volume_name: str,
-    ) -> dict:
-        raise BackendUnavailableError("Lambda sandbox file sync is not implemented yet")
+        Uses the registry's stored endpoint + per-experiment key (mirroring how
+        the Modal backend reads via control-plane exec). The remote command is
+        sent with TRANSCRIPT_READ_PREFIX so rec.sh runs it unrecorded.
+        """
+        if not sandbox_id or not ssh_host or not key_path:
+            return ""
+        limit = int(tail) if tail and tail > 0 else TRANSCRIPT_TAIL_DEFAULT
+        log_path = PurePosixPath(
+            workdir or self.config.remote_workdir,
+            SESSIONS_DIR_NAME,
+            experiment_id,
+            TRANSCRIPT_FILENAME,
+        ).as_posix()
+        remote_command = (
+            f"{TRANSCRIPT_READ_PREFIX}if [ -f {shlex.quote(log_path)} ]; then "
+            f"tail -c {limit} {shlex.quote(log_path)}; fi"
+        )
+        command = [
+            "ssh",
+            "-i", key_path,
+            "-p", str(int(ssh_port) or 22),
+            "-o", "BatchMode=yes",
+            "-o", "StrictHostKeyChecking=no",
+            "-o", "UserKnownHostsFile=/dev/null",
+            "-o", f"ConnectTimeout={TRANSCRIPT_SSH_CONNECT_TIMEOUT}",
+            f"{ssh_user or self.config.ssh_user}@{ssh_host}",
+            remote_command,
+        ]
+        try:
+            result = self._ssh_runner(command)
+        except subprocess.TimeoutExpired as exc:
+            raise BackendUnavailableError(f"transcript read over SSH timed out: {exc}") from exc
+        except OSError as exc:
+            raise BackendUnavailableError(f"could not run ssh for transcript read: {exc}") from exc
+        if result.returncode != 0:
+            stderr_lines = (result.stderr or "").strip().splitlines()
+            detail = stderr_lines[-1] if stderr_lines else "no stderr"
+            raise BackendUnavailableError(
+                f"transcript read over SSH failed (exit {result.returncode}): {detail}"
+            )
+        return result.stdout or ""
 
     def sandbox_environment(self) -> dict:
+        available_tokens: list[str] = []
+        if os.environ.get("HF_TOKEN"):
+            available_tokens.append("HF_TOKEN")
         return {
-            "backend": "lambda_labs",
-            "region": self.config.region_name,
-            "instance_type": self.config.instance_type_name,
-            "workdir": self.config.remote_workdir,
-            "sandbox_data_dir": self.config.sandbox_data_dir,
-            "sync": "not_supported",
+            "available_tokens": available_tokens,
+            "notes": (
+                [
+                    "HF_TOKEN is available inside the sandbox for Hugging Face downloads. "
+                    "Do not print or write the token; use it through Hugging Face tooling."
+                ]
+                if available_tokens
+                else []
+            ),
         }
 
     def health(self) -> dict:
@@ -215,39 +334,100 @@ class LambdaLabsSandboxBackend:
             return None
         return None
 
-    def _ensure_capacity(self, *, requested_gpu: str | None) -> None:
+    def hardware_catalog(
+        self, *, gpu: str | None = None, region: str | None = None
+    ) -> dict[str, Any]:
+        """Live, agent-facing menu of currently-available Lambda machine SKUs.
+
+        Returns a compact, cheapest-first list of instance types with capacity
+        right now. The agent picks one and passes it back as
+        ``sandbox.request(instance_type=...)``.
+        """
+        summary = summarize_instance_types(
+            self.client.list_instance_types(),
+            gpu=gpu,
+            region=region,
+            only_available=True,
+        )
+        options = to_agent_options(summary)
+        return {
+            "provider": "lambda_labs",
+            "selection_required": True,
+            "select_with": "instance_type",
+            "reason": (
+                "Lambda Labs bundles GPU, CPU, and RAM into fixed machine types; "
+                "pick one instance_type rather than cpu/memory."
+            ),
+            "regions": summary["regions"],
+            "count": len(options),
+            "options": options,
+        }
+
+    def _resolve_placement(
+        self, *, instance_type: str, region: str, requested_gpu: str | None
+    ) -> tuple[str, dict[str, Any]]:
+        """Validate the SKU + capacity and pick a region; return (region, specs).
+
+        Region resolution: honor an explicit request, otherwise pick the
+        (sorted, deterministic) first region that currently has capacity for the
+        chosen instance type.
+        """
         instance_types = self.client.list_instance_types()
-        row = instance_types.get(self.config.instance_type_name)
+        row = instance_types.get(instance_type)
         if not isinstance(row, dict):
+            offered = ", ".join(sorted(instance_types)) or "(none)"
             raise BackendValidationError(
-                f"Lambda instance type is not currently offered: {self.config.instance_type_name}"
+                f"Lambda instance type is not currently offered: {instance_type}. "
+                f"Currently offered: {offered}."
             )
-        instance_type = row.get("instance_type")
-        if not isinstance(instance_type, dict):
+        instance = row.get("instance_type")
+        if not isinstance(instance, dict):
             raise BackendUnavailableError("Lambda Cloud returned malformed instance type data")
         if requested_gpu:
             gpu_text = " ".join(
-                str(instance_type.get(key) or "")
+                str(instance.get(key) or "")
                 for key in ("name", "description", "gpu_description")
             ).upper()
             if requested_gpu.upper() not in gpu_text:
                 raise BackendValidationError(
-                    f"requested gpu {requested_gpu} does not match configured Lambda "
-                    f"instance type {self.config.instance_type_name}"
+                    f"requested gpu {requested_gpu} does not match Lambda instance "
+                    f"type {instance_type} ({instance.get('gpu_description') or 'unknown GPU'})"
                 )
         regions = row.get("regions_with_capacity_available")
         if not isinstance(regions, list):
             raise BackendUnavailableError("Lambda Cloud returned malformed capacity data")
-        available_regions = {
-            str(region.get("name") or "")
-            for region in regions
-            if isinstance(region, dict)
+        available_regions = sorted(
+            str(item.get("name") or "")
+            for item in regions
+            if isinstance(item, dict) and item.get("name")
+        )
+        if region:
+            if region not in available_regions:
+                where = ", ".join(available_regions) or "(no regions)"
+                raise BackendUnavailableError(
+                    f"Lambda instance type {instance_type} has no current capacity in "
+                    f"{region}. Regions with capacity now: {where}."
+                )
+            chosen = region
+        else:
+            if not available_regions:
+                raise BackendUnavailableError(
+                    f"Lambda instance type {instance_type} has no current capacity in "
+                    "any region. Call sandbox.options to pick an available SKU."
+                )
+            chosen = available_regions[0]
+        specs_raw = instance.get("specs") if isinstance(instance.get("specs"), dict) else {}
+        option = find_option(
+            summarize_instance_types(instance_types, only_available=False),
+            instance_type=instance_type,
+        ) or {}
+        specs = {
+            "gpu": option.get("gpu") or str(instance.get("gpu_description") or ""),
+            "gpus": _int_or_zero(specs_raw.get("gpus")),
+            "vcpus": _int_or_zero(specs_raw.get("vcpus")),
+            "memory_gib": _int_or_zero(specs_raw.get("memory_gib")),
         }
-        if self.config.region_name not in available_regions:
-            raise BackendUnavailableError(
-                f"Lambda instance type {self.config.instance_type_name} has no current "
-                f"capacity in {self.config.region_name}"
-            )
+        return chosen, specs
 
     def _wait_for_active_instance(self, *, instance_id: str) -> dict[str, Any]:
         deadline = time.monotonic() + self.config.poll_timeout_seconds
@@ -307,12 +487,29 @@ class LambdaLabsSandboxBackend:
                     pass
 
 
+def _sandbox_tokens() -> dict[str, str]:
+    """Hugging Face credentials from the daemon env, for VM injection.
+
+    Mirrors the Modal backend's secret injection: gated on HF_TOKEN, with
+    HUGGING_FACE_HUB_TOKEN riding along when set.
+    """
+    token = os.environ.get("HF_TOKEN", "")
+    if not token:
+        return {}
+    tokens = {"HF_TOKEN": token}
+    hub_token = os.environ.get("HUGGING_FACE_HUB_TOKEN", "")
+    if hub_token:
+        tokens["HUGGING_FACE_HUB_TOKEN"] = hub_token
+    return tokens
+
+
 def build_user_data(
     *,
     public_key: str,
     experiment_id: str,
     workdir: str,
     sandbox_data_dir: str,
+    tokens: Mapping[str, str] | None = None,
 ) -> str:
     apt_packages = " ".join(shlex.quote(pkg) for pkg in LAMBDA_APT_PACKAGES)
     python_packages = " ".join(shlex.quote(pkg) for pkg in (*ML_PYTHON_PACKAGES, "mlflow==2.18.0", "tensorboard==2.18.0"))
@@ -321,36 +518,34 @@ def build_user_data(
     env_lines = "\n".join(
         [
             f"RP_WORKDIR={shlex.quote(workdir)}",
+            f"RP_SYNC_DIR={shlex.quote(workdir)}",
+            f"RP_UNSYNCED_DIR={shlex.quote(sandbox_data_dir)}",
             f"RP_EXPERIMENT_ID={shlex.quote(experiment_id)}",
             f"RP_SANDBOX_DATA_DIR={shlex.quote(sandbox_data_dir)}",
             f"RP_DATASET_DIR={shlex.quote(sandbox_data_dir)}",
             f"RP_TB_LOGDIR={shlex.quote(workdir + '/' + SESSIONS_DIR_NAME + '/' + experiment_id + '/tb')}",
             "MLFLOW_TRACKING_URI=http://localhost:5000",
+            # Credentials (e.g. HF_TOKEN) ride in /opt/rp/env with an explicit
+            # `export` so rec.sh's sourcing puts them in every SSH session's
+            # environment without naming them in its export list. The VM is
+            # single-tenant for the agent, which is allowed to *use* (not print)
+            # them — same exposure as Modal's secret-injected env vars.
+            *(
+                f"export {name}={shlex.quote(value)}"
+                for name, value in sorted((tokens or {}).items())
+            ),
         ]
     )
     return f"""#!/usr/bin/env bash
 set -euxo pipefail
 export DEBIAN_FRONTEND=noninteractive
-apt-get update
-apt-get install -y --no-install-recommends {apt_packages}
-ln -sf /usr/bin/fdfind /usr/local/bin/fd || true
-python3 -m pip install --break-system-packages --upgrade pip uv || python3 -m pip install --user --upgrade pip uv || true
-if [ -x /root/.local/bin/uv ]; then
-  install -m 0755 /root/.local/bin/uv /usr/local/bin/uv
-fi
-if ! command -v uv >/dev/null 2>&1; then
-  curl -LsSf https://astral.sh/uv/install.sh | sh || true
-  if [ -x /root/.local/bin/uv ]; then
-    install -m 0755 /root/.local/bin/uv /usr/local/bin/uv
-  fi
-fi
-if command -v uv >/dev/null 2>&1; then
-  uv pip install --system torch torchvision torchaudio || true
-  uv pip install --system {python_packages} || true
-else
-  python3 -m pip install --break-system-packages torch torchvision torchaudio {python_packages} || true
-fi
-mkdir -p /opt/rp /root/.ssh {shlex.quote(workdir)} {shlex.quote(sandbox_data_dir)}
+
+# === Phase 1: make the VM reachable + writable FAST, before the slow installs ===
+# Create the workspace tree and authorize SSH up front so the registry's initial
+# rsync — which fires the moment SSH is reachable — always lands in a writable
+# directory. This used to run *after* a multi-minute Torch install, so the first
+# push could race a not-yet-existent /workspace and fail.
+mkdir -p /opt/rp /root/.ssh {shlex.quote(workdir)} {shlex.quote(sandbox_data_dir)} {shlex.quote(workdir)}/artifacts_to_keep
 printf '%s' {shlex.quote(public_key_b64)} | base64 -d > /root/.ssh/authorized_keys
 chmod 700 /root/.ssh
 chmod 600 /root/.ssh/authorized_keys
@@ -376,6 +571,27 @@ PrintMotd no
 AcceptEnv LANG LC_*
 RP_SSHD
 systemctl restart ssh || systemctl restart sshd || service ssh restart || true
+
+# === Phase 2: heavy toolchain install (the VM is already usable by here) ===
+apt-get update
+apt-get install -y --no-install-recommends {apt_packages}
+ln -sf /usr/bin/fdfind /usr/local/bin/fd || true
+python3 -m pip install --break-system-packages --upgrade pip uv || python3 -m pip install --user --upgrade pip uv || true
+if [ -x /root/.local/bin/uv ]; then
+  install -m 0755 /root/.local/bin/uv /usr/local/bin/uv
+fi
+if ! command -v uv >/dev/null 2>&1; then
+  curl -LsSf https://astral.sh/uv/install.sh | sh || true
+  if [ -x /root/.local/bin/uv ]; then
+    install -m 0755 /root/.local/bin/uv /usr/local/bin/uv
+  fi
+fi
+if command -v uv >/dev/null 2>&1; then
+  uv pip install --system torch torchvision torchaudio || true
+  uv pip install --system {python_packages} || true
+else
+  python3 -m pip install --break-system-packages torch torchvision torchaudio {python_packages} || true
+fi
 """
 
 
@@ -384,10 +600,25 @@ def _sandbox_name(experiment_id: str) -> str:
     return f"rp-{safe or 'exp'}"[:60]
 
 
+def _run_ssh(command: list[str]) -> subprocess.CompletedProcess[str]:
+    return subprocess.run(
+        command, text=True, capture_output=True, timeout=TRANSCRIPT_READ_TIMEOUT_SECONDS
+    )
+
+
 def _call(cb: Any, *args: Any) -> None:
     if cb is not None:
         cb(*args)
 
 
+def _int_or_zero(value: Any) -> int:
+    try:
+        return int(value)
+    except (TypeError, ValueError):
+        return 0
+
+
 def build_lambda_labs_sandbox_backend(*, repo_root: Path | None = None, **_kwargs: Any) -> LambdaLabsSandboxBackend:
-    return LambdaLabsSandboxBackend(config=LambdaSandboxConfig.from_env())
+    # Lazy: do not resolve credentials/region/instance type at construction so
+    # the default backend can be built (and health-checked) with only an API key.
+    return LambdaLabsSandboxBackend()

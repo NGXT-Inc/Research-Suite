@@ -42,12 +42,10 @@ information.
 
 ```text
 project.current()
-project.status_and_next(project_id)
+workflow.status_and_next(project_id, experiment_id?)
 project.create(name, summary?)
 project.update(project_id, name?, summary?)
 project.get(project_id)
-project.get_settings(project_id)
-project.update_settings(project_id, sync_exclusions?, reset_sync_exclusions?)
 claim.list(project_id)
 claim.create(project_id, statement, scope?)
 claim.propose_update(project_id, claim_id, patch, rationale)
@@ -55,7 +53,7 @@ experiment.list(project_id)
 experiment.create(project_id, intent, tested_claim_ids?)
 experiment.get(project_id, experiment_id)
 experiment.get_state(project_id, experiment_id)   # see "get_state shape" below
-resource.list(project_id)
+resource.list(project_id, kind?, experiment_id?, missing?, compact?, limit?, offset?)
 review.status(project_id, target_type, target_id)
 event.list(project_id, limit?)
 ```
@@ -87,11 +85,8 @@ sufficient.
 ### Resource tools
 
 ```text
-resource.register_file(project_id, path, kind, title?)
-resource.observe_file(project_id, path)
-resource.sync_changed_files(project_id, paths?)
-resource.resolve(project_id, resource_id)
-resource.history(project_id, resource_id)
+resource.register_file(project_id, path?, paths?, kind, title?)  # single file or batch
+resource.resolve(project_id, resource_id, include_history?)       # include_history adds versions
 ```
 
 The server observes local repo files by path, stores latest metadata in
@@ -167,7 +162,8 @@ the service directly.) The slim shape, scoped to an experiment:
 
 When a sandbox is live, `sandbox` is `{ "active": true, "sandbox_id", "status",
 "gpu", "cpu", "memory", "ssh_host", "ssh_port", "ssh_user", "workdir",
-"sandbox_data_dir", "expires_at" }`. Dropped vs. the underlying `experiment.get_state`: the duplicate
+"sync_dir", "unsynced_dir", "local_sync_dir", "sandbox_data_dir", "expires_at" }`.
+Dropped vs. the underlying `experiment.get_state`: the duplicate
 all-attempts `resources` list, per-resource version bookkeeping (`version_token`,
 `mtime_ns`, `*_version_id`, `git_commit`, timestamps), full review
 prose/`evidence`/`target_snapshot_id`, and the project-wide claim/experiment
@@ -181,7 +177,10 @@ project setup, before any experiment exists), it returns
 `experiment.get_state` (and the per-experiment entries of `experiment.list`) is
 the *detail* call, so it keeps the substance — `intent`, `conclusion`, the
 resource list, and full review `findings` / `notes` / `evidence` / `verdict`.
-What it drops is pure waste:
+It also carries `allowed_transitions`: the transitions available from the
+current status, each with `leads_to` and (where gated) a `requires` hint — so
+the agent learns the next legal step and its preconditions without trial and
+error. What it drops is pure waste:
 
 - the duplicate all-attempts `resources` list (a copy of
   `current_attempt_resources`); resources from *earlier* attempts appear instead
@@ -196,17 +195,18 @@ What it drops is pure waste:
   `target_id`, `target_type`, `project_id`.
 
 The UI gets the full shape (the HTTP routes call the service directly). For
-per-resource version history, use `resource.history` / `resource.resolve`.
+per-resource version history, use `resource.resolve(include_history=true)`.
 
 ### Execution tools
 
 ```text
-sandbox.request(experiment_id, gpu?, cpu?, memory?, time_limit?)
+sandbox.options(gpu?, region?)
+sandbox.request(experiment_id, instance_type?, region?, gpu?, cpu?, memory?, time_limit?)
 sandbox.get(experiment_id)
 sandbox.sync(experiment_id)
 sandbox.list()
 sandbox.release(experiment_id)
-sandbox.terminal(experiment_id, tail?)
+sandbox.terminal(experiment_id, tail?, since?)   # cursor + running; poll with since=cursor for new output. Also last_exit_code / last_command_finished_at / command_running per command.
 sandbox.health()
 ```
 
@@ -217,34 +217,58 @@ runs shell commands on the sandbox itself. Lightweight work still runs locally.
 `sandbox.request` is the only procurement call. The registry keeps **one sandbox
 per experiment** and reuses the live one if it is still alive, otherwise creates
 a fresh one. The response carries `ssh` (host, port, user, key_path, command,
-raw_command), `workdir`, `sandbox_data_dir`, `volume`, `status`, `expires_at`,
-and `reused`.
+raw_command), `workdir`, `sync_dir`, `unsynced_dir`, `local_sync_dir`,
+`sandbox_data_dir`, `status`, `expires_at`, `reused`, and — when set — the
+reserved hardware (`gpu`, `cpu`, `memory`, `instance_type`, `region`).
 `ssh.command` is the short dispatcher form
 `.research_plugin/sbx <experiment_id>` (run from the repo root); `ssh.raw_command`
 is the full `ssh -i … user@host` line for use from any directory.
 
-Agents should prefer CPU-only sandboxes for exploratory data inspection,
-dataset downloads, schema checks, preprocessing scripts, joins, filtering, and
-other data engineering unless a command specifically needs GPU acceleration.
-Omit `gpu` for CPU-only. `cpu` is Modal CPU cores, where Modal documents 1 core
-as 2 vCPUs. `memory` is requested sandbox memory in MiB; set it explicitly when
-the dataset or operation needs more RAM.
+#### Hardware selection (provider-shaped)
 
-`workdir` is the mounted repo on the project Modal Volume. `sandbox_data_dir`
-is sandbox-local ephemeral storage outside that Volume (default
-`/workspace/sandbox_data`) and is exported inside SSH commands as
-`$RP_SANDBOX_DATA_DIR` and `$RP_DATASET_DIR`. Agents should download large
-datasets and caches there, then write only compact scripts, configs, metrics,
-and result artifacts back under `workdir`. Data transformations and temporary
-derived datasets left only under `sandbox_data_dir` are ephemeral and will not
-carry into future sandboxes; reusable preprocessing/analysis scripts and compact
-outputs should live under `workdir` and be persisted with `sandbox.sync`.
-Agents should also prefer to save a Markdown data note in the experiment folder
-under `workdir` (for example `experiments/<name>/data.md`) describing datasets
-used, source identifiers, split/filter choices, important columns, row counts,
-caveats, and where large ephemeral files were placed in `sandbox_data_dir`.
-Persist that note with `sandbox.sync` so future sandboxes carry the data context
-forward.
+Procurement differs by backend, and the **default backend is Lambda Labs**:
+
+- **Lambda Labs (default)** sells fixed machine SKUs that bundle GPU + vCPU + RAM
+  together, so the agent picks an `instance_type` rather than independent
+  cpu/memory. When `sandbox.request` arrives with **no `instance_type`** and the
+  experiment has **no live sandbox to reuse**, the server does **not** provision.
+  It returns `status: "needs_selection"` with a live, cheapest-first `options`
+  menu (each entry: `instance_type`, `gpu`, `gpu_count`, `vcpus`, `memory_gib`,
+  `storage_gib`, `price_usd_per_hour`, `regions`). The agent re-calls
+  `sandbox.request(experiment_id, instance_type=<choice>, region?=<choice>)`.
+  Omit `region` to auto-pick a region that currently has capacity. On Lambda,
+  `gpu` is a free-form *filter* over the menu and `cpu`/`memory` are ignored (the
+  SKU fixes them).
+- **Modal** composes the machine from the request: set `gpu` (a concrete
+  attachable GPU, e.g. `A100`/`H100`; omit for CPU-only), `cpu` (Modal CPU cores,
+  1 core = 2 vCPUs), and `memory` (MiB). Modal never returns `needs_selection`.
+
+`sandbox.options` is the read-only discovery call: it returns the active
+backend's current catalog (Lambda: live available instance types; Modal: the
+gpu/cpu/memory menu) plus a `hint` on how to request. It never provisions.
+
+Agents should prefer CPU-only / smaller machines for exploratory data
+inspection, dataset downloads, schema checks, preprocessing scripts, joins,
+filtering, and other data engineering unless a command specifically needs GPU
+acceleration. On Lambda that means picking the smallest/cheapest viable SKU from
+the menu; on Modal, omitting `gpu`.
+
+`workdir` is the synced working directory, currently the same as `sync_dir`
+(default `/workspace/synced`). `unsynced_dir` / `sandbox_data_dir` is
+sandbox-local ephemeral storage outside the synced tree (default
+`/workspace/unsynced`) and is exported inside SSH commands as
+`$RP_UNSYNCED_DIR`, `$RP_SANDBOX_DATA_DIR`, and `$RP_DATASET_DIR`. Agents should
+download large datasets, caches, checkpoints, parquet files, and heavy
+intermediates there, then write only scripts, configs, metrics, and compact
+results under `sync_dir`. Data transformations and temporary derived datasets
+left under `unsynced_dir` are ephemeral and will not carry into future
+sandboxes. If a large artifact deliberately must be preserved locally, agents
+place it under `$RP_SYNC_DIR/artifacts_to_keep`; this subdirectory is pulled by
+a separate higher-size rsync pass. Agents should also prefer to save a Markdown
+data note in the experiment folder under `sync_dir` (for example
+`experiments/<name>/data.md`) describing datasets used, source identifiers,
+split/filter choices, important columns, row counts, caveats, and where large
+ephemeral files were placed in `unsynced_dir`.
 
 When the backend has `HF_TOKEN` in its env file or process environment,
 `sandbox.request` / `sandbox.get` include an `environment.available_tokens`
@@ -252,21 +276,22 @@ entry naming `HF_TOKEN`. The token value is not returned. Inside SSH commands,
 `HF_TOKEN` and `HUGGING_FACE_HUB_TOKEN` are available for Hugging Face tooling.
 The backend passes the token through Modal's sandbox `secrets` API, not as a
 plain sandbox `env` value and not as a synced repo `.env` file.
-Agents must not print the token, write it into the mounted repo, or register it
-as a resource.
+Agents must not print the token, write it into synced files, or register it as a
+resource.
 
-At creation time, the sandbox sees the local repo state that was synced before
-boot. After that, experiment file changes should be made inside the sandbox.
-Before registering or associating result resources, the agent must call
-`sandbox.sync(experiment_id)`: it runs `sync <workdir>` in the live
-sandbox to commit mounted Volume changes, reloads/scans the Volume, and syncs
-those files into the local repo. This requires Modal Volumes v2; the backend
-creates new project Volumes with `version=2` because Modal documents
-`sync <mountpoint>` as v2-only. Resource tools only operate on local repo files,
-so a file produced remotely cannot be associated until `sandbox.sync` completes.
-Call `sandbox.sync` before `sandbox.release` for any outputs that must survive,
-and after major sandbox file changes so the user can inspect the latest local
-files while the sandbox is still running.
+When a fresh sandbox/VM is created, setup pushes the experiment's `local_sync_dir`
+to `$RP_SYNC_DIR` before returning `status: running`. This makes existing local
+experiment files available to a newly provisioned remote environment. Before
+registering or associating result resources, the agent must call
+`sandbox.sync(experiment_id)`: the daemon pulls `$RP_SYNC_DIR` over SSH with
+`rsync` into the experiment's `local_sync_dir`. The regular pass skips heavy file
+types and enforces a conservative file-size limit; `$RP_SYNC_DIR/artifacts_to_keep`
+is the deliberate exception path for large final artifacts. Resource tools only
+operate on local repo files, so a file produced remotely cannot be associated
+until it has synced locally. Call `sandbox.sync` before `sandbox.release` for
+any outputs that must survive, and after major sandbox file changes so the user
+can inspect the latest local files while the sandbox is still running. The
+daemon also runs a best-effort periodic rsync for live sandboxes.
 
 Provisioning is **best-effort-synchronous**. Creating a sandbox can outlast the
 MCP call timeout (large first sync, cold GPU), so `sandbox.request` provisions on
@@ -287,20 +312,31 @@ contract: call `request`, then if `provisioning` poll `get` every
 `poll_after_seconds` until `running`/`failed` — never re-call `request` to poll.
 
 Visibility: every SSH command and its output are recorded to a per-experiment
-transcript inside the sandbox. `sandbox.terminal` reads it (live from the
-sandbox, falling back to the committed Volume). The UI renders it as a terminal
-window. `workflow.status_and_next` may surface a last-known sandbox summary but
-stays a high-level orientation endpoint.
+transcript inside the sandbox. `sandbox.terminal` reads it live from the sandbox.
+The UI renders it as a terminal window. `workflow.status_and_next` may surface a
+last-known sandbox summary but stays a high-level orientation endpoint.
 
-The default backend is `modal`. Backend selection is controlled by
-`RESEARCH_PLUGIN_EXECUTION_BACKEND`; supported values are `modal` and `fake`
-(tests). The Modal backend mirrors each project into a per-project Modal Volume,
-mounts it writable at the remote workdir, and exposes SSH over an unencrypted
-Modal tunnel (`unencrypted_ports=[22]`). The registry generates a per-experiment
-SSH keypair and authorizes its public key in the sandbox. Repo changes sync back
-to the local repo through the Modal sync engine. The execution contract
-(`SandboxBackend`) stays narrow so additional providers can live inside
-`execution/backends/`.
+The default backend is `lambda_labs`. Backend selection is controlled by
+`RESEARCH_PLUGIN_EXECUTION_BACKEND`; supported values are `lambda_labs`, `modal`,
+and `fake` (tests). Lambda Labs exposes the VM's normal SSH endpoint and needs
+only `LAMBDA_LABS_API_KEY` (region/instance type are chosen per request, with
+optional `RESEARCH_PLUGIN_LAMBDA_REGION` / `RESEARCH_PLUGIN_LAMBDA_INSTANCE_TYPE`
+fallbacks). Modal exposes SSH over an unencrypted Modal tunnel
+(`unencrypted_ports=[22]`). The registry generates a per-experiment SSH keypair
+and authorizes its public key in the sandbox/VM. File sync is provider-neutral
+SSH rsync owned by `SandboxService`. The execution contract (`SandboxBackend`)
+stays narrow so additional providers can live inside `execution/backends/`; a
+backend advertises whether it `requires_hardware_selection` (bundled SKUs) and
+may expose an optional `hardware_catalog()` that powers `sandbox.options` and the
+`needs_selection` menu.
+
+`time_limit` is enforced. Modal sandboxes self-terminate at their server-side
+timeout; for backends without server-side lifetime (Lambda Labs VMs, which
+otherwise bill until manually killed), the daemon runs a background **reaper**
+that terminates any running sandbox past its `expires_at` (a best-effort final
+rsync runs first so results survive). The reaper polls every
+`RESEARCH_PLUGIN_SANDBOX_REAPER_INTERVAL` seconds (default 30) and can be
+disabled with `RESEARCH_PLUGIN_SANDBOX_REAPER=0`.
 
 Core HTTP/service calls still require an explicit `project_id`. In project-local
 MCP sessions, the proxy supplies that scope from hidden repo context and removes

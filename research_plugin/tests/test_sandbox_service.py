@@ -8,9 +8,42 @@ import unittest
 from pathlib import Path
 
 from backend.app import ResearchPluginApp
+from backend.http_api import ResearchHttpApi
 from backend.execution.backends.fake import FakeSandboxBackend
+from backend.execution.ssh_rsync import SshRsyncResult
 from backend.execution.types import SandboxRequest
 from backend.utils import NotFoundError, PermissionDeniedError, ValidationError
+
+
+class FakeRsyncSyncer:
+    def __init__(self) -> None:
+        self.calls: list[dict] = []
+        self.push_calls: list[dict] = []
+
+    def sync(self, **kwargs) -> SshRsyncResult:
+        self.calls.append(dict(kwargs))
+        return SshRsyncResult(
+            pulled=2,
+            duration_seconds=0.1,
+            local_dir=str(kwargs["local_sync_dir"]),
+            remote_dir=str(kwargs["remote_sync_dir"]),
+            command_count=2,
+            stdout="small.txt\n",
+            stderr="",
+        )
+
+    def push_initial(self, **kwargs) -> SshRsyncResult:
+        self.push_calls.append(dict(kwargs))
+        return SshRsyncResult(
+            pulled=1,
+            duration_seconds=0.1,
+            local_dir=str(kwargs["local_sync_dir"]),
+            remote_dir=str(kwargs["remote_sync_dir"]),
+            command_count=2,
+            stdout="seed.txt\n",
+            stderr="",
+            direction="push",
+        )
 
 
 class SandboxServiceTest(unittest.TestCase):
@@ -18,10 +51,12 @@ class SandboxServiceTest(unittest.TestCase):
         self.tmp = tempfile.TemporaryDirectory()
         self.repo = Path(self.tmp.name)
         self.backend = FakeSandboxBackend()
+        self.rsync = FakeRsyncSyncer()
         self.app = ResearchPluginApp(
             repo_root=self.repo,
             db_path=self.repo / ".research_plugin" / "state.sqlite",
             execution_backend=self.backend,
+            rsync_syncer=self.rsync,
         )
         self.project_id = self.call("project.create", name="Sandbox Project")["id"]
 
@@ -62,7 +97,16 @@ class SandboxServiceTest(unittest.TestCase):
         self.assertTrue(result["sandbox_id"])
         # Short agent-facing command goes through the repo-local dispatcher.
         self.assertEqual(result["ssh"]["command"], f".research_plugin/sbx {exp_id}")
-        self.assertEqual(result["sandbox_data_dir"], "/workspace/sandbox_data")
+        self.assertEqual(result["workdir"], "/workspace/synced")
+        self.assertEqual(result["sync_dir"], "/workspace/synced")
+        self.assertEqual(result["unsynced_dir"], "/workspace/unsynced")
+        self.assertEqual(result["sandbox_data_dir"], "/workspace/unsynced")
+        self.assertEqual(
+            Path(result["local_sync_dir"]).resolve(),
+            (self.repo / "experiments" / exp_id / "synced").resolve(),
+        )
+        self.assertEqual(self.rsync.push_calls[-1]["remote_sync_dir"], "/workspace/synced")
+        self.assertEqual(Path(self.rsync.push_calls[-1]["local_sync_dir"]), Path(result["local_sync_dir"]))
         # Full ssh line is still available as a cwd-independent fallback.
         self.assertTrue(result["ssh"]["raw_command"].startswith("ssh -i "))
         self.assertIn("@sandbox.modal.test", result["ssh"]["raw_command"])
@@ -168,7 +212,7 @@ class SandboxServiceTest(unittest.TestCase):
         created = self.call(
             "sandbox.request", project_id=self.project_id, experiment_id=exp_id
         )
-        view = self.app.sandboxes.get_for_ui(
+        view = ResearchHttpApi(app=self.app).sandbox_get_view(
             project_id=self.project_id, experiment_id=exp_id
         )
         self.assertEqual(
@@ -217,7 +261,7 @@ class SandboxServiceTest(unittest.TestCase):
             "sandbox.request", project_id=self.project_id, experiment_id=exp_id
         )
         self.assertEqual(result["dashboards"], {})
-        view = self.app.sandboxes.get_for_ui(
+        view = ResearchHttpApi(app=self.app).sandbox_get_view(
             project_id=self.project_id, experiment_id=exp_id
         )
         self.assertEqual(view["dashboards"], {})
@@ -249,7 +293,7 @@ class SandboxServiceTest(unittest.TestCase):
             "gpus": [{"index": 0, "name": "A100", "util_pct": 42, "mem_used_mib": 1024, "mem_total_mib": 40960}],
         }
         self.backend.metrics[created["sandbox_id"]] = sample
-        result = self.app.sandboxes.metrics_for_ui(
+        result = self.app.sandboxes.sample_metrics(
             project_id=self.project_id, experiment_id=exp_id
         )
         self.assertTrue(result["available"])
@@ -265,16 +309,156 @@ class SandboxServiceTest(unittest.TestCase):
         self.backend.append_transcript(experiment_id=exp_id, text="$ python train.py\nloss 0.1\n")
         term = self.call("sandbox.terminal", project_id=self.project_id, experiment_id=exp_id)
         self.assertIn("train.py", term["transcript"])
+        self.assertTrue(term["running"])
+        self.assertEqual(term["cursor"], len(term["transcript"]))
+
+    def test_terminal_since_returns_only_new_output(self) -> None:
+        exp_id = self._experiment()
+        self.call("sandbox.request", project_id=self.project_id, experiment_id=exp_id)
+        self.backend.append_transcript(experiment_id=exp_id, text="epoch 1\n")
+        first = self.call("sandbox.terminal", project_id=self.project_id, experiment_id=exp_id)
+        cursor = first["cursor"]
+        # No new output yet → since=cursor yields empty new output.
+        same = self.call(
+            "sandbox.terminal", project_id=self.project_id, experiment_id=exp_id, since=cursor
+        )
+        self.assertEqual(same["transcript"], "")
+        self.assertEqual(same["new_chars"], 0)
+        # New output appended → since=cursor returns ONLY the new bytes.
+        self.backend.append_transcript(experiment_id=exp_id, text="epoch 2\n")
+        delta = self.call(
+            "sandbox.terminal", project_id=self.project_id, experiment_id=exp_id, since=cursor
+        )
+        self.assertEqual(delta["transcript"], "epoch 2\n")
+        self.assertEqual(delta["new_chars"], len("epoch 2\n"))
+        self.assertEqual(delta["cursor"], cursor + len("epoch 2\n"))
+
+    def test_terminal_running_false_after_release(self) -> None:
+        exp_id = self._experiment()
+        self.call("sandbox.request", project_id=self.project_id, experiment_id=exp_id)
+        self.call("sandbox.release", project_id=self.project_id, experiment_id=exp_id)
+        term = self.call("sandbox.terminal", project_id=self.project_id, experiment_id=exp_id)
+        self.assertFalse(term["running"])
+
+    def test_terminal_passes_stored_ssh_details_to_backend(self) -> None:
+        # SSH-transcript backends (Lambda Labs) read the log over plain SSH, so
+        # the registry must hand read_transcript the row's stored endpoint and
+        # the per-experiment private key path.
+        exp_id = self._experiment()
+        self.call("sandbox.request", project_id=self.project_id, experiment_id=exp_id)
+        self.call("sandbox.terminal", project_id=self.project_id, experiment_id=exp_id)
+        read = self.backend.transcript_reads[-1]
+        self.assertEqual(read["ssh_host"], "sandbox.modal.test")
+        self.assertEqual(read["ssh_port"], 40001)
+        self.assertEqual(read["ssh_user"], "root")
+        self.assertEqual(
+            Path(read["key_path"]).resolve(),
+            (self.repo / ".research_plugin" / "sandboxes" / "keys" / exp_id).resolve(),
+        )
+
+    # ---- terminal: per-command exit status (rec.sh markers) ----
+
+    @staticmethod
+    def _rec(command: str, output: str, exit_code: int, *, ts: str = "2026-06-09T12:00:00Z") -> str:
+        """A completed-command transcript block in the rec.sh marker format."""
+        return f"\n[{ts}] $ {command}\n{output}[{ts}] (exit {exit_code})\n"
+
+    def test_terminal_parses_successful_exit_code(self) -> None:
+        exp_id = self._experiment()
+        self.call("sandbox.request", project_id=self.project_id, experiment_id=exp_id)
+        self.backend.append_transcript(
+            experiment_id=exp_id,
+            text=self._rec("python train.py", "loss 0.1\n", 0, ts="2026-06-09T12:00:05Z"),
+        )
+        term = self.call("sandbox.terminal", project_id=self.project_id, experiment_id=exp_id)
+        self.assertEqual(term["last_exit_code"], 0)
+        self.assertEqual(term["last_command_finished_at"], "2026-06-09T12:00:05Z")
+        self.assertFalse(term["command_running"])
+
+    def test_terminal_reports_nonzero_exit_code(self) -> None:
+        exp_id = self._experiment()
+        self.call("sandbox.request", project_id=self.project_id, experiment_id=exp_id)
+        self.backend.append_transcript(
+            experiment_id=exp_id, text=self._rec("false", "", 1)
+        )
+        term = self.call("sandbox.terminal", project_id=self.project_id, experiment_id=exp_id)
+        self.assertEqual(term["last_exit_code"], 1)
+        self.assertFalse(term["command_running"])
+
+    def test_terminal_command_running_when_no_exit_marker_yet(self) -> None:
+        exp_id = self._experiment()
+        self.call("sandbox.request", project_id=self.project_id, experiment_id=exp_id)
+        # A command started and is still streaming output — no exit marker yet.
+        self.backend.append_transcript(
+            experiment_id=exp_id, text="\n[2026-06-09T12:00:00Z] $ sleep 100\npartial...\n"
+        )
+        term = self.call("sandbox.terminal", project_id=self.project_id, experiment_id=exp_id)
+        self.assertTrue(term["command_running"])
+        self.assertIsNone(term["last_exit_code"])
+        self.assertIsNone(term["last_command_finished_at"])
+
+    def test_terminal_uses_latest_exit_marker(self) -> None:
+        exp_id = self._experiment()
+        self.call("sandbox.request", project_id=self.project_id, experiment_id=exp_id)
+        self.backend.append_transcript(
+            experiment_id=exp_id, text=self._rec("true", "", 0, ts="2026-06-09T12:00:01Z")
+        )
+        self.backend.append_transcript(
+            experiment_id=exp_id, text=self._rec("exit 2", "", 2, ts="2026-06-09T12:00:09Z")
+        )
+        term = self.call("sandbox.terminal", project_id=self.project_id, experiment_id=exp_id)
+        self.assertEqual(term["last_exit_code"], 2)
+        self.assertEqual(term["last_command_finished_at"], "2026-06-09T12:00:09Z")
+        self.assertFalse(term["command_running"])
+
+    def test_terminal_exit_fields_null_without_markers(self) -> None:
+        # Old-style transcript with no rec.sh markers → best-effort nulls.
+        exp_id = self._experiment()
+        self.call("sandbox.request", project_id=self.project_id, experiment_id=exp_id)
+        self.backend.append_transcript(experiment_id=exp_id, text="$ python train.py\nloss 0.1\n")
+        term = self.call("sandbox.terminal", project_id=self.project_id, experiment_id=exp_id)
+        self.assertIsNone(term["last_exit_code"])
+        self.assertIsNone(term["last_command_finished_at"])
+        self.assertFalse(term["command_running"])
+
+    def test_terminal_exit_code_survives_since_cursor(self) -> None:
+        # last_exit_code is parsed from the FULL transcript, so an incremental
+        # poll that returns no new output still reports the finished command.
+        exp_id = self._experiment()
+        self.call("sandbox.request", project_id=self.project_id, experiment_id=exp_id)
+        self.backend.append_transcript(experiment_id=exp_id, text=self._rec("true", "", 0))
+        first = self.call("sandbox.terminal", project_id=self.project_id, experiment_id=exp_id)
+        cursor = first["cursor"]
+        delta = self.call(
+            "sandbox.terminal", project_id=self.project_id, experiment_id=exp_id, since=cursor
+        )
+        self.assertEqual(delta["transcript"], "")
+        self.assertEqual(delta["new_chars"], 0)
+        self.assertEqual(delta["last_exit_code"], 0)
+
+    def test_terminal_command_running_false_when_sandbox_dead(self) -> None:
+        # A terminated sandbox whose log ends on a command-start marker is not
+        # "running a command" — command_running is gated on the sandbox liveness.
+        exp_id = self._experiment()
+        self.call("sandbox.request", project_id=self.project_id, experiment_id=exp_id)
+        self.backend.append_transcript(
+            experiment_id=exp_id, text="\n[2026-06-09T12:00:00Z] $ sleep 100\n"
+        )
+        self.call("sandbox.release", project_id=self.project_id, experiment_id=exp_id)
+        term = self.call("sandbox.terminal", project_id=self.project_id, experiment_id=exp_id)
+        self.assertFalse(term["running"])
+        self.assertFalse(term["command_running"])
 
     def test_sync_commits_sandbox_and_returns_resource_guidance(self) -> None:
         exp_id = self._experiment()
         created = self.call("sandbox.request", project_id=self.project_id, experiment_id=exp_id)
         result = self.call("sandbox.sync", project_id=self.project_id, experiment_id=exp_id)
         self.assertEqual(result["status"], "running")
-        self.assertEqual(result["sync"]["sandbox_id"], created["sandbox_id"])
-        self.assertTrue(result["sync"]["committed"])
+        self.assertEqual(result["sync"]["provider"], "ssh_rsync")
+        self.assertEqual(result["sync"]["pulled"], 2)
         self.assertIn("resource.register_file", result["hint"])
-        self.assertEqual(self.backend.synced[-1]["sandbox_id"], created["sandbox_id"])
+        self.assertEqual(self.rsync.calls[-1]["ssh_host"], created["ssh"]["host"])
+        self.assertEqual(self.rsync.calls[-1]["remote_sync_dir"], "/workspace/synced")
 
     def test_sync_requires_running_sandbox(self) -> None:
         exp_id = self._experiment()
@@ -311,6 +495,160 @@ class SandboxServiceTest(unittest.TestCase):
         with self.assertRaises(ValidationError):
             self.call("sandbox.request", project_id=self.project_id, experiment_id=exp_id, time_limit=5)
 
+    # ---- hardware selection (bundled-hardware backends like Lambda Labs) ----
+
+    def _require_hardware_selection(self) -> None:
+        """Flip the fake backend into Lambda-style bundled-hardware behavior."""
+        from backend.execution.types import BackendCapabilities
+
+        self.backend.capabilities = BackendCapabilities(
+            name="fake",
+            requires_hardware_selection=True,
+            configurable_resources=False,
+        )
+
+        def catalog(*, gpu=None, region=None):
+            options = [
+                {"instance_type": "gpu_1x_a10", "gpu": "A10", "gpu_count": 1,
+                 "vcpus": 30, "memory_gib": 200, "price_usd_per_hour": 0.75,
+                 "regions": ["us-west-1"], "available": True},
+                {"instance_type": "gpu_8x_h100", "gpu": "H100", "gpu_count": 8,
+                 "vcpus": 208, "memory_gib": 1800, "price_usd_per_hour": 35.92,
+                 "regions": ["us-east-1"], "available": True},
+            ]
+            if gpu:
+                needle = str(gpu).upper()
+                options = [o for o in options if needle in o["gpu"].upper()]
+            return {
+                "provider": "lambda_labs", "selection_required": True,
+                "select_with": "instance_type", "reason": "bundled hardware",
+                "regions": ["us-east-1", "us-west-1"], "count": len(options),
+                "options": options,
+            }
+
+        self.backend.hardware_catalog = catalog  # type: ignore[attr-defined]
+
+    def test_request_without_instance_type_returns_menu(self) -> None:
+        self._require_hardware_selection()
+        exp_id = self._experiment()
+        result = self.call("sandbox.request", project_id=self.project_id, experiment_id=exp_id)
+        self.assertEqual(result["status"], "needs_selection")
+        self.assertEqual(result["options"][0]["instance_type"], "gpu_1x_a10")
+        self.assertIn("instance_type", result["hint"])
+        # Nothing was provisioned — no money spent picking the menu.
+        self.assertEqual(len(self.backend.acquired), 0)
+
+    def test_request_with_instance_type_provisions_and_records_it(self) -> None:
+        self._require_hardware_selection()
+        exp_id = self._experiment()
+        result = self.call(
+            "sandbox.request", project_id=self.project_id, experiment_id=exp_id,
+            instance_type="gpu_1x_a10", region="us-west-1",
+        )
+        self.assertEqual(result["status"], "running")
+        self.assertEqual(result["instance_type"], "gpu_1x_a10")
+        self.assertEqual(result["region"], "us-west-1")
+        self.assertEqual(len(self.backend.acquired), 1)
+        self.assertEqual(self.backend.acquired[0].instance_type, "gpu_1x_a10")
+        self.assertEqual(self.backend.acquired[0].region, "us-west-1")
+
+    def test_request_freeform_gpu_not_rejected_on_bundled_backend(self) -> None:
+        self._require_hardware_selection()
+        exp_id = self._experiment()
+        # 'A10' is not a Modal VALID_GPUS name; on a bundled backend it is a
+        # filter, so it must not raise — it just still needs an instance_type.
+        result = self.call(
+            "sandbox.request", project_id=self.project_id, experiment_id=exp_id, gpu="A10"
+        )
+        self.assertEqual(result["status"], "needs_selection")
+
+    def test_options_returns_backend_catalog(self) -> None:
+        self._require_hardware_selection()
+        result = self.call("sandbox.options", project_id=self.project_id)
+        self.assertEqual(result["provider"], "lambda_labs")
+        self.assertEqual(result["backend"], "fake")
+        self.assertEqual(result["options"][0]["instance_type"], "gpu_1x_a10")
+        self.assertIn("instance_type", result["hint"])
+
+    def test_options_filters_by_gpu(self) -> None:
+        self._require_hardware_selection()
+        result = self.call("sandbox.options", project_id=self.project_id, gpu="h100")
+        self.assertEqual([o["instance_type"] for o in result["options"]], ["gpu_8x_h100"])
+
+    def test_reused_bundled_sandbox_skips_menu_and_keeps_instance_type(self) -> None:
+        self._require_hardware_selection()
+        exp_id = self._experiment()
+        self.call(
+            "sandbox.request", project_id=self.project_id, experiment_id=exp_id,
+            instance_type="gpu_1x_a10",
+        )
+        # A re-request without instance_type reuses the live sandbox rather than
+        # re-prompting for selection.
+        second = self.call("sandbox.request", project_id=self.project_id, experiment_id=exp_id)
+        self.assertTrue(second["reused"])
+        self.assertEqual(second["instance_type"], "gpu_1x_a10")
+
+    def test_options_tool_is_registered(self) -> None:
+        names = {tool["name"] for tool in self.app.list_tools()}
+        self.assertIn("sandbox.options", names)
+
+    # ---- expiration reaper ----
+
+    def test_reaper_terminates_expired_sandbox(self) -> None:
+        exp_id = self._experiment()
+        created = self.call("sandbox.request", project_id=self.project_id, experiment_id=exp_id)
+        sid = created["sandbox_id"]
+        with self.app.store.transaction() as conn:
+            conn.execute(
+                "UPDATE sandboxes SET expires_at=? WHERE experiment_id=?",
+                ("2000-01-01T00:00:00Z", exp_id),
+            )
+        reaped = self.app.sandboxes.reap_expired()
+        self.assertEqual(reaped, 1)
+        self.assertIn(sid, self.backend.terminated)
+        # A best-effort final sync runs before the kill so outputs survive.
+        self.assertTrue(self.rsync.calls)
+        got = self.call("sandbox.get", project_id=self.project_id, experiment_id=exp_id)
+        self.assertEqual(got["status"], "terminated")
+
+    def test_reaper_reverts_running_experiment_to_ready(self) -> None:
+        exp_id = self._experiment()
+        self.call("sandbox.request", project_id=self.project_id, experiment_id=exp_id)
+        state = self.call("experiment.get_state", project_id=self.project_id, experiment_id=exp_id)
+        self.assertEqual(state["status"], "running")
+        with self.app.store.transaction() as conn:
+            conn.execute(
+                "UPDATE sandboxes SET expires_at=? WHERE experiment_id=?",
+                ("2000-01-01T00:00:00Z", exp_id),
+            )
+        self.assertEqual(self.app.sandboxes.reap_expired(), 1)
+        state = self.call("experiment.get_state", project_id=self.project_id, experiment_id=exp_id)
+        self.assertEqual(state["status"], "ready_to_run")
+
+    def test_reaper_leaves_experiments_past_running_alone(self) -> None:
+        exp_id = self._experiment()
+        self.call("sandbox.request", project_id=self.project_id, experiment_id=exp_id)
+        with self.app.store.transaction() as conn:
+            conn.execute(
+                "UPDATE experiments SET status = 'experiment_review' WHERE id = ?", (exp_id,)
+            )
+            conn.execute(
+                "UPDATE sandboxes SET expires_at=? WHERE experiment_id=?",
+                ("2000-01-01T00:00:00Z", exp_id),
+            )
+        self.assertEqual(self.app.sandboxes.reap_expired(), 1)
+        state = self.call("experiment.get_state", project_id=self.project_id, experiment_id=exp_id)
+        self.assertEqual(state["status"], "experiment_review")
+
+    def test_reaper_skips_unexpired_sandbox(self) -> None:
+        exp_id = self._experiment()
+        self.call(
+            "sandbox.request", project_id=self.project_id, experiment_id=exp_id, time_limit=3600
+        )
+        self.assertEqual(self.app.sandboxes.reap_expired(), 0)
+        got = self.call("sandbox.get", project_id=self.project_id, experiment_id=exp_id)
+        self.assertEqual(got["status"], "running")
+
     # ---- async provisioning ----
 
     def _await_status(self, exp_id: str, target: str, timeout: float = 5.0) -> dict:
@@ -339,6 +677,23 @@ class SandboxServiceTest(unittest.TestCase):
         final = self._await_status(exp_id, "running")
         self.assertEqual(final["status"], "running")
         self.assertEqual(final["ssh"]["command"], f".research_plugin/sbx {exp_id}")
+
+    def test_request_during_provisioning_does_not_double_provision(self) -> None:
+        # The one-sandbox-per-experiment invariant: re-calling request while a
+        # provision is in flight attaches to the SAME job (no second acquire),
+        # and after it settles there is still exactly one sandbox.
+        self.app.sandboxes.request_wait_seconds = 0.05
+        self.backend.gate = threading.Event()
+        exp_id = self._experiment()
+        first = self.call("sandbox.request", project_id=self.project_id, experiment_id=exp_id)
+        self.assertEqual(first["status"], "provisioning")
+        second = self.call("sandbox.request", project_id=self.project_id, experiment_id=exp_id)
+        self.assertEqual(second["status"], "provisioning")
+        self.assertEqual(len(self.backend.acquired), 1)  # no duplicate provision
+        self.backend.gate.set()
+        final = self._await_status(exp_id, "running")
+        self.assertEqual(final["status"], "running")
+        self.assertEqual(len(self.backend.acquired), 1)
 
     def test_provisioning_failure_marks_failed_and_cleans_up(self) -> None:
         self.app.sandboxes.request_wait_seconds = 2.0

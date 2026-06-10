@@ -32,6 +32,38 @@ class ResourceService:
     def register_file(
         self,
         *,
+        path: str | None = None,
+        paths: list[str] | None = None,
+        kind: str = "other",
+        title: str = "",
+        created_by: str = "codex",
+        project_id: str | None = None,
+    ) -> dict[str, Any]:
+        """Register/observe one file (``path``) or a batch (``paths``).
+
+        A single ``path`` returns the resolved resource. A ``paths`` batch
+        returns ``{"synced": [...], "count": n}`` so one tool covers both the
+        single-file and changed-files-sweep cases.
+        """
+        if paths:
+            resources = [
+                self._register_one(
+                    path=p, kind=kind, title=title, created_by=created_by, project_id=project_id
+                )
+                for p in paths
+            ]
+            return {"synced": resources, "count": len(resources)}
+        if not path:
+            raise ValidationError(
+                "resource.register_file requires 'path' (a single file) or 'paths' (a batch)"
+            )
+        return self._register_one(
+            path=path, kind=kind, title=title, created_by=created_by, project_id=project_id
+        )
+
+    def _register_one(
+        self,
+        *,
         path: str,
         kind: str = "other",
         title: str = "",
@@ -121,15 +153,6 @@ class ResourceService:
             )
             return self.resolve(resource_id=resource_id, conn=conn)
 
-    def observe_file(self, *, path: str, project_id: str | None = None) -> dict[str, Any]:
-        return self.register_file(path=path, project_id=project_id)
-
-    def sync_changed_files(self, *, paths: list[str], project_id: str | None = None) -> dict[str, Any]:
-        if not paths:
-            raise ValidationError("paths is required for v0.0001 sync")
-        resources = [self.register_file(path=path, project_id=project_id) for path in paths]
-        return {"synced": resources, "count": len(resources)}
-
     def delete(self, *, resource_id: str, project_id: str | None = None) -> dict[str, Any]:
         with self.store.transaction() as conn:
             project_id = self.store.require_project_id(conn=conn, project_id=project_id)
@@ -213,15 +236,67 @@ class ResourceService:
             )
             return self.resolve(resource_id=resource_id, conn=conn)
 
-    def list_resources(self, *, project_id: str | None = None) -> dict[str, Any]:
+    def list_resources(
+        self,
+        *,
+        project_id: str | None = None,
+        kind: str | None = None,
+        experiment_id: str | None = None,
+        missing: bool | None = None,
+        compact: bool = False,
+        limit: int | None = None,
+        offset: int = 0,
+    ) -> dict[str, Any]:
+        """List registered resources with optional filters + pagination.
+
+        ``compact=True`` returns a lean projection without the heavy nested
+        ``current_version`` so large projects can be listed (and change-detected
+        via ``version_token``) without re-pulling hundreds of KB per call.
+        """
         conn = self.store.connect()
         try:
             project_id = self.store.require_project_id(conn=conn, project_id=project_id)
-            rows = conn.execute(
-                "SELECT * FROM resources WHERE project_id = ? AND deleted = 0 ORDER BY path",
-                (project_id,),
-            ).fetchall()
-            return {"resources": [self._hydrate_resource(row=row, conn=conn) for row in rows]}
+            where = ["r.project_id = ?", "r.deleted = 0"]
+            params: list[Any] = [project_id]
+            if kind:
+                where.append("r.kind = ?")
+                params.append(kind)
+            if missing is not None:
+                where.append("r.missing = ?")
+                params.append(1 if missing else 0)
+            join = ""
+            if experiment_id:
+                join = (
+                    " JOIN resource_associations a ON a.resource_id = r.id "
+                    "AND a.target_type = 'experiment' AND a.target_id = ?"
+                )
+                params.insert(0, experiment_id)  # join param precedes WHERE params
+            base = f"FROM resources r{join} WHERE {' AND '.join(where)}"
+            total = int(
+                conn.execute(f"SELECT count(DISTINCT r.id) {base}", params).fetchone()[0]
+            )
+            query = f"SELECT DISTINCT r.* {base} ORDER BY r.path"
+            page_params = list(params)
+            if limit is not None:
+                query += " LIMIT ? OFFSET ?"
+                page_params += [int(limit), int(offset)]
+            elif offset:
+                query += " LIMIT -1 OFFSET ?"
+                page_params.append(int(offset))
+            rows = conn.execute(query, page_params).fetchall()
+            resources = [
+                self._hydrate_resource(row=row, conn=conn, compact=compact) for row in rows
+            ]
+            returned = len(resources)
+            return {
+                "resources": resources,
+                "count": returned,
+                "returned": returned,
+                "total": total,
+                "offset": int(offset),
+                "has_more": (int(offset) + returned) < total,
+                "compact": bool(compact),
+            }
         finally:
             conn.close()
 
@@ -230,8 +305,15 @@ class ResourceService:
         *,
         resource_id: str,
         project_id: str | None = None,
+        include_history: bool = False,
         conn: sqlite3.Connection | None = None,
     ) -> dict[str, Any]:
+        """Resolve one registered resource.
+
+        ``include_history=True`` attaches the resource's immutable observed
+        ``versions`` (oldest-first) under a ``versions`` key — folding what was
+        the separate ``resource.history`` tool into this one.
+        """
         owns_conn = conn is None
         if conn is None:
             conn = self.store.connect()
@@ -243,7 +325,21 @@ class ResourceService:
                 raise NotFoundError(f"resource not found: {resource_id}")
             if project_id is not None and row["project_id"] != project_id:
                 raise NotFoundError(f"resource not found in project {project_id}: {resource_id}")
-            return self._hydrate_resource(row=row, conn=conn)
+            resource = self._hydrate_resource(row=row, conn=conn)
+            if include_history:
+                version_rows = conn.execute(
+                    """
+                    SELECT *
+                    FROM resource_versions
+                    WHERE resource_id = ? AND project_id = ?
+                    ORDER BY rowid
+                    """,
+                    (resource_id, row["project_id"]),
+                ).fetchall()
+                resource["versions"] = [
+                    self._hydrate_version(row=version_row, conn=conn) for version_row in version_rows
+                ]
+            return resource
         finally:
             if owns_conn:
                 conn.close()
@@ -344,8 +440,19 @@ class ResourceService:
                 )
         return {"count": len(changed), "changed": changed}
 
-    def _hydrate_resource(self, *, row: sqlite3.Row, conn: sqlite3.Connection) -> dict[str, Any]:
+    _COMPACT_FIELDS = (
+        "id", "project_id", "path", "kind", "title", "current_version_id",
+        "version_token", "missing", "updated_at",
+    )
+
+    def _hydrate_resource(
+        self, *, row: sqlite3.Row, conn: sqlite3.Connection, compact: bool = False
+    ) -> dict[str, Any]:
         data = row_to_dict(row=row) or {}
+        if compact:
+            # Lean projection: omit associations + the heavy nested current_version.
+            # version_token is kept so callers can detect changes cheaply.
+            return {k: data.get(k) for k in self._COMPACT_FIELDS}
         assoc_rows = conn.execute(
             """
             SELECT target_type, target_id, role, attempt_index, version_id

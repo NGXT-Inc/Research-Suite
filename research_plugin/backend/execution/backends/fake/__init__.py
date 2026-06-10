@@ -5,6 +5,7 @@ from __future__ import annotations
 import threading
 
 from ...errors import BackendUnavailableError
+from ...sync_dirs import DEFAULT_SYNC_DIR, DEFAULT_UNSYNCED_DIR
 from ...types import (
     BackendCapabilities,
     OnCreated,
@@ -30,13 +31,36 @@ class FakeSandboxBackend:
       - ``fail_immediately``: raise before any sandbox is created.
     """
 
-    def __init__(self) -> None:
-        self.capabilities = BackendCapabilities(name="fake")
+    def __init__(
+        self,
+        *,
+        requires_hardware_selection: bool = False,
+        configurable_resources: bool = True,
+        catalog_options: list[dict] | None = None,
+        catalog_regions: list[str] | None = None,
+    ) -> None:
+        self.capabilities = BackendCapabilities(
+            name="fake",
+            requires_hardware_selection=requires_hardware_selection,
+            configurable_resources=configurable_resources,
+        )
+        # Bundled-hardware (Lambda-style) selection menu. Off by default so the
+        # backend stays a composable-resources stand-in for Modal; opt in to
+        # exercise the needs_selection / sandbox.options flow without a cloud.
+        # Gated: only when selection is required do we expose ``hardware_catalog``
+        # at all, so default instances behave exactly as before (no catalog).
+        self._catalog_options = catalog_options
+        self._catalog_regions = catalog_regions
+        if requires_hardware_selection:
+            self.hardware_catalog = self._hardware_catalog_impl  # type: ignore[assignment]
         self.counter = 0
         self.acquired: list[SandboxRequest] = []
         self.alive: dict[str, bool] = {}
         self.terminated: list[str] = []
         self.transcripts: dict[str, str] = {}
+        # Kwargs of every read_transcript call, so tests can assert the
+        # registry hands backends the stored SSH endpoint + key.
+        self.transcript_reads: list[dict] = []
         self.by_experiment: dict[str, str] = {}
         # Live SSH endpoint per sandbox id; move_endpoint() simulates a tunnel
         # that Modal relocated so refresh_ssh_endpoint() can be exercised.
@@ -53,7 +77,6 @@ class FakeSandboxBackend:
         self.fail_immediately = False
         # metrics knob: per-sandbox-id sample dict (None => unavailable).
         self.metrics: dict[str, dict | None] = {}
-        self.synced: list[dict] = []
 
     def acquire(
         self,
@@ -64,19 +87,17 @@ class FakeSandboxBackend:
     ) -> ProvisionedSandbox:
         self.acquired.append(request)
         if on_phase is not None:
-            on_phase("syncing", "pushing repo to volume")
-            self.phases.append(("syncing", request.experiment_id))
+            on_phase("creating", f"gpu={request.gpu or 'cpu'}")
+            self.phases.append(("creating", request.experiment_id))
         if self.fail_immediately:
             raise BackendUnavailableError("fake create failure")
-        if on_phase is not None:
-            on_phase("creating", f"gpu={request.gpu or 'cpu'}")
         self.counter += 1
         sandbox_id = f"sb-{self.counter}"
         name = f"rp-{request.experiment_id}"
         self.alive[sandbox_id] = True
         self.by_experiment[request.experiment_id] = sandbox_id
         self.endpoints[sandbox_id] = ("sandbox.modal.test", 40000 + self.counter)
-        workdir = request.remote_workdir or "/workspace/repo"
+        workdir = request.remote_workdir or DEFAULT_SYNC_DIR
         # Past create: a failure must terminate the sandbox (mirrors Modal).
         try:
             if on_created is not None:
@@ -107,10 +128,15 @@ class FakeSandboxBackend:
             ssh_port=port,
             ssh_user="root",
             workdir=workdir,
-            volume_name=f"research-plugin-{request.project_id}",
-            sandbox_data_dir="/workspace/sandbox_data",
+            volume_name="",
+            sync_dir=workdir,
+            unsynced_dir=DEFAULT_UNSYNCED_DIR,
+            sandbox_data_dir=DEFAULT_UNSYNCED_DIR,
             reused=False,
             dashboards=dict(self.dashboards[sandbox_id]),
+            gpu=request.gpu or "",
+            instance_type=request.instance_type or "",
+            region=request.region or "",
         )
 
     def refresh_ssh_endpoint(self, *, sandbox_id: str) -> tuple[str, int] | None:
@@ -145,7 +171,22 @@ class FakeSandboxBackend:
         volume_name: str,
         workdir: str,
         tail: int | None = None,
+        ssh_host: str = "",
+        ssh_port: int = 0,
+        ssh_user: str = "",
+        key_path: str = "",
     ) -> str:
+        self.transcript_reads.append(
+            {
+                "sandbox_id": sandbox_id,
+                "experiment_id": experiment_id,
+                "workdir": workdir,
+                "ssh_host": ssh_host,
+                "ssh_port": ssh_port,
+                "ssh_user": ssh_user,
+                "key_path": key_path,
+            }
+        )
         text = self.transcripts.get(experiment_id, "")
         if tail and tail > 0 and len(text) > tail:
             return text[-tail:]
@@ -156,39 +197,63 @@ class FakeSandboxBackend:
             return None
         return self.metrics.get(sandbox_id)
 
-    def sync_sandbox_files(
-        self,
-        *,
-        project_id: str,
-        sandbox_id: str,
-        workdir: str,
-        volume_name: str,
-    ) -> dict:
-        if not self.alive.get(sandbox_id):
-            raise BackendUnavailableError("fake sandbox is not running")
-        result = {
-            "project_id": project_id,
-            "sandbox_id": sandbox_id,
-            "workdir": workdir,
-            "volume": volume_name,
-            "committed": True,
-            "pushed": 0,
-            "pulled": 0,
-            "deleted_remote": 0,
-            "deleted_local": 0,
-            "conflicts": 0,
-            "skipped_conflicts": [],
-            "skipped_busy": False,
-            "coalesced": False,
-        }
-        self.synced.append(result)
-        return result
-
     def sandbox_environment(self) -> dict:
         return {"available_tokens": [], "notes": []}
 
     def health(self) -> dict:
         return {"ok": self.healthy, "name": self.capabilities.name}
+
+    # ---- bundled-hardware selection (opt-in; mirrors Lambda Labs) ----
+
+    def _default_catalog_options(self) -> list[dict]:
+        """A small, deterministic, cheapest-first SKU menu (Lambda-shaped)."""
+        return [
+            {"instance_type": "gpu_1x_a10", "gpu": "A10", "gpu_count": 1,
+             "vcpus": 30, "memory_gib": 200, "storage_gib": 1400,
+             "price_usd_per_hour": 0.75, "regions": ["us-west-1"], "available": True},
+            {"instance_type": "gpu_1x_a100", "gpu": "A100", "gpu_count": 1,
+             "vcpus": 30, "memory_gib": 200, "storage_gib": 1024,
+             "price_usd_per_hour": 1.29, "regions": ["us-east-1", "us-west-1"],
+             "available": True},
+            {"instance_type": "gpu_8x_h100", "gpu": "H100", "gpu_count": 8,
+             "vcpus": 208, "memory_gib": 1800, "storage_gib": 26000,
+             "price_usd_per_hour": 23.92, "regions": ["us-east-1"], "available": True},
+        ]
+
+    def _hardware_catalog_impl(self, *, gpu: str | None = None, region: str | None = None) -> dict:
+        """Filterable, cheapest-first menu — only bound when selection is on."""
+        options = (
+            self._default_catalog_options()
+            if self._catalog_options is None
+            else [dict(option) for option in self._catalog_options]
+        )
+        if gpu:
+            needle = str(gpu).strip().upper()
+            options = [o for o in options if needle in str(o.get("gpu", "")).upper()]
+        if region:
+            needle = str(region).strip().lower()
+            options = [
+                o for o in options
+                if needle in [str(r).lower() for r in o.get("regions", [])]
+            ]
+        options.sort(key=lambda o: (o.get("price_usd_per_hour", 0.0), o.get("instance_type") or ""))
+        regions = (
+            list(self._catalog_regions)
+            if self._catalog_regions is not None
+            else sorted({r for o in options for r in o.get("regions", [])})
+        )
+        return {
+            "provider": "fake",
+            "selection_required": self.capabilities.requires_hardware_selection,
+            "select_with": "instance_type",
+            "reason": (
+                "Fake bundled-hardware backend: GPU+CPU+RAM ship as fixed machine "
+                "types — pick one instance_type (mirrors Lambda Labs)."
+            ),
+            "regions": regions,
+            "count": len(options),
+            "options": options,
+        }
 
     # ---- test helpers ----
 

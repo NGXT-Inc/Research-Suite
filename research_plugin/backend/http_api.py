@@ -21,6 +21,7 @@ from . import __version__
 from .app import ResearchPluginApp
 from .contracts import PROJECT_SCOPED_TOOL_NAMES
 from .project_router import ProjectRouter
+from .services.sandbox_views import sandbox_row_view
 from .utils import NotFoundError, ResearchPluginError, ValidationError
 from .state import monotonic_ms
 
@@ -283,10 +284,7 @@ class ResearchHttpApi:
     def create_project(self, body: dict[str, Any]) -> dict[str, Any]:
         name = body.get("name") or body.get("title") or "Untitled Project"
         summary = body.get("summary") or body.get("description") or body.get("research_goal") or ""
-        args: dict[str, Any] = {"name": name, "summary": summary}
-        if "sync_exclusions" in body:
-            args["sync_exclusions"] = body["sync_exclusions"]
-        return self.call_tool(name="project.create", arguments=args)
+        return self.call_tool(name="project.create", arguments={"name": name, "summary": summary})
 
     def create_experiment(self, project_id: str, body: dict[str, Any]) -> dict[str, Any]:
         intent = body.get("intent") or body.get("title") or body.get("question") or ""
@@ -330,6 +328,30 @@ class ResearchHttpApi:
         if not path.exists() or not path.is_file():
             raise NotFoundError(f"resource file missing: {resource['path']}")
         return path
+
+    # ---- sandbox UI projections ----
+    # The domain SandboxService returns raw rows / sampled data; the UI-facing
+    # shaping lives here so presentation stays out of the service.
+
+    def sandbox_get_view(self, *, project_id: str, experiment_id: str) -> dict[str, Any]:
+        row = self.app.sandboxes.get_row(experiment_id=experiment_id, project_id=project_id)
+        if row is None:
+            return {"experiment_id": experiment_id, "status": "none", "sandbox": None}
+        return sandbox_row_view(row=row, repo_root=self.app.store.repo_root)
+
+    def sandbox_list_view(self, *, project_id: str) -> dict[str, Any]:
+        return {
+            "sandboxes": [
+                sandbox_row_view(row=row, repo_root=self.app.store.repo_root)
+                for row in self.app.sandboxes.rows(project_id=project_id)
+            ]
+        }
+
+    def sandbox_metrics_view(self, *, project_id: str, experiment_id: str) -> dict[str, Any]:
+        return self.app.sandboxes.sample_metrics(experiment_id=experiment_id, project_id=project_id)
+
+    def sandbox_health_view(self) -> dict[str, Any]:
+        return self.app.sandboxes.backend_health()
 
     def _experiment_view_model(self, *, exp: dict[str, Any]) -> dict[str, Any]:
         current = exp.get("current_attempt_resources", [])
@@ -518,7 +540,6 @@ def create_fastapi_app(
                 repo_root=repo_root,
                 name=name,
                 summary=summary,
-                sync_exclusions=payload.get("sync_exclusions"),
             )
         assert api is not None
         return api.create_project(body=payload)
@@ -602,7 +623,11 @@ def create_fastapi_app(
 
     @http.get("/api/projects/{project_id}/resources/{resource_id}/history")
     def resource_history(project_id: str, resource_id: str) -> dict[str, Any]:
-        return api_for_project(project_id).call_tool(name="resource.history", arguments={"project_id": project_id, "resource_id": resource_id})
+        # UI-only read; the agent tool surface folds history into
+        # resource.resolve(include_history=true), so call the service directly.
+        return api_for_project(project_id).app.resources.history(
+            resource_id=resource_id, project_id=project_id
+        )
 
     @http.post("/api/projects/{project_id}/resources/{resource_id}/associate")
     def associate_resource(project_id: str, resource_id: str, body: JsonBody = Body(default=None)) -> dict[str, Any]:
@@ -642,22 +667,22 @@ def create_fastapi_app(
 
     @http.get("/api/projects/{project_id}/sandboxes")
     def list_sandboxes(project_id: str) -> dict[str, Any]:
-        return api_for_project(project_id).app.sandboxes.list_for_ui(project_id=project_id)
+        return api_for_project(project_id).sandbox_list_view(project_id=project_id)
 
     @http.get("/api/sandboxes/health")
     def sandbox_health() -> dict[str, Any]:
         if router is not None:
             return {"ok": True, "mode": "multi_project"}
         assert api is not None
-        return api.app.sandboxes.health_for_ui()
+        return api.sandbox_health_view()
 
     @http.get("/api/projects/{project_id}/experiments/{experiment_id}/sandbox")
     def get_sandbox(project_id: str, experiment_id: str) -> dict[str, Any]:
-        return api_for_project(project_id).app.sandboxes.get_for_ui(project_id=project_id, experiment_id=experiment_id)
+        return api_for_project(project_id).sandbox_get_view(project_id=project_id, experiment_id=experiment_id)
 
     @http.get("/api/projects/{project_id}/experiments/{experiment_id}/sandbox/metrics")
     def sandbox_metrics(project_id: str, experiment_id: str) -> dict[str, Any]:
-        return api_for_project(project_id).app.sandboxes.metrics_for_ui(project_id=project_id, experiment_id=experiment_id)
+        return api_for_project(project_id).sandbox_metrics_view(project_id=project_id, experiment_id=experiment_id)
 
     @http.get("/api/projects/{project_id}/experiments/{experiment_id}/sandbox/terminal")
     def sandbox_terminal(project_id: str, experiment_id: str, tail: int | None = None) -> dict[str, Any]:

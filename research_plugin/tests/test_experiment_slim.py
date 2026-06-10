@@ -52,6 +52,15 @@ class ExperimentSlimTest(unittest.TestCase):
                       target_type="experiment", target_id=exp_id, role=role)
         return exp_id
 
+    def test_create_makes_visible_local_sync_folder(self) -> None:
+        exp_id = self.call(
+            "experiment.create",
+            project_id=self.project_id,
+            intent="Create local sync folder.",
+        )["id"]
+
+        self.assertTrue((self.repo / "experiments" / exp_id / "synced").is_dir())
+
     def test_get_state_tool_is_slim(self) -> None:
         exp_id = self._experiment_with_resources()
         slim = self.call("experiment.get_state", project_id=self.project_id, experiment_id=exp_id)

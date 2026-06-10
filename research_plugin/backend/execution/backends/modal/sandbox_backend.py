@@ -4,15 +4,12 @@ Implements the SandboxBackend protocol. The registry (SandboxService) decides
 reuse-vs-create policy; this layer only knows how to:
 
   - acquire(): create one Modal sandbox wired for SSH over an unencrypted tunnel,
-    with the project Volume mounted and the agent's public key authorized;
+    with the agent's public key authorized;
   - is_alive(): poll a sandbox by id;
   - terminate(): stop a sandbox by id;
   - read_transcript(): read the experiment's terminal transcript, live from the
-    sandbox first and from the committed Volume as a fallback;
+    sandbox;
   - health(): is Modal reachable.
-
-The Volume + bidirectional sync subsystem is reused unchanged from the job-era
-backend (see sync/sync.md).
 """
 
 from __future__ import annotations
@@ -24,7 +21,6 @@ import threading
 from pathlib import Path, PurePosixPath
 from typing import Any, Callable, Mapping
 
-from backend.sync_config import SyncExclusionPolicy
 from backend.execution.bootstrap_tools import ML_PYTHON_PACKAGES, MODAL_APT_PACKAGES
 from ...errors import BackendUnavailableError, BackendValidationError
 from ...types import (
@@ -34,14 +30,11 @@ from ...types import (
     ProvisionedSandbox,
     SandboxRequest,
 )
-from .config import ModalConfig
+from .config import COMPUTE_TIERS, DEFAULT_GPU, VALID_GPUS, ModalConfig
 from ._sandbox_ops import maybe_await, read_stream, wait_process
-from .sync import BaselineStore, SyncEngine, SyncPoller
 
 
 ActivityHook = Callable[[str, dict[str, Any]], None]
-ShouldPollProject = Callable[[str], bool]
-SyncExclusionProvider = Callable[[str], SyncExclusionPolicy]
 
 SESSIONS_DIR_NAME = ".research_plugin_sessions"
 TRANSCRIPT_FILENAME = "transcript.log"
@@ -132,16 +125,19 @@ echo "RPM ok=1"
 # wrapper, then execs sshd in the foreground (which keeps the container alive).
 BOOT_SCRIPT = r"""#!/usr/bin/env bash
 set -eu
-mkdir -p "${RP_SANDBOX_DATA_DIR:-/workspace/sandbox_data}"
+RP_WORKDIR="${RP_WORKDIR:-/workspace/synced}"
+RP_SYNC_DIR="${RP_SYNC_DIR:-$RP_WORKDIR}"
+RP_UNSYNCED_DIR="${RP_UNSYNCED_DIR:-${RP_SANDBOX_DATA_DIR:-/workspace/unsynced}}"
+RP_SANDBOX_DATA_DIR="$RP_UNSYNCED_DIR"
+mkdir -p "$RP_SYNC_DIR" "$RP_UNSYNCED_DIR" "$RP_SYNC_DIR/artifacts_to_keep"
 mkdir -p /root/.ssh && chmod 700 /root/.ssh
 if [ -n "${RP_AUTHORIZED_KEY:-}" ]; then
   printf '%s\n' "$RP_AUTHORIZED_KEY" > /root/.ssh/authorized_keys
   chmod 600 /root/.ssh/authorized_keys
 fi
 # Observability dashboards: an MLflow tracking server on port 5000 and a
-# TensorBoard on port 6006. Both serve from per-experiment dirs on the mounted
-# Volume so runs survive sandbox death and accumulate across re-acquires of
-# the same experiment id. Launched as backgrounded processes BEFORE `exec sshd`
+# TensorBoard on port 6006. Both serve from per-experiment dirs under the synced
+# workspace. Launched as backgrounded processes BEFORE `exec sshd`
 # so they're already up by the time the agent's first SSH command lands.
 #
 # Failure to launch is non-fatal: a missing python package or a port collision
@@ -149,7 +145,7 @@ fi
 # transcript wrapper exports MLFLOW_TRACKING_URI to every command so frameworks
 # that auto-detect MLflow (HF Trainer with report_to="all", PyTorch Lightning's
 # MLFlowLogger) pick it up with no agent setup.
-RP_DASH_DIR="${RP_WORKDIR:-/workspace/repo}/.research_plugin_sessions/${RP_EXPERIMENT_ID:-unknown}"
+RP_DASH_DIR="$RP_SYNC_DIR/.research_plugin_sessions/${RP_EXPERIMENT_ID:-unknown}"
 RP_MLFLOW_DB="$RP_DASH_DIR/mlflow.db"
 RP_MLFLOW_ARTIFACTS="$RP_DASH_DIR/mlflow-artifacts"
 RP_TB_LOGDIR="$RP_DASH_DIR/tb"
@@ -173,10 +169,12 @@ mkdir -p "$RP_MLFLOW_ARTIFACTS" "$RP_TB_LOGDIR" 2>/dev/null || true
 # Persist the session env so the ForceCommand wrapper can read it (sshd does not
 # pass the container environment through to forced commands).
 {
-  printf 'RP_WORKDIR=%q\n' "${RP_WORKDIR:-/workspace/repo}"
+  printf 'RP_WORKDIR=%q\n' "$RP_SYNC_DIR"
+  printf 'RP_SYNC_DIR=%q\n' "$RP_SYNC_DIR"
+  printf 'RP_UNSYNCED_DIR=%q\n' "$RP_UNSYNCED_DIR"
   printf 'RP_EXPERIMENT_ID=%q\n' "${RP_EXPERIMENT_ID:-unknown}"
-  printf 'RP_SANDBOX_DATA_DIR=%q\n' "${RP_SANDBOX_DATA_DIR:-/workspace/sandbox_data}"
-  printf 'RP_DATASET_DIR=%q\n' "${RP_SANDBOX_DATA_DIR:-/workspace/sandbox_data}"
+  printf 'RP_SANDBOX_DATA_DIR=%q\n' "$RP_UNSYNCED_DIR"
+  printf 'RP_DATASET_DIR=%q\n' "$RP_UNSYNCED_DIR"
   printf 'RP_DASH_DIR=%q\n' "$RP_DASH_DIR"
   printf 'RP_TB_LOGDIR=%q\n' "$RP_TB_LOGDIR"
   printf 'MLFLOW_TRACKING_URI=%s\n' 'http://localhost:5000'
@@ -203,21 +201,23 @@ exec /usr/sbin/sshd -D -e
 
 
 # ForceCommand wrapper: records every SSH channel (interactive shell or
-# `ssh host 'cmd'`) to a per-experiment transcript on the mounted Volume while
+# `ssh host 'cmd'`) to a per-experiment transcript under the synced workspace while
 # still streaming output back to the agent. Exit code is preserved.
 REC_SCRIPT = r"""#!/usr/bin/env bash
 [ -f /opt/rp/env ] && . /opt/rp/env
-RP_WORKDIR="${RP_WORKDIR:-/workspace/repo}"
+RP_WORKDIR="${RP_WORKDIR:-/workspace/synced}"
+RP_SYNC_DIR="${RP_SYNC_DIR:-$RP_WORKDIR}"
+RP_UNSYNCED_DIR="${RP_UNSYNCED_DIR:-${RP_SANDBOX_DATA_DIR:-/workspace/unsynced}}"
 RP_EXPERIMENT_ID="${RP_EXPERIMENT_ID:-unknown}"
-RP_SANDBOX_DATA_DIR="${RP_SANDBOX_DATA_DIR:-/workspace/sandbox_data}"
+RP_SANDBOX_DATA_DIR="$RP_UNSYNCED_DIR"
 RP_DATASET_DIR="${RP_DATASET_DIR:-$RP_SANDBOX_DATA_DIR}"
 MLFLOW_TRACKING_URI="${MLFLOW_TRACKING_URI:-http://localhost:5000}"
 RP_TB_LOGDIR="${RP_TB_LOGDIR:-$RP_WORKDIR/.research_plugin_sessions/$RP_EXPERIMENT_ID/tb}"
 if [ -n "${HF_TOKEN:-}" ] && [ -z "${HUGGING_FACE_HUB_TOKEN:-}" ]; then
   HUGGING_FACE_HUB_TOKEN="$HF_TOKEN"
 fi
-export RP_WORKDIR RP_EXPERIMENT_ID RP_SANDBOX_DATA_DIR RP_DATASET_DIR HF_TOKEN HUGGING_FACE_HUB_TOKEN MLFLOW_TRACKING_URI RP_TB_LOGDIR
-mkdir -p "$RP_SANDBOX_DATA_DIR" 2>/dev/null || true
+export RP_WORKDIR RP_SYNC_DIR RP_UNSYNCED_DIR RP_EXPERIMENT_ID RP_SANDBOX_DATA_DIR RP_DATASET_DIR HF_TOKEN HUGGING_FACE_HUB_TOKEN MLFLOW_TRACKING_URI RP_TB_LOGDIR
+mkdir -p "$RP_SYNC_DIR" "$RP_UNSYNCED_DIR" "$RP_SYNC_DIR/artifacts_to_keep" 2>/dev/null || true
 LOG_DIR="$RP_WORKDIR/.research_plugin_sessions/$RP_EXPERIMENT_ID"
 LOG="$LOG_DIR/transcript.log"
 mkdir -p "$LOG_DIR" 2>/dev/null || true
@@ -247,12 +247,6 @@ class ModalSandboxBackend:
         config: ModalConfig | None = None,
         modal_module: Any | None = None,
         activity: ActivityHook | None = None,
-        sync_engine: SyncEngine | None = None,
-        baseline: BaselineStore | None = None,
-        poller_interval_seconds: float = 60.0,
-        start_poller: bool = True,
-        should_poll_project: ShouldPollProject | None = None,
-        sync_exclusion_provider: SyncExclusionProvider | None = None,
     ) -> None:
         self.repo_root = repo_root.resolve()
         self.config = config or ModalConfig.from_env()
@@ -262,40 +256,6 @@ class ModalSandboxBackend:
         self._base_image = None
         self._cuda_image = None
         self._lock = threading.Lock()
-        self._volume_objects: dict[str, Any] = {}
-
-        if sync_engine is not None:
-            self.baseline = baseline if baseline is not None else sync_engine.baseline
-            self.sync_engine = sync_engine
-        else:
-            sync_db = self.repo_root / ".research_plugin" / "modal" / "sync.sqlite"
-            self.baseline = baseline or BaselineStore(db_path=sync_db)
-            self.sync_engine = SyncEngine(
-                repo_root=self.repo_root,
-                baseline=self.baseline,
-                volume_provider=self._provide_volume,
-                volume_name_prefix=self.config.volume_name_prefix,
-                volume_mount_path=self.config.remote_workdir,
-                activity=self.activity,
-                exclusion_provider=sync_exclusion_provider,
-            )
-        if sync_exclusion_provider is not None:
-            self.sync_engine.set_exclusion_provider(sync_exclusion_provider)
-        self.poller = SyncPoller(
-            engine=self.sync_engine,
-            baseline=self.baseline,
-            interval_seconds=poller_interval_seconds,
-            activity=self.activity,
-            should_sync_project=should_poll_project,
-        )
-        if start_poller:
-            self.poller.start()
-
-    def set_sync_exclusion_provider(
-        self,
-        provider: SyncExclusionProvider | None,
-    ) -> None:
-        self.sync_engine.set_exclusion_provider(provider)
 
     # ---------- SandboxBackend protocol ----------
 
@@ -307,22 +267,8 @@ class ModalSandboxBackend:
         on_created: OnCreated | None = None,
     ) -> ProvisionedSandbox:
         self._ensure_credentials()
-        _call(on_phase, "syncing", "ensuring project volume")
-        info = self.sync_engine.ensure_project_volume(project_id=request.project_id)
-        volume_name = info["volume_name"]
-        # Push current repo state to the Volume before the sandbox boots so the
-        # agent sees up-to-date code/configs. This can be the slow step on a
-        # large first-time delta — which is exactly why provisioning runs in the
-        # background and the agent polls.
-        _call(on_phase, "syncing", "pushing repo to volume")
-        try:
-            self.sync_engine.sync(project_id=request.project_id)
-        except Exception:  # noqa: BLE001 — sync is best-effort at acquire time
-            pass
-
         workdir = request.remote_workdir or self.config.remote_workdir
         sandbox_data_dir = self.config.sandbox_data_dir
-        volume = self._provide_volume(volume_name)
         modal = self._modal_module()
         image = self._image(cuda_devel=request.cuda_devel, image_packages=request.image_packages)
         app = self._get_app()
@@ -339,7 +285,6 @@ class ModalSandboxBackend:
             "image": image,
             "timeout": int(request.time_limit),
             "workdir": workdir,
-            "volumes": {workdir: volume},
             "unencrypted_ports": [22],
             # MLflow (5000) and TensorBoard (6006) served from inside the
             # sandbox over HTTPS-fronted Modal tunnels. URLs captured below
@@ -396,7 +341,9 @@ class ModalSandboxBackend:
             ssh_port=port,
             ssh_user="root",
             workdir=workdir,
-            volume_name=volume_name,
+            volume_name="",
+            sync_dir=workdir,
+            unsynced_dir=sandbox_data_dir,
             sandbox_data_dir=sandbox_data_dir,
             reused=False,
             dashboards=dashboards,
@@ -493,6 +440,11 @@ class ModalSandboxBackend:
         volume_name: str,
         workdir: str,
         tail: int | None = None,
+        # SSH connection details are unused: Modal reads via control-plane exec.
+        ssh_host: str = "",  # noqa: ARG002
+        ssh_port: int = 0,  # noqa: ARG002
+        ssh_user: str = "",  # noqa: ARG002
+        key_path: str = "",  # noqa: ARG002
     ) -> str:
         limit = int(tail) if tail and tail > 0 else TRANSCRIPT_TAIL_DEFAULT
         rel_path = _transcript_rel_path(experiment_id)
@@ -502,13 +454,7 @@ class ModalSandboxBackend:
             rel_path=rel_path,
             limit=limit,
         )
-        if live:
-            return live
-        return self._read_transcript_volume(
-            volume_name=volume_name,
-            rel_path=rel_path,
-            limit=limit,
-        )
+        return live
 
     def sample_metrics(self, *, sandbox_id: str) -> dict[str, Any] | None:
         """Sample live in-container usage (CPU/RAM/GPU) via a read-only exec.
@@ -529,53 +475,36 @@ class ModalSandboxBackend:
             return None
         return _parse_metrics(output)
 
-    def sync_sandbox_files(
-        self,
-        *,
-        project_id: str,
-        sandbox_id: str,
-        workdir: str,
-        volume_name: str,
+    def hardware_catalog(
+        self, *, gpu: str | None = None, region: str | None = None
     ) -> dict[str, Any]:
-        """Commit mounted Volume writes from the live sandbox, then sync local."""
-        if not sandbox_id:
-            raise BackendUnavailableError("cannot sync without a live sandbox id")
-        if not workdir:
-            workdir = self.config.remote_workdir
-        try:
-            sandbox = self._sandbox_from_id(sandbox_id)
-            process = sandbox.exec("sync", workdir, timeout=300)
-            exit_code = wait_process(process)
-            if exit_code != 0:
-                stderr = read_stream(getattr(process, "stderr", None))
-                stdout = read_stream(getattr(process, "stdout", None))
-                detail = stderr or stdout or "no output"
-                raise BackendUnavailableError(
-                    f"Modal Volume commit via sync failed with exit code {exit_code}: {detail}"
-                )
-        except BackendUnavailableError:
-            raise
-        except Exception as exc:  # noqa: BLE001
-            raise BackendUnavailableError(f"Modal sandbox sync failed: {exc}") from exc
+        """Static catalog: Modal lets the agent set gpu/cpu/memory independently.
 
-        if volume_name:
-            self._provide_volume(volume_name)
-        result = self.sync_engine.sync(project_id=project_id)
+        Unlike Lambda there is nothing to look up live — Modal composes the
+        machine from the request — so this just advertises the menu of GPU types
+        and compute tiers the agent can mix and match.
+        """
+        gpus = sorted(VALID_GPUS)
+        if gpu:
+            needle = gpu.strip().upper()
+            gpus = [g for g in gpus if needle in g] or gpus
         return {
-            "project_id": project_id,
-            "sandbox_id": sandbox_id,
-            "workdir": workdir,
-            "volume": volume_name,
-            "committed": True,
-            "pushed": result.pushed,
-            "pulled": result.pulled,
-            "deleted_remote": result.deleted_remote,
-            "deleted_local": result.deleted_local,
-            "conflicts": result.conflicts,
-            "skipped_conflicts": list(result.skipped_conflicts),
-            "skipped_busy": result.skipped_busy,
-            "coalesced": result.coalesced,
-            "duration_ms": result.duration_ms,
+            "provider": "modal",
+            "selection_required": False,
+            "select_with": "gpu+cpu+memory",
+            "reason": (
+                "Modal composes the machine from the request: choose a gpu type "
+                "(or omit for CPU-only) and set cpu cores / memory MiB directly."
+            ),
+            "gpus": gpus,
+            "default_gpu": DEFAULT_GPU,
+            "compute_tiers": COMPUTE_TIERS,
+            "defaults": {"cpu": 2, "memory_mib": 8192},
+            "notes": [
+                "Omit gpu for a CPU-only sandbox.",
+                "cpu is Modal CPU cores (1 core = 2 vCPUs).",
+                "memory is requested sandbox memory in MiB.",
+            ],
         }
 
     def health(self) -> dict[str, Any]:
@@ -602,14 +531,8 @@ class ModalSandboxBackend:
             ),
         }
 
-    def on_project_created(self, *, project_id: str) -> None:
-        self.sync_engine.ensure_project_volume(project_id=project_id)
-
     def shutdown(self) -> None:
-        try:
-            self.poller.stop()
-        except Exception:  # noqa: BLE001
-            pass
+        return None
 
     # ---------- transcript helpers ----------
 
@@ -632,48 +555,7 @@ class ModalSandboxBackend:
         except Exception:  # noqa: BLE001
             return ""
 
-    def _read_transcript_volume(self, *, volume_name: str, rel_path: str, limit: int) -> str:
-        if not volume_name:
-            return ""
-        try:
-            volume = self._provide_volume(volume_name)
-            chunks: list[bytes] = []
-            for chunk in volume.read_file(rel_path):
-                chunks.append(chunk if isinstance(chunk, bytes) else bytes(chunk))
-            data = b"".join(chunks)
-            if len(data) > limit:
-                data = data[-limit:]
-            return data.decode("utf-8", errors="replace")
-        except FileNotFoundError:
-            return ""
-        except Exception:  # noqa: BLE001
-            return ""
-
     # ---------- modal helpers ----------
-
-    def _provide_volume(self, volume_name: str) -> Any:
-        volume = self._volume_objects.get(volume_name)
-        if volume is None:
-            self._ensure_credentials()
-            modal = self._modal_module()
-            try:
-                volume = modal.Volume.from_name(
-                    volume_name,
-                    create_if_missing=True,
-                    version=self.config.volume_version,
-                )
-            except Exception as exc:  # noqa: BLE001
-                raise BackendUnavailableError(
-                    f"Modal volume is unavailable: {volume_name}: {exc}"
-                ) from exc
-            self._volume_objects[volume_name] = volume
-        reload = getattr(volume, "reload", None)
-        if callable(reload):
-            try:
-                reload()
-            except Exception:  # noqa: BLE001
-                pass
-        return volume
 
     def _sandbox_env(
         self,
@@ -687,6 +569,8 @@ class ModalSandboxBackend:
             "RP_AUTHORIZED_KEY": public_key,
             "RP_EXPERIMENT_ID": experiment_id,
             "RP_WORKDIR": workdir,
+            "RP_SYNC_DIR": workdir,
+            "RP_UNSYNCED_DIR": sandbox_data_dir,
             "RP_SANDBOX_DATA_DIR": sandbox_data_dir,
         }
 
@@ -962,13 +846,9 @@ def build_modal_sandbox_backend(
     *,
     repo_root: Path,
     activity: ActivityHook | None = None,
-    should_poll_project: ShouldPollProject | None = None,
-    sync_exclusion_provider: SyncExclusionProvider | None = None,
 ) -> ModalSandboxBackend:
     return ModalSandboxBackend(
         repo_root=repo_root,
         config=ModalConfig.from_env(),
         activity=activity,
-        should_poll_project=should_poll_project,
-        sync_exclusion_provider=sync_exclusion_provider,
     )

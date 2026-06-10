@@ -7,11 +7,12 @@ from dataclasses import dataclass
 from pathlib import Path
 
 from ...errors import BackendValidationError
+from ...sync_dirs import DEFAULT_SYNC_DIR, DEFAULT_UNSYNCED_DIR
 
 
 DEFAULT_BASE_URL = "https://cloud.lambda.ai/api/v1"
-DEFAULT_REMOTE_WORKDIR = "/workspace/repo"
-DEFAULT_SANDBOX_DATA_DIR = "/workspace/sandbox_data"
+DEFAULT_REMOTE_WORKDIR = DEFAULT_SYNC_DIR
+DEFAULT_SANDBOX_DATA_DIR = DEFAULT_UNSYNCED_DIR
 DEFAULT_SSH_USER = "ubuntu"
 DEFAULT_INSTANCE_POLL_TIMEOUT_SECONDS = 900
 DEFAULT_INSTANCE_POLL_INTERVAL_SECONDS = 10.0
@@ -48,8 +49,12 @@ class LambdaCloudConfig:
 @dataclass(frozen=True)
 class LambdaSandboxConfig:
     cloud: LambdaCloudConfig
-    region_name: str
-    instance_type_name: str
+    # Region + instance type are *optional fallback defaults*. The agent chooses
+    # the machine per request (sandbox.request instance_type/region); these env
+    # values only fill in when a request omits them. Empty means "let the agent
+    # pick from live availability" — sandbox.request returns a selection menu.
+    region_name: str = ""
+    instance_type_name: str = ""
     ssh_user: str = DEFAULT_SSH_USER
     remote_workdir: str = DEFAULT_REMOTE_WORKDIR
     sandbox_data_dir: str = DEFAULT_SANDBOX_DATA_DIR
@@ -64,19 +69,11 @@ class LambdaSandboxConfig:
             "LAMBDA_LABS_REGION",
             "LAMBDA_REGION",
         )
-        if not region_name:
-            raise BackendValidationError(
-                "Lambda region is required; set RESEARCH_PLUGIN_LAMBDA_REGION"
-            )
         instance_type_name = _first_env(
             "RESEARCH_PLUGIN_LAMBDA_INSTANCE_TYPE",
             "LAMBDA_LABS_INSTANCE_TYPE",
             "LAMBDA_INSTANCE_TYPE",
         )
-        if not instance_type_name:
-            raise BackendValidationError(
-                "Lambda instance type is required; set RESEARCH_PLUGIN_LAMBDA_INSTANCE_TYPE"
-            )
         remote_workdir = _absolute_posix_path(
             os.environ.get("RESEARCH_PLUGIN_LAMBDA_WORKDIR", DEFAULT_REMOTE_WORKDIR),
             field="RESEARCH_PLUGIN_LAMBDA_WORKDIR",

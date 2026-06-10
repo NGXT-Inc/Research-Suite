@@ -121,7 +121,7 @@ After any experiment execution, Codex should:
 
 1. identify changed files with git/status or filesystem checks
 2. decide which files are research resources
-3. call `resource.sync_changed_files`
+3. call `resource.register_file` with the changed `paths`
 4. ask `workflow.status_and_next`
 5. launch experiment reviewer if requested
 6. wait for review submission status through MCP

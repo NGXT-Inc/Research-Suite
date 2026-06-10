@@ -12,6 +12,7 @@ from .contracts import ContractModel, TOOL_INPUT_MODELS
 from .utils import ResearchPluginError
 from .utils import ValidationError as ToolValidationError
 from .execution import SandboxBackend, build_sandbox_backend
+from .execution.ssh_rsync import SshRsyncSyncer
 from .services import (
     ClaimService,
     ComputeService,
@@ -63,6 +64,7 @@ class ResearchPluginApp:
         db_path: Path,
         execution_backend: SandboxBackend | None = None,
         compute_service: ComputeService | None = None,
+        rsync_syncer: SshRsyncSyncer | None = None,
     ) -> None:
         self.store = StateStore(db_path=db_path, repo_root=repo_root)
         self.activity = ActivityLogger(repo_root=self.store.repo_root)
@@ -89,20 +91,13 @@ class ResearchPluginApp:
             execution_backend = build_sandbox_backend(
                 repo_root=self.store.repo_root,
                 activity=self._activity_hook,
-                sync_exclusion_provider=self.projects.sync_exclusion_policy,
             )
         self.execution_backend = execution_backend
-        set_sync_exclusion_provider = getattr(
-            self.execution_backend,
-            "set_sync_exclusion_provider",
-            None,
-        )
-        if callable(set_sync_exclusion_provider):
-            set_sync_exclusion_provider(self.projects.sync_exclusion_policy)
         self.sandboxes = SandboxService(
             store=self.store,
             sandbox_backend=execution_backend,
             activity=self.activity,
+            rsync_syncer=rsync_syncer,
         )
         self.workflow = WorkflowService(
             store=self.store,
@@ -113,7 +108,6 @@ class ResearchPluginApp:
         )
         handlers: dict[str, tuple[str, Callable[..., dict[str, Any]]]] = {
             "workflow.status_and_next": ("Orient Codex from durable project/experiment state.", self.workflow.status_and_next_agent),
-            "project.status_and_next": ("Alias for workflow.status_and_next.", self.workflow.status_and_next_agent),
             "project.create": (
                 "Create a project for this folder using a user-confirmed name and summary. "
                 "If project.current returned exists:false and the user has not already "
@@ -122,8 +116,6 @@ class ResearchPluginApp:
             ),
             "project.update": ("Update a project name or summary.", self.projects.update),
             "project.get": ("Get project metadata.", self.projects.get),
-            "project.get_settings": ("Get project-level settings, including sync exclusions.", self.projects.get_settings),
-            "project.update_settings": ("Update project-level settings, including sync exclusions.", self.projects.update_settings),
             "project.current": ("Get the current folder's project, or report that none exists yet.", self.projects.current),
             "project.list": ("List projects in the current tool scope.", self.projects.list_projects),
             "claim.create": ("Create a claim.", self.claims.create),
@@ -131,26 +123,66 @@ class ResearchPluginApp:
             "claim.update": ("Update a claim's statement, scope, status, or confidence.", self.claims.update),
             "experiment.create": ("Create a planned experiment.", self.experiments.create),
             "experiment.list": ("List experiments with state.", self.experiments.list_experiments_agent),
-            "experiment.get_state": ("Get one experiment state.", self.experiments.get_state_agent),
-            "experiment.transition": ("Apply an allowed experiment transition.", self.experiments.transition),
-            "resource.register_file": ("Register or observe one repo-relative file as a resource.", self.resources.register_file),
-            "resource.observe_file": ("Observe one repo-relative resource file without changing kind metadata.", self.resources.observe_file),
-            "resource.sync_changed_files": ("Register or observe changed repo-relative files.", self.resources.sync_changed_files),
+            "experiment.get_state": (
+                "Get one experiment state. Includes 'allowed_transitions': the "
+                "transitions available from the current status, each with what it "
+                "'requires' (e.g. a synced plan resource, a passing review).",
+                self.experiments.get_state_agent,
+            ),
+            "experiment.transition": (
+                "Apply an allowed experiment transition. See "
+                "experiment.get_state.allowed_transitions for valid transitions "
+                "and their preconditions from the current status.",
+                self.experiments.transition,
+            ),
+            "resource.register_file": (
+                "Register or observe repo-relative file(s) as resources. Pass "
+                "'path' for one file, or 'paths' for a changed-files batch.",
+                self.resources.register_file,
+            ),
             "resource.associate": ("Associate a resource to a claim, experiment, review, or attempt.", self.resources.associate),
             "resource.delete": ("Delete a resource from active project tracking while preserving observed version history.", self.resources.delete),
-            "resource.list": ("List registered resources.", self.resources.list_resources),
-            "resource.resolve": ("Resolve one registered resource.", self.resources.resolve),
-            "resource.history": ("List immutable observed versions for a resource.", self.resources.history),
+            "resource.list": (
+                "List registered resources. Filter by kind/experiment_id/missing, "
+                "paginate with limit/offset, and pass compact=true for a lean "
+                "projection (omits the heavy current_version; use version_token to "
+                "detect changes) instead of re-pulling full payloads.",
+                self.resources.list_resources,
+            ),
+            "resource.resolve": (
+                "Resolve one registered resource. Pass include_history=true to also "
+                "return its immutable observed versions (the former resource.history).",
+                self.resources.resolve,
+            ),
             "review.request": ("Create a review request and reviewer capability.", self.reviews.request),
             "review.start": ("Start a read-only reviewer session.", self.reviews.start),
-            "review.submit": ("Submit a review from a reviewer session.", self.reviews.submit),
+            "review.submit": (
+                "Submit a review from a reviewer session. Accepts ONLY: "
+                "review_session_id, verdict (pass|needs_changes|fail), notes, "
+                "findings (list of {issue, severity?}), and evidence (free-form "
+                "dict). Put structured rationale inside 'evidence' — unknown "
+                "top-level fields are rejected.",
+                self.reviews.submit,
+            ),
             "review.status": ("Inspect review requests and submissions for a target.", self.reviews.status),
-            "sandbox.request": ("Procure (reuse or create) the experiment's sandbox and return SSH details.", self.sandboxes.request),
+            "sandbox.request": ("Procure (reuse or create) the experiment's sandbox and return SSH details. On Lambda Labs, omit instance_type to receive a live menu of available machines to pick from.", self.sandboxes.request),
+            "sandbox.options": ("List the hardware the active backend can provision right now (Lambda Labs: live available instance types; Modal: gpu/cpu/memory menu).", self.sandboxes.options),
             "sandbox.get": ("Get the experiment's sandbox status and SSH details.", self.sandboxes.get),
-            "sandbox.sync": ("Commit live sandbox repo writes to the Modal Volume, then sync the Volume back to local files.", self.sandboxes.sync),
+            "sandbox.sync": ("Pull remote synced workspace files back to the local experiment folder with SSH rsync.", self.sandboxes.sync),
             "sandbox.list": ("List sandboxes for the project.", self.sandboxes.list_sandboxes),
             "sandbox.release": ("Terminate the experiment's sandbox.", self.sandboxes.release),
-            "sandbox.terminal": ("Read the experiment's terminal transcript.", self.sandboxes.terminal),
+            "sandbox.terminal": (
+                "Read the experiment's terminal transcript. For polling, pass "
+                "since=<cursor from the last response> to get only NEW output "
+                "instead of re-pulling the whole tail; 'running' indicates whether "
+                "the sandbox is still alive so you can stop polling a finished one. "
+                "Per-command status: 'command_running' is true while a command is "
+                "in flight, and once it finishes 'last_exit_code' (0 = success) and "
+                "'last_command_finished_at' report its result — so you can tell a "
+                "command is done and whether it succeeded without re-reading output "
+                "(null on sandboxes created before this was added).",
+                self.sandboxes.terminal,
+            ),
             "sandbox.health": ("Check the execution backend is reachable.", self.sandboxes.health),
         }
         self._tools = {
@@ -200,7 +232,6 @@ class ResearchPluginApp:
                     _contract_error_message(exc=exc),
                     details={"tool": name, "errors": exc.errors()},
                 ) from exc
-            self._on_tool_success(name=name, result=result)
             duration_ms = monotonic_ms() - started
             self.activity.tool_ok(
                 source=activity_source,
@@ -259,35 +290,8 @@ class ResearchPluginApp:
             )
             raise
 
-    def _on_tool_success(self, *, name: str, result: dict[str, Any]) -> None:
-        """Fire backend lifecycle hooks after successful mutation tools.
-
-        Kept here (rather than inside services) so neither ProjectService nor
-        the modal package needs to know about the other.
-        """
-        if name == "project.create":
-            project_id = result.get("id") if isinstance(result, dict) else None
-            if not project_id:
-                return
-            hook = getattr(self.execution_backend, "on_project_created", None)
-            if not callable(hook):
-                return
-            try:
-                hook(project_id=project_id)
-            except Exception as exc:  # noqa: BLE001
-                # Volume provisioning is best-effort at create time; the 60 s
-                # poller will retry on the next tick.
-                self._activity_hook(
-                    "modal.sync.error",
-                    {
-                        "phase": "on_project_created",
-                        "project_id": project_id,
-                        "message": str(exc),
-                    },
-                )
-
     def _activity_hook(self, event_type: str, payload: dict[str, Any]) -> None:
-        """Bridge between modal-sync emit-style logging and ActivityLogger."""
+        """Bridge backend emit-style logging and ActivityLogger."""
         try:
             self.activity.emit(event_type=event_type, payload=payload)
         except Exception:  # noqa: BLE001

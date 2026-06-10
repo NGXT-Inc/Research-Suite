@@ -15,8 +15,8 @@ proxy that Codex spawns on demand:
                    │                                           │
                    │  - Project directory router               │
                    │  - SQLite state, activity logs            │
-                   │  - SandboxService + Modal SSH sandboxes   │
-                   │  - SyncEngine + 60 s poller               │
+                   │  - SandboxService + Modal/Lambda SSH      │
+                   │  - SSH rsync syncer                       │
                    │  - HTTP API at  /api/* and /mcp/*         │
                    └────────────▲──────────────▲───────────────┘
                                 │ /api/*       │ /mcp/call
@@ -68,6 +68,22 @@ Inside Codex:
 
 Install or enable `research-plugin` from `Papyrus Local Plugins`.
 
+### Host prerequisite: a modern rsync (macOS)
+
+The per-experiment sandbox syncer shells out to `rsync`. Apple's bundled
+`/usr/bin/rsync` is **2.6.9 (protocol 29)** and cannot transfer with the
+sandbox's rsync 3.x — the `-az` stream breaks with `unexpected tag` /
+`connection unexpectedly closed` errors. Install a modern rsync once:
+
+```bash
+brew install rsync   # provides /opt/homebrew/bin/rsync (3.x)
+```
+
+The syncer auto-detects a 3.x rsync at `/opt/homebrew/bin`, `/usr/local/bin`,
+`/opt/local/bin`, or on `PATH`. Override with `RESEARCH_PLUGIN_RSYNC_BIN=/path/to/rsync`.
+If only the ancient system rsync is found, sync fails fast with a single clear
+error instead of flooding the activity log.
+
 ## Terminal 1: Execution Backend (Modal credentials)
 
 Modal is the default execution backend behind the `sandbox.*` tools. Codex talks
@@ -95,7 +111,7 @@ export RESEARCH_PLUGIN_EXECUTION_BACKEND=fake
 ## Terminal 2: Backend Daemon (required for Codex *and* UI)
 
 The HTTP daemon owns SQLite state, the activity log, the sandbox execution
-backend, and the volume sync engine. Both the UI and the stdio MCP proxy
+backend, and the SSH rsync syncer. Both the UI and the stdio MCP proxy
 forward through it. **Start this before opening Codex.** The MCP proxy writes
 a clear "daemon not running" error to Codex if you forget.
 

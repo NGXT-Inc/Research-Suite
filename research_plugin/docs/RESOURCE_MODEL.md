@@ -120,14 +120,14 @@ version rows when a file is re-observed without semantic change.
 
 The MCP server should expose resource operations that are intentionally boring:
 
-- `resource.register_file(project_id, path, kind, title?)`
-- `resource.observe_file(project_id, path)`
-- `resource.sync_changed_files(project_id, paths?)`
+- `resource.register_file(project_id, path?, paths?, kind, title?)` — register/observe a
+  single `path` or a `paths` batch (the latter folds in the old `observe_file` /
+  `sync_changed_files`)
 - `resource.associate(project_id, resource_id, target_type, target_id, role)`
 - `resource.delete(project_id, resource_id)`
 - `resource.list(project_id, filters?)`
-- `resource.resolve(project_id, resource_id)`
-- `resource.history(project_id, resource_id)`
+- `resource.resolve(project_id, resource_id, include_history?)` — `include_history=true`
+  attaches the observed `versions` (the old `resource.history`)
 
 Every resource operation is project-scoped. The server must reject missing
 `project_id` rather than guessing an active project.

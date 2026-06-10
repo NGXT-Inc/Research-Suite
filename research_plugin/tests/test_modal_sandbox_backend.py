@@ -10,7 +10,6 @@ from backend.execution.errors import BackendUnavailableError, BackendValidationE
 from backend.execution.types import SandboxRequest
 from backend.execution.backends.modal.config import ModalConfig
 from backend.execution.backends.modal.sandbox_backend import ModalSandboxBackend
-from backend.execution.backends.modal.sync.types import SyncResult
 
 
 # --- fake modal SDK ---------------------------------------------------------
@@ -151,30 +150,6 @@ class FakeSandboxClass:
         return cls.by_name[name]  # raises KeyError when absent
 
 
-class FakeVolume:
-    def __init__(self, name: str) -> None:
-        self.name = name
-        self.files: dict[str, bytes] = {}
-
-    def reload(self) -> None:
-        pass
-
-    def read_file(self, path):
-        if path not in self.files:
-            raise FileNotFoundError(path)
-        yield self.files[path]
-
-
-class FakeVolumeClass:
-    instances: dict[str, FakeVolume] = {}
-    requested_versions: list[object] = []
-
-    @classmethod
-    def from_name(cls, name, create_if_missing=False, version=None):
-        cls.requested_versions.append(version)
-        return cls.instances.setdefault(name, FakeVolume(name))
-
-
 class FakeSecret:
     @staticmethod
     def from_dict(d):
@@ -194,23 +169,8 @@ class FakeApp:
 class FakeModal:
     Image = FakeImage
     Sandbox = FakeSandboxClass
-    Volume = FakeVolumeClass
     Secret = FakeSecret
     App = FakeApp
-
-
-class _FakeSyncEngine:
-    baseline = object()
-
-    def __init__(self) -> None:
-        self.sync_calls: list[str] = []
-
-    def ensure_project_volume(self, *, project_id: str) -> dict:
-        return {"volume_name": f"research-plugin-{project_id}"}
-
-    def sync(self, *, project_id: str) -> SyncResult:
-        self.sync_calls.append(project_id)
-        return SyncResult(project_id=project_id, pulled=2)
 
 
 class ModalSandboxBackendTest(unittest.TestCase):
@@ -219,8 +179,6 @@ class ModalSandboxBackendTest(unittest.TestCase):
         FakeSandbox.tunnels_fail = False
         FakeSandboxClass.created = []
         FakeSandboxClass.by_name = {}
-        FakeVolumeClass.instances = {}
-        FakeVolumeClass.requested_versions = []
         self._old_hf_env = {
             "HF_TOKEN": os.environ.get("HF_TOKEN"),
             "HUGGING_FACE_HUB_TOKEN": os.environ.get("HUGGING_FACE_HUB_TOKEN"),
@@ -230,7 +188,6 @@ class ModalSandboxBackendTest(unittest.TestCase):
         os.environ.pop("HF_TOKEN", None)
         os.environ.pop("HUGGING_FACE_HUB_TOKEN", None)
         self.tmp = tempfile.TemporaryDirectory()
-        self.sync_engine = _FakeSyncEngine()
         config = ModalConfig.from_env()
         # ModalConfig.from_env() intentionally loads the plugin .env. Most tests
         # exercise sandbox creation without optional Hugging Face credentials, so
@@ -242,8 +199,6 @@ class ModalSandboxBackendTest(unittest.TestCase):
             repo_root=Path(self.tmp.name),
             config=config,
             modal_module=FakeModal,
-            sync_engine=self.sync_engine,
-            start_poller=False,
         )
 
     def tearDown(self) -> None:
@@ -280,12 +235,15 @@ class ModalSandboxBackendTest(unittest.TestCase):
         self.assertEqual(kwargs["encrypted_ports"], [5000, 6006])
         self.assertEqual(kwargs["timeout"], 1234)
         self.assertEqual(kwargs["gpu"], "A100")
-        self.assertIn(kwargs["workdir"], kwargs["volumes"])  # volume mounted at workdir
-        self.assertEqual(provisioned.sandbox_data_dir, "/workspace/sandbox_data")
-        self.assertNotIn(provisioned.sandbox_data_dir, kwargs["volumes"])
-        self.assertIn(2, FakeVolumeClass.requested_versions)
+        self.assertNotIn("volumes", kwargs)
+        self.assertEqual(provisioned.sync_dir, kwargs["workdir"])
+        self.assertEqual(provisioned.unsynced_dir, self.backend.config.sandbox_data_dir)
+        self.assertEqual(provisioned.sandbox_data_dir, self.backend.config.sandbox_data_dir)
+        self.assertEqual(provisioned.volume_name, "")
         self.assertNotIn("secrets", kwargs)
-        self.assertEqual(kwargs["env"]["RP_SANDBOX_DATA_DIR"], "/workspace/sandbox_data")
+        self.assertEqual(kwargs["env"]["RP_SYNC_DIR"], kwargs["workdir"])
+        self.assertEqual(kwargs["env"]["RP_UNSYNCED_DIR"], self.backend.config.sandbox_data_dir)
+        self.assertEqual(kwargs["env"]["RP_SANDBOX_DATA_DIR"], self.backend.config.sandbox_data_dir)
         self.assertEqual(kwargs["env"]["RP_EXPERIMENT_ID"], "exp1")
         self.assertNotIn("HF_TOKEN", kwargs["env"])
         # tags applied
@@ -379,7 +337,7 @@ class ModalSandboxBackendTest(unittest.TestCase):
             on_created=lambda sid, name: created.append((sid, name)),
         )
         # the registry relies on these phases for visibility
-        self.assertEqual(phases[0], "syncing")
+        self.assertEqual(phases[0], "creating")
         self.assertIn("creating", phases)
         self.assertEqual(phases[-1], "connecting")
         # on_created fires once the sandbox exists, before the tunnel wait
@@ -417,13 +375,8 @@ class ModalSandboxBackendTest(unittest.TestCase):
         )
         self.assertIn("epoch 1 loss 0.5", text)
 
-    def test_read_transcript_volume_fallback(self) -> None:
+    def test_read_transcript_without_volume_fallback_returns_empty(self) -> None:
         provisioned = self.backend.acquire(request=self._request())
-        # No live transcript; seed the committed Volume copy instead.
-        volume = FakeVolumeClass.instances[provisioned.volume_name]
-        rel = ".research_plugin_sessions/exp1/transcript.log"
-        volume.files[rel] = b"committed transcript line\n"
-        # Make the live read return empty so the fallback path is exercised.
         FakeSandbox.registry[provisioned.sandbox_id].transcript = ""
         text = self.backend.read_transcript(
             sandbox_id=provisioned.sandbox_id,
@@ -431,23 +384,9 @@ class ModalSandboxBackendTest(unittest.TestCase):
             volume_name=provisioned.volume_name,
             workdir=provisioned.workdir,
         )
-        self.assertIn("committed transcript line", text)
+        self.assertEqual(text, "")
 
-    def test_sync_sandbox_files_commits_mount_then_syncs_local(self) -> None:
-        provisioned = self.backend.acquire(request=self._request())
-        result = self.backend.sync_sandbox_files(
-            project_id="proj1",
-            sandbox_id=provisioned.sandbox_id,
-            workdir=provisioned.workdir,
-            volume_name=provisioned.volume_name,
-        )
-        sandbox = FakeSandbox.registry[provisioned.sandbox_id]
-        self.assertIn("sync /workspace/repo", sandbox.exec_calls[-1])
-        self.assertEqual(self.sync_engine.sync_calls[-1], "proj1")
-        self.assertTrue(result["committed"])
-        self.assertEqual(result["pulled"], 2)
-
-    def test_config_rejects_non_v2_volumes(self) -> None:
+    def test_config_rejects_unsynced_dir_inside_sync_dir(self) -> None:
         with self.assertRaises(BackendValidationError):
             ModalConfig(
                 app_name="research-plugin-jobs",
@@ -455,10 +394,9 @@ class ModalSandboxBackendTest(unittest.TestCase):
                 sandbox_timeout=4200,
                 job_timeout=3000,
                 idle_timeout=0,
-                remote_workdir="/workspace/repo",
-                sandbox_data_dir="/workspace/sandbox_data",
-                runner_dir="/workspace/repo/.research_plugin_job",
-                volume_version=1,
+                remote_workdir="/workspace/synced",
+                sandbox_data_dir="/workspace/synced/cache",
+                runner_dir="/workspace/synced/.research_plugin_job",
             ).validated()
 
     def test_sample_metrics_parses_gauges(self) -> None:

@@ -424,9 +424,11 @@ A sandbox row looks like:
   "cpu": 2.0,
   "memory": 8192,
   "ssh_host": "...", "ssh_port": 50022, "ssh_user": "root",
-  "workdir": "/workspace/repo",
-  "sandbox_data_dir": "/workspace/sandbox_data",
-  "volume_name": "research-plugin-proj_...",
+  "workdir": "/workspace/synced",
+  "sync_dir": "/workspace/synced",
+  "unsynced_dir": "/workspace/unsynced",
+  "sandbox_data_dir": "/workspace/unsynced",
+  "local_sync_dir": "/path/to/repo/experiments/exp_.../synced",
   "dashboards": {
     "mlflow": "https://...modal.host",
     "tensorboard": "https://...modal.host"
@@ -446,14 +448,25 @@ on the next `sandbox.get` so a stale iframe is at worst one poll behind.
 
 The terminal endpoint returns `{ experiment_id, sandbox_id, status, transcript }`
 where `transcript` is the recorded command/output log for the experiment's
-sandbox. The sync endpoint commits mounted repo writes from the live sandbox and
-pulls them into the local repo before resource registration. The release endpoint
-terminates the sandbox and returns the updated row.
+sandbox. Fresh sandbox setup pushes `local_sync_dir` to `/workspace/synced`
+before returning `status: running`, so a new remote environment starts with the
+current local experiment files. The sync endpoint pulls `/workspace/synced` from
+the live sandbox/VM into `local_sync_dir` with SSH `rsync` before resource
+registration. The regular sync excludes common heavy files and limits file size;
+`/workspace/synced/artifacts_to_keep` is the deliberate large-artifact exception
+path. `/workspace/unsynced` is for datasets, caches, checkpoints, parquet files,
+and other heavy intermediates that should stay remote. The release endpoint runs
+a final best-effort sync, then terminates the sandbox and returns the updated
+row.
 
-When `RESEARCH_PLUGIN_EXECUTION_BACKEND=lambda_labs`, sandbox procurement
-launches a Lambda Labs VM with SSH and the baseline agent tooling installed via
-launch `user_data`. Lambda file sync is not implemented yet, so `sandbox.sync`
-returns an unsupported-backend error for that backend.
+Lambda Labs is the **default** backend (`RESEARCH_PLUGIN_EXECUTION_BACKEND`
+unset or `lambda_labs`): sandbox procurement launches a Lambda Labs VM with SSH
+and the baseline agent tooling installed via launch `user_data`. The same SSH
+rsync path is used for `sandbox.sync`; no provider volume or volume-like storage
+is required. Because Lambda machines are fixed GPU+CPU+RAM SKUs, the sandbox row
+carries the chosen `instance_type` and `region` alongside `gpu`/`cpu`/`memory`,
+and the agent selects one from live availability (see the `needs_selection`
+response and `sandbox.options` in MCP_SERVER_CONTRACT.md).
 
 The metrics endpoint returns live in-container usage, sampled on demand inside
 the sandbox (CPU/RAM via cgroups, GPU via `nvidia-smi`). It is best-effort:

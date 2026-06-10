@@ -137,6 +137,34 @@ class WorkflowGateTest(unittest.TestCase):
             {"Summary", "Objective & hypothesis", "Evaluation"},
         )
 
+    # ---- transition discovery (allowed_transitions + helpful errors) ----
+
+    def test_get_state_surfaces_allowed_transitions_with_requirements(self) -> None:
+        exp = self.call("experiment.create", project_id=self.project_id, intent="discover")
+        state = self.call("experiment.get_state", project_id=self.project_id, experiment_id=exp["id"])
+        trans = {t["transition"]: t for t in state["allowed_transitions"]}
+        self.assertIn("submit_design", trans)
+        self.assertEqual(trans["submit_design"]["leads_to"], "design_review")
+        self.assertIn("requires", trans["submit_design"])  # precondition surfaced up front
+        self.assertIn("abandon", trans)  # always available from a non-terminal state
+
+    def test_disallowed_transition_error_lists_allowed_options(self) -> None:
+        exp = self.call("experiment.create", project_id=self.project_id, intent="bad jump")
+        with self.assertRaises(WorkflowError) as ctx:
+            self.call(
+                "experiment.transition", project_id=self.project_id,
+                experiment_id=exp["id"], transition="start_running",
+            )
+        msg = str(ctx.exception)
+        self.assertIn("not allowed", msg)
+        self.assertIn("submit_design", msg)  # tells the agent what IS allowed from here
+
+    def test_terminal_experiment_has_no_allowed_transitions(self) -> None:
+        exp = self.call("experiment.create", project_id=self.project_id, intent="dead end")
+        self.call("experiment.transition", project_id=self.project_id, experiment_id=exp["id"], transition="abandon")
+        state = self.call("experiment.get_state", project_id=self.project_id, experiment_id=exp["id"])
+        self.assertEqual(state["allowed_transitions"], [])
+
     # ---- terminal transitions ----
 
     def test_terminal_experiment_rejects_abandon(self) -> None:
