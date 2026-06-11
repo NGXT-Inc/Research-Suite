@@ -3,13 +3,13 @@
 One place owns the messy mapping from Lambda's raw API payload to the two
 shapes the rest of the app consumes:
 
-  - ``summarize_instance_types`` — the rich, filterable shape the HTTP route and
-    ``ComputeService.lambda_available_gpus`` return to the UI.
+  - ``summarize_instance_types`` — the rich, filterable shape the Lambda backend
+    normalizes from the provider API.
   - ``to_agent_options`` — a flat menu the agent picks from when it must choose a
     bundled machine SKU for ``sandbox.request``.
 
-Both the ``ComputeService`` and the Lambda sandbox backend call in here so the
-catalog logic never drifts between the UI and the agent surfaces.
+The Lambda sandbox backend is the only provider-aware caller; app services
+consume this through the provider-neutral ``SandboxBackend.hardware_catalog``.
 """
 
 from __future__ import annotations

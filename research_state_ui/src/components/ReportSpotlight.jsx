@@ -2,18 +2,7 @@ import { useEffect, useState } from 'react';
 import { api } from '../api';
 import MarkdownView from './MarkdownView';
 import FileRenderer from './FileRenderer';
-
-function bytes(n) {
-  if (n == null) return '';
-  if (n < 1024) return `${n} B`;
-  if (n < 1024 * 1024) return `${(n / 1024).toFixed(1)} KB`;
-  return `${(n / (1024 * 1024)).toFixed(2)} MB`;
-}
-
-function isMarkdown(path) {
-  const ext = (path || '').split('.').pop().toLowerCase();
-  return ext === 'md' || ext === 'markdown' || ext === 'mdx';
-}
+import { formatBytes, isMarkdown } from '../utils/format';
 
 /**
  * ReportSpotlight — the results artifact.
@@ -73,7 +62,7 @@ export default function ReportSpotlight({
         <div className="spotlight-head-right">
           <span className="mono spotlight-bar-path">{reportResource.path}</span>
           <span className="spotlight-bar-sep">·</span>
-          <span className="spotlight-bar-meta">{bytes(size)}</span>
+          <span className="spotlight-bar-meta">{formatBytes(size)}</span>
           <button
             type="button"
             className="btn btn--sm btn--ghost"

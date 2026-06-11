@@ -75,9 +75,9 @@ export const useProjectStore = create((set, get) => ({
   async refreshHome() {
     const pid = get().projectId;
     if (!pid) return null;
-    // Fetch /home, /jobs, and a deeper /events window in parallel. /home's
-    // recent_events is capped at ~25 which is too few for sparkline binning;
-    // the dashboard wants ≥1h of history per active item.
+    // Fetch /home, /sandboxes, and a deeper /events window in parallel.
+    // /home's recent_events is capped at ~25, too few for the Events page;
+    // the deeper window powers anything that needs ≥1h of history.
     try {
       const [home, sandboxesResp, eventsResp] = await Promise.all([
         api.getHome(pid),
@@ -108,27 +108,17 @@ export const useProjectStore = create((set, get) => ({
 const EMPTY_OBJ = Object.freeze({});
 const EMPTY_ARR = Object.freeze([]);
 
-export const selectHome = (s) => s.home;
 export const selectStats = (s) => s.home?.stats || EMPTY_OBJ;
 export const selectClaims = (s) => s.home?.claims || EMPTY_ARR;
 export const selectExperiments = (s) => s.home?.experiments || EMPTY_ARR;
 export const selectResources = (s) => s.home?.resources || EMPTY_ARR;
-// Server returns reviews as { requests, reviews } on /home and on /reviews;
-// normalize the submitted list to an identity-stable array.
-export const selectReviews = (s) => {
-  const r = s.home?.reviews;
-  if (Array.isArray(r)) return r;
-  if (r && typeof r === 'object') return r.reviews || EMPTY_ARR;
-  return EMPTY_ARR;
-};
+// Server returns reviews as { requests, reviews } on /home and on /reviews.
 export const selectReviewRequests = (s) => {
   const r = s.home?.reviews;
   if (r && !Array.isArray(r) && typeof r === 'object') return r.requests || EMPTY_ARR;
   return EMPTY_ARR;
 };
 export const selectEvents = (s) => s.home?.recent_events || EMPTY_ARR;
-export const selectWorkflow = (s) => s.home?.workflow || null;
-export const selectActiveExperiment = (s) => s.home?.active_experiment || null;
 export const selectActiveExperiments = (s) => s.home?.active_experiments || EMPTY_ARR;
 export const selectActiveProcesses = (s) => s.home?.active_processes || EMPTY_ARR;
 export const selectSandboxes = (s) => s.sandboxes || EMPTY_ARR;

@@ -11,8 +11,8 @@
 // has exactly one meaning: that command is still running (or the transcript
 // tail was cut mid-block — only ever the FIRST block, handled as preamble).
 
-export const CMD_MARKER_RE = /^\[([^\]]+)\]\s\$\s([\s\S]*)$/;
-export const EXIT_MARKER_RE = /^\[([^\]]+)\]\s\((exit\s(\d+)|interactive shell)\)\s*$/;
+const CMD_MARKER_RE = /^\[([^\]]+)\]\s\$\s([\s\S]*)$/;
+const EXIT_MARKER_RE = /^\[([^\]]+)\]\s\((exit\s(\d+)|interactive shell)\)\s*$/;
 
 /**
  * @returns blocks: Array<{

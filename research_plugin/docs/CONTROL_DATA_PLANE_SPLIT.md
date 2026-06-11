@@ -92,7 +92,7 @@ wires the services below. Here is where each lands.
 | Reviews | `services/reviews.py` | Records + reviewer capabilities. |
 | Workflow orchestration | `services/workflow.py` | `status_and_next` is pure logic over records. |
 | Permissions / authz | `services/permissions.py` | Becomes the real multi-tenant authz layer. |
-| Compute catalog | `services/compute.py` | GPU/pricing metadata. |
+| Sandbox hardware catalog | `execution/backends/*` via `SandboxBackend.hardware_catalog` | Provider-specific GPU/pricing metadata stays behind the execution backend protocol. |
 | Sandbox **lifecycle records + provisioning** | `services/sandboxes.py` (provision/terminate/reconcile, lifecycle rows) | Calls Modal/Lambda; holds provider creds; no FS needed. |
 | Execution backends | `execution/backends/{modal,lambda_labs}` | Provider credentials + VM API calls belong server-side. |
 | Provider credentials + billing | (Modal/Lambda config) | Must never sit on user machines in a multi-tenant world. |

@@ -37,6 +37,7 @@ from ...types import (
     OnCreated,
     OnPhase,
     ProvisionedSandbox,
+    SandboxBackendBase,
     SandboxRequest,
 )
 from .config import COMPUTE_TIERS, DEFAULT_GPU, VALID_GPUS, ModalConfig
@@ -184,7 +185,7 @@ fi
 """
 
 
-class ModalSandboxBackend:
+class ModalSandboxBackend(SandboxBackendBase):
     capabilities = BackendCapabilities(name="modal")
 
     def __init__(

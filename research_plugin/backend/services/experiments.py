@@ -3,264 +3,22 @@
 from __future__ import annotations
 
 import json
-import re
-from pathlib import Path
 from typing import Any
 
-from ..execution.sync_dirs import local_experiment_sync_dir
+from ..workspace import local_experiment_sync_dir
 from ..utils import NotFoundError, ValidationError, WorkflowError
 from ..utils import new_id
 from ..state.store import StateStore, row_to_dict, rows_to_dicts
 from ..utils import now_iso
-
-
-TERMINAL_STATUSES = frozenset({"complete", "failed", "abandoned"})
-
-# (from_status, transition) -> next_status. Single source of truth for the
-# forward workflow graph, shared by _next_status (enforcement) and
-# allowed_transitions_for (discovery surfaced on get_state + in errors).
-# `abandon`/`mark_failed` are handled separately (available from any
-# non-terminal status), so they are not listed here.
-TRANSITION_GRAPH: dict[tuple[str, str], str] = {
-    ("planned", "submit_design"): "design_review",
-    ("design_review", "mark_ready_to_run"): "ready_to_run",
-    ("ready_to_run", "start_running"): "running",
-    ("running", "submit_results"): "experiment_review",
-    ("experiment_review", "complete"): "complete",
-}
-# Plain-language precondition for transitions gated on more than just status, so
-# the agent learns the requirement up front instead of via a sequence of errors.
-TRANSITION_REQUIREMENTS: dict[str, str] = {
-    "submit_design": (
-        "a 'plan' resource must be synced & associated to this experiment, with "
-        "the required plan section headers present"
-    ),
-    "mark_ready_to_run": "a passing design_reviewer review",
-    "submit_results": (
-        "a 'result' resource AND a results report (role 'report') must be synced "
-        "& associated to this experiment; the report needs the required section "
-        "headers, a metrics table, and resolvable figure links"
-    ),
-    "complete": "a passing experiment_reviewer review",
-}
-
-
-def allowed_transitions_for(status: str) -> list[dict[str, Any]]:
-    """Transitions available from ``status``, with precondition hints.
-
-    Surfaced on ``experiment.get_state`` and in 'not allowed' errors so the
-    agent can see what to do next (and what each step requires) without
-    trial-and-error.
-    """
-    if status in TERMINAL_STATUSES:
-        return []
-    out: list[dict[str, Any]] = []
-    for (frm, transition), nxt in TRANSITION_GRAPH.items():
-        if frm == status:
-            entry: dict[str, Any] = {"transition": transition, "leads_to": nxt}
-            if transition in TRANSITION_REQUIREMENTS:
-                entry["requires"] = TRANSITION_REQUIREMENTS[transition]
-            out.append(entry)
-    out.append({"transition": "abandon", "leads_to": "abandoned"})
-    out.append({"transition": "mark_failed", "leads_to": "failed"})
-    return out
-
-# --- Plan schema (PRD-style) -------------------------------------------------
-# plan.md is the face of the experiment in the UI and the artifact the design
-# reviewer evaluates. We enforce a small REQUIRED spine — the minimum that makes
-# a plan readable (Summary), motivated (Objective & hypothesis), and judgeable
-# (Evaluation) — and leave Method/Outputs/Risks to the design reviewer's
-# judgment. See skills/research-workflow/plan-template.md.
-#
-# Each entry is (canonical_name, match_key): a plan heading satisfies the
-# section when its normalized text starts with match_key. The lint is
-# deliberately dumb (heading present + non-empty body); whether the content is
-# *sufficient* is the design reviewer's call, not the linter's.
-REQUIRED_PLAN_SECTIONS: tuple[tuple[str, str], ...] = (
-    ("Summary", "summary"),
-    ("Objective & hypothesis", "objective"),
-    ("Evaluation", "evaluation"),
+from .artifacts import plan_sections_missing, report_problems
+from .experiment_views import slim_experiment_state
+from .workflow_gates import (
+    GATE_TABLE,
+    SYSTEM_TRANSITIONS,
+    TERMINAL_STATUSES,
+    TRANSITION_GRAPH,
+    allowed_transitions_for,
 )
-
-# --- Results report schema ---------------------------------------------------
-# report.md is the face of the *executed* experiment: the artifact the
-# experiment reviewer grades and the UI spotlights once results exist. Same
-# philosophy as the plan spine — the lint enforces shape (sections present, a
-# real metrics table, short, figures resolve), and the experiment reviewer
-# judges substance. See skills/research-workflow/report-template.md.
-REQUIRED_REPORT_SECTIONS: tuple[tuple[str, str], ...] = (
-    ("Summary", "summary"),
-    ("Results", "results"),
-    ("Deviations from plan", "deviations"),
-    ("Conclusion", "conclusion"),
-)
-
-# Brevity is structural: the report is the executive layer; raw numbers, logs,
-# and large tables belong in linked result resources. 10 KB ≈ 1500 words.
-MAX_REPORT_BYTES = 10_000
-
-_HEADING_RE = re.compile(r"^(#{1,6})[ \t]+(.*?)[ \t]*#*[ \t]*$", re.MULTILINE)
-_HTML_COMMENT_RE = re.compile(r"<!--.*?-->", re.DOTALL)
-_IMAGE_LINK_RE = re.compile(r"!\[[^\]]*\]\(\s*<?([^)\s>]+)>?(?:\s+[\"'][^\"']*[\"'])?\s*\)")
-
-
-def _normalize_heading(text: str) -> str:
-    """Lowercase, expand '&' to 'and', collapse to space-separated words."""
-    text = text.replace("&", " and ")
-    return re.sub(r"[^a-z0-9]+", " ", text.lower()).strip()
-
-
-def _sections_missing(
-    text: str, required: tuple[tuple[str, str], ...]
-) -> list[str]:
-    """Return the canonical names of REQUIRED sections that are absent or
-    empty. A section counts as present when its heading exists and the body
-    beneath it — up to the next same-or-higher-level heading — contains
-    non-whitespace text. HTML comments are stripped first, so they neither count
-    as content nor register as headings; template guidance therefore lives in
-    comments precisely so an unfilled section reads as empty here."""
-    text = _HTML_COMMENT_RE.sub("", text)
-    headings = [
-        (m.start(), len(m.group(1)), _normalize_heading(m.group(2)), m.end())
-        for m in _HEADING_RE.finditer(text)
-    ]
-    missing: list[str] = []
-    for canonical, key in required:
-        idx = next((i for i, h in enumerate(headings) if h[2].startswith(key)), None)
-        if idx is None:
-            missing.append(canonical)
-            continue
-        level, body_start = headings[idx][1], headings[idx][3]
-        body_end = len(text)
-        for nxt_start, nxt_level, _, _ in headings[idx + 1:]:
-            if nxt_level <= level:
-                body_end = nxt_start
-                break
-        if not text[body_start:body_end].strip():
-            missing.append(canonical)
-    return missing
-
-
-def plan_sections_missing(plan_text: str) -> list[str]:
-    return _sections_missing(plan_text, REQUIRED_PLAN_SECTIONS)
-
-
-def report_sections_missing(report_text: str) -> list[str]:
-    return _sections_missing(report_text, REQUIRED_REPORT_SECTIONS)
-
-
-def _has_markdown_table(text: str) -> bool:
-    """A GFM table = a header row with pipes followed by a |/-/: separator."""
-    lines = text.splitlines()
-    for i in range(1, len(lines)):
-        sep = lines[i].strip()
-        if "|" not in lines[i - 1]:
-            continue
-        if sep and "---" in sep and set(sep) <= set("|-: \t"):
-            return True
-    return False
-
-
-def report_problems(report_text: str, *, report_path: Path, repo_root: Path) -> list[str]:
-    """Everything wrong with a results report, in one pass, so the agent can
-    fix all of it in a single revision instead of peeling errors one by one.
-
-    Checks: required spine sections; the Results section's mandatory metrics
-    table; the brevity ceiling; and that every relative image link resolves to
-    a real file (a report whose figures didn't sync renders broken in the UI
-    and is unreviewable)."""
-    problems: list[str] = []
-    missing = report_sections_missing(report_text)
-    if missing:
-        problems.append("missing required sections: " + ", ".join(missing))
-    stripped = _HTML_COMMENT_RE.sub("", report_text)
-    if not _has_markdown_table(stripped):
-        problems.append(
-            "the Results section must contain a markdown table of metrics "
-            "(target/paper value vs achieved)"
-        )
-    size = len(report_text.encode("utf-8"))
-    if size > MAX_REPORT_BYTES:
-        problems.append(
-            f"report is {size} bytes; keep it under {MAX_REPORT_BYTES} — move raw "
-            "numbers and logs into result resources and link them instead"
-        )
-    for match in _IMAGE_LINK_RE.finditer(stripped):
-        target = match.group(1)
-        if target.startswith(("http://", "https://", "data:", "/")):
-            continue
-        resolved = (report_path.parent / target).resolve()
-        try:
-            resolved.relative_to(repo_root.resolve())
-        except ValueError:
-            problems.append(f"image link escapes the repo: {target}")
-            continue
-        if not resolved.is_file():
-            problems.append(
-                f"image link does not resolve to a synced file: {target} "
-                "(save figures next to the report and sandbox.sync before submitting)"
-            )
-    return problems
-
-# Agent-facing projection of get_state. get_state is the "give me the detail"
-# call, so unlike status_and_next we KEEP the substance (review findings/notes,
-# intent, conclusion, the resource list). We only drop the pure waste: the
-# duplicate all-attempts `resources` list (a byte-for-byte copy of
-# current_attempt_resources for single-attempt experiments), per-resource
-# derived/bookkeeping fields (version_token — itself path:mtime:mtime:size —,
-# mtime_ns, the two usually-equal *_version_id, the three timestamps, repeated
-# project_id, constant created_by/git_commit/association_attempt_index), and
-# review internals (target_snapshot_id, request_id/session_id/target_*/
-# project_id). The UI keeps the full shape (it calls the service method
-# directly). See docs/MCP_SERVER_CONTRACT.md.
-_SLIM_RESOURCE_FIELDS = ("id", "association_role", "path", "kind", "size_bytes", "missing", "title")
-_PRIOR_RESOURCE_FIELDS = ("id", "association_role", "path", "association_attempt_index")
-_SLIM_CLAIM_FIELDS = ("id", "statement", "confidence", "status", "scope")
-_SLIM_REVIEW_FIELDS = ("id", "role", "verdict", "created_at", "findings", "notes", "evidence")
-
-
-def slim_experiment_state(full: dict[str, Any]) -> dict[str, Any]:
-    """Project a full get_state down to the agent-facing shape (detail, no waste)."""
-    attempt = full.get("attempt_index")
-    all_resources = full.get("resources", [])
-    current = full.get("current_attempt_resources")
-    if current is None:
-        current = [r for r in all_resources if r.get("association_attempt_index") == attempt]
-    prior = [r for r in all_resources if r.get("association_attempt_index") != attempt]
-
-    slim: dict[str, Any] = {
-        "id": full.get("id"),
-        "status": full.get("status"),
-        "attempt_index": attempt,
-        "intent": full.get("intent"),
-        "conclusion": full.get("conclusion"),
-        "revision_context": full.get("revision_context"),
-        "created_at": full.get("created_at"),
-        "updated_at": full.get("updated_at"),
-        "allowed_transitions": full.get(
-            "allowed_transitions", allowed_transitions_for(str(full.get("status", "")))
-        ),
-        "tested_claims": [
-            {field: claim.get(field) for field in _SLIM_CLAIM_FIELDS}
-            for claim in full.get("tested_claims", [])
-        ],
-        "current_attempt_resources": [
-            {field: res.get(field) for field in _SLIM_RESOURCE_FIELDS}
-            for res in current
-        ],
-        "reviews": [
-            {field: review.get(field) for field in _SLIM_REVIEW_FIELDS}
-            for review in full.get("reviews", [])
-        ],
-    }
-    # Only surface prior-attempt artifacts (as compact references) when a rerun
-    # actually produced them — keeps single-attempt experiments lean.
-    if prior:
-        slim["prior_attempt_resources"] = [
-            {field: res.get(field) for field in _PRIOR_RESOURCE_FIELDS}
-            for res in prior
-        ]
-    return slim
 
 
 class ExperimentService:
@@ -579,42 +337,90 @@ class ExperimentService:
             return "abandoned"
         if transition == "mark_failed":
             return "failed"
-        next_status = TRANSITION_GRAPH.get((status, transition))
-        if next_status is None:
+        if transition in SYSTEM_TRANSITIONS:
+            raise WorkflowError(
+                f"transition {transition!r} is system-driven (sandbox lifecycle); "
+                "it cannot be applied via experiment.transition"
+            )
+        forward = GATE_TABLE.get(status)
+        if forward is None or forward.name != transition:
             options = ", ".join(t["transition"] for t in allowed_transitions_for(status))
             raise WorkflowError(
                 f"transition {transition!r} is not allowed from {status!r}; "
                 f"allowed from here: {options}"
             )
-        if transition == "submit_design":
+        for requirement in forward.requirements:
             if not self._has_resource_role(
                 conn=conn,
                 experiment_id=experiment_id,
-                role="plan",
+                role=requirement.role,
             ):
-                raise WorkflowError("an experiment plan resource must be synced before design review")
+                raise WorkflowError(requirement.error)
+            self._run_validator(
+                conn=conn, experiment_id=experiment_id, name=requirement.validator
+            )
+        if forward.review is not None and not self._has_passing_review(
+            conn=conn,
+            experiment_id=experiment_id,
+            role=forward.review.role,
+        ):
+            raise WorkflowError(forward.review.error)
+        return forward.to_status
+
+    def _run_validator(self, *, conn, experiment_id: str, name: str) -> None:
+        """Dispatch a gate-table validator name to its deep-lint implementation."""
+        if name == "plan":
             self._validate_plan_sections(conn=conn, experiment_id=experiment_id)
-        if transition == "mark_ready_to_run" and not self._has_passing_review(
-            conn=conn,
-            experiment_id=experiment_id,
-            role="design_reviewer",
-        ):
-            raise WorkflowError("design review must pass before ready_to_run")
-        if transition == "submit_results":
-            if not self._has_resource_role(
-                conn=conn,
-                experiment_id=experiment_id,
-                role="result",
-            ):
-                raise WorkflowError("result resource must be synced before experiment_review")
+        elif name == "report":
             self._validate_results_report(conn=conn, experiment_id=experiment_id)
-        if transition == "complete" and not self._has_passing_review(
-            conn=conn,
-            experiment_id=experiment_id,
-            role="experiment_reviewer",
-        ):
-            raise WorkflowError("experiment review must pass before complete")
-        return next_status
+
+    def apply_system_transition(
+        self, *, experiment_id: str, transition: str, reason: str = ""
+    ) -> bool:
+        """Apply a sandbox-lifecycle transition through the workflow graph.
+
+        This is the only path by which infrastructure (the sandbox registry)
+        may change experiment status — never raw UPDATEs — so every status
+        change lands in the `experiment.transitioned` event log. Unlike agent
+        transitions, an inapplicable system transition is a tolerated no-op
+        (returns False): the triggering sandbox event may arrive after the
+        experiment has already moved on (reuse of a live sandbox, an expiry
+        racing a review submission).
+        """
+        if transition not in SYSTEM_TRANSITIONS:
+            raise WorkflowError(f"not a system transition: {transition!r}")
+        with self.store.transaction() as conn:
+            row = conn.execute(
+                "SELECT project_id, status FROM experiments WHERE id = ?",
+                (experiment_id,),
+            ).fetchone()
+            if row is None:
+                return False
+            status = row["status"]
+            next_status = TRANSITION_GRAPH.get((status, transition))
+            if next_status is None:
+                return False
+            conn.execute(
+                "UPDATE experiments SET status = ?, updated_at = ? WHERE id = ?",
+                (next_status, now_iso(), experiment_id),
+            )
+            payload: dict[str, Any] = {
+                "from": status,
+                "to": next_status,
+                "transition": transition,
+                "system": True,
+            }
+            if reason:
+                payload["reason"] = reason
+            self.store.record_event(
+                conn=conn,
+                project_id=row["project_id"],
+                event_type="experiment.transitioned",
+                target_type="experiment",
+                target_id=experiment_id,
+                payload=payload,
+            )
+            return True
 
     def _has_resource_role(self, *, conn, experiment_id: str, role: str) -> bool:
         row = conn.execute(

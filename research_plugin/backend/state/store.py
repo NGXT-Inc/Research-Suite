@@ -492,6 +492,29 @@ class StateStore:
             (project_id, event_type, target_type, target_id, json.dumps(payload or {}, sort_keys=True), now_iso()),
         )
 
+    def recent_events(self, *, project_id: str | None, limit: int = 100) -> dict[str, Any]:
+        conn = self.connect()
+        try:
+            project_id = self.require_project_id(conn=conn, project_id=project_id)
+            rows = conn.execute(
+                """
+                SELECT id, project_id, type, target_type, target_id, payload_json, created_at
+                FROM events
+                WHERE project_id = ?
+                ORDER BY id DESC
+                LIMIT ?
+                """,
+                (project_id, max(1, min(int(limit), 500))),
+            ).fetchall()
+            events = []
+            for row in rows:
+                item = row_to_dict(row=row) or {}
+                item["payload"] = json.loads(str(item.pop("payload_json", "{}")))
+                events.append(item)
+            return {"events": events}
+        finally:
+            conn.close()
+
 
 def row_to_dict(*, row: sqlite3.Row | None) -> dict[str, Any] | None:
     if row is None:

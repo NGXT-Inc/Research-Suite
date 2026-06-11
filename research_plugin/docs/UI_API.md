@@ -348,18 +348,6 @@ Deleting a resource removes it from active lists and workflow associations, but
 keeps observed version metadata; registering the same path again revives the
 resource.
 
-## Compute Availability
-
-```http
-GET /api/compute/lambda/available-gpus
-GET /api/compute/lambda/available-gpus?region=us-west-1&gpu=H100&min_gpus=8
-```
-
-Returns Lambda Labs instance types with current regional capacity, normalized
-for choosing a region and GPU before launching a VM. This endpoint does not
-launch, reserve, or mutate compute resources. It requires
-`RESEARCH_PLUGIN_LAMBDA_API_KEY`, `LAMBDA_LABS_API_KEY`, or `LAMBDA_API_KEY`.
-
 ## Reviews
 
 ```http

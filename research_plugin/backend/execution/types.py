@@ -12,7 +12,7 @@ commands over SSH itself — the backend never wraps or queues commands.
 from __future__ import annotations
 
 from dataclasses import dataclass, field
-from typing import Callable, Mapping, Protocol
+from typing import Any, Callable, Mapping, Protocol
 
 
 SANDBOX_STATES = ("provisioning", "running", "terminated", "failed", "unknown")
@@ -97,6 +97,13 @@ class ProvisionedSandbox:
 @dataclass(frozen=True)
 class BackendCapabilities:
     name: str
+    # Run the expiration reaper for this backend's sandboxes. Default True:
+    # a new provider that forgets this flag gets billing protection, not a
+    # VM that bills forever. The in-memory fake opts out.
+    enforce_expiry: bool = True
+    # Run the background rsync poller. Default True: results preservation
+    # is the safe default for any real remote sandbox.
+    auto_sync: bool = True
     # True when the agent must pick a provider-bundled machine SKU (GPU + CPU +
     # RAM together) before a sandbox can be created, because the backend has no
     # configurable per-resource knobs. Lambda Labs sets this; Modal does not.
@@ -141,3 +148,83 @@ class SandboxBackend(Protocol):
     def sandbox_environment(self) -> dict: ...
 
     def health(self) -> dict: ...
+
+    def sample_metrics(
+        self,
+        *,
+        sandbox_id: str,
+        ssh_host: str = "",
+        ssh_port: int = 0,
+        ssh_user: str = "",
+        key_path: str = "",
+    ) -> dict[str, Any] | None:
+        """Optionally sample live sandbox usage. Unsupported backends return None."""
+        ...
+
+    def refresh_ssh_endpoint(self, *, sandbox_id: str) -> tuple[str, int] | None:
+        """Optionally refresh a live SSH endpoint. Unsupported backends return None."""
+        ...
+
+    def hardware_catalog(
+        self, *, gpu: str | None = None, region: str | None = None
+    ) -> dict[str, Any] | None:
+        """Optionally return requestable hardware. Unsupported backends return None."""
+        ...
+
+    def dashboard_urls(self, *, sandbox_id: str) -> dict[str, str] | None:
+        """Optionally refresh provider-native dashboard URLs. Unsupported backends return None."""
+        ...
+
+    def local_dashboard_ports(self) -> dict[str, int]:
+        """Optionally expose dashboards through local SSH forwards. Unsupported backends return {}."""
+        ...
+
+    def find_sandbox_id(self, *, experiment_id: str) -> str | None:
+        """Optionally find an orphan sandbox by experiment. Unsupported backends return None."""
+        ...
+
+    def shutdown(self) -> None:
+        """Optionally release backend-level resources. Unsupported backends no-op."""
+        ...
+
+
+class SandboxBackendBase:
+    """Sentinel defaults for optional SandboxBackend operations."""
+
+    def sample_metrics(
+        self,
+        *,
+        sandbox_id: str,
+        ssh_host: str = "",
+        ssh_port: int = 0,
+        ssh_user: str = "",
+        key_path: str = "",
+    ) -> dict[str, Any] | None:
+        """Unsupported default: no live usage sample is available."""
+        return None
+
+    def refresh_ssh_endpoint(self, *, sandbox_id: str) -> tuple[str, int] | None:
+        """Unsupported default: no refreshed SSH endpoint is available."""
+        return None
+
+    def hardware_catalog(
+        self, *, gpu: str | None = None, region: str | None = None
+    ) -> dict[str, Any] | None:
+        """Unsupported default: no hardware catalog is available."""
+        return None
+
+    def dashboard_urls(self, *, sandbox_id: str) -> dict[str, str] | None:
+        """Unsupported default: no provider-native dashboard URLs are available."""
+        return None
+
+    def local_dashboard_ports(self) -> dict[str, int]:
+        """Unsupported default: no dashboards need local SSH forwarding."""
+        return {}
+
+    def find_sandbox_id(self, *, experiment_id: str) -> str | None:
+        """Unsupported default: no orphan lookup is available."""
+        return None
+
+    def shutdown(self) -> None:
+        """Unsupported default: no backend-level resources need cleanup."""
+        return None

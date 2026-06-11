@@ -24,6 +24,7 @@ from .types import (
     OnPhase,
     ProvisionedSandbox,
     SandboxBackend,
+    SandboxBackendBase,
     SandboxRequest,
 )
 
@@ -75,6 +76,7 @@ __all__ = [
     "ProvisionedSandbox",
     "SANDBOX_STATES",
     "SandboxBackend",
+    "SandboxBackendBase",
     "SandboxRequest",
     "build_sandbox_backend",
 ]

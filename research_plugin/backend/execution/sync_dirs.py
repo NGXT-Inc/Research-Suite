@@ -2,21 +2,10 @@
 
 from __future__ import annotations
 
-from pathlib import Path
-
 
 DEFAULT_SYNC_DIR = "/workspace/synced"
 DEFAULT_UNSYNCED_DIR = "/workspace/unsynced"
 ARTIFACTS_TO_KEEP_DIRNAME = "artifacts_to_keep"
-
-
-def safe_experiment_dirname(experiment_id: str) -> str:
-    """Filesystem-safe directory name for an experiment id."""
-    return "".join(ch if ch.isalnum() or ch in "-_." else "_" for ch in experiment_id) or "experiment"
-
-
-def local_experiment_sync_dir(*, repo_root: Path, experiment_id: str) -> Path:
-    return repo_root / "experiments" / safe_experiment_dirname(experiment_id) / "synced"
 
 
 def sync_hint() -> str:

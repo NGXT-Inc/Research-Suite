@@ -7,7 +7,6 @@ marker lifecycle live in `http_server`.
 
 from __future__ import annotations
 
-import json
 import mimetypes
 from pathlib import Path
 from typing import Any
@@ -146,113 +145,22 @@ class ResearchHttpApi:
         return {"resources": resources, "tree": by_kind}
 
     def review_queue(self, project_id: str) -> dict[str, Any]:
-        conn = self.app.store.connect()
-        try:
-            project_id = self.app.store.require_project_id(conn=conn, project_id=project_id)
-            req_rows = conn.execute(
-                """
-                SELECT id, target_type, target_id, role, status, reason, target_snapshot_id,
-                       producer_session_id, expires_at, created_at
-                FROM review_requests
-                WHERE project_id = ?
-                ORDER BY rowid DESC
-                """,
-                (project_id,),
-            ).fetchall()
-            review_rows = conn.execute(
-                """
-                SELECT id, request_id, target_snapshot_id, target_type, target_id, role, verdict, notes, created_at
-                FROM reviews
-                WHERE project_id = ?
-                ORDER BY rowid DESC
-                """,
-                (project_id,),
-            ).fetchall()
-            return {
-                "requests": [self._with_snapshot(row=row) for row in req_rows],
-                "reviews": [self._with_snapshot(row=row) for row in review_rows],
-            }
-        finally:
-            conn.close()
-
-    def _with_snapshot(self, *, row) -> dict[str, Any]:
-        data = dict(row)
-        data["target_snapshot"] = self.app.reviews.snapshot_from_id(snapshot_id=data.get("target_snapshot_id", ""))
-        return data
+        return self.app.reviews.queue(project_id=project_id)
 
     def start_review(self, *, project_id: str, body: dict[str, Any]) -> dict[str, Any]:
-        self._assert_review_request_in_project(
+        self.app.reviews.assert_request_in_project(
             project_id=project_id, review_request_id=body.get("review_request_id")
         )
         return self.call_tool(name="review.start", arguments=body)
 
     def submit_review(self, *, project_id: str, body: dict[str, Any]) -> dict[str, Any]:
-        self._assert_review_session_in_project(
+        self.app.reviews.assert_session_in_project(
             project_id=project_id, review_session_id=body.get("review_session_id")
         )
         return self.call_tool(name="review.submit", arguments=body)
 
-    def _assert_review_request_in_project(self, *, project_id: str, review_request_id: Any) -> None:
-        conn = self.app.store.connect()
-        try:
-            project_id = self.app.store.require_project_id(conn=conn, project_id=project_id)
-            if not review_request_id:
-                raise ValidationError("review_request_id is required")
-            row = conn.execute(
-                "SELECT project_id FROM review_requests WHERE id = ?",
-                (review_request_id,),
-            ).fetchone()
-            if row is None or row["project_id"] != project_id:
-                raise NotFoundError(
-                    f"review request not found in project {project_id}: {review_request_id}"
-                )
-        finally:
-            conn.close()
-
-    def _assert_review_session_in_project(self, *, project_id: str, review_session_id: Any) -> None:
-        conn = self.app.store.connect()
-        try:
-            project_id = self.app.store.require_project_id(conn=conn, project_id=project_id)
-            if not review_session_id:
-                raise ValidationError("review_session_id is required")
-            row = conn.execute(
-                """
-                SELECT rr.project_id AS project_id
-                FROM review_sessions rs
-                JOIN review_requests rr ON rr.id = rs.request_id
-                WHERE rs.id = ?
-                """,
-                (review_session_id,),
-            ).fetchone()
-            if row is None or row["project_id"] != project_id:
-                raise NotFoundError(
-                    f"review session not found in project {project_id}: {review_session_id}"
-                )
-        finally:
-            conn.close()
-
     def events(self, project_id: str, limit: int = 100) -> dict[str, Any]:
-        conn = self.app.store.connect()
-        try:
-            project_id = self.app.store.require_project_id(conn=conn, project_id=project_id)
-            rows = conn.execute(
-                """
-                SELECT id, project_id, type, target_type, target_id, payload_json, created_at
-                FROM events
-                WHERE project_id = ?
-                ORDER BY id DESC
-                LIMIT ?
-                """,
-                (project_id, max(1, min(limit, 500))),
-            ).fetchall()
-            events = []
-            for row in rows:
-                item = dict(row)
-                item["payload"] = json.loads(item.pop("payload_json", "{}"))
-                events.append(item)
-            return {"events": events}
-        finally:
-            conn.close()
+        return self.app.store.recent_events(project_id=project_id, limit=limit)
 
     def get_claim(self, project_id: str, claim_id: str) -> dict[str, Any]:
         claims = self.call_tool(name="claim.list", arguments={"project_id": project_id})["claims"]
@@ -391,29 +299,11 @@ class ResearchHttpApi:
         return build_experiment_figure(
             experiment=experiment,
             review_attempts=review_attempts,
-            open_review_requests=self._open_review_requests(
+            open_review_requests=self.app.reviews.open_requests_for_target(
                 project_id=project_id, experiment_id=experiment_id
             ),
             sandbox=sandbox,
         )
-
-    def _open_review_requests(self, *, project_id: str, experiment_id: str) -> list[dict[str, Any]]:
-        conn = self.app.store.connect()
-        try:
-            project_id = self.app.store.require_project_id(conn=conn, project_id=project_id)
-            rows = conn.execute(
-                """
-                SELECT id, role, status, reason, created_at
-                FROM review_requests
-                WHERE project_id = ? AND target_type = 'experiment' AND target_id = ?
-                  AND status IN ('requested', 'started')
-                ORDER BY rowid
-                """,
-                (project_id, experiment_id),
-            ).fetchall()
-            return [dict(row) for row in rows]
-        finally:
-            conn.close()
 
     def _experiment_view_model(self, *, exp: dict[str, Any]) -> dict[str, Any]:
         current = exp.get("current_attempt_resources", [])
@@ -565,22 +455,6 @@ def create_fastapi_app(
     @http.post("/api/debug/tool-calls/clear")
     def tool_calls_clear() -> dict[str, Any]:
         return default_api().tool_calls_clear()
-
-    @http.get("/api/compute/lambda/available-gpus")
-    def lambda_available_gpus(
-        region: str | None = None,
-        gpu: str | None = None,
-        instance_type: str | None = None,
-        min_gpus: int | None = Query(None, ge=1),
-        only_available: bool = True,
-    ) -> dict[str, Any]:
-        return default_api().app.compute.lambda_available_gpus(
-            region=region,
-            gpu=gpu,
-            instance_type=instance_type,
-            min_gpus=min_gpus,
-            only_available=only_available,
-        )
 
     @http.get("/api/projects")
     def list_projects() -> dict[str, Any]:

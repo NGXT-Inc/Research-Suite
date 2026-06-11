@@ -29,21 +29,13 @@ async function request(path, { method = 'GET', body, signal } = {}) {
 }
 
 export const api = {
-  health: () => request('/health'),
-
   // Projects
   listProjects: () => request('/api/projects'),
   createProject: ({ name, summary, repo_root }) => request('/api/projects', { method: 'POST', body: { name, summary: summary || '', repo_root } }),
-  getProject: (pid) => request(`/api/projects/${encodeURIComponent(pid)}`),
   patchProject: (pid, patch) => request(`/api/projects/${encodeURIComponent(pid)}`, { method: 'PATCH', body: patch }),
   getHome: (pid, signal) => request(`/api/projects/${encodeURIComponent(pid)}/home`, { signal }),
-  getStatus: (pid, experimentId) => {
-    const q = experimentId ? `?experiment_id=${encodeURIComponent(experimentId)}` : '';
-    return request(`/api/projects/${encodeURIComponent(pid)}/status${q}`);
-  },
 
   // Claims
-  listClaims: (pid) => request(`/api/projects/${encodeURIComponent(pid)}/claims`),
   createClaim: (pid, { statement, scope, confidence }) =>
     request(`/api/projects/${encodeURIComponent(pid)}/claims`, {
       method: 'POST',
@@ -52,17 +44,11 @@ export const api = {
   getClaim: (pid, cid) => request(`/api/projects/${encodeURIComponent(pid)}/claims/${encodeURIComponent(cid)}`),
 
   // Experiments
-  listExperiments: (pid, opts = {}) => {
-    const q = opts.status ? `?status=${encodeURIComponent(opts.status)}` : '';
-    return request(`/api/projects/${encodeURIComponent(pid)}/experiments${q}`);
-  },
-  listExperimentsView: (pid) => request(`/api/projects/${encodeURIComponent(pid)}/experiments/view`),
   createExperiment: (pid, { intent, claim_ids }) =>
     request(`/api/projects/${encodeURIComponent(pid)}/experiments`, {
       method: 'POST',
       body: { intent, claim_ids: claim_ids || [] },
     }),
-  getExperiment: (pid, eid) => request(`/api/projects/${encodeURIComponent(pid)}/experiments/${encodeURIComponent(eid)}`),
   getExperimentStatus: (pid, eid) =>
     request(`/api/projects/${encodeURIComponent(pid)}/experiments/${encodeURIComponent(eid)}/status`),
   // Derived figure graph (nodes + edges) for the experiment canvas.
@@ -75,11 +61,6 @@ export const api = {
     }),
 
   // Resources
-  listResources: (pid, opts = {}) => {
-    const q = opts.kind ? `?kind=${encodeURIComponent(opts.kind)}` : '';
-    return request(`/api/projects/${encodeURIComponent(pid)}/resources${q}`);
-  },
-  resourceTree: (pid) => request(`/api/projects/${encodeURIComponent(pid)}/resources/tree`),
   registerResource: (pid, { path, kind, title }) =>
     request(`/api/projects/${encodeURIComponent(pid)}/resources`, {
       method: 'POST',
@@ -94,7 +75,6 @@ export const api = {
     request(`/api/projects/${encodeURIComponent(pid)}/resources/${encodeURIComponent(rid)}`, {
       method: 'DELETE',
     }),
-  getResource: (pid, rid) => request(`/api/projects/${encodeURIComponent(pid)}/resources/${encodeURIComponent(rid)}`),
   getResourceContent: (pid, rid) =>
     request(`/api/projects/${encodeURIComponent(pid)}/resources/${encodeURIComponent(rid)}/content`),
   // rel: optional path relative to the resource's own directory (locked inside
@@ -104,15 +84,12 @@ export const api = {
       rel ? `?rel=${encodeURIComponent(rel)}` : ''
     }`,
 
-  // Versioning (shadow-Git-backed). Resources carry version metadata directly
-  // (current_version_id, current_version, associations[].version_id), but for
-  // history / historical content / diffs the UI hits these endpoints.
+  // Version history. Resources carry version metadata directly
+  // (current_version_id, associations[].version_id); `history` returns version
+  // metadata only (sha256, size, mtime, content_type) — the backend does not
+  // store or serve historical file content.
   getResourceHistory: (pid, rid) =>
     request(`/api/projects/${encodeURIComponent(pid)}/resources/${encodeURIComponent(rid)}/history`),
-  getResourceVersionContent: (pid, rid, vid) =>
-    request(`/api/projects/${encodeURIComponent(pid)}/resources/${encodeURIComponent(rid)}/versions/${encodeURIComponent(vid)}/content`),
-  getResourceVersionDiff: (pid, rid, toVid, fromVid) =>
-    request(`/api/projects/${encodeURIComponent(pid)}/resources/${encodeURIComponent(rid)}/versions/${encodeURIComponent(toVid)}/diff?from_version_id=${encodeURIComponent(fromVid)}`),
 
   // Reviews
   listReviews: (pid, target = {}) => {
@@ -122,12 +99,6 @@ export const api = {
     const q = params.toString();
     return request(`/api/projects/${encodeURIComponent(pid)}/reviews${q ? '?' + q : ''}`);
   },
-  requestReview: (pid, { target_type, target_id, role, reason }) =>
-    request(`/api/projects/${encodeURIComponent(pid)}/reviews/request`, {
-      method: 'POST',
-      body: { target_type, target_id, role, reason: reason || '' },
-    }),
-
   // Events
   listEvents: (pid, limit = 100) =>
     request(`/api/projects/${encodeURIComponent(pid)}/events?limit=${limit}`),
@@ -183,14 +154,8 @@ export const api = {
   // came back empty (e.g. a CPU-only image without nvidia-smi).
   getSandboxMetrics: (pid, eid) =>
     request(`/api/projects/${encodeURIComponent(pid)}/experiments/${encodeURIComponent(eid)}/sandbox/metrics`),
-  // Archived MLflow metrics (runs, params, final values, downsampled history),
-  // captured by the daemon on sync and right before release — readable long
-  // after the sandbox VM is gone. { available: false } when never captured.
-  getExperimentResultsMetrics: (pid, eid) =>
-    request(`/api/projects/${encodeURIComponent(pid)}/experiments/${encodeURIComponent(eid)}/results/metrics`),
   syncSandbox: (pid, eid) =>
     request(`/api/projects/${encodeURIComponent(pid)}/experiments/${encodeURIComponent(eid)}/sandbox/sync`, { method: 'POST' }),
   releaseSandbox: (pid, eid) =>
     request(`/api/projects/${encodeURIComponent(pid)}/experiments/${encodeURIComponent(eid)}/sandbox/release`, { method: 'POST' }),
-  sandboxesHealth: () => request(`/api/sandboxes/health`),
 };

@@ -16,13 +16,6 @@ import AddResourceToExperiment from '../components/AddResourceToExperiment';
 import { parseIntent } from '../utils/intent';
 import { gateToSectionId, useScrollToHash } from '../utils/useScrollToHash';
 
-// next_action → smart default role for new resources.
-const NEXT_ACTION_TO_ROLE = {
-  write_or_sync_plan_resource: 'plan',
-  sync_result_resources: 'result',
-  write_and_associate_results_report: 'report',
-};
-
 // Map experiment.status → which stage to highlight in the orientation strip.
 const STATUS_TO_STAGE = {
   planned:           'design',
@@ -139,15 +132,13 @@ export default function ExperimentDetail() {
     .sort((a, b) => (a.association_role || '').localeCompare(b.association_role || ''));
   const currentIds = new Set(currentRes.map(r => r.id));
   // The status endpoint's current_attempt_resources gives us per-attempt
-  // association metadata (role / attempt / version), but no full associations
-  // history or current_version. For version-aware components (PlanSpotlight)
-  // we look the resource up in the project store, which carries the richer
-  // /home shape including associations[].
+  // association metadata (role / attempt), but not the richer /home shape
+  // (version_token, associations[]) — so we look the resource up in the
+  // project store, which carries it.
   //
   // Fallback: if the current attempt hasn't associated a plan yet (e.g. just
   // bumped to a new attempt), find the experiment's plan resource via its
-  // full associations history so PlanSpotlight can still surface past
-  // versions through the review stepper.
+  // full associations history so PlanSpotlight can still render it.
   const planResBare = currentRes.find(r => r.association_role === 'plan') || null;
   const planResFromCurrent = planResBare
     ? (allProjectResources.find(r => r.id === planResBare.id) || planResBare)
@@ -246,7 +237,6 @@ export default function ExperimentDetail() {
       )}
       <PlanSpotlight
         projectId={projectId}
-        experimentId={experimentId}
         planResource={planRes}
         designReviews={designReviews}
         attemptIndex={currentAttempt}

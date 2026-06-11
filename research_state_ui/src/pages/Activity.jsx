@@ -2,6 +2,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { Link } from 'react-router-dom';
 import { api } from '../api';
 import ObjId from '../components/ObjId';
+import { tsToTime } from '../utils/format';
 
 /**
  * Activity — live telemetry of HTTP requests and MCP tool calls.
@@ -33,14 +34,6 @@ function isOk(ev) {
 function sourceOf(ev) {
   if (ev.event === 'http.request') return 'http';
   return ev.source || 'mcp';
-}
-
-function tsToTime(iso) {
-  if (!iso) return '';
-  try {
-    const d = new Date(iso);
-    return d.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit' });
-  } catch { return iso; }
 }
 
 function targetFromArgs(args) {

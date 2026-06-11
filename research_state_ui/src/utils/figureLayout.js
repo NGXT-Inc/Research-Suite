@@ -11,7 +11,7 @@
  */
 
 export const FIG_NODE_W = 196;
-export const FIG_NODE_H = 66;
+const FIG_NODE_H = 66;
 const GAP_X = 72;
 const GAP_Y = 20;
 

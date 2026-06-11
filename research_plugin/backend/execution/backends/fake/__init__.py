@@ -11,11 +11,12 @@ from ...types import (
     OnCreated,
     OnPhase,
     ProvisionedSandbox,
+    SandboxBackendBase,
     SandboxRequest,
 )
 
 
-class FakeSandboxBackend:
+class FakeSandboxBackend(SandboxBackendBase):
     """Deterministic stand-in for ModalSandboxBackend.
 
     Tracks acquired sandboxes, liveness, terminations, and a per-experiment
@@ -42,6 +43,8 @@ class FakeSandboxBackend:
     ) -> None:
         self.capabilities = BackendCapabilities(
             name="fake",
+            enforce_expiry=False,
+            auto_sync=False,
             requires_hardware_selection=requires_hardware_selection,
             configurable_resources=configurable_resources,
         )

@@ -29,6 +29,7 @@ from ...types import (
     OnCreated,
     OnPhase,
     ProvisionedSandbox,
+    SandboxBackendBase,
     SandboxRequest,
 )
 from .catalog import find_option, summarize_instance_types, to_agent_options
@@ -154,7 +155,7 @@ fi
 """
 
 
-class LambdaLabsSandboxBackend:
+class LambdaLabsSandboxBackend(SandboxBackendBase):
     # Lambda Labs sells fixed machine SKUs (GPU + vCPU + RAM bundled), so the
     # agent must pick an instance type — there are no independent cpu/memory
     # knobs. ``requires_hardware_selection`` makes SandboxService return a live

@@ -2,13 +2,7 @@ import { useEffect, useState } from 'react';
 import { api } from '../api';
 import FileRenderer from './FileRenderer';
 import PdfView from './PdfView';
-
-function humanBytes(n) {
-  if (n == null) return '';
-  if (n < 1024) return `${n} B`;
-  if (n < 1024 * 1024) return `${(n / 1024).toFixed(1)} KB`;
-  return `${(n / (1024 * 1024)).toFixed(2)} MB`;
-}
+import { formatBytes } from '../utils/format';
 
 function isPdfPath(path) {
   if (!path) return false;
@@ -16,24 +10,22 @@ function isPdfPath(path) {
   return name.toLowerCase().endsWith('.pdf');
 }
 
-export default function ResourceContentView({ projectId, resourceId, size, path, versionId = null }) {
-  // Live PDFs are rendered directly via the file endpoint (the browser's PDF
+export default function ResourceContentView({ projectId, resourceId, size, path }) {
+  // PDFs are rendered directly via the file endpoint (the browser's PDF
   // viewer streams the bytes). We skip /content entirely — calling it would
   // just return is_binary:true with no payload, and the iframe handles
-  // loading state itself. Historical PDF versions still go through the
-  // /content path below; they'll show "metadata_only" since shadow-git
-  // doesn't store binary blobs.
-  const renderLivePdf = isPdfPath(path) && !versionId;
+  // loading state itself.
+  const renderPdf = isPdfPath(path);
 
   const [content, setContent] = useState(null);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState(null);
 
   useEffect(() => {
-    // Skip the /content fetch entirely for live PDFs — the iframe handles
+    // Skip the /content fetch entirely for PDFs — the iframe handles
     // loading. Important: this effect still runs (hooks must keep the same
     // order across renders), it just no-ops.
-    if (renderLivePdf) {
+    if (renderPdf) {
       setContent(null);
       setLoading(false);
       setError(null);
@@ -43,10 +35,7 @@ export default function ResourceContentView({ projectId, resourceId, size, path,
     setLoading(true);
     setError(null);
     setContent(null);
-    const fetcher = versionId
-      ? api.getResourceVersionContent(projectId, resourceId, versionId)
-      : api.getResourceContent(projectId, resourceId);
-    fetcher
+    api.getResourceContent(projectId, resourceId)
       .then(data => {
         if (cancelled) return;
         setContent(data);
@@ -57,9 +46,9 @@ export default function ResourceContentView({ projectId, resourceId, size, path,
       })
       .finally(() => !cancelled && setLoading(false));
     return () => { cancelled = true; };
-  }, [projectId, resourceId, versionId, renderLivePdf]);
+  }, [projectId, resourceId, renderPdf]);
 
-  if (renderLivePdf) {
+  if (renderPdf) {
     return (
       <div>
         <PdfView projectId={projectId} resourceId={resourceId} path={path} />
@@ -80,30 +69,6 @@ export default function ResourceContentView({ projectId, resourceId, size, path,
   }
   if (!content) return null;
 
-  // Version endpoint returns a different shape: { available, text, version, reason }
-  // Live endpoint returns: { content, is_binary, size_bytes }
-  if (versionId) {
-    if (content.available === false) {
-      return (
-        <div className="version-unavailable">
-          <div className="version-unavailable-title">
-            {content.reason === 'metadata_only'
-              ? 'Historical content not stored for large or binary files'
-              : 'Snapshot unavailable; metadata remains'}
-          </div>
-          <div className="version-unavailable-sub">
-            Showing metadata only for this version.
-          </div>
-        </div>
-      );
-    }
-    return (
-      <div>
-        <FileRenderer text={content.text ?? ''} path={path || content.version?.path} />
-      </div>
-    );
-  }
-
   const isBinary = content.is_binary || !('content' in content);
   const text = content.content ?? '';
   const meta = content.size_bytes ?? size;
@@ -115,7 +80,7 @@ export default function ResourceContentView({ projectId, resourceId, size, path,
       )}
       {isBinary ? (
         <div className="empty">
-          Binary file ({humanBytes(meta)}). <a className="btn btn--sm" href={api.resourceFileUrl(projectId, resourceId)} target="_blank" rel="noreferrer">Open raw</a>
+          Binary file ({formatBytes(meta)}). <a className="btn btn--sm" href={api.resourceFileUrl(projectId, resourceId)} target="_blank" rel="noreferrer">Open raw</a>
         </div>
       ) : (
         <FileRenderer text={text} path={path || content.path} />

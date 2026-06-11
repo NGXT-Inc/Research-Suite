@@ -1,22 +1,16 @@
 import { useState } from 'react';
 import ObjId from './ObjId';
 import ResourceContentView from './ResourceContentView';
-
-function bytes(n) {
-  if (n == null) return '';
-  if (n < 1024) return `${n} B`;
-  if (n < 1024 * 1024) return `${(n / 1024).toFixed(1)} KB`;
-  return `${(n / (1024 * 1024)).toFixed(2)} MB`;
-}
+import { formatBytes } from '../utils/format';
 
 /**
  * Generic resource list with one-at-a-time expand-to-view content.
  *
  * Version-aware: if a row has an `association_version_id` that differs from
  * the resource's `current_version_id`, render a small "live file has advanced"
- * pill so the user knows this row points at a past snapshot. When the row is
- * expanded, content is loaded from the pinned version (so an attempt-3 row
- * shows attempt-3's content, not the live file).
+ * pill so the user knows the file changed since this association. Expanding a
+ * row always shows the live file — the backend stores version metadata only,
+ * not historical content.
  */
 export default function ResourceList({ projectId, resources, historical = false }) {
   const [openId, setOpenId] = useState(null);
@@ -24,11 +18,8 @@ export default function ResourceList({ projectId, resources, historical = false 
     <div className="list card card--flush">
       {resources.map(r => {
         const open = openId === r.id;
-        const pinnedVersionId = r.association_version_id || null;
-        // Two cases for a version-drift pill:
-        //   (1) historical rows that pin a specific past version
-        //   (2) any row whose pinned version != current version (live file advanced)
-        const liveAdvanced = pinnedVersionId && r.current_version_id && pinnedVersionId !== r.current_version_id;
+        const liveAdvanced = r.association_version_id && r.current_version_id
+          && r.association_version_id !== r.current_version_id;
         return (
           <div key={`${r.id}:${r.association_role || ''}:${r.association_attempt_index || 0}`} style={{ borderBottom: '1px solid var(--line-soft)' }}>
             <div className="list-row" onClick={() => setOpenId(open ? null : r.id)} style={{ cursor: 'pointer' }}>
@@ -46,7 +37,7 @@ export default function ResourceList({ projectId, resources, historical = false 
                   {r.association_role && <> · role: <span className="mono">{r.association_role}</span></>}
                   {r.association_attempt_index != null && historical && <> · attempt {r.association_attempt_index}</>}
                   {r.kind && <> · kind: {r.kind}</>}
-                  {r.size_bytes != null && <> · {bytes(r.size_bytes)}</>}
+                  {r.size_bytes != null && <> · {formatBytes(r.size_bytes)}</>}
                 </div>
               </div>
               <div className="list-row-aside">
@@ -61,7 +52,6 @@ export default function ResourceList({ projectId, resources, historical = false 
                   resourceId={r.id}
                   size={r.size_bytes}
                   path={r.path}
-                  versionId={pinnedVersionId}
                 />
               </div>
             )}

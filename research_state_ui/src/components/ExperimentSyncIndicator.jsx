@@ -7,6 +7,7 @@ import {
   selectExperiments,
 } from '../store/useProjectStore';
 import { parseIntent } from '../utils/intent';
+import { fmtAgo } from '../utils/format';
 import ExperimentSyncDetailsModal from './ExperimentSyncDetailsModal';
 
 /**
@@ -188,12 +189,3 @@ function num(v) {
   return Number.isFinite(n) ? n : 0;
 }
 
-function fmtAgo(ms) {
-  if (ms == null || !Number.isFinite(ms)) return '—';
-  const s = Math.max(0, Math.floor(ms / 1000));
-  if (s < 5) return 'just now';
-  if (s < 60) return `${s}s ago`;
-  const m = Math.floor(s / 60);
-  if (m < 60) return `${m}m ago`;
-  return `${Math.floor(m / 60)}h ago`;
-}

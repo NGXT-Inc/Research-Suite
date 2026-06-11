@@ -24,9 +24,9 @@ from typing import Any
 from ..execution.sync_dirs import (
     DEFAULT_SYNC_DIR,
     DEFAULT_UNSYNCED_DIR,
-    local_experiment_sync_dir,
     sync_hint,
 )
+from ..workspace import local_experiment_sync_dir
 from .sandbox_conn import SandboxConnFiles
 from .sandbox_support import (
     ACTIVE_SANDBOX_STATUSES,

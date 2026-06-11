@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { api } from '../api';
 import JsonView from '../components/JsonView';
+import { tsToTime } from '../utils/format';
 
 /**
  * Debug — MCP tool I/O analyzer.
@@ -387,9 +388,3 @@ function fmtChars(n) {
   return `${(v / 1_000_000).toFixed(1)}M`;
 }
 
-function tsToTime(iso) {
-  if (!iso) return '';
-  try {
-    return new Date(iso).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit' });
-  } catch { return iso; }
-}

@@ -1,11 +1,7 @@
 import MarkdownView from './MarkdownView';
 import FileRenderer from './FileRenderer';
 import { parsePlanSections } from '../utils/planSections';
-
-function isMarkdown(path) {
-  const ext = (path || '').split('.').pop().toLowerCase();
-  return ext === 'md' || ext === 'markdown' || ext === 'mdx';
-}
+import { isMarkdown } from '../utils/format';
 
 /**
  * PlanBody — renders an experiment plan with PRD-style progressive disclosure.

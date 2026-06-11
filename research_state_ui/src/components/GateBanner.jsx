@@ -57,9 +57,10 @@ export default function GateBanner({
 
   const isTerminal = experimentStatus === 'complete' || current_gate === 'terminal';
   const isFailed = experimentStatus === 'failed' || experimentStatus === 'abandoned';
-  // Pulse when the system is actively waiting on something external — a job
-  // running, a reviewer that's been launched, etc. The `wait_` prefix is the
-  // backend's signal for "you don't need to do anything; we're in motion".
+  // Pulse when the system is actively waiting on something external — a
+  // sandbox provisioning, a reviewer that's been launched, etc. The `wait_`
+  // prefix is the backend's signal for "you don't need to do anything; we're
+  // in motion".
   const isWaiting = !isTerminal && !isFailed && /^wait[_-]/.test(next_action || '');
 
   const cls = ['gate-banner'];

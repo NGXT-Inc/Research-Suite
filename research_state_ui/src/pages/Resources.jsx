@@ -4,6 +4,7 @@ import { useProjectStore, selectResources, selectExperiments } from '../store/us
 import { api } from '../api';
 import ObjId from '../components/ObjId';
 import ResourceContentView from '../components/ResourceContentView';
+import { formatBytes } from '../utils/format';
 
 const KINDS = ['plan', 'code', 'config', 'input', 'dataset', 'result', 'note', 'model', 'other'];
 const ROLES = ['plan', 'code', 'config', 'input', 'result', 'note', 'model'];
@@ -91,15 +92,12 @@ function PreviewPanel({ projectId, resource, experiments, onAssociated, onDelete
   const [detailsOpen, setDetailsOpen] = useState(false);
   const [deleteBusy, setDeleteBusy] = useState(false);
   const [deleteError, setDeleteError] = useState(null);
-  // Version selection: null = current (live file), else a specific version id.
-  const [viewingVersionId, setViewingVersionId] = useState(null);
 
   useEffect(() => {
     setAssociating(false);
     setDetailsOpen(false);
     setDeleteBusy(false);
     setDeleteError(null);
-    setViewingVersionId(null);
   }, [resource.id]);
 
   async function deleteResource() {
@@ -180,43 +178,27 @@ function PreviewPanel({ projectId, resource, experiments, onAssociated, onDelete
               projectId={projectId}
               resourceId={resource.id}
               currentVersionId={resource.current_version_id}
-              viewingVersionId={viewingVersionId}
-              onView={(vid) => setViewingVersionId(vid)}
             />
           </div>
         )}
       </header>
-      {viewingVersionId && (
-        <div className="file-version-banner">
-          <span>Viewing an earlier version of this file.</span>
-          <button
-            type="button"
-            className="btn btn--sm btn--ghost"
-            onClick={() => setViewingVersionId(null)}
-          >
-            Back to current ↩
-          </button>
-        </div>
-      )}
       <div className="file-body">
         <ResourceContentView
           projectId={projectId}
           resourceId={resource.id}
           size={resource.size_bytes}
           path={resource.path}
-          versionId={viewingVersionId}
         />
       </div>
     </div>
   );
 }
 
-function VersionHistory({ projectId, resourceId, currentVersionId, viewingVersionId, onView }) {
+function VersionHistory({ projectId, resourceId, currentVersionId }) {
   const [data, setData] = useState(null);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState(null);
   const [open, setOpen] = useState(false);
-  const [diffFor, setDiffFor] = useState(null);
 
   useEffect(() => {
     if (!open) return undefined;
@@ -235,7 +217,6 @@ function VersionHistory({ projectId, resourceId, currentVersionId, viewingVersio
   useEffect(() => {
     setData(null);
     setOpen(false);
-    setDiffFor(null);
   }, [resourceId]);
 
   const versions = (data?.versions || []).slice().sort((a, b) =>
@@ -263,21 +244,13 @@ function VersionHistory({ projectId, resourceId, currentVersionId, viewingVersio
           )}
           {!loading && !error && versions.map(v => {
             const isCurrent = v.id === currentVersionId;
-            const isViewing = v.id === viewingVersionId || (isCurrent && !viewingVersionId);
-            const canRender = v.content_available && v.snapshot_status === 'stored';
-            const diffOpen = diffFor === v.id;
             return (
               <div key={v.id} className="version-row-wrap">
-                <div className={`version-row${isViewing ? ' is-viewing' : ''}`}>
+                <div className={`version-row${isCurrent ? ' is-viewing' : ''}`}>
                   <div className="version-row-main">
                     <div className="version-row-line">
                       <span className="mono version-row-id">{v.id.slice(0, 16)}…</span>
                       {isCurrent && <span className="version-row-tag version-row-tag--current">current</span>}
-                      {v.snapshot_status !== 'stored' && (
-                        <span className="version-row-tag version-row-tag--unavail">
-                          {v.snapshot_status === 'metadata_only' ? 'metadata only' : 'snapshot unavailable'}
-                        </span>
-                      )}
                     </div>
                     <div className="version-row-sub">
                       {formatObserved(v.observed_at)}
@@ -288,36 +261,7 @@ function VersionHistory({ projectId, resourceId, currentVersionId, viewingVersio
                       )}
                     </div>
                   </div>
-                  <div className="version-row-actions">
-                    {canRender && !isViewing && (
-                      <button
-                        type="button"
-                        className="btn btn--sm btn--ghost"
-                        onClick={() => onView(isCurrent ? null : v.id)}
-                      >
-                        View
-                      </button>
-                    )}
-                    {!isCurrent && canRender && currentVersionId && (
-                      <button
-                        type="button"
-                        className="btn btn--sm btn--ghost"
-                        onClick={() => setDiffFor(diffOpen ? null : v.id)}
-                        title="Show unified diff vs the current version"
-                      >
-                        {diffOpen ? 'Hide diff' : 'Diff vs current'}
-                      </button>
-                    )}
-                  </div>
                 </div>
-                {diffOpen && (
-                  <VersionDiffPanel
-                    projectId={projectId}
-                    resourceId={resourceId}
-                    fromVersionId={v.id}
-                    toVersionId={currentVersionId}
-                  />
-                )}
               </div>
             );
           })}
@@ -349,49 +293,6 @@ function associationsSummary(assocs) {
     return a.target_type || 'assoc';
   });
   return labels.join(', ');
-}
-
-function VersionDiffPanel({ projectId, resourceId, fromVersionId, toVersionId }) {
-  const [diff, setDiff] = useState(null);
-  const [loading, setLoading] = useState(true);
-  const [error, setError] = useState(null);
-
-  useEffect(() => {
-    let cancelled = false;
-    setLoading(true);
-    setError(null);
-    setDiff(null);
-    api.getResourceVersionDiff(projectId, resourceId, toVersionId, fromVersionId)
-      .then(d => { if (!cancelled) setDiff(d); })
-      .catch(e => { if (!cancelled) setError(e.message); })
-      .finally(() => !cancelled && setLoading(false));
-    return () => { cancelled = true; };
-  }, [projectId, resourceId, fromVersionId, toVersionId]);
-
-  return (
-    <div className="version-diff">
-      {loading && <div className="empty">Loading diff…</div>}
-      {error && <div className="error-message">{error}</div>}
-      {diff && diff.available === false && (
-        <div className="version-unavailable" style={{ padding: 12 }}>
-          <div className="version-unavailable-title" style={{ fontSize: 'var(--text-sm)' }}>
-            Diff unavailable
-          </div>
-          <div className="version-unavailable-sub">
-            {diff.reason === 'metadata_only'
-              ? 'One or both versions are metadata-only — content isn\'t stored, so a diff can\'t be rendered.'
-              : 'A snapshot for one of these versions is missing.'}
-          </div>
-        </div>
-      )}
-      {diff && diff.available !== false && diff.diff && (
-        <pre className="version-diff-body">{diff.diff}</pre>
-      )}
-      {diff && diff.available !== false && !diff.diff && (
-        <div className="empty">No textual changes between these versions.</div>
-      )}
-    </div>
-  );
 }
 
 function RegisterForm({ projectId, onCancel, onCreated }) {
@@ -496,9 +397,3 @@ function AssociateForm({ projectId, resourceId, experiments, onCancel, onDone })
   );
 }
 
-function formatBytes(n) {
-  if (n == null) return '';
-  if (n < 1024) return `${n} B`;
-  if (n < 1024 * 1024) return `${(n / 1024).toFixed(1)} KB`;
-  return `${(n / (1024 * 1024)).toFixed(2)} MB`;
-}

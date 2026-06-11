@@ -8,7 +8,7 @@ const CATEGORIES = [
   { id: 'lifecycle',  label: 'lifecycle',  prefixes: ['experiment.', 'project.', 'claim.'] },
   { id: 'resources',  label: 'resources',  prefixes: ['resource.'] },
   { id: 'reviews',    label: 'reviews',    prefixes: ['review.'] },
-  { id: 'jobs',       label: 'jobs',       prefixes: ['job.'] },
+  { id: 'sandboxes',  label: 'sandboxes',  prefixes: ['sandbox.'] },
 ];
 
 function inCategory(category, type) {
@@ -21,7 +21,7 @@ function inCategory(category, type) {
  * Events page — append-only project log.
  *
  * Provides:
- *   - category filter pills (lifecycle / resources / reviews / jobs / all)
+ *   - category filter pills (lifecycle / resources / reviews / sandboxes / all)
  *   - per-event-type pills (data-driven from the current set of events)
  *   - clickable target_id chip on each row that routes to the right detail page
  */

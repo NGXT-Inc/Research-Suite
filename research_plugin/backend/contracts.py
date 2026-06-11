@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from dataclasses import dataclass
 from typing import Any, Literal
 
 from pydantic import BaseModel, ConfigDict, Field
@@ -13,6 +14,12 @@ class ContractModel(BaseModel):
     """Strict boundary model for external tool inputs."""
 
     model_config = ConfigDict(extra="forbid", str_strip_whitespace=True)
+
+
+@dataclass(frozen=True)
+class ToolContract:
+    input_model: type[ContractModel]
+    description: str
 
 
 class EmptyInput(ContractModel):
@@ -321,41 +328,191 @@ class SandboxTerminalInput(ProjectScopedInput):
     )
 
 
+TOOL_CONTRACTS: dict[str, ToolContract] = {
+    "workflow.status_and_next": ToolContract(
+        input_model=WorkflowStatusAndNextInput,
+        description="Orient Codex from durable project/experiment state.",
+    ),
+    "project.create": ToolContract(
+        input_model=ProjectCreateInput,
+        description=(
+            "Create a project for this folder using a user-confirmed name and summary. "
+            "If project.current returned exists:false and the user has not already "
+            "provided the project name/purpose, ask before calling this tool."
+        ),
+    ),
+    "project.update": ToolContract(
+        input_model=ProjectUpdateInput,
+        description="Update a project name or summary.",
+    ),
+    "project.get": ToolContract(
+        input_model=ProjectGetInput,
+        description="Get project metadata.",
+    ),
+    "project.current": ToolContract(
+        input_model=EmptyInput,
+        description="Get the current folder's project, or report that none exists yet.",
+    ),
+    "project.list": ToolContract(
+        input_model=EmptyInput,
+        description="List projects in the current tool scope.",
+    ),
+    "claim.create": ToolContract(
+        input_model=ClaimCreateInput,
+        description="Create a claim.",
+    ),
+    "claim.list": ToolContract(
+        input_model=ClaimListInput,
+        description="List claims.",
+    ),
+    "claim.update": ToolContract(
+        input_model=ClaimUpdateInput,
+        description="Update a claim's statement, scope, status, or confidence.",
+    ),
+    "experiment.create": ToolContract(
+        input_model=ExperimentCreateInput,
+        description="Create a planned experiment.",
+    ),
+    "experiment.list": ToolContract(
+        input_model=ExperimentListInput,
+        description="List experiments with state.",
+    ),
+    "experiment.get_state": ToolContract(
+        input_model=ExperimentGetStateInput,
+        description=(
+            "Get one experiment state. Includes 'allowed_transitions': the "
+            "transitions available from the current status, each with what it "
+            "'requires' (e.g. a synced plan resource, a passing review)."
+        ),
+    ),
+    "experiment.transition": ToolContract(
+        input_model=ExperimentTransitionInput,
+        description=(
+            "Apply an allowed experiment transition. See "
+            "experiment.get_state.allowed_transitions for valid transitions "
+            "and their preconditions from the current status."
+        ),
+    ),
+    "resource.register_file": ToolContract(
+        input_model=ResourceRegisterFileInput,
+        description=(
+            "Register or observe repo-relative file(s) as resources. Pass "
+            "'path' for one file, or 'paths' for a changed-files batch."
+        ),
+    ),
+    "resource.associate": ToolContract(
+        input_model=ResourceAssociateInput,
+        description="Associate a resource to a claim, experiment, review, or attempt.",
+    ),
+    "resource.delete": ToolContract(
+        input_model=ResourceDeleteInput,
+        description=(
+            "Delete a resource from active project tracking while preserving "
+            "observed version history."
+        ),
+    ),
+    "resource.list": ToolContract(
+        input_model=ResourceListInput,
+        description=(
+            "List registered resources. Filter by kind/experiment_id/missing, "
+            "paginate with limit/offset, and pass compact=true for a lean "
+            "projection (omits the heavy current_version; use version_token to "
+            "detect changes) instead of re-pulling full payloads."
+        ),
+    ),
+    "resource.resolve": ToolContract(
+        input_model=ResourceResolveInput,
+        description=(
+            "Resolve one registered resource. Pass include_history=true to also "
+            "return its immutable observed versions (the former resource.history)."
+        ),
+    ),
+    "review.request": ToolContract(
+        input_model=ReviewRequestInput,
+        description="Create a review request and reviewer capability.",
+    ),
+    "review.start": ToolContract(
+        input_model=ReviewStartInput,
+        description="Start a read-only reviewer session.",
+    ),
+    "review.submit": ToolContract(
+        input_model=ReviewSubmitInput,
+        description=(
+            "Submit a review from a reviewer session. Accepts ONLY: "
+            "review_session_id, verdict (pass|needs_changes|fail), return_to, "
+            "notes, findings (list of {issue, severity?}), and evidence "
+            "(free-form dict). On experiment-review rejections return_to is "
+            "REQUIRED: 'planned' if the results show the plan itself is "
+            "flawed, 'running' if the plan stands but execution or the "
+            "conclusion is flawed (the experiment resumes running with its "
+            "approved plan intact). Put structured rationale inside "
+            "'evidence' — unknown top-level fields are rejected."
+        ),
+    ),
+    "review.status": ToolContract(
+        input_model=ReviewStatusInput,
+        description="Inspect review requests and submissions for a target.",
+    ),
+    "sandbox.request": ToolContract(
+        input_model=SandboxRequestInput,
+        description=(
+            "Procure (reuse or create) the experiment's sandbox and return SSH "
+            "details. On Lambda Labs, omit instance_type to receive a live menu "
+            "of available machines to pick from."
+        ),
+    ),
+    "sandbox.options": ToolContract(
+        input_model=SandboxOptionsInput,
+        description=(
+            "List the hardware the active backend can provision right now "
+            "(Lambda Labs: live available instance types; Modal: gpu/cpu/memory menu)."
+        ),
+    ),
+    "sandbox.get": ToolContract(
+        input_model=SandboxGetInput,
+        description="Get the experiment's sandbox status and SSH details.",
+    ),
+    "sandbox.sync": ToolContract(
+        input_model=SandboxSyncInput,
+        description=(
+            "Pull remote synced workspace files back to the local experiment "
+            "folder with SSH rsync."
+        ),
+    ),
+    "sandbox.list": ToolContract(
+        input_model=SandboxListInput,
+        description="List sandboxes for the project.",
+    ),
+    "sandbox.release": ToolContract(
+        input_model=SandboxReleaseInput,
+        description="Terminate the experiment's sandbox.",
+    ),
+    "sandbox.terminal": ToolContract(
+        input_model=SandboxTerminalInput,
+        description=(
+            "Read the experiment's terminal transcript. For polling, pass "
+            "since=<cursor from the last response> to get only NEW output "
+            "instead of re-pulling the whole tail; 'running' indicates whether "
+            "the sandbox is still alive so you can stop polling a finished one. "
+            "Per-command status: 'command_running' is true while a command is "
+            "in flight, and once it finishes 'last_exit_code' (0 = success) and "
+            "'last_command_finished_at' report its result — so you can tell a "
+            "command is done and whether it succeeded without re-reading output "
+            "(null on sandboxes created before this was added)."
+        ),
+    ),
+    "sandbox.health": ToolContract(
+        input_model=EmptyInput,
+        description="Check the execution backend is reachable.",
+    ),
+}
+
 TOOL_INPUT_MODELS: dict[str, type[ContractModel]] = {
-    "workflow.status_and_next": WorkflowStatusAndNextInput,
-    "project.create": ProjectCreateInput,
-    "project.update": ProjectUpdateInput,
-    "project.get": ProjectGetInput,
-    "project.current": EmptyInput,
-    "project.list": EmptyInput,
-    "claim.create": ClaimCreateInput,
-    "claim.list": ClaimListInput,
-    "claim.update": ClaimUpdateInput,
-    "experiment.create": ExperimentCreateInput,
-    "experiment.list": ExperimentListInput,
-    "experiment.get_state": ExperimentGetStateInput,
-    "experiment.transition": ExperimentTransitionInput,
-    "resource.register_file": ResourceRegisterFileInput,
-    "resource.associate": ResourceAssociateInput,
-    "resource.delete": ResourceDeleteInput,
-    "resource.list": ResourceListInput,
-    "resource.resolve": ResourceResolveInput,
-    "review.request": ReviewRequestInput,
-    "review.start": ReviewStartInput,
-    "review.submit": ReviewSubmitInput,
-    "review.status": ReviewStatusInput,
-    "sandbox.request": SandboxRequestInput,
-    "sandbox.options": SandboxOptionsInput,
-    "sandbox.get": SandboxGetInput,
-    "sandbox.sync": SandboxSyncInput,
-    "sandbox.list": SandboxListInput,
-    "sandbox.release": SandboxReleaseInput,
-    "sandbox.terminal": SandboxTerminalInput,
-    "sandbox.health": EmptyInput,
+    name: contract.input_model for name, contract in TOOL_CONTRACTS.items()
 }
 
 PROJECT_SCOPED_TOOL_NAMES = {
     name
-    for name, model in TOOL_INPUT_MODELS.items()
-    if issubclass(model, ProjectScopedInput)
+    for name, contract in TOOL_CONTRACTS.items()
+    if issubclass(contract.input_model, ProjectScopedInput)
 }

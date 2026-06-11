@@ -1,15 +1,5 @@
 {
   "hooks": {
-    "PreToolUse": [
-      {
-        "matcher": "Bash",
-        "hooks": [
-          {
-            "type": "command",
-            "command": "/Users/guraltoo/.local/bin/graphify hook-check"
-          }
-        ]
-      }
-    ]
+    "PreToolUse": []
   }
 }

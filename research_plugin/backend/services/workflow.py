@@ -9,11 +9,17 @@ from .permissions import RESOURCE_ROLES
 from .resources import ResourceService
 from .reviews import ReviewService
 from .sandboxes import SandboxService
+from .workflow_gates import (
+    ACTIVE_PROCESS_STATUSES,
+    GATE_TABLE,
+    TERMINAL_STATUSES,
+    ReviewRequirement,
+    RoleRequirement,
+)
+from .workflow_views import slim_status_and_next
 from ..state.store import StateStore, row_to_dict, rows_to_dicts
 
 
-TERMINAL_EXPERIMENT_STATUSES = {"complete", "failed", "abandoned"}
-ACTIVE_PROCESS_STATUSES = {"provisioning", "running"}
 EXPERIMENT_STATUS_PRIORITY = {
     "running": 0,
     "experiment_review": 1,
@@ -25,106 +31,6 @@ PROCESS_STATUS_PRIORITY = {
     "running": 0,
     "provisioning": 1,
 }
-
-# Agent-facing projection of status_and_next. The next-action decision is
-# computed (in _workflow_for) from just status + resource roles + the review
-# verdict, so the rest of the embedded get_state — the duplicate all-attempts
-# `resources` list, per-resource version bookkeeping (version_token, mtime_ns,
-# *_version_id, git_commit, timestamps), full review prose, and every *other*
-# experiment's intent — is pure context bloat for a call the agent polls
-# constantly. The UI keeps the full shape (it calls the service method
-# directly); only the MCP tool is slimmed. See docs/MCP_SERVER_CONTRACT.md.
-_SLIM_RESOURCE_FIELDS = ("id", "association_role", "path", "kind", "missing", "size_bytes")
-_SANDBOX_SUMMARY_FIELDS = (
-    "sandbox_id", "status", "gpu", "cpu", "memory",
-    "ssh_host", "ssh_port", "ssh_user", "workdir", "sandbox_data_dir", "expires_at",
-)
-
-
-def slim_status_and_next(full: dict[str, Any]) -> dict[str, Any]:
-    """Project the rich status_and_next result down to what the agent needs."""
-    workflow = full.get("workflow") or {}
-    project = full.get("project") or {}
-    experiment = full.get("experiment")
-
-    if experiment is None:
-        # Project-scoped orientation, reached only at project setup (once any
-        # experiment exists, status_and_next auto-resolves to the latest one).
-        # Surface existing claims compactly so the agent doesn't re-create them;
-        # there are no experiments to list here by definition.
-        return {
-            "scope": "project",
-            "experiment": None,
-            "workflow": workflow,
-            "project": {
-                "id": project.get("id"),
-                "name": project.get("name"),
-                "summary": project.get("summary"),
-                "claims": [
-                    {
-                        "id": claim.get("id"),
-                        "status": claim.get("status"),
-                        "confidence": claim.get("confidence"),
-                        "statement": claim.get("statement"),
-                    }
-                    for claim in project.get("active_claims", [])
-                ],
-            },
-        }
-
-    result: dict[str, Any] = {
-        "scope": "experiment",
-        "workflow": workflow,
-        "experiment": _slim_experiment(experiment),
-        "sandbox": _sandbox_summary(full.get("sandboxes", [])),
-        "project": {"id": project.get("id"), "name": project.get("name")},
-    }
-    if full.get("resource_refresh"):
-        result["resource_refresh"] = full["resource_refresh"]
-    return result
-
-
-def _slim_experiment(exp: dict[str, Any]) -> dict[str, Any]:
-    return {
-        "id": exp.get("id"),
-        "status": exp.get("status"),
-        "attempt_index": exp.get("attempt_index"),
-        "intent": exp.get("intent"),
-        "conclusion": exp.get("conclusion"),
-        "updated_at": exp.get("updated_at"),
-        "tested_claim_ids": [claim.get("id") for claim in exp.get("tested_claims", [])],
-        "current_attempt_resources": [
-            {field: res.get(field) for field in _SLIM_RESOURCE_FIELDS}
-            for res in exp.get("current_attempt_resources", [])
-        ],
-        "reviews": [
-            {
-                "id": review.get("id"),
-                "role": review.get("role"),
-                "verdict": review.get("verdict"),
-                "created_at": review.get("created_at"),
-            }
-            for review in exp.get("reviews", [])
-        ],
-    }
-
-
-def _sandbox_summary(sandboxes: list[dict[str, Any]]) -> dict[str, Any]:
-    """Collapse the sandbox row(s) to 'is there an active one, and if so what'."""
-    active = next(
-        (sb for sb in sandboxes if sb.get("status") in ACTIVE_PROCESS_STATUSES),
-        None,
-    )
-    if active is not None:
-        summary: dict[str, Any] = {"active": True}
-        summary.update({field: active.get(field) for field in _SANDBOX_SUMMARY_FIELDS})
-        return summary
-    last = sandboxes[0] if sandboxes else None
-    return {
-        "active": False,
-        "last_status": last.get("status") if last else None,
-        "note": "No active sandbox for this experiment — call sandbox.request to create or reuse one.",
-    }
 
 
 class WorkflowService:
@@ -280,7 +186,7 @@ class WorkflowService:
 
             active_experiments: list[dict[str, Any]] = []
             for experiment in experiments:
-                if experiment["status"] in TERMINAL_EXPERIMENT_STATUSES:
+                if experiment["status"] in TERMINAL_STATUSES:
                     continue
                 experiment_sandboxes = [
                     sandbox for sandbox in sandboxes if sandbox.get("experiment_id") == experiment["id"]
@@ -329,115 +235,80 @@ class WorkflowService:
             conn.close()
 
     def _workflow_for(self, *, conn, experiment: dict[str, Any]) -> dict[str, Any]:
+        """Guidance derived from the same GATE_TABLE that enforces transitions.
+
+        Walk the status's forward transition: a review requirement delegates to
+        the review flow; the first resource role missing from the current
+        attempt yields that requirement's gate payload; all requirements met
+        yields the transition's ready payload.
+        """
         status = experiment["status"]
-        exp_id = experiment["id"]
+        forward = GATE_TABLE.get(status)
+        if forward is None:
+            if status == "complete":
+                return self._next(
+                    gate="terminal",
+                    action="none",
+                    allowed=[],
+                    blocked=[
+                        {"action": "mutate_experiment", "reason": "experiment complete"}
+                    ],
+                )
+            if status in {"failed", "abandoned"}:
+                return self._next(gate="terminal", action="none", allowed=[])
+            return self._next(
+                gate="unknown",
+                action="inspect_experiment",
+                allowed=["experiment.get_state"],
+            )
+        if forward.review is not None:
+            return self._review_next(
+                conn=conn, experiment=experiment, review=forward.review
+            )
         roles = {
             res.get("association_role")
             for res in experiment.get("current_attempt_resources", [])
             if not res.get("missing")
         }
-        if status == "planned":
-            if "plan" not in roles:
-                return self._next(
-                    gate="plan_required",
-                    action="write_or_sync_plan_resource",
-                    allowed=["resource.register_file", "resource.associate"],
-                    missing=["experiment plan resource"],
-                    revision=experiment.get("revision_context", ""),
-                )
+        for requirement in forward.requirements:
+            if requirement.role in roles:
+                continue
             return self._next(
-                gate="design_review_required",
-                action="submit_design_for_review",
-                allowed=["experiment.transition"],
-                revision=experiment.get("revision_context", ""),
-            )
-        if status == "design_review":
-            review_next = self._review_next(
-                conn=conn,
-                experiment=experiment,
-                role="design_reviewer",
-                skill="design-review",
-            )
-            if review_next:
-                return review_next
-        if status == "ready_to_run":
-            return self._next(
-                gate="execution_ready",
-                action="start_running",
-                allowed=["sandbox.request", "experiment.transition"],
-            )
-        if status == "running":
-            sandboxes = self.sandboxes.sandboxes_for_experiment(conn=conn, experiment_id=exp_id)
-            active = any(sb.get("status") in ACTIVE_PROCESS_STATUSES for sb in sandboxes)
-            if "result" not in roles:
-                return self._next(
-                    gate="execution_active" if active else "execution_ready",
-                    action="run_experiment_and_sync_results",
-                    allowed=[
-                        "sandbox.request",
-                        "sandbox.terminal",
-                        "sandbox.get",
-                        "sandbox.sync",
-                        "resource.register_file",
-                        "resource.associate",
-                    ],
-                    missing=["result resource"],
-                    resource_guidance=self._result_resource_guidance(),
-                    revision=experiment.get("revision_context", ""),
-                )
-            if "report" not in roles:
-                return self._next(
-                    gate="results_report_required",
-                    action="write_and_associate_results_report",
-                    allowed=[
-                        "sandbox.sync",
-                        "resource.register_file",
-                        "resource.associate",
-                    ],
-                    missing=["results report resource (role 'report')"],
-                    resource_guidance=self._report_resource_guidance(),
-                    revision=experiment.get("revision_context", ""),
-                )
-            return self._next(
-                gate="experiment_review_required",
-                action=(
-                    "submit_results_for_review (call only once the experiment "
-                    "is fully complete and every success criterion in the "
-                    "experiment intent is satisfied; do NOT call if the "
-                    "experiment should continue running; continue with "
-                    "sandbox.* and resource.* calls instead and only "
-                    "transition once the work is truly done; if revision_context "
-                    "is present, the last review rejected this attempt — address "
-                    "it before resubmitting)"
+                gate=self._requirement_gate(
+                    conn=conn, experiment=experiment, requirement=requirement
                 ),
-                allowed=["experiment.transition"],
+                action=requirement.action,
+                allowed=list(requirement.allowed),
+                missing=[requirement.missing],
+                resource_guidance=self._resource_guidance(key=requirement.guidance_key),
                 revision=experiment.get("revision_context", ""),
             )
-        if status == "experiment_review":
-            review_next = self._review_next(
-                conn=conn,
-                experiment=experiment,
-                role="experiment_reviewer",
-                skill="experiment-review",
-            )
-            if review_next:
-                return review_next
-        if status == "complete":
-            return self._next(
-                gate="terminal",
-                action="none",
-                allowed=[],
-                blocked=[
-                    {"action": "mutate_experiment", "reason": "experiment complete"}
-                ],
-            )
-        if status in {"failed", "abandoned"}:
-            return self._next(gate="terminal", action="none", allowed=[])
         return self._next(
-            gate="unknown",
-            action="inspect_experiment",
-            allowed=["experiment.get_state"],
+            gate=forward.ready_gate,
+            action=forward.ready_action,
+            allowed=list(forward.ready_allowed),
+            revision=experiment.get("revision_context", "") if status != "ready_to_run" else "",
         )
+
+    def _requirement_gate(
+        self, *, conn, experiment: dict[str, Any], requirement: RoleRequirement
+    ) -> str:
+        """A requirement's gate name, with the one dynamic case: the running
+        status's execution gate reflects whether a sandbox is actually live."""
+        if experiment["status"] == "running" and requirement.gate == "execution_ready":
+            sandboxes = self.sandboxes.sandboxes_for_experiment(
+                conn=conn, experiment_id=experiment["id"]
+            )
+            if any(sb.get("status") in ACTIVE_PROCESS_STATUSES for sb in sandboxes):
+                return "execution_active"
+        return requirement.gate
+
+    def _resource_guidance(self, *, key: str) -> dict[str, Any] | None:
+        if key == "result":
+            return self._result_resource_guidance()
+        if key == "report":
+            return self._report_resource_guidance()
+        return None
 
     def _refresh_experiment_resources(
         self, *, conn, experiment: dict[str, Any]
@@ -452,14 +323,11 @@ class WorkflowService:
         )
 
     def _review_next(
-        self, *, conn, experiment: dict[str, Any], role: str, skill: str
-    ) -> dict[str, Any] | None:
+        self, *, conn, experiment: dict[str, Any], review: ReviewRequirement
+    ) -> dict[str, Any]:
         exp_id = experiment["id"]
         gate = experiment["status"]
-        action_name = {
-            "design_reviewer": "design_review",
-            "experiment_reviewer": "experiment_review",
-        }[role]
+        role, skill, action_name = review.role, review.skill, review.action_name
         verdict = self.reviews.latest_verdict(
             conn=conn,
             target_type="experiment",
@@ -467,14 +335,9 @@ class WorkflowService:
             role=role,
         )
         if verdict == "pass":
-            next_action = (
-                "mark_ready_to_run"
-                if role == "design_reviewer"
-                else "complete_experiment"
-            )
             return self._next(
                 gate=f"{action_name}_passed",
-                action=next_action,
+                action=review.pass_action,
                 allowed=["experiment.transition"],
             )
 

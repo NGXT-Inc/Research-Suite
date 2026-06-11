@@ -6,19 +6,14 @@ import ReviewCard from './ReviewCard';
  *
  *   [v1] ─[needs_changes · 4]─→ [v2] ─[pass · 1]─→ ✓ accepted
  *
- * Two interactions, independent:
- *   - Click a v_k pill → tells the parent to render the plan AT that version
- *     (via onSelectVersion). The active version pill is outlined.
- *   - Click a verdict pill → expands the ReviewCard for that review inline.
- *     Only one verdict card is expanded at a time so the section stays quiet.
+ * One interaction: click a verdict pill → expands the ReviewCard for that
+ * review inline. Only one verdict card is expanded at a time so the section
+ * stays quiet.
  */
 export default function ReviewEvolutionStepper({
   reviews,
   currentAttempt,
   experimentStatus,
-  selectedAttempt = null,
-  onSelectVersion,
-  versionAvailability = {},
 }) {
   const [expandedIdx, setExpandedIdx] = useState(null);
 
@@ -43,36 +38,9 @@ export default function ReviewEvolutionStepper({
         {segments.map((seg, i) => {
           const last = i === segments.length - 1;
           const showTerminus = last ? terminus : null;
-          const isSelected = selectedAttempt === seg.version;
-          const avail = versionAvailability[seg.version];
-          const versionBtnClasses = [
-            'review-stepper-version',
-            isSelected ? 'review-stepper-version--active' : '',
-            avail === false ? 'review-stepper-version--unavailable' : '',
-          ].filter(Boolean).join(' ');
           return (
             <span key={seg.version} className="review-stepper-seg">
-              {onSelectVersion && avail !== false ? (
-                <button
-                  type="button"
-                  className={versionBtnClasses}
-                  onClick={() => onSelectVersion(seg.version)}
-                  title={`View plan at v${seg.version}`}
-                >
-                  v{seg.version}
-                </button>
-              ) : (
-                <span
-                  className={versionBtnClasses}
-                  title={
-                    avail === false
-                      ? `v${seg.version}: historical snapshot not available`
-                      : undefined
-                  }
-                >
-                  v{seg.version}
-                </span>
-              )}
+              <span className="review-stepper-version">v{seg.version}</span>
               {seg.review ? (
                 <>
                   <span className="review-stepper-arrow">→</span>

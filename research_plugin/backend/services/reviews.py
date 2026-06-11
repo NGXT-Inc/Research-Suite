@@ -242,6 +242,106 @@ class ReviewService:
         finally:
             conn.close()
 
+    def queue(self, *, project_id: str | None = None) -> dict[str, Any]:
+        conn = self.store.connect()
+        try:
+            project_id = self.store.require_project_id(conn=conn, project_id=project_id)
+            req_rows = conn.execute(
+                """
+                SELECT id, target_type, target_id, role, status, reason, target_snapshot_id,
+                       producer_session_id, expires_at, created_at
+                FROM review_requests
+                WHERE project_id = ?
+                ORDER BY rowid DESC
+                """,
+                (project_id,),
+            ).fetchall()
+            review_rows = conn.execute(
+                """
+                SELECT id, request_id, target_snapshot_id, target_type, target_id, role, verdict, notes, created_at
+                FROM reviews
+                WHERE project_id = ?
+                ORDER BY rowid DESC
+                """,
+                (project_id,),
+            ).fetchall()
+            return {
+                "requests": [self._with_snapshot(row=row) for row in req_rows],
+                "reviews": [self._with_snapshot(row=row) for row in review_rows],
+            }
+        finally:
+            conn.close()
+
+    def open_requests_for_target(
+        self,
+        *,
+        project_id: str | None,
+        experiment_id: str,
+        statuses: tuple[str, ...] = ("requested", "started"),
+    ) -> list[dict[str, Any]]:
+        if not statuses:
+            return []
+        conn = self.store.connect()
+        try:
+            project_id = self.store.require_project_id(conn=conn, project_id=project_id)
+            placeholders = ", ".join("?" for _ in statuses)
+            rows = conn.execute(
+                f"""
+                SELECT id, role, status, reason, created_at
+                FROM review_requests
+                WHERE project_id = ? AND target_type = 'experiment' AND target_id = ?
+                  AND status IN ({placeholders})
+                ORDER BY rowid
+                """,
+                (project_id, experiment_id, *statuses),
+            ).fetchall()
+            return [row_to_dict(row=row) or {} for row in rows]
+        finally:
+            conn.close()
+
+    def assert_request_in_project(
+        self, *, project_id: str | None, review_request_id: Any
+    ) -> None:
+        conn = self.store.connect()
+        try:
+            project_id = self.store.require_project_id(conn=conn, project_id=project_id)
+            if not review_request_id:
+                raise ValidationError("review_request_id is required")
+            row = conn.execute(
+                "SELECT project_id FROM review_requests WHERE id = ?",
+                (review_request_id,),
+            ).fetchone()
+            if row is None or row["project_id"] != project_id:
+                raise NotFoundError(
+                    f"review request not found in project {project_id}: {review_request_id}"
+                )
+        finally:
+            conn.close()
+
+    def assert_session_in_project(
+        self, *, project_id: str | None, review_session_id: Any
+    ) -> None:
+        conn = self.store.connect()
+        try:
+            project_id = self.store.require_project_id(conn=conn, project_id=project_id)
+            if not review_session_id:
+                raise ValidationError("review_session_id is required")
+            row = conn.execute(
+                """
+                SELECT rr.project_id AS project_id
+                FROM review_sessions rs
+                JOIN review_requests rr ON rr.id = rs.request_id
+                WHERE rs.id = ?
+                """,
+                (review_session_id,),
+            ).fetchone()
+            if row is None or row["project_id"] != project_id:
+                raise NotFoundError(
+                    f"review session not found in project {project_id}: {review_session_id}"
+                )
+        finally:
+            conn.close()
+
     def latest_verdict(self, *, conn, target_type: str, target_id: str, role: str) -> str | None:
         snapshot_id = self._target_snapshot_id(conn=conn, target_type=target_type, target_id=target_id)
         row = conn.execute(
@@ -272,6 +372,11 @@ class ReviewService:
             (target_type, target_id, role),
         ).fetchone()
         return None if row is None else row_to_dict(row=row)
+
+    def _with_snapshot(self, *, row) -> dict[str, Any]:
+        data = row_to_dict(row=row) or {}
+        data["target_snapshot"] = self.snapshot_from_id(snapshot_id=data.get("target_snapshot_id", ""))
+        return data
 
     def reviewer_handoff(self, *, role: str, target_type: str, target_id: str) -> dict[str, Any]:
         skill = {
