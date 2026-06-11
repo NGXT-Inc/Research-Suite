@@ -46,9 +46,17 @@ MVP gates:
    applying the plan's pre-registered decision rule; under 10 KB; every
    relative figure link must resolve to a synced file. See
    `skills/research-workflow/report-template.md`.
-5. Experiment review gate: a separate read-only experiment reviewer must pass
-   the executed attempt, verifying the report against the raw result files.
-6. Claim update gate: claim status/confidence changes require evidence links and
+5. Logic graph gate: before `submit_results`, the current attempt must also
+   carry the experiment's logic graph (role `graph`) — the agent-authored
+   story of notable decisions, problems, pivots, and lessons, told as a DAG.
+   The server lints only the envelope (valid JSON, every node with an id and
+   label, at most 16 nodes, acyclic edges, under 16 KB); the story's
+   vocabulary, structure, and substance are the agent's design, judged by the
+   experiment reviewer. See `skills/research-workflow/graph-template.md`.
+6. Experiment review gate: a separate read-only experiment reviewer must pass
+   the executed attempt, verifying the report against the raw result files and
+   the logic graph's story against what actually happened.
+7. Claim update gate: claim status/confidence changes require evidence links and
    a passing experiment or human review.
 
 ## Design reviewer contract
@@ -157,9 +165,16 @@ While an experiment is `running` and no result resource is associated yet,
 `resource_guidance`. Agents run the experiment on the sandbox over SSH, then sync
 the output files and associate them to the experiment with
 `association_role: "result"`. Once results are synced but no report exists, the
-gate becomes `results_report_required` with report-specific guidance; the
-`submit_results` transition lints the report file (sections, metrics table,
-size, figure links) before the experiment enters review.
+gate becomes `results_report_required` with report-specific guidance; once a
+report exists but no logic graph does, the gate becomes `logic_graph_required`.
+The `submit_results` transition lints the report file (sections, metrics table,
+size, figure links) and the logic graph's envelope (valid JSON, node budget,
+DAG) before the experiment enters review.
+
+On rejection, the attached revision context includes a soft reminder to
+*consider* updating the logic graph — whether the rejection and rework belong
+in the story is the agent's editorial call, and the 16-node budget still
+applies.
 
 ## Completion rule
 

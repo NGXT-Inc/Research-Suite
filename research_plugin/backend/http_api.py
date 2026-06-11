@@ -7,6 +7,7 @@ marker lifecycle live in `http_server`.
 
 from __future__ import annotations
 
+import json
 import mimetypes
 from pathlib import Path
 from typing import Any
@@ -21,6 +22,7 @@ from .app import ResearchPluginApp
 from .contracts import PROJECT_SCOPED_TOOL_NAMES
 from .project_router import ProjectRouter
 from .services.figure_view import build_experiment_figure
+from .services.graph_lint import MAX_GRAPH_NODES, graph_problems
 from .services.sandbox_views import sandbox_row_view
 from .utils import NotFoundError, ResearchPluginError, ValidationError
 from .state import monotonic_ms
@@ -305,6 +307,177 @@ class ResearchHttpApi:
             sandbox=sandbox,
         )
 
+    def experiment_logic_graph(self, *, project_id: str, experiment_id: str) -> dict[str, Any]:
+        """Agent-authored logic graph (role 'graph'), parsed + envelope-linted.
+
+        Prefers the current attempt's association; falls back to the latest
+        prior-attempt one so the story stays visible right after an attempt
+        bump, before the agent re-associates the file.
+        """
+        experiment = self.app.experiments.get_state(
+            experiment_id=experiment_id, project_id=project_id
+        )
+        attempt = experiment.get("attempt_index")
+        candidates = [
+            res
+            for res in experiment.get("resources", [])
+            if res.get("association_role") == "graph"
+        ]
+        current = [
+            res for res in candidates if res.get("association_attempt_index") == attempt
+        ]
+        chosen = (current or candidates)[-1] if candidates else None
+        base = {
+            "experiment_id": experiment_id,
+            "max_nodes": MAX_GRAPH_NODES,
+            "experiment_status": experiment.get("status"),
+            "attempt_index": attempt,
+        }
+        if chosen is None:
+            return {**base, "available": False, "graph": None, "problems": []}
+        try:
+            path = self._resource_path(resource=chosen)
+        except (NotFoundError, ValidationError):
+            return {**base, "available": False, "graph": None, "problems": ["graph file is missing on disk"], "path": chosen.get("path")}
+        text = path.read_text(errors="replace")
+        graph: dict[str, Any] | None = None
+        try:
+            parsed = json.loads(text)
+            if isinstance(parsed, dict):
+                graph = parsed
+        except json.JSONDecodeError:
+            graph = None
+        return {
+            **base,
+            "available": True,
+            "resource_id": chosen.get("id"),
+            "path": chosen.get("path"),
+            "association_attempt_index": chosen.get("association_attempt_index"),
+            "graph": graph,
+            "problems": graph_problems(text),
+            "ref_index": self._resolve_graph_refs(project_id=project_id, graph=graph),
+        }
+
+    def _resolve_graph_refs(
+        self, *, project_id: str, graph: dict[str, Any] | None
+    ) -> dict[str, Any]:
+        """Resolve node ``refs`` strings to project records, on the read path.
+
+        Refs are plain strings the agent wrote into its own file — repo-relative
+        resource paths or known record ids (res_/rev_/claim_/exp_). Resolution
+        is best-effort and read-only: an unresolvable ref degrades to
+        ``{resolved: false}``, never an error, and nothing is enforced — whether
+        to ref anything is the agent's editorial call. Keyed by ref string so
+        the graph payload itself stays the file's exact content.
+        """
+        refs: list[str] = []
+        seen: set[str] = set()
+        for node in (graph or {}).get("nodes") or []:
+            if not isinstance(node, dict):
+                continue
+            node_refs = node.get("refs")
+            if not isinstance(node_refs, list):
+                continue
+            for ref in node_refs:
+                if isinstance(ref, str) and ref.strip() and ref not in seen:
+                    seen.add(ref)
+                    refs.append(ref)
+        if not refs:
+            return {}
+        conn = self.app.store.connect()
+        try:
+            return {
+                ref: self._resolve_one_graph_ref(conn=conn, project_id=project_id, ref=ref)
+                for ref in refs
+            }
+        finally:
+            conn.close()
+
+    def _resolve_one_graph_ref(self, *, conn, project_id: str, ref: str) -> dict[str, Any]:
+        if ref.startswith("res_"):
+            row = conn.execute(
+                "SELECT id, path, kind, title, missing FROM resources"
+                " WHERE id = ? AND project_id = ? AND deleted = 0",
+                (ref, project_id),
+            ).fetchone()
+            if row:
+                return self._graph_ref_resource(row=row)
+        elif ref.startswith("rev_"):
+            row = conn.execute(
+                "SELECT id, role, verdict, created_at FROM reviews"
+                " WHERE id = ? AND project_id = ?",
+                (ref, project_id),
+            ).fetchone()
+            if row:
+                return {
+                    "type": "review",
+                    "resolved": True,
+                    "review_id": row["id"],
+                    "role": row["role"],
+                    "verdict": row["verdict"],
+                    "created_at": row["created_at"],
+                }
+        elif ref.startswith("claim_"):
+            row = conn.execute(
+                "SELECT id, statement, status FROM claims WHERE id = ? AND project_id = ?",
+                (ref, project_id),
+            ).fetchone()
+            if row:
+                return {
+                    "type": "claim",
+                    "resolved": True,
+                    "claim_id": row["id"],
+                    "statement": row["statement"],
+                    "status": row["status"],
+                }
+        elif ref.startswith("exp_"):
+            row = conn.execute(
+                "SELECT id, intent, status FROM experiments WHERE id = ? AND project_id = ?",
+                (ref, project_id),
+            ).fetchone()
+            if row:
+                return {
+                    "type": "experiment",
+                    "resolved": True,
+                    "experiment_id": row["id"],
+                    "intent": row["intent"],
+                    "status": row["status"],
+                }
+        else:
+            row = conn.execute(
+                "SELECT id, path, kind, title, missing FROM resources"
+                " WHERE project_id = ? AND path = ? AND deleted = 0",
+                (project_id, ref),
+            ).fetchone()
+            if row:
+                return self._graph_ref_resource(row=row)
+            if self._repo_file_exists(rel=ref):
+                return {
+                    "type": "unknown",
+                    "resolved": False,
+                    "hint": "file exists in the repo but is not a registered resource",
+                }
+        return {"type": "unknown", "resolved": False}
+
+    def _graph_ref_resource(self, *, row) -> dict[str, Any]:
+        return {
+            "type": "resource",
+            "resolved": True,
+            "resource_id": row["id"],
+            "path": row["path"],
+            "kind": row["kind"],
+            "title": row["title"],
+            "missing": bool(row["missing"]),
+        }
+
+    def _repo_file_exists(self, *, rel: str) -> bool:
+        try:
+            path = (self.app.store.repo_root / rel).resolve()
+            path.relative_to(self.app.store.repo_root)
+        except (ValueError, OSError):
+            return False
+        return path.is_file()
+
     def _experiment_view_model(self, *, exp: dict[str, Any]) -> dict[str, Any]:
         current = exp.get("current_attempt_resources", [])
         plans = [res["id"] for res in current if res.get("association_role") == "plan"]
@@ -541,6 +714,11 @@ def create_fastapi_app(
     def experiment_figure(project_id: str, experiment_id: str) -> dict[str, Any]:
         # Derived graph for the figure canvas; UI-only read, no agent tool.
         return api_for_project(project_id).experiment_figure(project_id=project_id, experiment_id=experiment_id)
+
+    @http.get("/api/projects/{project_id}/experiments/{experiment_id}/graph")
+    def experiment_logic_graph(project_id: str, experiment_id: str) -> dict[str, Any]:
+        # Agent-authored logic graph (role 'graph'); UI-only read, no agent tool.
+        return api_for_project(project_id).experiment_logic_graph(project_id=project_id, experiment_id=experiment_id)
 
     @http.post("/api/projects/{project_id}/experiments/{experiment_id}/transition")
     def transition_experiment(project_id: str, experiment_id: str, body: JsonBody = Body(default=None)) -> dict[str, Any]:

@@ -127,9 +127,11 @@ GATE_TABLE: dict[str, ForwardTransition] = {
         name="submit_results",
         to_status="experiment_review",
         requires_prose=(
-            "a 'result' resource AND a results report (role 'report') must be synced "
-            "& associated to this experiment; the report needs the required section "
-            "headers, a metrics table, and resolvable figure links"
+            "a 'result' resource, a results report (role 'report'), AND a logic "
+            "graph (role 'graph') must be synced & associated to this experiment; "
+            "the report needs the required section headers, a metrics table, and "
+            "resolvable figure links; the graph must be valid JSON forming a DAG "
+            "of at most 16 nodes"
         ),
         requirements=(
             RoleRequirement(
@@ -169,6 +171,26 @@ GATE_TABLE: dict[str, ForwardTransition] = {
                 ),
                 missing="results report resource (role 'report')",
                 guidance_key="report",
+            ),
+            RoleRequirement(
+                role="graph",
+                error=(
+                    "a logic graph must be synced before experiment_review: write "
+                    "the experiment's logic graph (e.g. experiments/<name>/graph.json "
+                    "— the story of the experiment's notable decisions, problems, and "
+                    "pivots as a DAG of at most 16 nodes), sync it, and associate it "
+                    "with role 'graph' — see skills/research-workflow/graph-template.md"
+                ),
+                validator="graph",
+                gate="logic_graph_required",
+                action="write_and_associate_logic_graph",
+                allowed=(
+                    "sandbox.sync",
+                    "resource.register_file",
+                    "resource.associate",
+                ),
+                missing="logic graph resource (role 'graph')",
+                guidance_key="graph",
             ),
         ),
         ready_gate="experiment_review_required",

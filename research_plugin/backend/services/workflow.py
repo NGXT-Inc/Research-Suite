@@ -308,6 +308,8 @@ class WorkflowService:
             return self._result_resource_guidance()
         if key == "report":
             return self._report_resource_guidance()
+        if key == "graph":
+            return self._graph_resource_guidance()
         return None
 
     def _refresh_experiment_resources(
@@ -443,6 +445,14 @@ class WorkflowService:
                 "While the run produces metrics, save the figures (matplotlib PNGs) "
                 "you will reference. See skills/research-workflow/report-template.md."
             ),
+            "graph_guidance": (
+                "A logic graph (role 'graph') is also required before "
+                "submit_results — the experiment's own story of notable decisions, "
+                "problems, and pivots, told as a DAG of at most 16 nodes "
+                "(graph.json). Consider keeping it up to date as the work unfolds; "
+                "the user can watch it live, and what deserves a node is your "
+                "call. See skills/research-workflow/graph-template.md."
+            ),
         }
 
     def _report_resource_guidance(self) -> dict[str, Any]:
@@ -462,6 +472,26 @@ class WorkflowService:
                 "links (e.g. ![loss](figures/loss.png)); every linked image must "
                 "exist after sandbox.sync or submit_results is blocked. Then "
                 "register the report and associate it with role 'report'."
+            ),
+        }
+
+    def _graph_resource_guidance(self) -> dict[str, Any]:
+        return {
+            "target_type": "experiment",
+            "association_role": "graph",
+            "template": "skills/research-workflow/graph-template.md",
+            "guidance": (
+                "Write the experiment's logic graph as one JSON file (e.g. "
+                "experiments/<name>/graph.json): the story of how the experiment "
+                "actually went — the notable decisions, the problems you ran "
+                "into, the pivots and iterations (including those forced by "
+                "reviews), and what was learned — told as a DAG of at most 16 "
+                "nodes. You design the graph: node 'kind' vocabulary, edge "
+                "labels, and structure are yours, and what deserves a node is "
+                "your editorial call. If the graph is at the 16-node budget and "
+                "something important must be added, reduce the graph to make "
+                "room. Then register the file and associate it with role "
+                "'graph'."
             ),
         }
 

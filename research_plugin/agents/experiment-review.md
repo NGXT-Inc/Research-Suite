@@ -40,6 +40,12 @@ section, which is the pre-registered contract for judging success:
 - Did any **Invalidation** condition from the plan actually occur?
 - Is there leakage, invalid normalization, missing baseline, or cherry-picking?
 - Are failed or partial runs disclosed?
+- Read the logic graph (the `graph`-role resource): it is the agent's own
+  story of the experiment — decisions, problems, pivots, lessons. Does that
+  story reconcile with the report's Deviations section, the transcript, and
+  the review history? A story that omits known problems or rework, or that
+  carries no actual lessons, is a finding. Judge the substance — the graph's
+  vocabulary and structure are the author's design, not yours to prescribe.
 - Should the next attempt reuse the design, revise execution, revise metric, or
   abandon the claim direction?
 

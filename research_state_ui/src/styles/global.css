@@ -846,7 +846,7 @@ input, textarea, select { font-family: inherit; font-size: inherit; color: inher
 .fsm-strip {
   display: flex;
   align-items: stretch;
-  gap: 4px;
+  gap: 10px;
   list-style: none;
   overflow-x: auto;
   scrollbar-width: thin;
@@ -907,8 +907,36 @@ input, textarea, select { font-family: inherit; font-size: inherit; color: inher
 .fsm-step--failed .fsm-step-dot { background: var(--refutes); }
 .fsm-step--failed .fsm-step-label { color: var(--refutes); font-weight: 600; }
 
+/* Current step as gate disclosure: the whole step is the toggle. */
+.fsm-step-toggle {
+  all: unset;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  cursor: pointer;
+}
+.fsm-step-toggle:focus-visible { outline: 1px solid var(--active); outline-offset: 3px; border-radius: var(--radius-sm); }
+.fsm-step-badge {
+  font-size: 9.5px;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  font-weight: 700;
+  color: var(--active);
+  background: rgba(var(--active-rgb), 0.12);
+  border: 1px solid rgba(var(--active-rgb), 0.35);
+  border-radius: 999px;
+  padding: 1px 7px;
+  white-space: nowrap;
+}
+.fsm-step-twist {
+  font-size: var(--text-xs);
+  color: var(--faint);
+}
+.fsm-gate-panel { margin-top: 8px; }
+
 /* =====================================================================
-   Gate banner — current_gate + next_action + allowed actions
+   Gate panel — current_gate + next_action + allowed actions, disclosed
+   from the FSM strip's current step
    ===================================================================== */
 .gate-banner {
   display: flex;
@@ -918,7 +946,6 @@ input, textarea, select { font-family: inherit; font-size: inherit; color: inher
   border-radius: var(--radius-lg);
   border: 1px solid rgba(var(--ice-rgb), 0.3);
   background: rgba(var(--ice-rgb), 0.07);
-  margin-bottom: var(--space-4);
   position: relative;
 }
 .gate-banner::before {
@@ -929,16 +956,6 @@ input, textarea, select { font-family: inherit; font-size: inherit; color: inher
   background: var(--ice);
   border-radius: var(--radius-lg) 0 0 var(--radius-lg);
 }
-.gate-banner--terminal {
-  border-color: rgba(var(--supports-rgb), 0.3);
-  background: rgba(var(--supports-rgb), 0.06);
-}
-.gate-banner--terminal::before { background: var(--supports); }
-.gate-banner--failed {
-  border-color: rgba(var(--refutes-rgb), 0.3);
-  background: rgba(var(--refutes-rgb), 0.06);
-}
-.gate-banner--failed::before { background: var(--refutes); }
 .gate-banner-body {
   flex: 1;
   display: flex;
@@ -971,14 +988,6 @@ html { scroll-behavior: smooth; }
   color: var(--muted);
   font-family: var(--font-mono);
 }
-.gate-banner-meta {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 12px;
-  font-size: var(--text-xs);
-  color: var(--muted);
-  font-variant-numeric: tabular-nums;
-}
 .gate-banner-meta-key { color: var(--faint); margin-right: 2px; }
 .gate-banner-actions {
   display: flex;
@@ -1007,8 +1016,6 @@ html { scroll-behavior: smooth; }
   70%  { box-shadow: 0 0 0 8px rgba(var(--ice-rgb), 0);     }
   100% { box-shadow: 0 0 0 0   rgba(var(--ice-rgb), 0);     }
 }
-.gate-banner--terminal .gate-live-dot,
-.gate-banner--failed .gate-live-dot { display: none; }
 @media (prefers-reduced-motion: reduce) {
   .gate-live-dot { animation: none; }
 }
@@ -1024,21 +1031,6 @@ html { scroll-behavior: smooth; }
   font-size: var(--text-xs);
   color: var(--refutes);
 }
-/* Closed / terminal experiment — calm one-line confirmation (no gate name,
-   no raw "blocked:" entry). See GateBanner's `closed` branch. */
-.gate-banner-body--closed {
-  flex-direction: row;
-  align-items: baseline;
-  gap: 10px;
-  flex-wrap: wrap;
-}
-.gate-closed-glyph {
-  font-size: var(--text-md);
-  line-height: 1;
-  align-self: center;
-}
-.gate-banner--terminal .gate-closed-glyph { color: var(--supports); }
-.gate-banner--failed .gate-closed-glyph { color: var(--refutes); }
 .gate-banner-missing {
   display: flex;
   flex-direction: column;
@@ -1146,13 +1138,6 @@ html { scroll-behavior: smooth; }
   border-radius: 4px;
 }
 .active-exp-card--bounded::-webkit-scrollbar-track { background: transparent; }
-.active-exp-title {
-  font-size: var(--text-md);
-  font-weight: 540;
-  color: var(--text);
-  margin-bottom: 10px;
-  line-height: var(--leading-tight);
-}
 
 /* =====================================================================
    Active-experiment pager — chevrons + status-tinted dots tucked in the
@@ -2230,10 +2215,6 @@ html[data-theme="dark"] .ft-fi--shell   { color: #a3a19a; }
   line-height: 1.25;
   margin: 4px 0 8px;
 }
-.exp-orient-meta {
-  gap: 10px;
-  flex-wrap: wrap;
-}
 .exp-orient-attempt {
   font-family: var(--font-mono);
   color: var(--muted);
@@ -2241,77 +2222,50 @@ html[data-theme="dark"] .ft-fi--shell   { color: #a3a19a; }
   letter-spacing: 0;
   font-weight: 500;
 }
-.exp-tested-claim {
-  font-size: var(--text-xs);
-  color: var(--muted);
-  padding: 2px 9px;
-  border-radius: var(--radius-pill);
-  border: 1px solid var(--line);
-  background: var(--bg-elev);
-  max-width: 720px;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-  text-decoration: none;
-}
-.exp-tested-claim:hover {
-  border-color: var(--line-strong);
-  color: var(--active);
-}
-.exp-tested-claim-text {
-  color: var(--text);
-  margin-left: 4px;
-}
-.exp-tested-claim--multi { white-space: normal; }
 
-/* Brief — collapsible on experiment detail (always available, opens on click) */
-.exp-brief { margin-bottom: var(--space-3); }
-.exp-brief-toggle {
-  appearance: none;
-  background: none;
-  border: 0;
-  cursor: pointer;
-  font-family: inherit;
-  font-size: var(--text-xs);
-  font-weight: 600;
-  letter-spacing: 0.08em;
+/* Intent block — the experiment's intent shown once as a single block. One
+   intermediate text size (between heading and body), opening line slightly
+   weighted, labeled sections as scannable paragraphs. */
+.intent-block { max-width: 860px; margin-top: 4px; }
+.intent-seg { margin-top: 12px; }
+.intent-seg-label {
+  font-size: 10px;
+  font-weight: 700;
+  letter-spacing: 0.12em;
   text-transform: uppercase;
   color: var(--faint);
-  padding: 4px 0;
-  display: inline-flex;
-  align-items: center;
-  gap: 6px;
+  margin-bottom: 2px;
 }
-.exp-brief-toggle:hover { color: var(--muted); }
-.exp-brief-twist {
-  font-size: 10px;
-  color: var(--faint);
-  line-height: 1;
-}
-.exp-brief-body {
-  margin-top: 8px;
-  padding: 12px 16px;
-  background: var(--bg-elev);
-  border: 1px solid var(--line-soft);
-  border-radius: var(--radius-md);
-  font-size: var(--text-base);
+.intent-seg-text {
+  margin: 0;
+  font-size: var(--text-md);
   color: var(--text);
+  line-height: 1.6;
   white-space: pre-wrap;
-  line-height: 1.55;
 }
-
-/* Brief on Home — shown inline under the active experiment title */
-.active-exp-brief {
+.intent-lead-line { font-weight: 560; }
+/* Card variant (Home): smaller text, block capped with a fade — the card
+   links to the detail page where the full text lives. */
+.intent-lead {
+  font-size: var(--text-md);
+  font-weight: 540;
+  color: var(--text);
+  line-height: var(--leading-tight);
+}
+.intent-block--compact {
+  max-height: 10.5em;
+  overflow: hidden;
+  margin-bottom: 12px;
+  -webkit-mask-image: linear-gradient(180deg, #000 70%, transparent);
+  mask-image: linear-gradient(180deg, #000 70%, transparent);
+}
+.intent-block--compact .intent-seg-text {
   font-size: var(--text-sm);
   color: var(--muted);
   line-height: 1.55;
-  margin-bottom: 12px;
-  white-space: pre-wrap;
 }
 
-.exp-fsm { margin-bottom: 14px; }
-.exp-gate { margin-bottom: 22px; }
-.exp-gate .gate-banner { margin-bottom: 0; }
+.exp-fsm { padding-top: 10px; margin-bottom: 30px; }
 .exp-footer { margin-top: 28px; }
 
 /* =====================================================================
@@ -3787,7 +3741,20 @@ button.review-stepper-version:hover {
 
 .fig-body { display: grid; grid-template-columns: 1fr; }
 .fig-body--split { grid-template-columns: 1fr 320px; }
-.fig-canvas { height: 400px; background: var(--bg); }
+.fig-canvas { height: 400px; background: var(--bg); position: relative; }
+.fig-canvas-hint {
+  position: absolute;
+  left: 10px;
+  bottom: 10px;
+  z-index: 5;
+  pointer-events: none;
+  font-size: var(--text-xs);
+  color: var(--faint);
+  background: color-mix(in srgb, var(--bg) 82%, transparent);
+  border: 1px solid var(--line-soft);
+  border-radius: var(--radius-pill);
+  padding: 2px 9px;
+}
 .fig-canvas .react-flow__background { color: var(--line); }
 .fig-canvas .react-flow__controls {
   box-shadow: var(--shadow-sm);
@@ -3896,3 +3863,84 @@ button.review-stepper-version:hover {
   .fig-body--split { grid-template-columns: 1fr; }
   .fig-panel { border-left: none; border-top: 1px solid var(--line-soft); }
 }
+
+/* ───────────────────────  LOGIC GRAPH  ─────────────────────────
+   Agent-authored story DAG (role 'graph') on ExperimentDetail. Reuses the
+   figure canvas shell; node accents are per agent-chosen kind (assigned by
+   first appearance — the vocabulary is the agent's, not a fixed taxonomy). */
+
+.lgr-badge {
+  font-size: var(--text-xs); line-height: 1;
+  padding: 4px 8px; border-radius: var(--radius-pill);
+  border: 1px solid var(--line); color: var(--muted); background: var(--bg-soft);
+}
+.lgr-chip-dot {
+  display: inline-block; width: 8px; height: 8px; border-radius: 50%;
+  margin-right: 5px;
+}
+.lgr-node--dead { border-style: dashed; opacity: .6; }
+.lgr-problems {
+  padding: 8px 14px;
+  border-bottom: 1px solid var(--line-soft);
+  font-size: var(--text-xs); color: var(--qualifies);
+}
+
+/* Node refs (agent's free-form pointers, server-resolved on read) */
+.lgr-refs { margin-top: 10px; display: flex; flex-direction: column; gap: 6px; }
+.lgr-ref {
+  display: block;
+  font-size: var(--text-xs); line-height: 1.45;
+  padding: 6px 8px; border-radius: var(--radius-md);
+  border: 1px solid var(--line-soft); background: var(--bg-soft);
+  color: var(--text); text-decoration: none;
+  overflow: hidden; text-overflow: ellipsis;
+}
+.lgr-ref:hover { border-color: var(--line-strong); }
+.lgr-ref .fig-node-type { margin-right: 6px; }
+.lgr-ref--static:hover { border-color: var(--line-soft); }
+.lgr-ref--unresolved {
+  color: var(--faint); font-family: var(--font-mono); word-break: break-all;
+}
+
+/* Shared canvas slot: the section title IS the figure ⇄ logic toggle
+   (ExperimentGraphs). The active view's name renders as the title; the
+   other sits beside it muted and clickable. */
+.fig-title-tabs { display: inline-flex; align-items: baseline; gap: 8px; }
+.fig-title-tab {
+  border: none; background: transparent; padding: 0; cursor: pointer;
+  font: inherit; font-size: var(--text-md); font-weight: 600;
+  color: var(--faint);
+}
+.fig-title-tab:hover:not(:disabled):not(.fig-title-tab--on) { color: var(--muted); }
+.fig-title-tab--on { color: var(--text); cursor: default; }
+.fig-title-tab:disabled { opacity: .4; cursor: default; }
+.fig-title-tab-sep { color: var(--line-strong); font-weight: 400; }
+
+/* Expanded (near-fullscreen) graph mode. The section lifts out of the page
+   flow over a dimmed backdrop; the canvas grows to fill the viewport.
+   Escape, the backdrop, or the ✕ button collapse it. */
+.fig-head-right {
+  display: flex; align-items: center; gap: 10px; flex-wrap: wrap;
+  justify-content: flex-end;
+}
+.fig-expand-btn {
+  border: 1px solid var(--line); background: var(--bg); color: var(--muted);
+  border-radius: var(--radius-md); padding: 4px 10px;
+  font-size: var(--text-xs); line-height: 1; white-space: nowrap;
+  cursor: pointer;
+}
+.fig-expand-btn:hover { color: var(--text); border-color: var(--line-strong); }
+.fig-backdrop {
+  position: fixed; inset: 0; z-index: 80;
+  background: color-mix(in srgb, var(--bg) 50%, transparent);
+  backdrop-filter: blur(2px);
+}
+.exp-figure--expanded {
+  position: fixed; inset: 18px; z-index: 81;
+  margin-top: 0;
+  display: flex; flex-direction: column;
+  box-shadow: 0 18px 60px rgba(0, 0, 0, .45);
+}
+.exp-figure--expanded .fig-body { flex: 1; min-height: 0; }
+.exp-figure--expanded .fig-canvas { height: 100%; }
+.exp-figure--expanded .fig-panel { max-height: none; }

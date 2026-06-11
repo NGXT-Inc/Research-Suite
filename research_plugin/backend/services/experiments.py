@@ -11,6 +11,7 @@ from ..utils import new_id
 from ..state.store import StateStore, row_to_dict, rows_to_dicts
 from ..utils import now_iso
 from .artifacts import plan_sections_missing, report_problems
+from .graph_lint import graph_problems
 from .experiment_views import slim_experiment_state
 from .workflow_gates import (
     GATE_TABLE,
@@ -373,6 +374,8 @@ class ExperimentService:
             self._validate_plan_sections(conn=conn, experiment_id=experiment_id)
         elif name == "report":
             self._validate_results_report(conn=conn, experiment_id=experiment_id)
+        elif name == "graph":
+            self._validate_logic_graph(conn=conn, experiment_id=experiment_id)
 
     def apply_system_transition(
         self, *, experiment_id: str, transition: str, reason: str = ""
@@ -514,6 +517,44 @@ class ExperimentService:
                 "results report is not ready for experiment review: "
                 + "; ".join(problems)
                 + ". See skills/research-workflow/report-template.md."
+            )
+
+    def _validate_logic_graph(self, *, conn, experiment_id: str) -> None:
+        """Block submit_results unless the current attempt carries a logic
+        graph whose live file passes the envelope lint. The lint checks shape
+        only (parses, node budget, DAG) — the story itself is the agent's to
+        tell and the experiment reviewer's to judge."""
+        row = conn.execute(
+            """
+            SELECT r.path
+            FROM resource_associations a
+            JOIN resources r ON r.id = a.resource_id
+            WHERE a.target_type = 'experiment' AND a.target_id = ? AND a.role = 'graph'
+              AND a.attempt_index = (SELECT attempt_index FROM experiments WHERE id = ?)
+              AND r.deleted = 0
+            ORDER BY a.rowid DESC
+            LIMIT 1
+            """,
+            (experiment_id, experiment_id),
+        ).fetchone()
+        if row is None:
+            # _has_resource_role already guaranteed a graph exists; defensive only.
+            raise WorkflowError(
+                "a logic graph resource must be synced before experiment_review"
+            )
+        graph_path = self.store.repo_root / row["path"]
+        try:
+            graph_text = graph_path.read_text(encoding="utf-8")
+        except (OSError, UnicodeDecodeError) as exc:
+            raise WorkflowError(
+                f"logic graph {row['path']!r} could not be read for experiment review: {exc}"
+            ) from exc
+        problems = graph_problems(graph_text)
+        if problems:
+            raise WorkflowError(
+                "logic graph is not ready for experiment review: "
+                + "; ".join(problems)
+                + ". See skills/research-workflow/graph-template.md."
             )
 
     def _has_passing_review(self, *, conn, experiment_id: str, role: str) -> bool:

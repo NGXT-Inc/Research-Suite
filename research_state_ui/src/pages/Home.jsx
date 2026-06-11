@@ -18,6 +18,7 @@ import ObjId from '../components/ObjId';
 import FSMStrip from '../components/FSMStrip';
 import StatusPill from '../components/StatusPill';
 import ActiveExperimentPager from '../components/ActiveExperimentPager';
+import IntentBlock from '../components/IntentBlock';
 import { parseIntent } from '../utils/intent';
 
 export default function Home() {
@@ -97,19 +98,17 @@ export default function Home() {
               onChange={setActiveIdx}
             />
           </div>
-          {activeExp && (() => {
-            const { title, brief } = parseIntent(activeExp.intent);
-            return (
-              <Link
-                to={`/experiments/${activeExp.id}`}
-                className="active-exp-card active-exp-card--bounded"
-              >
-                <div className="active-exp-title">{title || activeExp.id}</div>
-                {brief && <div className="active-exp-brief">{brief}</div>}
-                <FSMStrip status={activeExp.status} attemptIndex={activeExp.attempt_index} />
-              </Link>
-            );
-          })()}
+          {activeExp && (
+            <Link
+              to={`/experiments/${activeExp.id}`}
+              className="active-exp-card active-exp-card--bounded"
+            >
+              {activeExp.intent
+                ? <IntentBlock intent={activeExp.intent} compact />
+                : <div className="intent-lead">{activeExp.id}</div>}
+              <FSMStrip status={activeExp.status} />
+            </Link>
+          )}
         </section>
       )}
 

@@ -82,6 +82,16 @@ is gated on a required spine — **Summary**, **Objective & hypothesis**,
 reviewer judges whether the recommended sections (Method, Outputs, Risks) are
 sufficient.
 
+`experiment.transition(submit_results)` is gated on three current-attempt
+resources: a `result` file, a `report` file passing the report lint, and a
+logic graph (role `graph`, see `skills/research-workflow/graph-template.md`) —
+the agent-authored story of the experiment's decisions, problems, and pivots
+as a DAG. The graph lint checks only the envelope: valid JSON (`version: 1`),
+unique node ids with non-empty labels, **at most 16 nodes**, edges that
+reference existing nodes and form a DAG, file under 16 KB. Vocabulary,
+structure, and what deserves a node are the agent's editorial calls; the
+experiment reviewer judges the story's substance.
+
 ### Resource tools
 
 ```text

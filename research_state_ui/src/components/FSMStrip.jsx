@@ -4,7 +4,12 @@
  *   planned → design_review → ready_to_run → running → experiment_review → complete
  *
  * `failed` and `abandoned` are terminal exits and rendered on the last cell.
- * Adapts the mockup's FSMStrip to the lean status enum.
+ *
+ * The strip is the page's single source of stage truth. On the experiment
+ * detail page the current step doubles as the gate disclosure: pass
+ * `onToggle` to make it a button (with a chevron, `expanded` state, and an
+ * optional `badge` like "action" when a manual transition is waiting), and
+ * render the gate panel as `children` — it appears attached under the strip.
  */
 
 const STAGES = [
@@ -19,7 +24,7 @@ const STAGES = [
 const GATE_STATES = new Set(['design_review', 'experiment_review']);
 const TERMINAL = new Set(['complete', 'failed', 'abandoned']);
 
-export default function FSMStrip({ status }) {
+export default function FSMStrip({ status, badge = null, expanded = false, onToggle = null, children = null }) {
   const s = String(status || '').toLowerCase();
   const isFailed = s === 'failed' || s === 'abandoned';
   const currentIdx = STAGES.findIndex(x => x.id === s);
@@ -39,23 +44,40 @@ export default function FSMStrip({ status }) {
           } else {
             state = 'future';
           }
+          const isCurrent = i === idx && !isFailed;
           const sub =
             i === idx && !TERMINAL.has(s)
               ? state === 'gate' ? 'awaiting review' : 'in progress'
               : null;
+          const label = state === 'failed' ? (isFailed ? s : 'Failed') : stage.label;
+          const head = (
+            <span className="fsm-step-head">
+              <span className="fsm-step-dot" />
+              <span className="fsm-step-label">{label}</span>
+              {isCurrent && badge && <span className="fsm-step-badge">{badge}</span>}
+              {isCurrent && onToggle && (
+                <span className="fsm-step-twist" aria-hidden="true">{expanded ? '▾' : '▸'}</span>
+              )}
+            </span>
+          );
           return (
             <li key={stage.id} className={`fsm-step fsm-step--${state}`}>
-              <span className="fsm-step-head">
-                <span className="fsm-step-dot" />
-                <span className="fsm-step-label">
-                  {state === 'failed' ? (isFailed ? s : 'Failed') : stage.label}
-                </span>
-              </span>
-              {sub && <span className="fsm-step-sub">{sub}</span>}
+              {isCurrent && onToggle ? (
+                <button type="button" className="fsm-step-toggle" onClick={onToggle} aria-expanded={expanded}>
+                  {head}
+                  {sub && <span className="fsm-step-sub">{sub}</span>}
+                </button>
+              ) : (
+                <>
+                  {head}
+                  {sub && <span className="fsm-step-sub">{sub}</span>}
+                </>
+              )}
             </li>
           );
         })}
       </ol>
+      {expanded && children}
     </div>
   );
 }

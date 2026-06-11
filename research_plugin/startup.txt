@@ -1,0 +1,2 @@
+cd research_plugin
+python3 scripts/dev_http_reload.py --host 127.0.0.1 --port 8787

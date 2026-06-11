@@ -75,7 +75,7 @@ const nodeTypes = { figure: FigureNode };
  * tabs, so re-measure on plain timers (which do fire) by driving the store
  * action directly. Must live inside <ReactFlow> to reach its store context.
  */
-function MeasureSync({ topologyKey }) {
+export function MeasureSync({ topologyKey }) {
   const store = useStoreApi();
   useEffect(() => {
     const measure = () => {
@@ -194,11 +194,17 @@ function FigurePanel({ projectId, node, onClose }) {
  *
  * Renders the graph served by GET /experiments/{id}/figure: the attempt
  * spine, inputs, review verdicts (with revision loops), sandbox liveness,
- * conclusion, and tested claims. Everything shown is derived server-side;
- * the agent-authored overlay arrives in a later phase and lands in the same
- * document shape, so this component does not change.
+ * conclusion, and tested claims. Everything shown is derived server-side.
+ * The agent-authored logic graph is a sibling component (LogicGraph) that
+ * shares this canvas slot via ExperimentGraphs: `active` decides whether
+ * this view renders, `headerExtra` carries the shared view switch, and
+ * `onAvailability` tells the parent whether there is anything to show.
  */
-export default function ExperimentFigure({ projectId, experimentId, experimentStatus, attemptIndex }) {
+export default function ExperimentFigure({
+  projectId, experimentId, experimentStatus, attemptIndex,
+  active = true, titleTabs = null, onAvailability = null,
+  expanded = false, onToggleExpand = null,
+}) {
   // Stored as a JSON string and only swapped when the content actually
   // changes: react-flow keys its node measurements to object identity, so
   // recreating identical node objects on every poll tick would wipe the
@@ -233,34 +239,63 @@ export default function ExperimentFigure({ projectId, experimentId, experimentSt
   // throttled to never in background tabs — see MeasureSync. 350ms lands
   // after MeasureSync's second measure pass.
   const topologyKey = useMemo(() => nodes.map(n => n.id).sort().join('|'), [nodes]);
+  // Expanded mode may zoom past 1x so the graph actually uses the space.
+  const fitMaxZoom = expanded ? 1.6 : 1;
   useEffect(() => {
-    const t = setTimeout(() => rfRef.current?.fitView({ padding: 0.18, maxZoom: 1 }), 350);
+    const t = setTimeout(() => rfRef.current?.fitView({ padding: 0.18, maxZoom: fitMaxZoom }), 350);
     return () => clearTimeout(t);
-  }, [topologyKey]);
+  }, [topologyKey, fitMaxZoom]);
 
   const selected = useMemo(
     () => (figure?.nodes || []).find(n => n.id === selectedId) || null,
     [figure, selectedId],
   );
 
-  if (!figure || (figure.nodes || []).length < 2) return null;
+  const available = Boolean(figure && (figure.nodes || []).length >= 2);
+  useEffect(() => { onAvailability?.(available); }, [available, onAvailability]);
+
+  // Refit after the canvas resizes between inline and expanded modes.
+  useEffect(() => {
+    const maxZoom = expanded ? 1.6 : 1;
+    const t = setTimeout(() => rfRef.current?.fitView({ padding: 0.18, maxZoom }), 120);
+    return () => clearTimeout(t);
+  }, [expanded]);
+
+  if (!available || !active) return null;
 
   return (
-    <section className="exp-figure" id="figure">
+    <section className={`exp-figure${expanded ? ' exp-figure--expanded' : ''}`} id="figure">
       <div className="fig-head">
         <div className="fig-title">
-          Figure
+          {titleTabs || 'Figure'}
           <span className="fig-title-hint">derived from experiment state · click a node for detail</span>
         </div>
-        <div className="fig-legend">
-          <span className="fig-chip fig-st--done">done</span>
-          <span className="fig-chip fig-st--open">in motion</span>
-          <span className="fig-chip fig-st--revise">needs changes</span>
-          <span className="fig-chip fig-st--failed">failed</span>
-          <span className="fig-chip fig-st--faded">superseded</span>
+        <div className="fig-head-right">
+          <div className="fig-legend">
+            <span className="fig-chip fig-st--done">done</span>
+            <span className="fig-chip fig-st--open">in motion</span>
+            <span className="fig-chip fig-st--revise">needs changes</span>
+            <span className="fig-chip fig-st--failed">failed</span>
+            <span className="fig-chip fig-st--faded">superseded</span>
+          </div>
+          {onToggleExpand && (
+            <button
+              type="button"
+              className="fig-expand-btn"
+              onClick={onToggleExpand}
+              aria-label={expanded ? 'Collapse graph' : 'Expand graph'}
+            >
+              {expanded ? '✕ Close' : '⤢ Expand'}
+            </button>
+          )}
         </div>
       </div>
       <div className={`fig-body${selected ? ' fig-body--split' : ''}`}>
+        {/* Inline, the page owns the wheel: plain scrolling over the canvas
+            scrolls the page (preventScrolling=false, zoomOnScroll=false) and
+            zooming is reserved for unambiguous gestures — pinch / ctrl+wheel,
+            the +/- controls. Expanded, page scroll is locked, so the wheel
+            zooms the canvas instead. */}
         <div className="fig-canvas">
           <ReactFlow
             nodes={nodes}
@@ -280,6 +315,9 @@ export default function ExperimentFigure({ projectId, experimentId, experimentSt
             nodesConnectable={false}
             edgesFocusable={false}
             zoomOnDoubleClick={false}
+            zoomOnScroll={expanded}
+            zoomOnPinch
+            preventScrolling={expanded}
             minZoom={0.3}
             maxZoom={1.6}
           >
@@ -287,6 +325,7 @@ export default function ExperimentFigure({ projectId, experimentId, experimentSt
             <Background gap={22} size={1.1} />
             <Controls showInteractive={false} position="bottom-right" />
           </ReactFlow>
+          <div className="fig-canvas-hint">drag to pan · pinch to zoom</div>
         </div>
         {selected && (
           <FigurePanel

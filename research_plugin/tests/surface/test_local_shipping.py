@@ -143,6 +143,26 @@ class LocalShippingTest(unittest.TestCase):
             target_id=exp_id,
             role="report",
         )
+        (self.research_repo / "experiments" / "shipping" / "graph.json").write_text(
+            '{"version": 1, "nodes": ['
+            '{"id": "obj", "kind": "objective", "label": "Shipping smoke run"},'
+            '{"id": "out", "kind": "outcome", "label": "Beat the majority baseline"}],'
+            ' "edges": [{"from": "obj", "to": "out"}]}\n'
+        )
+        graph = self._tool(
+            proc,
+            "resource.register_file",
+            path="experiments/shipping/graph.json",
+            kind="other",
+        )
+        self._tool(
+            proc,
+            "resource.associate",
+            resource_id=graph["id"],
+            target_type="experiment",
+            target_id=exp_id,
+            role="graph",
+        )
         self._tool(proc, "experiment.transition", experiment_id=exp_id, transition="submit_results")
         self._submit_review(proc, exp_id, "experiment_reviewer", "pass", "Result file exists.")
         completed = self._tool(

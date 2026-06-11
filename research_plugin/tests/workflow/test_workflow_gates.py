@@ -34,6 +34,15 @@ VALID_REPORT = (
     "Decision rule met: accuracy 0.72 > 0.6 threshold.\n"
 )
 
+# A logic graph that satisfies the envelope lint (valid JSON, ≤16 nodes, DAG),
+# so submit_results passes in tests that drive the full loop.
+VALID_GRAPH = (
+    '{"version": 1, "nodes": ['
+    '{"id": "obj", "kind": "objective", "label": "Beat the majority baseline"},'
+    '{"id": "out", "kind": "outcome", "label": "Threshold met at 0.72"}],'
+    ' "edges": [{"from": "obj", "to": "out", "label": "confirmed by"}]}\n'
+)
+
 
 class WorkflowGateTest(unittest.TestCase):
     def setUp(self) -> None:
@@ -98,6 +107,7 @@ class WorkflowGateTest(unittest.TestCase):
     def _drive_to_experiment_review(self) -> str:
         exp_id = self._drive_to_running_with_result()
         self._write_and_associate(exp_id=exp_id, path="report.md", role="report", body=VALID_REPORT)
+        self._write_and_associate(exp_id=exp_id, path="graph.json", role="graph", body=VALID_GRAPH)
         self.call("experiment.transition", project_id=self.project_id, experiment_id=exp_id, transition="submit_results")
         return exp_id
 
@@ -110,6 +120,7 @@ class WorkflowGateTest(unittest.TestCase):
         self.call("experiment.transition", project_id=self.project_id, experiment_id=exp_id, transition="start_running")
         self._write_and_associate(exp_id=exp_id, path="results.json", role="result", body="{\"metric\": 1}\n")
         self._write_and_associate(exp_id=exp_id, path="report.md", role="report", body=VALID_REPORT)
+        self._write_and_associate(exp_id=exp_id, path="graph.json", role="graph", body=VALID_GRAPH)
         self.call("experiment.transition", project_id=self.project_id, experiment_id=exp_id, transition="submit_results")
         self._pass_review(exp_id=exp_id, role="experiment_reviewer")
         evidence = {"conclusion": conclusion} if conclusion else None
@@ -239,8 +250,9 @@ class WorkflowGateTest(unittest.TestCase):
             self.call("experiment.transition", project_id=self.project_id, experiment_id=exp_id, transition="submit_results")
         self.assertIn("report", str(ctx.exception))
         self.assertIn("report-template", str(ctx.exception))
-        # Adding a valid report unblocks the same transition.
+        # Adding a valid report (and the logic graph) unblocks the same transition.
         self._write_and_associate(exp_id=exp_id, path="report.md", role="report", body=VALID_REPORT)
+        self._write_and_associate(exp_id=exp_id, path="graph.json", role="graph", body=VALID_GRAPH)
         out = self.call("experiment.transition", project_id=self.project_id, experiment_id=exp_id, transition="submit_results")
         self.assertEqual(out["status"], "experiment_review")
 
@@ -254,6 +266,7 @@ class WorkflowGateTest(unittest.TestCase):
             "## Conclusion\n<!-- todo -->\n"
         )
         self._write_and_associate(exp_id=exp_id, path="report.md", role="report", body=bad_report)
+        self._write_and_associate(exp_id=exp_id, path="graph.json", role="graph", body=VALID_GRAPH)
         with self.assertRaises(WorkflowError) as ctx:
             self.call("experiment.transition", project_id=self.project_id, experiment_id=exp_id, transition="submit_results")
         msg = str(ctx.exception)
@@ -268,6 +281,7 @@ class WorkflowGateTest(unittest.TestCase):
         exp_id = self._drive_to_running_with_result()
         report = VALID_REPORT + "\n## Figures\n\n![loss curve](figures/loss.png)\n"
         self._write_and_associate(exp_id=exp_id, path="report.md", role="report", body=report)
+        self._write_and_associate(exp_id=exp_id, path="graph.json", role="graph", body=VALID_GRAPH)
         with self.assertRaises(WorkflowError) as ctx:
             self.call("experiment.transition", project_id=self.project_id, experiment_id=exp_id, transition="submit_results")
         self.assertIn("figures/loss.png", str(ctx.exception))
@@ -292,6 +306,60 @@ class WorkflowGateTest(unittest.TestCase):
         self.assertEqual(workflow["current_gate"], "results_report_required")
         self.assertEqual(workflow["next_action"], "write_and_associate_results_report")
         self.assertEqual(workflow["resource_guidance"]["association_role"], "report")
+
+    # ---- logic graph gate ----
+
+    def test_submit_results_requires_logic_graph_resource(self) -> None:
+        exp_id = self._drive_to_running_with_result()
+        self._write_and_associate(exp_id=exp_id, path="report.md", role="report", body=VALID_REPORT)
+        with self.assertRaises(WorkflowError) as ctx:
+            self.call("experiment.transition", project_id=self.project_id, experiment_id=exp_id, transition="submit_results")
+        self.assertIn("logic graph", str(ctx.exception))
+        self.assertIn("graph-template", str(ctx.exception))
+        # Adding a valid graph unblocks the same transition.
+        self._write_and_associate(exp_id=exp_id, path="graph.json", role="graph", body=VALID_GRAPH)
+        out = self.call("experiment.transition", project_id=self.project_id, experiment_id=exp_id, transition="submit_results")
+        self.assertEqual(out["status"], "experiment_review")
+
+    def test_logic_graph_node_budget_is_enforced(self) -> None:
+        exp_id = self._drive_to_running_with_result()
+        self._write_and_associate(exp_id=exp_id, path="report.md", role="report", body=VALID_REPORT)
+        nodes = ",".join(
+            f'{{"id": "n{i}", "label": "step {i}"}}' for i in range(17)
+        )
+        over_budget = f'{{"version": 1, "nodes": [{nodes}]}}'
+        self._write_and_associate(exp_id=exp_id, path="graph.json", role="graph", body=over_budget)
+        with self.assertRaises(WorkflowError) as ctx:
+            self.call("experiment.transition", project_id=self.project_id, experiment_id=exp_id, transition="submit_results")
+        msg = str(ctx.exception)
+        self.assertIn("17 nodes", msg)
+        self.assertIn("16", msg)
+        # The lint reads the live file: rewriting it (no re-register) unblocks.
+        (self.repo / "graph.json").write_text(VALID_GRAPH)
+        out = self.call("experiment.transition", project_id=self.project_id, experiment_id=exp_id, transition="submit_results")
+        self.assertEqual(out["status"], "experiment_review")
+
+    def test_logic_graph_must_be_a_dag(self) -> None:
+        exp_id = self._drive_to_running_with_result()
+        self._write_and_associate(exp_id=exp_id, path="report.md", role="report", body=VALID_REPORT)
+        cyclic = (
+            '{"version": 1, "nodes": ['
+            '{"id": "a", "label": "A"}, {"id": "b", "label": "B"}],'
+            ' "edges": [{"from": "a", "to": "b"}, {"from": "b", "to": "a"}]}'
+        )
+        self._write_and_associate(exp_id=exp_id, path="graph.json", role="graph", body=cyclic)
+        with self.assertRaises(WorkflowError) as ctx:
+            self.call("experiment.transition", project_id=self.project_id, experiment_id=exp_id, transition="submit_results")
+        self.assertIn("cycle", str(ctx.exception))
+
+    def test_workflow_surfaces_graph_gate_after_report(self) -> None:
+        exp_id = self._drive_to_running_with_result()
+        self._write_and_associate(exp_id=exp_id, path="report.md", role="report", body=VALID_REPORT)
+        wf = self.call("workflow.status_and_next", project_id=self.project_id, experiment_id=exp_id)
+        workflow = wf.get("workflow") or wf
+        self.assertEqual(workflow["current_gate"], "logic_graph_required")
+        self.assertEqual(workflow["next_action"], "write_and_associate_logic_graph")
+        self.assertEqual(workflow["resource_guidance"]["association_role"], "graph")
 
     # ---- review rejection routing (return_to) ----
 
@@ -325,6 +393,9 @@ class WorkflowGateTest(unittest.TestCase):
         self.assertEqual(state["attempt_index"], 1)  # plan + resources stay valid
         self.assertIn("plan stands", state["revision_context"])
         self.assertIn("Conclusion overreaches", state["revision_context"])
+        # Soft reminder only — "Consider updating", not a directive: keeping the
+        # logic graph current is the agent's editorial call.
+        self.assertIn("Consider updating the experiment's logic graph", state["revision_context"])
         # The fix loop: update results and resubmit — no new plan, no new
         # design review — then a passing review completes the experiment.
         (self.repo / "results.json").write_text("{\"metric\": 2}\n")

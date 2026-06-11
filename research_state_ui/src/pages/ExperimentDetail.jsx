@@ -2,31 +2,17 @@ import { useCallback, useEffect, useMemo, useState } from 'react';
 import { Link, useParams } from 'react-router-dom';
 import { api } from '../api';
 import { useProjectStore, selectResources } from '../store/useProjectStore';
-import ObjId from '../components/ObjId';
-import StatusPill from '../components/StatusPill';
 import FSMStrip from '../components/FSMStrip';
 import GateBanner from '../components/GateBanner';
 import PlanSpotlight from '../components/PlanSpotlight';
 import ReportSpotlight from '../components/ReportSpotlight';
-import ExperimentFigure from '../components/ExperimentFigure';
+import ExperimentGraphs from '../components/ExperimentGraphs';
 import SandboxTerminal from '../components/SandboxTerminal';
 import OutcomesSection from '../components/OutcomesSection';
 import ResourceList from '../components/ResourceList';
 import AddResourceToExperiment from '../components/AddResourceToExperiment';
-import { parseIntent } from '../utils/intent';
+import IntentBlock from '../components/IntentBlock';
 import { gateToSectionId, useScrollToHash } from '../utils/useScrollToHash';
-
-// Map experiment.status → which stage to highlight in the orientation strip.
-const STATUS_TO_STAGE = {
-  planned:           'design',
-  design_review:     'design',
-  ready_to_run:      'execution',
-  running:           'execution',
-  experiment_review: 'review',
-  complete:          'complete',
-  failed:            'terminal',
-  abandoned:         'terminal',
-};
 
 const NEXT_ACTION_TO_TRANSITION = {
   submit_design_for_review:  { transition: 'submit_design',     label: 'Submit for design review' },
@@ -63,6 +49,7 @@ export default function ExperimentDetail() {
   const [error, setError] = useState(null);
   const [busy, setBusy] = useState(new Set());
   const [actionError, setActionError] = useState(null);
+  const [gateOpen, setGateOpen] = useState(false);
   const [showAddPlan, setShowAddPlan] = useState(false);
   const [showAddInput, setShowAddInput] = useState(false);
   const [showAddOutcome, setShowAddOutcome] = useState(false);
@@ -122,9 +109,8 @@ export default function ExperimentDetail() {
     return <div className="page-stage"><div className="empty">Loading…</div></div>;
   }
 
-  const { title, brief } = parseIntent(experiment.intent);
   const currentAttempt = experiment.attempt_index;
-  const currentStage = STATUS_TO_STAGE[experiment.status] || null;
+  const isClosed = ['complete', 'failed', 'abandoned'].includes(experiment.status);
 
   // Partition resources by role.
   const currentRes = (experiment.current_attempt_resources || [])
@@ -172,51 +158,51 @@ export default function ExperimentDetail() {
   const designReviews = allReviews.filter(r => (r.role || '').toLowerCase().includes('design'));
   const experimentReviews = allReviews.filter(r => !(r.role || '').toLowerCase().includes('design'));
 
-  const testedClaims = experiment.tested_claims || [];
-
   const refresh = async () => { await Promise.all([fetchStatus(), refreshHome()]); };
 
   return (
     <div className="page-stage">
+      {/* ─────────────  STAGE  ──────────────────────────────────────── */}
+      {/* The strip is the page's status truth. For a live experiment the
+          current step discloses the gate panel (details + transitions);
+          closed experiments need no panel — the strip already says it. */}
+      <section className="exp-fsm">
+        <FSMStrip
+          status={experiment.status}
+          badge={!isClosed && primary ? 'action' : null}
+          expanded={!isClosed && gateOpen}
+          onToggle={isClosed ? null : () => setGateOpen(v => !v)}
+        >
+          <div className="fsm-gate-panel">
+            <GateBanner
+              workflow={workflow}
+              primaryAction={primary}
+              secondaryActions={secondary}
+              actionsBusy={busy}
+              onAction={onAction}
+              linkTo={(() => {
+                const section = gateToSectionId(workflow?.current_gate);
+                return section ? `#${section}` : null;
+              })()}
+            />
+          </div>
+        </FSMStrip>
+        {actionError && <div className="error-message">{actionError}</div>}
+      </section>
+
       {/* ─────────────  ORIENTATION  ────────────────────────────────── */}
       <header className="exp-orient">
         <div className="page-eyebrow">
           <Link to="/experiments">Experiments</Link>
-          {' · '}<ObjId id={experiment.id} className="page-eyebrow-id" />
           {' · '}<span className="exp-orient-attempt">attempt {currentAttempt}</span>
         </div>
-        <h1 className="page-title">{title || experiment.id}</h1>
-        <div className="cluster exp-orient-meta">
-          <StatusPill value={experiment.status} />
-          {testedClaims.length > 0 && <TestedClaimsInline claims={testedClaims} />}
-        </div>
+        {experiment.intent
+          ? <IntentBlock intent={experiment.intent} />
+          : <h1 className="page-title">{experiment.id}</h1>}
       </header>
 
-      {brief && <ExperimentBrief brief={brief} />}
-
-      <section className="exp-fsm">
-        <FSMStrip status={experiment.status} attemptIndex={currentAttempt} />
-      </section>
-
-      <section className="exp-gate">
-        <GateBanner
-          workflow={workflow}
-          experimentStatus={null}
-          closedStatus={experiment.status}
-          primaryAction={primary}
-          secondaryActions={secondary}
-          actionsBusy={busy}
-          onAction={onAction}
-          linkTo={(() => {
-            const section = gateToSectionId(workflow?.current_gate);
-            return section ? `#${section}` : null;
-          })()}
-        />
-        {actionError && <div className="error-message">{actionError}</div>}
-      </section>
-
-      {/* ─────────────  FIGURE  ─────────────────────────────────────── */}
-      <ExperimentFigure
+      {/* ─────────────  GRAPHS (one slot: figure ⇄ logic graph)  ────── */}
+      <ExperimentGraphs
         projectId={projectId}
         experimentId={experimentId}
         experimentStatus={experiment.status}
@@ -370,52 +356,6 @@ export default function ExperimentDetail() {
         />
       )}
     </div>
-  );
-}
-
-function ExperimentBrief({ brief }) {
-  const [open, setOpen] = useState(false);
-  return (
-    <section className="exp-brief">
-      <button
-        type="button"
-        className="exp-brief-toggle"
-        onClick={() => setOpen(v => !v)}
-        aria-expanded={open}
-      >
-        <span className="exp-brief-twist" aria-hidden="true">{open ? '▾' : '▸'}</span>
-        Brief
-      </button>
-      {open && <div className="exp-brief-body">{brief}</div>}
-    </section>
-  );
-}
-
-function TestedClaimsInline({ claims }) {
-  if (claims.length === 1) {
-    const c = claims[0];
-    return (
-      <Link
-        to={`/claims/${c.id}`}
-        className="exp-tested-claim"
-        title={c.statement}
-      >
-        tests claim: <span className="exp-tested-claim-text">{c.statement}</span>
-      </Link>
-    );
-  }
-  return (
-    <span className="exp-tested-claim exp-tested-claim--multi">
-      tests {claims.length} claims
-      <span style={{ marginLeft: 6 }}>
-        {claims.map((c, i) => (
-          <Link key={c.id} to={`/claims/${c.id}`} style={{ marginRight: 4 }}>
-            <ObjId id={c.id} />
-            {i < claims.length - 1 && ', '}
-          </Link>
-        ))}
-      </span>
-    </span>
   );
 }
 

@@ -227,6 +227,40 @@ the report lint:
 The Conclusion must apply the plan's pre-registered decision rule explicitly —
 the experiment reviewer compares the two documents side by side.
 
+## Logic graph
+
+The logic graph is one JSON repo file (e.g. `experiments/<name>/graph.json`)
+associated with role `graph`. It is the **story of how the experiment went**,
+told by you: the notable decisions, the problems you ran into, the pivots and
+iterations (including those forced by reviews), and what was learned — a small
+DAG the user explores in the UI during and after the run. Write it from
+`skills/research-workflow/graph-template.md`.
+
+You design the graph. Node `kind` names, edge labels, and structure are yours;
+the template's vocabulary is illustrative, not required. What deserves a node
+is an editorial call — record what shaped the experiment, not every step. If a
+development adds no valuable information to the story, you may leave it out.
+
+Keep nodes brief and use `refs` for depth: a node's `refs` array takes
+repo-relative paths of synced files or record ids (`res_…`, `rev_…`,
+`claim_…`, `exp_…`), and the UI resolves them into links the user and
+reviewer can follow. Point a problem node at the log that shows it, a pivot
+node at the review that forced it, an outcome node at the results file —
+instead of restating their contents in `detail`.
+
+`experiment.transition(submit_results)` is blocked until the current attempt
+has a role-`graph` resource whose live file passes the envelope lint: valid
+JSON (`version: 1`), every node with a unique `id` and non-empty `label`,
+**at most 16 nodes**, edges referencing existing nodes and forming a DAG, file
+under 16 KB. The lint checks shape only; the experiment reviewer judges
+whether the story is honest and consistent with the report and transcript.
+
+Start the graph early and sync it as the story develops — the user watches it
+live. After a review rejection, consider whether the rejection and the rework
+it forces belong in the story. If the graph is at the 16-node budget and
+something important must be added, reduce the graph first; how to retell the
+story within the budget is your call.
+
 ## Resource discipline
 
 Resources are repo files. Prefer one file per resource.
@@ -240,7 +274,8 @@ When the agent creates or changes files during an experiment:
 - associate synced resources with the current experiment, claim, or review
 - when `workflow.status_and_next` includes `resource_guidance`, follow its
   `association_role`; do not guess plural role names such as `results`,
-  `reports`, or `output` (the singular roles are `result` and `report`)
+  `reports`, or `output` (the singular roles are `result`, `report`, and
+  `graph`)
 - expect `workflow.status_and_next` to refresh already-associated current-attempt
   resources if their live files changed; do not do separate sync checks before
   every workflow status call

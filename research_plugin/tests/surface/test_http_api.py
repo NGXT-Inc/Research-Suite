@@ -429,6 +429,104 @@ class ResearchPluginHttpApiTest(unittest.TestCase):
         missing = self.client.request("GET", f"/api/projects/{pid}/experiments/exp_nope/figure")
         self.assertEqual(missing.status_code, 404, missing.text)
 
+    def test_experiment_logic_graph_endpoint_resolves_refs(self) -> None:
+        project = self.request("POST", "/api/projects", {"name": "Graph Project"})
+        pid = project["id"]
+        claim = self.request("POST", f"/api/projects/{pid}/claims", {"statement": "Warmup matters."})
+        exp = self.request(
+            "POST",
+            f"/api/projects/{pid}/experiments",
+            {"intent": "Test warmup sensitivity.", "claim_ids": [claim["id"]]},
+        )
+        exp_id = exp["id"]
+
+        # No graph associated yet — the endpoint reports that plainly.
+        empty = self.request("GET", f"/api/projects/{pid}/experiments/{exp_id}/graph")
+        self.assertFalse(empty["available"])
+        self.assertEqual(empty["max_nodes"], 16)
+
+        # A passing design review supplies a real rev_ id to reference.
+        (self.repo / "plan.md").write_text(
+            "## Summary\nWarmup sweep.\n\n"
+            "## Objective & hypothesis\nWarmup changes accuracy.\n\n"
+            "## Evaluation\nMetric: accuracy delta; success if > 1pt.\n"
+        )
+        plan = self.request("POST", f"/api/projects/{pid}/resources", {"path": "plan.md", "kind": "plan"})
+        self.request(
+            "POST",
+            f"/api/projects/{pid}/resources/{plan['id']}/associate",
+            {"target_type": "experiment", "target_id": exp_id, "role": "plan"},
+        )
+        self.request("POST", f"/api/projects/{pid}/experiments/{exp_id}/transition", {"transition": "submit_design"})
+        req = self.request(
+            "POST",
+            f"/api/projects/{pid}/reviews/request",
+            {"target_type": "experiment", "target_id": exp_id, "role": "design_reviewer"},
+        )
+        session = self.request(
+            "POST",
+            f"/api/projects/{pid}/reviews/start",
+            {
+                "review_request_id": req["review_request_id"],
+                "reviewer_capability": req["reviewer_capability"],
+                "caller_session_id": "rev",
+            },
+        )
+        review = self.request(
+            "POST",
+            f"/api/projects/{pid}/reviews/submit",
+            {"review_session_id": session["review_session_id"], "verdict": "pass"},
+        )
+
+        (self.repo / "results.json").write_text('{"accuracy": 0.93}\n')
+        result = self.request("POST", f"/api/projects/{pid}/resources", {"path": "results.json", "kind": "result"})
+        (self.repo / "notes.md").write_text("unregistered scratch notes\n")
+        graph_body = {
+            "version": 1,
+            "nodes": [
+                {"id": "obj", "kind": "objective", "label": "Warmup sweep",
+                 "refs": [claim["id"], exp_id]},
+                {"id": "rev", "kind": "pivot", "label": "Design review passed",
+                 "refs": [review["id"]]},
+                {"id": "out", "kind": "outcome", "label": "Accuracy 93%",
+                 "refs": ["results.json", f"{plan['id']}", "notes.md", "ghost.json"]},
+            ],
+            "edges": [{"from": "obj", "to": "rev"}, {"from": "rev", "to": "out"}],
+        }
+        import json as _json
+
+        (self.repo / "graph.json").write_text(_json.dumps(graph_body))
+        graph_res = self.request("POST", f"/api/projects/{pid}/resources", {"path": "graph.json", "kind": "other"})
+        self.request(
+            "POST",
+            f"/api/projects/{pid}/resources/{graph_res['id']}/associate",
+            {"target_type": "experiment", "target_id": exp_id, "role": "graph"},
+        )
+
+        payload = self.request("GET", f"/api/projects/{pid}/experiments/{exp_id}/graph")
+        self.assertTrue(payload["available"])
+        self.assertEqual(payload["problems"], [])
+        self.assertEqual(len(payload["graph"]["nodes"]), 3)
+        refs = payload["ref_index"]
+        # Repo-relative path of a registered resource → resource link.
+        self.assertEqual(refs["results.json"]["type"], "resource")
+        self.assertTrue(refs["results.json"]["resolved"])
+        self.assertEqual(refs["results.json"]["resource_id"], result["id"])
+        # res_ id → the same resource shape.
+        self.assertEqual(refs[plan["id"]]["type"], "resource")
+        self.assertEqual(refs[plan["id"]]["path"], "plan.md")
+        # rev_ / claim_ / exp_ ids → their records.
+        self.assertEqual(refs[review["id"]]["type"], "review")
+        self.assertEqual(refs[review["id"]]["verdict"], "pass")
+        self.assertEqual(refs[claim["id"]]["type"], "claim")
+        self.assertEqual(refs[claim["id"]]["statement"], "Warmup matters.")
+        self.assertEqual(refs[exp_id]["type"], "experiment")
+        # Unregistered-but-existing file: unresolved, with an explanatory hint.
+        self.assertFalse(refs["notes.md"]["resolved"])
+        self.assertIn("not a registered resource", refs["notes.md"]["hint"])
+        # Nothing at all: unresolved, no error.
+        self.assertEqual(refs["ghost.json"], {"type": "unknown", "resolved": False})
+
 
 class ResourceRelFileTest(unittest.TestCase):
     """GET /resources/{id}/file?rel=… serves a file next to the resource (a

@@ -505,6 +505,13 @@ class ReviewService:
             pieces.append(notes)
         if finding_text:
             pieces.append(f"Findings: {finding_text}")
+        # Soft reminder, not a directive: whether this rejection belongs in the
+        # experiment's story is the agent's editorial call.
+        pieces.append(
+            "Consider updating the experiment's logic graph (role 'graph') if "
+            "this review changes the experiment's story; the 16-node budget "
+            "still applies"
+        )
         return " | ".join(pieces)
 
     def _hydrate_request(self, *, row) -> dict[str, Any]:
