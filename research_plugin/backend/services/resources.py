@@ -10,8 +10,9 @@ from pathlib import Path
 from typing import Any
 
 from ..utils import NotFoundError, ValidationError, new_id, now_iso
+from ..state.blobs import BlobStore
 from ..state.store import StateStore, row_to_dict, rows_to_dicts
-from .permissions import PermissionService
+from .permissions import GATED_ROLE_BYTE_CAPS, PermissionService
 
 
 def _content_sha256(file_path: Path) -> str:
@@ -25,9 +26,16 @@ def _content_sha256(file_path: Path) -> str:
 class ResourceService:
     """Manages one-file-one-resource observation and associations."""
 
-    def __init__(self, *, store: StateStore, permissions: PermissionService) -> None:
+    def __init__(
+        self,
+        *,
+        store: StateStore,
+        permissions: PermissionService,
+        blobs: BlobStore | None = None,
+    ) -> None:
         self.store = store
         self.permissions = permissions
+        self.blobs = blobs
 
     def register_file(
         self,
@@ -211,6 +219,13 @@ class ResourceService:
             if resource["project_id"] != project_id:
                 raise NotFoundError(f"resource not found in project {project_id}: {resource_id}")
             version_id = self._ensure_current_version_for_resource(conn=conn, resource=resource)
+            self._capture_gated_blob(
+                conn=conn,
+                resource=resource,
+                role=role,
+                version_id=version_id,
+                project_id=project_id,
+            )
             target_project_id = self._ensure_target_exists(conn=conn, target_type=target_type, target_id=target_id)
             if target_project_id is not None and target_project_id != project_id:
                 raise NotFoundError(f"{target_type} not found in project {project_id}: {target_id}")
@@ -521,6 +536,54 @@ class ResourceService:
         if row is None:
             raise NotFoundError(f"{target_type} not found: {target_id}")
         return int(row["attempt_index"])
+
+    def _capture_gated_blob(
+        self,
+        *,
+        conn: sqlite3.Connection,
+        resource: sqlite3.Row,
+        role: str,
+        version_id: str,
+        project_id: str,
+    ) -> None:
+        """Snapshot a gated-role file's bytes into the blob store at associate.
+
+        Decision 6 of the cloud migration plan: gated artifacts (plan, report,
+        graph, proposals, reflection) submit their content when associated, so
+        gates can lint immutable pinned bytes instead of live files. Size caps
+        are enforced here — before any bytes are stored — with the version's
+        content_sha256 as the blob key, so blob and pin cannot disagree.
+        """
+        cap = GATED_ROLE_BYTE_CAPS.get(role)
+        if cap is None or self.blobs is None:
+            return
+        rel_path, file_path = self._resolve_repo_file(path=resource["path"])
+        size = file_path.stat().st_size
+        if size > cap:
+            raise ValidationError(
+                f"{rel_path} is {size} bytes; the maximum for a role-{role!r} "
+                f"artifact is {cap} bytes — slim the file before associating "
+                "(move raw data/outputs elsewhere and reference them)",
+                details={"path": rel_path, "role": role, "size_bytes": size, "max_bytes": cap},
+            )
+        data = file_path.read_bytes()
+        version = conn.execute(
+            "SELECT content_sha256, content_type FROM resource_versions WHERE id = ?",
+            (version_id,),
+        ).fetchone()
+        if version is None:
+            raise NotFoundError(f"resource version not found: {version_id}")
+        sha = hashlib.sha256(data).hexdigest()
+        if sha != str(version["content_sha256"]):
+            raise ValidationError(
+                f"{rel_path} changed while associating — retry the call",
+                details={"path": rel_path, "role": role},
+            )
+        self.blobs.put(
+            namespace=project_id,
+            data=data,
+            content_type=str(version["content_type"]),
+        )
 
     def _version_token(self, *, path: str, mtime_ns: int, ctime_ns: int, size_bytes: int) -> str:
         # ctime is included so an in-place edit that preserves mtime+size (e.g. a

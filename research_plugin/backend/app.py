@@ -25,6 +25,7 @@ from .services import (
     WorkflowService,
 )
 from .state import ActivityLogger, StateStore, ToolCallStore, monotonic_ms
+from .state.blobs import LocalDirBlobStore
 
 
 @dataclass(frozen=True)
@@ -89,12 +90,18 @@ class ResearchPluginApp:
             db_path=self.store.repo_root / ".research_plugin" / "tool_calls.sqlite"
         )
         self.permissions = PermissionService()
+        # Content-addressed store for gated-artifact bytes (and, later, figures
+        # and parachute objects). Local mode roots it next to the state DB.
+        self.blobs = LocalDirBlobStore(
+            root=self.store.repo_root / ".research_plugin" / "blobs"
+        )
         self.projects = ProjectService(store=self.store)
         self.claims = ClaimService(store=self.store)
         self.experiments = ExperimentService(store=self.store)
         self.resources = ResourceService(
             store=self.store,
             permissions=self.permissions,
+            blobs=self.blobs,
         )
         self.syntheses = SynthesisService(store=self.store)
         self.reviews = ReviewService(

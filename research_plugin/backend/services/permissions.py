@@ -19,6 +19,21 @@ RESOURCE_ROLES = {
     "reflection", "proposals", "note", "model", "other",
 }
 
+# Gated roles: the artifacts workflow gates lint. Associating one of these
+# captures the file's bytes into the blob store (size-capped), pinning the
+# association to immutable content (docs/CLOUD_BACKEND_MIGRATION_PLAN.md
+# decision 6). The report/graph caps mirror artifacts.MAX_REPORT_BYTES and
+# graph_lint.MAX_GRAPH_BYTES (alignment pinned by a structure test); plan/
+# proposals/reflection previously had no cap at all.
+GATED_ROLE_BYTE_CAPS: dict[str, int] = {
+    "plan": 16_000,
+    "report": 10_000,
+    "graph": 16_000,
+    "proposals": 16_000,
+    "reflection": 16_000,
+}
+GATED_ROLES = frozenset(GATED_ROLE_BYTE_CAPS)
+
 
 class PermissionService:
     """Small policy layer, intentionally separate from workflow and persistence."""

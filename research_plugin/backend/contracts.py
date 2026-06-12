@@ -520,7 +520,12 @@ TOOL_CONTRACTS: dict[str, ToolContract] = {
     ),
     "resource.associate": ToolContract(
         input_model=ResourceAssociateInput,
-        description="Associate a resource to a claim, experiment, review, or attempt.",
+        description=(
+            "Associate a resource to a claim, experiment, review, or attempt. "
+            "Gated-role artifacts (plan, report, graph, proposals, reflection) "
+            "are size-capped at associate time (report 10KB, others 16KB) — "
+            "keep them lean and reference raw data instead of inlining it."
+        ),
         plane="data",
     ),
     "resource.delete": ToolContract(

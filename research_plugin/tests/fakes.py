@@ -131,3 +131,78 @@ def write_fake_mlflow_db(path: Path, *, with_run: bool = True) -> None:
         conn.execute("INSERT INTO metrics VALUES ('acc', 0.91, 6, 'r1', 20, 0)")
     conn.commit()
     conn.close()
+
+
+class FakeBlobStore:
+    """In-memory BlobStore double sharing LocalDirBlobStore's semantics."""
+
+    def __init__(self) -> None:
+        self.blobs: dict[tuple[str, str], bytes] = {}
+        self.meta: dict[tuple[str, str], dict] = {}
+
+    def put(
+        self,
+        *,
+        namespace: str,
+        data: bytes,
+        content_type: str = "application/octet-stream",
+        expires_at: str | None = None,
+    ) -> str:
+        import hashlib
+
+        from backend.utils import now_iso
+
+        sha = hashlib.sha256(data).hexdigest()
+        key = (namespace, sha)
+        if key in self.blobs:
+            current = self.meta[key].get("expires_at")
+            if current is not None and (expires_at is None or expires_at > current):
+                self.meta[key]["expires_at"] = expires_at
+            return sha
+        self.blobs[key] = data
+        self.meta[key] = {
+            "sha256": sha,
+            "namespace": namespace,
+            "size_bytes": len(data),
+            "content_type": content_type,
+            "created_at": now_iso(),
+            "expires_at": expires_at,
+        }
+        return sha
+
+    def get(self, *, namespace: str, sha256: str) -> bytes:
+        from backend.utils import NotFoundError
+
+        key = (namespace, sha256)
+        if key not in self.blobs:
+            raise NotFoundError(f"blob not found: {namespace}/{sha256}")
+        return self.blobs[key]
+
+    def stat(self, *, namespace: str, sha256: str):
+        from backend.state.blobs import BlobStat
+
+        meta = self.meta.get((namespace, sha256))
+        if meta is None:
+            return None
+        return BlobStat(**meta)
+
+    def delete(self, *, namespace: str, sha256: str) -> bool:
+        key = (namespace, sha256)
+        existed = key in self.blobs
+        self.blobs.pop(key, None)
+        self.meta.pop(key, None)
+        return existed
+
+    def sweep_expired(self, *, now: str | None = None) -> int:
+        from backend.utils import now_iso
+
+        cutoff = now or now_iso()
+        expired = [
+            key
+            for key, meta in self.meta.items()
+            if meta.get("expires_at") and str(meta["expires_at"]) <= cutoff
+        ]
+        for key in expired:
+            self.blobs.pop(key, None)
+            self.meta.pop(key, None)
+        return len(expired)

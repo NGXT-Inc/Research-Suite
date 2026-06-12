@@ -305,9 +305,10 @@ class WorkflowGateTest(unittest.TestCase):
     def test_report_size_ceiling(self) -> None:
         exp_id = self._drive_to_running_with_result()
         bloated = VALID_REPORT + "\n" + ("data row padding\n" * 1000)
-        self._write_and_associate(exp_id=exp_id, path="report.md", role="report", body=bloated)
-        with self.assertRaises(WorkflowError) as ctx:
-            self.call("experiment.transition", project_id=self.project_id, experiment_id=exp_id, transition="submit_results")
+        # Since byte capture landed (cloud plan Phase 1), the ceiling is
+        # enforced at associate time — before the transition is ever attempted.
+        with self.assertRaises(ValidationError) as ctx:
+            self._write_and_associate(exp_id=exp_id, path="report.md", role="report", body=bloated)
         self.assertIn("bytes", str(ctx.exception))
 
     def test_workflow_surfaces_report_gate_after_results(self) -> None:
