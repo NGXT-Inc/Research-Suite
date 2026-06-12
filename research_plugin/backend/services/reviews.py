@@ -12,7 +12,7 @@ from .experiments import ExperimentService
 from ..utils import new_id
 from ..state.blobs import BlobStore
 from .permissions import GATED_ROLES, PermissionService
-from ..state.store import StateStore, row_to_dict
+from ..state.store import StateStore, next_created_seq, row_to_dict
 from .syntheses import SynthesisService
 from ..utils import now_iso
 
@@ -72,9 +72,10 @@ class ReviewService:
                 """
                 INSERT INTO review_requests (
                   id, project_id, target_type, target_id, role, reason, capability,
-                  status, target_snapshot_id, producer_session_id, expires_at, created_at
+                  status, target_snapshot_id, producer_session_id, expires_at, created_at,
+                  created_seq
                 )
-                VALUES (?, ?, ?, ?, ?, ?, ?, 'requested', ?, ?, ?, ?)
+                VALUES (?, ?, ?, ?, ?, ?, ?, 'requested', ?, ?, ?, ?, ?)
                 """,
                 (
                     request_id,
@@ -88,6 +89,7 @@ class ReviewService:
                     producer_session_id,
                     expires_at,
                     now_iso(),
+                    next_created_seq(conn=conn, table="review_requests"),
                 ),
             )
             self.store.record_event(
@@ -185,7 +187,7 @@ class ReviewService:
             LEFT JOIN resource_versions v ON v.id = a.version_id
             WHERE a.target_type = ? AND a.target_id = ? AND a.attempt_index = ?
               AND r.deleted = 0
-            ORDER BY a.rowid
+            ORDER BY a.created_seq
             """,
             (target_type, target_id, int(attempt["attempt_index"])),
         ).fetchall()
@@ -245,9 +247,10 @@ class ReviewService:
                 """
                 INSERT INTO reviews (
                   id, project_id, request_id, session_id, target_snapshot_id, target_type, target_id,
-                  role, verdict, return_to, notes, findings_json, evidence_json, created_at
+                  role, verdict, return_to, notes, findings_json, evidence_json, created_at,
+                  created_seq
                 )
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                 """,
                 (
                     review_id,
@@ -264,6 +267,7 @@ class ReviewService:
                     json.dumps(findings or [], sort_keys=True),
                     json.dumps(evidence or {}, sort_keys=True),
                     now_iso(),
+                    next_created_seq(conn=conn, table="reviews"),
                 ),
             )
             conn.execute("UPDATE review_sessions SET status = 'submitted' WHERE id = ?", (review_session_id,))
@@ -324,12 +328,12 @@ class ReviewService:
                        producer_session_id, expires_at, created_at
                 FROM review_requests
                 WHERE project_id = ? AND target_type = ? AND target_id = ?
-                ORDER BY rowid DESC
+                ORDER BY created_seq DESC
                 """,
                 (project_id, target_type, target_id),
             ).fetchall()
             reviews = conn.execute(
-                "SELECT * FROM reviews WHERE project_id = ? AND target_type = ? AND target_id = ? ORDER BY rowid DESC",
+                "SELECT * FROM reviews WHERE project_id = ? AND target_type = ? AND target_id = ? ORDER BY created_seq DESC",
                 (project_id, target_type, target_id),
             ).fetchall()
             return {
@@ -349,7 +353,7 @@ class ReviewService:
                        producer_session_id, expires_at, created_at
                 FROM review_requests
                 WHERE project_id = ?
-                ORDER BY rowid DESC
+                ORDER BY created_seq DESC
                 """,
                 (project_id,),
             ).fetchall()
@@ -358,7 +362,7 @@ class ReviewService:
                 SELECT id, request_id, target_snapshot_id, target_type, target_id, role, verdict, notes, created_at
                 FROM reviews
                 WHERE project_id = ?
-                ORDER BY rowid DESC
+                ORDER BY created_seq DESC
                 """,
                 (project_id,),
             ).fetchall()
@@ -388,7 +392,7 @@ class ReviewService:
                 FROM review_requests
                 WHERE project_id = ? AND target_type = 'experiment' AND target_id = ?
                   AND status IN ({placeholders})
-                ORDER BY rowid
+                ORDER BY created_seq
                 """,
                 (project_id, experiment_id, *statuses),
             ).fetchall()
@@ -445,7 +449,7 @@ class ReviewService:
             """
             SELECT verdict FROM reviews
             WHERE target_type = ? AND target_id = ? AND role = ? AND target_snapshot_id = ?
-            ORDER BY rowid DESC
+            ORDER BY created_seq DESC
             LIMIT 1
             """,
             (target_type, target_id, role, snapshot_id),
@@ -463,7 +467,7 @@ class ReviewService:
             FROM review_requests
             WHERE target_type = ? AND target_id = ? AND role = ?
               AND status IN ('requested', 'started')
-            ORDER BY rowid DESC
+            ORDER BY created_seq DESC
             LIMIT 1
             """,
             (target_type, target_id, role),

@@ -798,14 +798,14 @@ class SandboxService:
 
     def sandboxes_for_experiment(self, *, conn, experiment_id: str) -> list[dict[str, Any]]:
         rows = conn.execute(
-            "SELECT * FROM sandboxes WHERE experiment_id = ? ORDER BY rowid DESC",
+            "SELECT * FROM sandboxes WHERE experiment_id = ? ORDER BY created_seq DESC",
             (experiment_id,),
         ).fetchall()
         return [self._row_view(row=row_to_dict(row=row) or {}, conn=conn) for row in rows]
 
     def sandboxes_for_project(self, *, conn, project_id: str) -> list[dict[str, Any]]:
         rows = conn.execute(
-            "SELECT * FROM sandboxes WHERE project_id = ? ORDER BY rowid DESC",
+            "SELECT * FROM sandboxes WHERE project_id = ? ORDER BY created_seq DESC",
             (project_id,),
         ).fetchall()
         return [self._row_view(row=row_to_dict(row=row) or {}, conn=conn) for row in rows]

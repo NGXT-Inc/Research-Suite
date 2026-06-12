@@ -19,11 +19,25 @@ from __future__ import annotations
 import os
 from collections.abc import Mapping
 from enum import Enum
+from pathlib import Path
+from typing import TYPE_CHECKING
 
 from .utils import ValidationError
 
+if TYPE_CHECKING:  # the store import stays lazy at runtime (see build_state_store)
+    from .state import BaseStateStore
+
 
 MODE_ENV_VAR = "RESEARCH_PLUGIN_MODE"
+
+# Record-store selection (cloud plan Phase 6). Absent ⇒ the SQLite default
+# (local mode, today's behavior, byte-identical). A postgres:// URL selects
+# the Postgres dialect — used only by tests and the future control profile;
+# ResearchPluginApp stays SQLite-only until Phase 8 wires the control
+# composition.
+DB_URL_ENV_VAR = "RESEARCH_PLUGIN_DB_URL"
+
+_POSTGRES_URL_PREFIXES = ("postgres://", "postgresql://")
 
 # Modes the migration plan defines but later phases implement. Recognized so
 # the error says "not yet implemented" instead of "unknown mode".
@@ -49,4 +63,36 @@ def resolve_mode(env: Mapping[str, str] | None = None) -> Mode:
     raise ValidationError(
         f"unknown RESEARCH_PLUGIN_MODE: {raw!r} (expected 'local')",
         details={"mode": raw},
+    )
+
+
+def resolve_db_url(env: Mapping[str, str] | None = None) -> str | None:
+    """The configured record-store URL, or None for the SQLite path default."""
+    source = env if env is not None else os.environ
+    return (source.get(DB_URL_ENV_VAR) or "").strip() or None
+
+
+def build_state_store(
+    *, db_path: Path, env: Mapping[str, str] | None = None
+) -> "BaseStateStore":
+    """The record store the configuration selects, fail-fast like the mode.
+
+    No URL keeps today's behavior exactly: the SQLite store at ``db_path``.
+    A postgres:// URL selects the Postgres dialect (psycopg imported only on
+    that branch, so local installs never need it). Any other scheme refuses
+    to start rather than guessing a dialect.
+    """
+    url = resolve_db_url(env)
+    if url is None:
+        from .state import StateStore
+
+        return StateStore(db_path=db_path)
+    if url.startswith(_POSTGRES_URL_PREFIXES):
+        from .state.dialects import PostgresStateStore
+
+        return PostgresStateStore(dsn=url)
+    raise ValidationError(
+        f"unsupported {DB_URL_ENV_VAR} scheme: {url!r} "
+        "(expected postgres:// or postgresql://, or unset for SQLite)",
+        details={"db_url": url},
     )

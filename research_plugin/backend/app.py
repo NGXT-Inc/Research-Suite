@@ -27,7 +27,7 @@ from .services import (
     WorkflowService,
 )
 from .services.sandbox_mgmt_keys import LocalMgmtKeyStore
-from .state import ActivityLogger, StateStore, ToolCallStore, monotonic_ms
+from .state import ActivityLogger, BaseStateStore, StateStore, ToolCallStore, monotonic_ms
 from .state.blobs import LocalDirBlobStore
 
 
@@ -84,13 +84,19 @@ class ResearchPluginApp:
         db_path: Path,
         execution_backend: SandboxBackend | None = None,
         rsync_syncer: SshRsyncSyncer | None = None,
+        store: BaseStateStore | None = None,
     ) -> None:
         # The plane seam (cloud plan Phase 3): the record store knows nothing
         # about the checkout; local paths flow from the workspace and every
         # local-IO duty routes through the data-plane worker. This constructor
         # IS the local-mode composition — it binds both planes in one process.
         self.workspace = LocalWorkspace(repo_root=repo_root)
-        self.store = StateStore(db_path=db_path)
+        # Store injection (cloud plan Phase 6): the dual-dialect contract
+        # tests hand in a PostgresStateStore; absent that, local mode builds
+        # its SQLite store at db_path exactly as before. The control profile
+        # (Phase 8) gets its own composition root rather than db_url plumbing
+        # through this constructor.
+        self.store = store if store is not None else StateStore(db_path=db_path)
         # Telemetry sinks are machine-local by construction: composition hands
         # them explicit paths (the control composition gets its own sinks).
         self.activity = ActivityLogger(repo_root=self.workspace.repo_root)

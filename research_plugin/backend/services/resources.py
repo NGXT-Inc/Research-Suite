@@ -11,7 +11,7 @@ from typing import Any
 
 from ..utils import NotFoundError, ValidationError, new_id, now_iso
 from ..state.blobs import BlobStore
-from ..state.store import StateStore, row_to_dict, rows_to_dicts
+from ..state.store import StateStore, next_created_seq, row_to_dict, rows_to_dicts
 from ..workspace import LocalWorkspace
 from .artifacts import report_figure_links
 from .permissions import GATED_ROLE_BYTE_CAPS, PermissionService
@@ -242,12 +242,23 @@ class ResourceService:
             conn.execute(
                 """
                 INSERT INTO resource_associations
-                  (id, resource_id, version_id, target_type, target_id, role, attempt_index, created_at)
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+                  (id, resource_id, version_id, target_type, target_id, role, attempt_index, created_at, created_seq)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
                 ON CONFLICT(resource_id, target_type, target_id, role, attempt_index)
                 DO UPDATE SET version_id = excluded.version_id, created_at = excluded.created_at
                 """,
-                (assoc_id, resource_id, version_id, target_type, target_id, role, attempt_index, now_iso()),
+                (
+                    assoc_id,
+                    resource_id,
+                    version_id,
+                    target_type,
+                    target_id,
+                    role,
+                    attempt_index,
+                    now_iso(),
+                    # An upsert keeps the original created_seq (rowid parity).
+                    next_created_seq(conn=conn, table="resource_associations"),
+                ),
             )
             self.store.record_event(
                 conn=conn,
@@ -355,7 +366,7 @@ class ResourceService:
                     SELECT *
                     FROM resource_versions
                     WHERE resource_id = ? AND project_id = ?
-                    ORDER BY rowid
+                    ORDER BY created_seq
                     """,
                     (resource_id, row["project_id"]),
                 ).fetchall()
@@ -377,7 +388,7 @@ class ResourceService:
                 SELECT *
                 FROM resource_versions
                 WHERE resource_id = ? AND project_id = ?
-                ORDER BY rowid
+                ORDER BY created_seq
                 """,
                 (resource_id, project_id),
             ).fetchall()
@@ -736,9 +747,9 @@ class ResourceService:
             INSERT INTO resource_versions (
               id, resource_id, project_id, path, content_sha256,
               size_bytes, mtime_ns, observed_at, content_type,
-              created_by, created_at
+              created_by, created_at, created_seq
             )
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             """,
             (
                 version_id,
@@ -752,6 +763,7 @@ class ResourceService:
                 content_type,
                 created_by,
                 observed_at,
+                next_created_seq(conn=conn, table="resource_versions"),
             ),
         )
         self.store.record_event(

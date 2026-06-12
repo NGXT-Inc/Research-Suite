@@ -36,6 +36,26 @@ CREATE TABLE resources (
 );
 """
 
+# Pre-Phase-6 `resource_versions` shape: no created_seq column — ordering
+# leaned on SQLite's implicit rowid.
+OLD_RESOURCE_VERSIONS_SCHEMA = """
+CREATE TABLE resource_versions (
+  id TEXT PRIMARY KEY,
+  resource_id TEXT NOT NULL,
+  project_id TEXT NOT NULL,
+  path TEXT NOT NULL,
+  content_sha256 TEXT NOT NULL,
+  size_bytes INTEGER NOT NULL,
+  mtime_ns INTEGER NOT NULL,
+  observed_at TEXT NOT NULL,
+  content_type TEXT NOT NULL DEFAULT 'application/octet-stream',
+  created_by TEXT NOT NULL DEFAULT 'codex',
+  created_at TEXT NOT NULL,
+  FOREIGN KEY(resource_id) REFERENCES resources(id),
+  FOREIGN KEY(project_id) REFERENCES projects(id)
+);
+"""
+
 # Pre-split `sandboxes` shape: machine-local columns (key_path,
 # local_sync_dir) still lived on the cloud-bound row.
 OLD_SANDBOXES_SCHEMA = """
@@ -225,6 +245,47 @@ class StoreMigrationTest(unittest.TestCase):
             columns = self._sandbox_columns(conn)
             self.assertNotIn("key_path", columns)
             self.assertNotIn("local_sync_dir", columns)
+        finally:
+            conn.close()
+
+    def test_legacy_db_gains_tenant_and_created_seq_columns(self) -> None:
+        # Cloud-split Phase 6: tenancy lands on projects (the fixed 'local'
+        # tenant), and the explicit ordering column that replaced rowid
+        # ordering backfills FROM rowid — so the order historical queries
+        # observed is preserved exactly across the upgrade.
+        self._seed_legacy_db()
+        conn = sqlite3.connect(self.db)
+        try:
+            conn.executescript(OLD_RESOURCE_VERSIONS_SCHEMA)
+            for suffix in ("a", "b", "c"):
+                conn.execute(
+                    """
+                    INSERT INTO resource_versions (
+                      id, resource_id, project_id, path, content_sha256,
+                      size_bytes, mtime_ns, observed_at, created_by, created_at
+                    )
+                    VALUES (?, 'res_old', 'proj_old', 'shared.md', ?, 1, 1,
+                            '2026-01-01T00:00:00Z', 'codex', '2026-01-01T00:00:00Z')
+                    """,
+                    (f"rver_{suffix}", f"sha_{suffix}"),
+                )
+            conn.commit()
+        finally:
+            conn.close()
+
+        StateStore(db_path=self.db)  # converge, then re-boot for idempotence
+        store = StateStore(db_path=self.db)
+        conn = store.connect()
+        try:
+            row = conn.execute(
+                "SELECT tenant_id FROM projects WHERE id = 'proj_old'"
+            ).fetchone()
+            self.assertEqual(row["tenant_id"], "local")
+            rows = conn.execute(
+                "SELECT id, created_seq FROM resource_versions ORDER BY created_seq"
+            ).fetchall()
+            self.assertEqual([r["id"] for r in rows], ["rver_a", "rver_b", "rver_c"])
+            self.assertEqual([r["created_seq"] for r in rows], [1, 2, 3])
         finally:
             conn.close()
 

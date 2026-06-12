@@ -232,7 +232,7 @@ class ExperimentService:
             resource_rows = conn.execute(
                 """
                 SELECT r.*, a.role AS association_role, a.attempt_index AS association_attempt_index,
-                       a.version_id AS association_version_id, a.rowid AS association_rowid
+                       a.version_id AS association_version_id, a.created_seq AS association_rowid
                 FROM resources r
                 JOIN resource_associations a ON a.resource_id = r.id
                 WHERE a.target_type = 'experiment' AND a.target_id = ?
@@ -248,7 +248,7 @@ class ExperimentService:
                 """
                 SELECT * FROM reviews
                 WHERE target_type = 'experiment' AND target_id = ?
-                ORDER BY rowid DESC
+                ORDER BY created_seq DESC
                 """,
                 (experiment_id,),
             ).fetchall()

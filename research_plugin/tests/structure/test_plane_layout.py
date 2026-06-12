@@ -52,6 +52,7 @@ CONTROL_MODULES = (
     SERVICES_ROOT / "sync_sessions.py",
     SERVICES_ROOT / "metrics_records.py",
     BACKEND_ROOT / "state" / "store.py",
+    BACKEND_ROOT / "state" / "dialects.py",
 )
 
 # Module names (any dotted segment) control modules may never import.

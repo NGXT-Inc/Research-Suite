@@ -52,7 +52,7 @@ def pinned_artifact_text(
         LEFT JOIN resource_versions v ON v.id = a.version_id
         WHERE a.target_type = ? AND a.target_id = ? AND a.role = ?
           AND a.attempt_index = ? AND r.deleted = 0
-        ORDER BY a.rowid DESC
+        ORDER BY a.created_seq DESC
         LIMIT 1
         """,
         (target_type, target_id, role, attempt_index),
@@ -127,7 +127,7 @@ def pinned_version_row(
         JOIN resources r ON r.id = a.resource_id
         WHERE a.target_type = ? AND a.target_id = ? AND a.role = ?
           AND a.attempt_index = ? AND r.deleted = 0
-        ORDER BY a.rowid DESC
+        ORDER BY a.created_seq DESC
         LIMIT 1
         """,
         (target_type, target_id, role, attempt_index),

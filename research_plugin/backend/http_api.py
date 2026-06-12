@@ -37,8 +37,9 @@ def _latest_graph_resource(
     """The graph association to render: current attempt preferred (prior
     attempts keep the story visible right after an attempt bump), most
     recently associated within the pool. Recency matches the transition
-    validator's ORDER BY a.rowid DESC, so the UI never renders a different
-    file than the gate lints."""
+    validator's ORDER BY a.created_seq DESC, so the UI never renders a
+    different file than the gate lints (the association_rowid key kept its
+    historical name when created_seq replaced rowid ordering)."""
     candidates = [r for r in resources if r.get("association_role") == "graph"]
     if not candidates:
         return None

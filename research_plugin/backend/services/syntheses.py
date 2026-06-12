@@ -16,7 +16,7 @@ import re
 from typing import Any
 
 from ..state.blobs import BlobStore
-from ..state.store import StateStore, row_to_dict, rows_to_dicts
+from ..state.store import StateStore, next_created_seq, row_to_dict, rows_to_dicts
 from ..utils import NotFoundError, ValidationError, WorkflowError, new_id, now_iso
 from .graph_lint import graph_problems
 from .pinned import pinned_text_for_version, resubmit_hint
@@ -63,7 +63,7 @@ class SynthesisService:
                 """
                 SELECT id, status FROM syntheses
                 WHERE project_id = ? AND status NOT IN ('published', 'abandoned')
-                ORDER BY rowid DESC LIMIT 1
+                ORDER BY created_seq DESC LIMIT 1
                 """,
                 (project_id,),
             ).fetchone()
@@ -81,8 +81,8 @@ class SynthesisService:
                 """
                 INSERT INTO syntheses
                   (id, project_id, title, status, attempt_index, revision_context,
-                   roster_json, corpus_json, created_at, updated_at)
-                VALUES (?, ?, ?, 'reflecting', 1, '', ?, ?, ?, ?)
+                   roster_json, corpus_json, created_at, updated_at, created_seq)
+                VALUES (?, ?, ?, 'reflecting', 1, '', ?, ?, ?, ?, ?)
                 """,
                 (
                     synthesis_id,
@@ -92,6 +92,7 @@ class SynthesisService:
                     json.dumps(corpus, sort_keys=True),
                     now,
                     now,
+                    next_created_seq(conn=conn, table="syntheses"),
                 ),
             )
             self.store.record_event(
@@ -224,7 +225,7 @@ class SynthesisService:
             resource_rows = conn.execute(
                 """
                 SELECT r.*, a.role AS association_role, a.attempt_index AS association_attempt_index,
-                       a.version_id AS association_version_id, a.rowid AS association_rowid
+                       a.version_id AS association_version_id, a.created_seq AS association_rowid
                 FROM resources r
                 JOIN resource_associations a ON a.resource_id = r.id
                 WHERE a.target_type = 'synthesis' AND a.target_id = ?
@@ -242,7 +243,7 @@ class SynthesisService:
                 """
                 SELECT * FROM reviews
                 WHERE target_type = 'synthesis' AND target_id = ?
-                ORDER BY rowid DESC
+                ORDER BY created_seq DESC
                 """,
                 (synthesis_id,),
             ).fetchall()
@@ -282,7 +283,7 @@ class SynthesisService:
             """
             SELECT id FROM syntheses
             WHERE project_id = ? AND status NOT IN ('published', 'abandoned')
-            ORDER BY rowid DESC LIMIT 1
+            ORDER BY created_seq DESC LIMIT 1
             """,
             (project_id,),
         ).fetchone()
@@ -295,7 +296,7 @@ class SynthesisService:
             """
             SELECT id FROM syntheses
             WHERE project_id = ? AND status = 'published'
-            ORDER BY published_at DESC, rowid DESC LIMIT 1
+            ORDER BY published_at DESC, created_seq DESC LIMIT 1
             """,
             (project_id,),
         ).fetchone()
@@ -522,7 +523,7 @@ class SynthesisService:
             WHERE a.target_type = 'synthesis' AND a.target_id = ? AND a.role = ?
               AND a.attempt_index = (SELECT attempt_index FROM syntheses WHERE id = ?)
               AND r.deleted = 0
-            ORDER BY a.rowid DESC
+            ORDER BY a.created_seq DESC
             LIMIT 1
             """,
             (synthesis_id, role, synthesis_id),

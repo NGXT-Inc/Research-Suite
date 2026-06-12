@@ -12,7 +12,7 @@ from __future__ import annotations
 
 from typing import Any, Callable
 
-from ..state.store import StateStore, row_to_dict
+from ..state.store import StateStore, next_created_seq, row_to_dict
 from ..utils import NotFoundError, now_iso
 
 
@@ -81,7 +81,7 @@ class SandboxRegistry:
         try:
             project_id = self.store.require_project_id(conn=conn, project_id=project_id)
             rows = conn.execute(
-                "SELECT * FROM sandboxes WHERE project_id = ? ORDER BY rowid DESC",
+                "SELECT * FROM sandboxes WHERE project_id = ? ORDER BY created_seq DESC",
                 (project_id,),
             ).fetchall()
             return [row_to_dict(row=row) or {} for row in rows]
@@ -92,7 +92,7 @@ class SandboxRegistry:
         conn = self.store.connect()
         try:
             rows = conn.execute(
-                "SELECT * FROM sandboxes WHERE status = 'running' ORDER BY rowid DESC"
+                "SELECT * FROM sandboxes WHERE status = 'running' ORDER BY created_seq DESC"
             ).fetchall()
             return [row_to_dict(row=row) or {} for row in rows]
         finally:
@@ -122,6 +122,9 @@ class SandboxRegistry:
             if exists is None:
                 payload["experiment_id"] = experiment_id
                 payload.setdefault("created_at", now)
+                # Insertion-order column (cloud plan Phase 6): replaces rowid
+                # ordering for the most-recent-first sandbox listings.
+                payload["created_seq"] = next_created_seq(conn=conn, table="sandboxes")
                 columns = ", ".join(payload)
                 placeholders = ", ".join("?" for _ in payload)
                 conn.execute(

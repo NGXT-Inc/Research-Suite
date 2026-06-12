@@ -1,10 +1,16 @@
-"""SQLite state management for Research Plugin v0.0001."""
+"""Record-store state management: dialect-neutral base + the SQLite dialect.
+
+``BaseStateStore`` defines the contract the services were written against;
+``StateStore`` (= ``SqliteStateStore``) is the local-mode SQLite dialect and
+the historical default. The Postgres dialect for the cloud control plane
+lives in ``dialects.py`` (cloud plan Phase 6).
+"""
 
 from __future__ import annotations
 
 import json
 import sqlite3
-from collections.abc import Iterator
+from collections.abc import Iterator, Mapping
 from contextlib import contextmanager
 from pathlib import Path
 from typing import Any
@@ -21,6 +27,11 @@ CREATE TABLE IF NOT EXISTS projects (
   id TEXT PRIMARY KEY,
   name TEXT NOT NULL,
   summary TEXT NOT NULL DEFAULT '',
+  -- Tenancy (cloud plan Phase 6): ownership lives on the project row; every
+  -- other table reaches its tenant through project_id. Local mode is the
+  -- fixed 'local' tenant. Denormalized per-table tenant columns and
+  -- enforcement land with Phase 7's auth, not before.
+  tenant_id TEXT NOT NULL DEFAULT 'local',
   created_at TEXT NOT NULL
 );
 
@@ -88,6 +99,11 @@ CREATE TABLE IF NOT EXISTS resources (
 	  content_type TEXT NOT NULL DEFAULT 'application/octet-stream',
 	  created_by TEXT NOT NULL DEFAULT 'codex',
 	  created_at TEXT NOT NULL,
+	  -- Explicit insertion-order column (cloud plan Phase 6): replaces SQLite
+	  -- rowid ordering so the same queries run on Postgres. Service inserts set
+	  -- it via next_created_seq(); the DEFAULT 0 only keeps legacy convergence
+	  -- (ALTER TABLE ADD COLUMN) and raw test inserts valid.
+	  created_seq INTEGER NOT NULL DEFAULT 0,
 	  FOREIGN KEY(resource_id) REFERENCES resources(id),
 	  FOREIGN KEY(project_id) REFERENCES projects(id)
 	);
@@ -101,6 +117,9 @@ CREATE TABLE IF NOT EXISTS resources (
 	  role TEXT NOT NULL,
   attempt_index INTEGER NOT NULL DEFAULT 0,
   created_at TEXT NOT NULL,
+  -- Insertion-order column replacing rowid ordering (cloud plan Phase 6).
+  -- An upsert keeps its original created_seq, exactly like rowid did.
+  created_seq INTEGER NOT NULL DEFAULT 0,
   UNIQUE(resource_id, target_type, target_id, role, attempt_index),
 	  FOREIGN KEY(resource_id) REFERENCES resources(id),
 	  FOREIGN KEY(version_id) REFERENCES resource_versions(id)
@@ -119,6 +138,8 @@ CREATE TABLE IF NOT EXISTS review_requests (
   producer_session_id TEXT NOT NULL DEFAULT '',
   expires_at TEXT NOT NULL,
   created_at TEXT NOT NULL,
+  -- Insertion-order column replacing rowid ordering (cloud plan Phase 6).
+  created_seq INTEGER NOT NULL DEFAULT 0,
   FOREIGN KEY(project_id) REFERENCES projects(id)
 );
 
@@ -148,6 +169,8 @@ CREATE TABLE IF NOT EXISTS reviews (
   findings_json TEXT NOT NULL DEFAULT '[]',
   evidence_json TEXT NOT NULL DEFAULT '{}',
   created_at TEXT NOT NULL,
+  -- Insertion-order column replacing rowid ordering (cloud plan Phase 6).
+  created_seq INTEGER NOT NULL DEFAULT 0,
   FOREIGN KEY(project_id) REFERENCES projects(id),
   FOREIGN KEY(request_id) REFERENCES review_requests(id),
   FOREIGN KEY(session_id) REFERENCES review_sessions(id)
@@ -184,6 +207,8 @@ CREATE TABLE IF NOT EXISTS syntheses (
   published_graph_version_id TEXT,
   created_at TEXT NOT NULL,
   updated_at TEXT NOT NULL,
+  -- Insertion-order column replacing rowid ordering (cloud plan Phase 6).
+  created_seq INTEGER NOT NULL DEFAULT 0,
   FOREIGN KEY(project_id) REFERENCES projects(id)
 );
 
@@ -241,6 +266,8 @@ CREATE TABLE IF NOT EXISTS sandboxes (
   terminated_at TEXT,
   created_at TEXT NOT NULL,
   updated_at TEXT NOT NULL,
+  -- Insertion-order column replacing rowid ordering (cloud plan Phase 6).
+  created_seq INTEGER NOT NULL DEFAULT 0,
   FOREIGN KEY(project_id) REFERENCES projects(id)
 );
 
@@ -335,12 +362,99 @@ CREATE TABLE resources_migrate (
 """
 
 
-class StateStore:
-    """Owns SQLite connections and basic persistence helpers.
+class BaseStateStore:
+    """Dialect-neutral record-store contract and shared persistence helpers.
+
+    The dialect seam (cloud plan Phase 6): subclasses own connections and
+    transaction semantics, but must present the same surface the services
+    were written against — ``connect()`` returns a connection whose
+    ``execute`` accepts ``?`` placeholders and whose rows are mappings
+    (``row["col"]`` + ``.keys()``), and ``transaction()`` yields such a
+    connection under single-writer semantics. Everything here is plain SQL
+    that runs unchanged on both dialects.
+    """
+
+    def connect(self) -> sqlite3.Connection:
+        raise NotImplementedError
+
+    @contextmanager
+    def transaction(self) -> Iterator[sqlite3.Connection]:
+        raise NotImplementedError
+
+    def _apply_migrations(self, *, conn: sqlite3.Connection) -> None:
+        """Apply unapplied ledger migrations in order, recording each."""
+        applied = {
+            int(row["version"])
+            for row in conn.execute("SELECT version FROM schema_migrations").fetchall()
+        }
+        for version, name, statement in MIGRATIONS:
+            if version in applied:
+                continue
+            conn.execute(statement)
+            conn.execute(
+                "INSERT INTO schema_migrations (version, name, applied_at) VALUES (?, ?, ?)",
+                (version, name, now_iso()),
+            )
+
+    def require_project_id(self, *, conn: sqlite3.Connection, project_id: str | None) -> str:
+        if not project_id:
+            raise ValidationError("project_id is required")
+        row = conn.execute("SELECT id FROM projects WHERE id = ?", (project_id,)).fetchone()
+        if row is None:
+            raise NotFoundError(f"project not found: {project_id}")
+        return project_id
+
+    def record_event(
+        self,
+        *,
+        conn: sqlite3.Connection,
+        project_id: str,
+        event_type: str,
+        target_type: str = "",
+        target_id: str = "",
+        payload: dict[str, Any] | None = None,
+    ) -> None:
+        conn.execute(
+            """
+            INSERT INTO events (project_id, type, target_type, target_id, payload_json, created_at)
+            VALUES (?, ?, ?, ?, ?, ?)
+            """,
+            (project_id, event_type, target_type, target_id, json.dumps(payload or {}, sort_keys=True), now_iso()),
+        )
+
+    def recent_events(self, *, project_id: str | None, limit: int = 100) -> dict[str, Any]:
+        conn = self.connect()
+        try:
+            project_id = self.require_project_id(conn=conn, project_id=project_id)
+            rows = conn.execute(
+                """
+                SELECT id, project_id, type, target_type, target_id, payload_json, created_at
+                FROM events
+                WHERE project_id = ?
+                ORDER BY id DESC
+                LIMIT ?
+                """,
+                (project_id, max(1, min(int(limit), 500))),
+            ).fetchall()
+            events = []
+            for row in rows:
+                item = row_to_dict(row=row) or {}
+                item["payload"] = json.loads(str(item.pop("payload_json", "{}")))
+                events.append(item)
+            return {"events": events}
+        finally:
+            conn.close()
+
+
+class StateStore(BaseStateStore):
+    """The SQLite dialect — local mode's store, and the historical default.
 
     Records only — the store does not know where the repository checkout
     lives. Local paths belong to the data plane (``LocalWorkspace`` and the
     ``DataPlaneWorker``), so the same record layer can serve a cloud DB.
+    The Postgres dialect lives in ``dialects.PostgresStateStore``; the name
+    ``StateStore`` stays on the SQLite class so every existing call site and
+    test keeps working unchanged (``SqliteStateStore`` is an alias).
     """
 
     def __init__(self, *, db_path: Path) -> None:
@@ -404,6 +518,14 @@ class StateStore:
             conn.close()
 
     def _ensure_forward_schema(self, *, conn: sqlite3.Connection) -> None:
+        # Cloud-split Phase 6 (June 2026): tenancy column — projects carry
+        # ownership; local mode is the fixed 'local' tenant (which is also the
+        # column default, so older rows converge to it).
+        self._ensure_columns(
+            conn=conn,
+            table="projects",
+            columns={"tenant_id": "TEXT NOT NULL DEFAULT 'local'"},
+        )
         # Experiments now persist the accepted conclusion on `complete`; older
         # databases predate the column. Named experiments (June 2026): the
         # short unique name doubles as the experiment folder name; empty on
@@ -491,21 +613,26 @@ class StateStore:
             table="sandboxes",
             columns=("key_path", "local_sync_dir"),
         )
-
-    def _apply_migrations(self, *, conn: sqlite3.Connection) -> None:
-        """Apply unapplied ledger migrations in order, recording each."""
-        applied = {
-            int(row["version"])
-            for row in conn.execute("SELECT version FROM schema_migrations").fetchall()
-        }
-        for version, name, statement in MIGRATIONS:
-            if version in applied:
-                continue
-            conn.execute(statement)
-            conn.execute(
-                "INSERT INTO schema_migrations (version, name, applied_at) VALUES (?, ?, ?)",
-                (version, name, now_iso()),
+        # Cloud-split Phase 6 (June 2026): explicit insertion-order columns
+        # replace `ORDER BY rowid` so the same queries run on the Postgres
+        # dialect (which has no rowid). Legacy rows backfill created_seq from
+        # their rowid — the exact order the old queries observed — once, when
+        # the column is first added; new writes set it via next_created_seq().
+        for table in (
+            "resource_versions",
+            "resource_associations",
+            "review_requests",
+            "reviews",
+            "syntheses",
+            "sandboxes",
+        ):
+            added = self._ensure_columns(
+                conn=conn,
+                table=table,
+                columns={"created_seq": "INTEGER NOT NULL DEFAULT 0"},
             )
+            if "created_seq" in added:
+                conn.execute(f"UPDATE {table} SET created_seq = rowid")
 
     def _ensure_columns(
         self,
@@ -513,14 +640,18 @@ class StateStore:
         conn: sqlite3.Connection,
         table: str,
         columns: dict[str, str],
-    ) -> None:
+    ) -> set[str]:
+        """Add missing columns; returns the names actually added."""
         existing = {
             str(row["name"])
             for row in conn.execute(f"PRAGMA table_info({table})").fetchall()
         }
+        added: set[str] = set()
         for name, definition in columns.items():
             if name not in existing:
                 conn.execute(f"ALTER TABLE {table} ADD COLUMN {name} {definition}")
+                added.add(name)
+        return added
 
     def _drop_columns(
         self,
@@ -613,61 +744,32 @@ class StateStore:
                 has_project_path = True
         return has_path_only and not has_project_path
 
-    def require_project_id(self, *, conn: sqlite3.Connection, project_id: str | None) -> str:
-        if not project_id:
-            raise ValidationError("project_id is required")
-        row = conn.execute("SELECT id FROM projects WHERE id = ?", (project_id,)).fetchone()
-        if row is None:
-            raise NotFoundError(f"project not found: {project_id}")
-        return project_id
 
-    def record_event(
-        self,
-        *,
-        conn: sqlite3.Connection,
-        project_id: str,
-        event_type: str,
-        target_type: str = "",
-        target_id: str = "",
-        payload: dict[str, Any] | None = None,
-    ) -> None:
-        conn.execute(
-            """
-            INSERT INTO events (project_id, type, target_type, target_id, payload_json, created_at)
-            VALUES (?, ?, ?, ?, ?, ?)
-            """,
-            (project_id, event_type, target_type, target_id, json.dumps(payload or {}, sort_keys=True), now_iso()),
-        )
-
-    def recent_events(self, *, project_id: str | None, limit: int = 100) -> dict[str, Any]:
-        conn = self.connect()
-        try:
-            project_id = self.require_project_id(conn=conn, project_id=project_id)
-            rows = conn.execute(
-                """
-                SELECT id, project_id, type, target_type, target_id, payload_json, created_at
-                FROM events
-                WHERE project_id = ?
-                ORDER BY id DESC
-                LIMIT ?
-                """,
-                (project_id, max(1, min(int(limit), 500))),
-            ).fetchall()
-            events = []
-            for row in rows:
-                item = row_to_dict(row=row) or {}
-                item["payload"] = json.loads(str(item.pop("payload_json", "{}")))
-                events.append(item)
-            return {"events": events}
-        finally:
-            conn.close()
+# Alias for composition code that wants to name the dialect explicitly; the
+# primary name stays on the class so call sites and reprs are unchanged.
+SqliteStateStore = StateStore
 
 
-def row_to_dict(*, row: sqlite3.Row | None) -> dict[str, Any] | None:
+def next_created_seq(*, conn: sqlite3.Connection, table: str) -> int:
+    """The next insertion-order value for ``table`` (see created_seq columns).
+
+    MAX+1 inside the caller's open write transaction is race-free under the
+    store's single-writer semantics: SQLite's BEGIN IMMEDIATE holds the write
+    lock, and the Postgres dialect's transaction() holds the advisory lock,
+    so no two writers compute the same value.
+    """
+    row = conn.execute(
+        f"SELECT COALESCE(MAX(created_seq), 0) + 1 AS next_seq FROM {table}"
+    ).fetchone()
+    return int(row["next_seq"])
+
+
+def row_to_dict(*, row: sqlite3.Row | Mapping[str, Any] | None) -> dict[str, Any] | None:
+    """Plain dict from a row of either dialect (sqlite3.Row or mapping)."""
     if row is None:
         return None
     return {key: row[key] for key in row.keys()}
 
 
-def rows_to_dicts(*, rows: list[sqlite3.Row]) -> list[dict[str, Any]]:
+def rows_to_dicts(*, rows: list[sqlite3.Row] | list[Mapping[str, Any]]) -> list[dict[str, Any]]:
     return [row_to_dict(row=row) or {} for row in rows]
