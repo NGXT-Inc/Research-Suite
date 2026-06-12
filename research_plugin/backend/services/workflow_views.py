@@ -33,7 +33,7 @@ def slim_status_and_next(full: dict[str, Any]) -> dict[str, Any]:
         # experiment exists, status_and_next auto-resolves to the latest one).
         # Surface existing claims compactly so the agent doesn't re-create them;
         # there are no experiments to list here by definition.
-        return {
+        result: dict[str, Any] = {
             "scope": "project",
             "experiment": None,
             "workflow": workflow,
@@ -52,8 +52,11 @@ def slim_status_and_next(full: dict[str, Any]) -> dict[str, Any]:
                 ],
             },
         }
+        if full.get("project_reflection"):
+            result["project_reflection"] = full["project_reflection"]
+        return result
 
-    result: dict[str, Any] = {
+    result = {
         "scope": "experiment",
         "workflow": workflow,
         "experiment": _slim_experiment(experiment),
@@ -62,12 +65,18 @@ def slim_status_and_next(full: dict[str, Any]) -> dict[str, Any]:
     }
     if full.get("resource_refresh"):
         result["resource_refresh"] = full["resource_refresh"]
+    # Project-level reflection orientation: an open reflection wave's state +
+    # guidance, or the soft staleness nudge. Already slim (the workflow layer
+    # builds it via slim_synthesis); absent when there is nothing to say.
+    if full.get("project_reflection"):
+        result["project_reflection"] = full["project_reflection"]
     return result
 
 
 def _slim_experiment(exp: dict[str, Any]) -> dict[str, Any]:
     return {
         "id": exp.get("id"),
+        "name": exp.get("name"),
         "status": exp.get("status"),
         "attempt_index": exp.get("attempt_index"),
         "intent": exp.get("intent"),
@@ -87,6 +96,45 @@ def _slim_experiment(exp: dict[str, Any]) -> dict[str, Any]:
             }
             for review in exp.get("reviews", [])
         ],
+    }
+
+
+def slim_synthesis(syn: dict[str, Any]) -> dict[str, Any]:
+    """Agent-facing projection of a reflection wave for orientation calls.
+
+    Drops the corpus snapshot, full resource payloads, and review prose — the
+    orchestrator needs status, the roster, which lenses still owe a
+    reflection, and what artifacts the current attempt carries.
+    """
+    return {
+        "id": syn.get("id"),
+        "title": syn.get("title"),
+        "status": syn.get("status"),
+        "attempt_index": syn.get("attempt_index"),
+        "revision_context": syn.get("revision_context"),
+        "roster": [
+            {
+                "id": lens.get("id"),
+                "title": lens.get("title"),
+                "core": lens.get("core"),
+            }
+            for lens in syn.get("roster", [])
+        ],
+        "reflection_coverage": syn.get("reflection_coverage"),
+        "current_attempt_resources": [
+            {field: res.get(field) for field in _SLIM_RESOURCE_FIELDS}
+            for res in syn.get("current_attempt_resources", [])
+        ],
+        "reviews": [
+            {
+                "id": review.get("id"),
+                "role": review.get("role"),
+                "verdict": review.get("verdict"),
+                "created_at": review.get("created_at"),
+            }
+            for review in syn.get("reviews", [])
+        ],
+        "allowed_transitions": syn.get("allowed_transitions"),
     }
 
 

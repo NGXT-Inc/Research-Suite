@@ -196,9 +196,9 @@ class LambdaAvailabilityTest(unittest.TestCase):
         self.assertEqual(provisioned.ssh_host, "198.51.100.2")
         self.assertEqual(provisioned.ssh_port, 22)
         self.assertEqual(provisioned.ssh_user, "ubuntu")
-        self.assertEqual(provisioned.workdir, "/workspace/synced")
-        self.assertEqual(provisioned.sync_dir, "/workspace/synced")
-        self.assertEqual(provisioned.unsynced_dir, "/workspace/unsynced")
+        self.assertEqual(provisioned.workdir, "/workspace/exp1")
+        self.assertEqual(provisioned.sync_dir, "/workspace/exp1")
+        self.assertEqual(provisioned.unsynced_dir, "/workspace/data")
         self.assertEqual(provisioned.volume_name, "")
         self.assertEqual(client.keys[0]["name"], "rp-exp1-key")
         launch = client.launches[0]
@@ -211,8 +211,8 @@ class LambdaAvailabilityTest(unittest.TestCase):
         self.assertIn("ripgrep", user_data)
         self.assertIn("fd-find", user_data)
         self.assertIn("jq", user_data)
-        self.assertIn("RP_SYNC_DIR=/workspace/synced", user_data)
-        self.assertIn("RP_UNSYNCED_DIR=/workspace/unsynced", user_data)
+        self.assertIn("RP_EXPERIMENT_DIR=/workspace/exp1", user_data)
+        self.assertIn("RP_SANDBOX_DATA_DIR=/workspace/data", user_data)
         self.assertIn("artifacts_to_keep", user_data)
         self.assertIn("chown -R ubuntu:ubuntu", user_data)
         self.assertIn("ForceCommand /opt/rp/rec.sh", user_data)
@@ -233,7 +233,7 @@ class LambdaAvailabilityTest(unittest.TestCase):
         self.assertNotIn("tensorboard==", user_data)
         self.assertIn("install_with_uv_or_pip torch torchvision torchaudio", user_data)
         # Dashboards must start as the SSH login user, never root: root-owned
-        # pids/logs in the synced workspace break the ubuntu-user rsync.
+        # pids/logs in the sessions dir break the ubuntu-user rsync pull.
         self.assertIn("sudo -u ubuntu /opt/rp/start_dashboards.sh", user_data)
 
     def test_lambda_sandbox_name_is_lambda_hostname_safe(self) -> None:
@@ -271,13 +271,15 @@ class LambdaAvailabilityTest(unittest.TestCase):
         user_data = build_user_data(
             public_key="ssh-ed25519 AAAA test",
             experiment_id="exp1",
-            workdir="/workspace/synced",
-            sandbox_data_dir="/workspace/unsynced",
+            workdir="/workspace/exp1",
+            sessions_dir="/workspace/.research_plugin_sessions/exp1",
+            sandbox_data_dir="/workspace/data",
         )
 
-        self.assertIn("RP_WORKDIR=/workspace/synced", user_data)
-        self.assertIn("RP_SANDBOX_DATA_DIR=/workspace/unsynced", user_data)
-        self.assertIn("RP_DASH_DIR=/workspace/synced/.research_plugin_sessions/exp1", user_data)
+        self.assertIn("RP_WORKDIR=/workspace/exp1", user_data)
+        self.assertIn("RP_EXPERIMENT_DIR=/workspace/exp1", user_data)
+        self.assertIn("RP_SANDBOX_DATA_DIR=/workspace/data", user_data)
+        self.assertIn("RP_DASH_DIR=/workspace/.research_plugin_sessions/exp1", user_data)
         self.assertIn("start_dashboards.sh", user_data)
         self.assertIn("/opt/rp/start_dashboards.sh || true", user_data)
 
@@ -661,10 +663,11 @@ class LambdaUserDataOrderingTest(unittest.TestCase):
         ud = build_user_data(
             public_key="ssh-ed25519 AAAA test",
             experiment_id="exp1",
-            workdir="/workspace/synced",
-            sandbox_data_dir="/workspace/unsynced",
+            workdir="/workspace/exp1",
+            sessions_dir="/workspace/.research_plugin_sessions/exp1",
+            sandbox_data_dir="/workspace/data",
         )
-        # The workspace dir + SSH/ForceCommand must be set up before the slow
+        # The experiment dir + SSH/ForceCommand must be set up before the slow
         # apt/torch install, so the registry's first rsync has somewhere to land.
         self.assertLess(ud.index("mkdir -p /opt/rp"), ud.index("apt-get update"))
         self.assertLess(

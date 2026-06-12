@@ -12,11 +12,19 @@ from .experiments import ExperimentService
 from ..utils import new_id
 from .permissions import PermissionService
 from ..state.store import StateStore, row_to_dict
+from .syntheses import SynthesisService
 from ..utils import now_iso
 
 
 class ReviewService:
-    """Owns review gates and capability-scoped reviewer sessions."""
+    """Owns review gates and capability-scoped reviewer sessions.
+
+    Reviews are target-polymorphic: an experiment review pins the experiment's
+    snapshot and routes rejections to planned/running; a synthesis review pins
+    the synthesis wave's snapshot and routes rejections to
+    reflecting/synthesizing. The capability machinery (one-time token,
+    snapshot pinning, producer-session rejection, read-only funnel) is shared.
+    """
 
     def __init__(
         self,
@@ -24,10 +32,12 @@ class ReviewService:
         store: StateStore,
         permissions: PermissionService,
         experiments: ExperimentService,
+        syntheses: SynthesisService,
     ) -> None:
         self.store = store
         self.permissions = permissions
         self.experiments = experiments
+        self.syntheses = syntheses
 
     def request(
         self,
@@ -40,12 +50,17 @@ class ReviewService:
         project_id: str | None = None,
     ) -> dict[str, Any]:
         self.permissions.validate_review_role(role=role)
-        if target_type != "experiment":
-            raise ValidationError("v0.0001 supports experiment review targets only")
+        if target_type not in {"experiment", "synthesis"}:
+            raise ValidationError("review targets must be 'experiment' or 'synthesis'")
         with self.store.transaction() as conn:
             project_id = self.store.require_project_id(conn=conn, project_id=project_id)
-            experiment = self.experiments.get_state(experiment_id=target_id, project_id=project_id, conn=conn)
-            self._validate_role_matches_gate(experiment_status=experiment["status"], role=role)
+            if target_type == "experiment":
+                target = self.experiments.get_state(experiment_id=target_id, project_id=project_id, conn=conn)
+            else:
+                target = self.syntheses.get_state(synthesis_id=target_id, project_id=project_id, conn=conn)
+            self._validate_role_matches_gate(
+                target_type=target_type, target_status=target["status"], role=role
+            )
             request_id = new_id(prefix="rr")
             capability = f"rp_{secrets.token_urlsafe(24)}"
             expires_at = (datetime.now(UTC) + timedelta(hours=1)).replace(microsecond=0).isoformat().replace("+00:00", "Z")
@@ -134,7 +149,7 @@ class ReviewService:
                 "target_type": req["target_type"],
                 "target_id": req["target_id"],
                 "independence": independence,
-                "read_scope": ["claim", "experiment", "resource", "review"],
+                "read_scope": ["claim", "experiment", "synthesis", "resource", "review"],
             }
 
     def submit(
@@ -157,7 +172,9 @@ class ReviewService:
             req = conn.execute("SELECT * FROM review_requests WHERE id = ?", (session["request_id"],)).fetchone()
             if req is None:
                 raise NotFoundError(f"review request not found: {session['request_id']}")
-            return_to = self._validate_return_to(role=req["role"], verdict=verdict, return_to=return_to)
+            return_to = self._validate_return_to(
+                target_type=req["target_type"], role=req["role"], verdict=verdict, return_to=return_to
+            )
             review_id = new_id(prefix="rev")
             conn.execute(
                 """
@@ -194,26 +211,41 @@ class ReviewService:
                 target_id=req["target_id"],
                 payload={"role": req["role"], "verdict": verdict, "review_id": review_id, "return_to": return_to},
             )
-            if req["target_type"] == "experiment" and verdict in {"needs_changes", "fail"}:
+            if verdict in {"needs_changes", "fail"}:
                 revision_context = self._revision_context(
+                    target_type=req["target_type"],
                     role=req["role"],
                     verdict=verdict,
                     notes=notes,
                     findings=findings or [],
                     return_to=return_to,
                 )
-                if return_to == "running":
-                    self.experiments.send_back_to_running(
-                        conn=conn,
-                        experiment_id=req["target_id"],
-                        revision_context=revision_context,
-                    )
-                else:
-                    self.experiments.send_back_to_planned(
-                        conn=conn,
-                        experiment_id=req["target_id"],
-                        revision_context=revision_context,
-                    )
+                if req["target_type"] == "experiment":
+                    if return_to == "running":
+                        self.experiments.send_back_to_running(
+                            conn=conn,
+                            experiment_id=req["target_id"],
+                            revision_context=revision_context,
+                        )
+                    else:
+                        self.experiments.send_back_to_planned(
+                            conn=conn,
+                            experiment_id=req["target_id"],
+                            revision_context=revision_context,
+                        )
+                elif req["target_type"] == "synthesis":
+                    if return_to == "reflecting":
+                        self.syntheses.send_back_to_reflecting(
+                            conn=conn,
+                            synthesis_id=req["target_id"],
+                            revision_context=revision_context,
+                        )
+                    else:
+                        self.syntheses.send_back_to_synthesizing(
+                            conn=conn,
+                            synthesis_id=req["target_id"],
+                            revision_context=revision_context,
+                        )
             review = conn.execute("SELECT * FROM reviews WHERE id = ?", (review_id,)).fetchone()
             return self._hydrate_review(row=review)
 
@@ -382,6 +414,7 @@ class ReviewService:
         skill = {
             "design_reviewer": "design-review",
             "experiment_reviewer": "experiment-review",
+            "synthesis_reviewer": "synthesis-review",
         }.get(role, "")
         return {
             "role": role,
@@ -433,21 +466,45 @@ class ReviewService:
         if datetime.now(UTC) > expires:
             raise PermissionDeniedError("reviewer capability expired")
 
-    def _validate_return_to(self, *, role: str, verdict: str, return_to: str) -> str:
-        """Resolve where a rejection sends the experiment.
+    def _validate_return_to(
+        self, *, target_type: str, role: str, verdict: str, return_to: str
+    ) -> str:
+        """Resolve where a rejection sends the target.
 
-        Experiment reviewers must choose explicitly: 'planned' when the results
+        Experiment reviewers choose explicitly: 'planned' when the results
         revealed a flaw in the plan itself, 'running' when the plan stands but
         execution or the conclusion is flawed. Design rejections can only go
         back to 'planned' — a flawed plan is never fixed by re-running it.
+        Synthesis reviewers choose explicitly too: 'reflecting' when the
+        reflections themselves are inadequate (the fan-out re-runs),
+        'synthesizing' when the reflections stand but the synthesis — graph
+        and/or proposals — must be revised.
         """
         return_to = (return_to or "").strip()
-        if return_to not in {"", "planned", "running"}:
-            raise ValidationError("return_to must be 'planned' or 'running'")
+        allowed = (
+            {"", "reflecting", "synthesizing"}
+            if target_type == "synthesis"
+            else {"", "planned", "running"}
+        )
+        if return_to not in allowed:
+            raise ValidationError(
+                "return_to must be 'reflecting' or 'synthesizing' for synthesis reviews"
+                if target_type == "synthesis"
+                else "return_to must be 'planned' or 'running'"
+            )
         if verdict == "pass":
             if return_to:
                 raise ValidationError("return_to only applies when the verdict is needs_changes or fail")
             return ""
+        if target_type == "synthesis":
+            if role == "synthesis_reviewer" and not return_to:
+                raise ValidationError(
+                    "synthesis-review rejections must set return_to: 'reflecting' "
+                    "to re-launch the reflection fan-out (the reflections "
+                    "themselves are inadequate), or 'synthesizing' if the "
+                    "reflections stand but the synthesis must be revised"
+                )
+            return return_to or "synthesizing"
         if role == "experiment_reviewer" and not return_to:
             raise ValidationError(
                 "experiment-review rejections must set return_to: 'planned' if the "
@@ -461,57 +518,92 @@ class ReviewService:
             )
         return return_to or "planned"
 
-    def _validate_role_matches_gate(self, *, experiment_status: str, role: str) -> None:
-        expected = {
-            "design_review": "design_reviewer",
-            "experiment_review": "experiment_reviewer",
-        }.get(experiment_status)
+    def _validate_role_matches_gate(
+        self, *, target_type: str, target_status: str, role: str
+    ) -> None:
         if role in {"human", "automated_check"}:
             return
+        expected_by_status = (
+            {"synthesis_review": "synthesis_reviewer"}
+            if target_type == "synthesis"
+            else {
+                "design_review": "design_reviewer",
+                "experiment_review": "experiment_reviewer",
+            }
+        )
+        expected = expected_by_status.get(target_status)
         if expected is None:
-            raise PermissionDeniedError(f"experiment is not currently awaiting {role}")
+            raise PermissionDeniedError(f"{target_type} is not currently awaiting {role}")
         if role != expected:
             raise PermissionDeniedError(f"active gate requires {expected}, not {role}")
 
     def _target_snapshot_id(self, *, conn, target_type: str, target_id: str) -> str:
-        if target_type != "experiment":
-            return f"{target_type}:{target_id}"
-        exp = self.experiments.get_state(experiment_id=target_id, conn=conn)
-        resource_tokens = [
-            f"{res['id']}:{res.get('association_version_id') or res['version_token']}:{res.get('association_role', '')}:{res.get('association_attempt_index', 0)}"
-            for res in exp.get("current_attempt_resources", [])
-        ]
-        return "|".join(
-            [
-                "experiment",
-                exp["id"],
-                exp["status"],
-                str(exp["attempt_index"]),
-                ",".join(sorted(resource_tokens)),
+        if target_type == "experiment":
+            exp = self.experiments.get_state(experiment_id=target_id, conn=conn)
+            resource_tokens = [
+                f"{res['id']}:{res.get('association_version_id') or res['version_token']}:{res.get('association_role', '')}:{res.get('association_attempt_index', 0)}"
+                for res in exp.get("current_attempt_resources", [])
             ]
-        )
+            return "|".join(
+                [
+                    "experiment",
+                    exp["id"],
+                    exp["status"],
+                    str(exp["attempt_index"]),
+                    ",".join(sorted(resource_tokens)),
+                ]
+            )
+        if target_type == "synthesis":
+            return self.syntheses._target_snapshot_id(conn=conn, synthesis_id=target_id)
+        return f"{target_type}:{target_id}"
 
     def _revision_context(
-        self, *, role: str, verdict: str, notes: str, findings: list[dict[str, Any]], return_to: str = ""
+        self,
+        *,
+        target_type: str,
+        role: str,
+        verdict: str,
+        notes: str,
+        findings: list[dict[str, Any]],
+        return_to: str = "",
     ) -> str:
         finding_text = "; ".join(str(item.get("issue", "")) for item in findings if item.get("issue"))
         pieces = [f"{role} returned {verdict}"]
-        if return_to == "running":
+        if target_type == "experiment" and return_to == "running":
             pieces.append(
                 "Sent back to running: the approved plan stands; fix execution "
                 "and/or the conclusion, then sync results and resubmit"
             )
+        if target_type == "synthesis":
+            if return_to == "reflecting":
+                pieces.append(
+                    "Sent back to reflecting: re-launch the reflection fan-out — "
+                    "every roster lens must submit a fresh reflection for the "
+                    "new attempt"
+                )
+            else:
+                pieces.append(
+                    "Sent back to synthesizing: the reflections stand; revise "
+                    "the synthesis (project graph and/or proposals) and resubmit"
+                )
         if notes:
             pieces.append(notes)
         if finding_text:
             pieces.append(f"Findings: {finding_text}")
-        # Soft reminder, not a directive: whether this rejection belongs in the
-        # experiment's story is the agent's editorial call.
-        pieces.append(
-            "Consider updating the experiment's logic graph (role 'graph') if "
-            "this review changes the experiment's story; the 16-node budget "
-            "still applies"
-        )
+        # Soft reminders, not directives: what belongs in a graph's story is
+        # the agent's editorial call.
+        if target_type == "synthesis":
+            pieces.append(
+                "Consider revising the project logic graph and proposals where "
+                "this review changes the project's story; the 16-node budget "
+                "still applies"
+            )
+        else:
+            pieces.append(
+                "Consider updating the experiment's logic graph (role 'graph') if "
+                "this review changes the experiment's story; the 16-node budget "
+                "still applies"
+            )
         return " | ".join(pieces)
 
     def _hydrate_request(self, *, row) -> dict[str, Any]:

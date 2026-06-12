@@ -83,7 +83,7 @@ class RouterRestartReaperTest(unittest.TestCase):
         )
         exp_id = app.call_tool(
             "experiment.create",
-            {"project_id": project["id"], "intent": "restart coverage"},
+            {"project_id": project["id"], "name": "restart-coverage", "intent": "restart coverage"},
         )["id"]
         with app.store.transaction() as conn:
             conn.execute(

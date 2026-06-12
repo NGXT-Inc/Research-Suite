@@ -45,8 +45,13 @@ from pathlib import Path
 from typing import Any
 
 from ..execution.ssh_rsync import SshRsyncSyncer
-from ..execution.sync_dirs import DEFAULT_SYNC_DIR
+from ..execution.sync_dirs import (
+    remote_experiment_dir,
+    remote_root_of,
+    remote_sessions_dir,
+)
 from ..state.activity import ActivityLogger
+from ..workspace import local_sessions_dir
 from ..state.store import StateStore, row_to_dict
 from ..utils import NotFoundError, PermissionDeniedError, ValidationError, now_iso
 from ..execution import (
@@ -243,6 +248,12 @@ class SandboxService:
             time_limit=time_limit,
             instance_type=instance_type,
             region=region,
+            # The remote folder is named after the experiment so the VM layout
+            # mirrors experiments/<name>/ locally (id fallback for legacy rows).
+            remote_workdir=remote_experiment_dir(
+                experiment_id=experiment_id,
+                name=self.registry.experiment_name(experiment_id=experiment_id),
+            ),
         )
         job = self.provisioner.ensure_job(
             experiment_id=experiment_id,
@@ -458,14 +469,15 @@ class SandboxService:
         )
         has_conflicts = bool(result.get("conflicts") or result.get("skipped_conflicts"))
         hint = (
-            "Sandbox files were pulled with rsync, but the "
+            "The experiment folder was pulled with rsync, but the "
             "local sync has conflicts. Resolve the reported conflict paths, then "
             "run sandbox.sync again before registering or associating resources."
             if has_conflicts
             else (
-                "Sandbox files under the remote sync directory have been rsynced "
-                "to the local experiment folder. Now register/associate local result "
-                "files with resource.register_file and resource.associate before "
+                "The sandbox's experiment folder has been mirrored back to the "
+                "local repo (local files now match the sandbox exactly). Now "
+                "register/associate local result files with "
+                "resource.register_file and resource.associate before "
                 "sandbox.release."
             )
         )
@@ -475,10 +487,11 @@ class SandboxService:
             "sandbox_id": row.get("sandbox_id"),
             "status": row.get("status"),
             "workdir": row.get("workdir"),
+            "experiment_dir": row.get("sync_dir") or row.get("workdir"),
             "sync_dir": row.get("sync_dir") or row.get("workdir"),
-            "unsynced_dir": row.get("unsynced_dir") or row.get("sandbox_data_dir") or "",
+            "data_dir": row.get("sandbox_data_dir") or row.get("unsynced_dir") or "",
+            "local_experiment_dir": self._local_sync_dir(experiment_id=experiment_id),
             "local_sync_dir": self._local_sync_dir(experiment_id=experiment_id),
-            "sandbox_data_dir": row.get("sandbox_data_dir") or "",
             "sync": result,
             "hint": hint,
         }
@@ -785,13 +798,34 @@ class SandboxService:
                 if row.get("local_sync_dir")
                 else self._local_sync_dir(experiment_id=experiment_id)
             )
+            remote_dir = str(
+                row.get("sync_dir")
+                or row.get("workdir")
+                or remote_experiment_dir(
+                    experiment_id=experiment_id,
+                    name=self.registry.experiment_name(experiment_id=experiment_id),
+                )
+            )
             result = self.rsync_syncer.sync(
                 ssh_host=str(row.get("ssh_host") or ""),
                 ssh_port=int(row.get("ssh_port") or 0),
                 ssh_user=str(row.get("ssh_user") or "root"),
                 key_path=Path(str(row.get("key_path") or self._key_path(experiment_id=experiment_id))),
-                remote_sync_dir=str(row.get("sync_dir") or row.get("workdir") or DEFAULT_SYNC_DIR),
+                remote_sync_dir=remote_dir,
                 local_sync_dir=local_dir,
+                # Sandbox-authored telemetry (MLflow db, TB events, transcript)
+                # lives outside the experiment folder and lands in a daemon-owned
+                # local dir, keyed by sandbox id so each VM generation's history
+                # is preserved. Legacy rows simply have nothing at this remote
+                # path (their sessions ride inside the synced folder).
+                remote_sessions_dir=remote_sessions_dir(
+                    experiment_id=experiment_id, root=remote_root_of(remote_dir)
+                ),
+                local_sessions_dir=local_sessions_dir(
+                    repo_root=self.store.repo_root,
+                    experiment_id=experiment_id,
+                    sandbox_id=str(row.get("sandbox_id") or ""),
+                ),
             ).as_dict()
             self.registry.emit_event(
                 project_id=str(row.get("project_id")),
@@ -838,7 +872,12 @@ class SandboxService:
                     ssh_port=provisioned.ssh_port,
                     ssh_user=provisioned.ssh_user,
                     key_path=self._key_path(experiment_id=experiment_id),
-                    remote_sync_dir=provisioned.sync_dir or provisioned.workdir or DEFAULT_SYNC_DIR,
+                    remote_sync_dir=provisioned.sync_dir
+                    or provisioned.workdir
+                    or remote_experiment_dir(
+                        experiment_id=experiment_id,
+                        name=self.registry.experiment_name(experiment_id=experiment_id),
+                    ),
                     local_sync_dir=local_dir,
                 ).as_dict()
                 break
@@ -873,14 +912,28 @@ class SandboxService:
 
     def _pulled_mlflow_db_path(self, *, experiment_id: str) -> Path:
         # The sandbox's MLflow backend store, as mirrored locally by the rsync
-        # pull (the dashboard bootstrap puts it under the synced workspace's
-        # .research_plugin_sessions/<experiment_id>/ directory).
-        return (
-            self._local_sync_dir(experiment_id=experiment_id)
-            / ".research_plugin_sessions"
-            / experiment_id
-            / "mlflow.db"
+        # pull. Current layout: the daemon-owned sessions dir, one subdir per
+        # sandbox generation — pick the most recently modified db. Legacy
+        # layouts (sessions inside the synced folder) are checked as fallbacks
+        # so pre-change experiments keep their lazy metrics backfill.
+        sessions_base = local_sessions_dir(
+            repo_root=self.store.repo_root, experiment_id=experiment_id
         )
+        candidates = sorted(
+            sessions_base.glob("*/mlflow.db"),
+            key=lambda p: p.stat().st_mtime,
+            reverse=True,
+        )
+        if candidates:
+            return candidates[0]
+        local_dir = self._local_sync_dir(experiment_id=experiment_id)
+        for legacy in (
+            local_dir / ".research_plugin_sessions" / experiment_id / "mlflow.db",
+            local_dir / "synced" / ".research_plugin_sessions" / experiment_id / "mlflow.db",
+        ):
+            if legacy.exists():
+                return legacy
+        return sessions_base / "mlflow.db"
 
     def _key_path(self, *, experiment_id: str) -> Path:
         return self._conn.key_path(experiment_id=experiment_id)

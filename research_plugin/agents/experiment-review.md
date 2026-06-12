@@ -1,4 +1,5 @@
 ---
+name: experiment-review
 description: >-
   Read-only experiment reviewer for Research Plugin experiments. Use ONLY when
   the research-plugin MCP server has returned a review_gate or next_action

@@ -256,7 +256,7 @@ Codex
       -> SandboxService registry  (one sandbox per experiment, reuse-if-alive)
           -> SandboxBackend (Modal/Lambda)  ->  sandbox/VM + SSH endpoint
   -> ssh <command>  (run by Codex itself, recorded to the experiment transcript)
-  -> sandbox.sync  (pull /workspace/synced to the local experiment folder)
+  -> sandbox.sync  (mirror /workspace/<name> back to the local experiment folder)
 ```
 
 MCP owns policy, state, and visibility:

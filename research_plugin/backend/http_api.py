@@ -31,6 +31,22 @@ from .state import monotonic_ms
 JsonBody = dict[str, Any] | None
 
 
+def _latest_graph_resource(
+    *, resources: list[dict[str, Any]], attempt: Any
+) -> dict[str, Any] | None:
+    """The graph association to render: current attempt preferred (prior
+    attempts keep the story visible right after an attempt bump), most
+    recently associated within the pool. Recency matches the transition
+    validator's ORDER BY a.rowid DESC, so the UI never renders a different
+    file than the gate lints."""
+    candidates = [r for r in resources if r.get("association_role") == "graph"]
+    if not candidates:
+        return None
+    current = [r for r in candidates if r.get("association_attempt_index") == attempt]
+    pool = current or candidates
+    return max(pool, key=lambda r: r.get("association_rowid") or 0)
+
+
 class ResearchHttpApi:
     """HTTP view helpers over ResearchPluginApp. Domain logic stays in services."""
 
@@ -211,9 +227,10 @@ class ResearchHttpApi:
         return self.call_tool(name="project.create", arguments={"name": name, "summary": summary})
 
     def create_experiment(self, project_id: str, body: dict[str, Any]) -> dict[str, Any]:
+        name = body.get("name") or ""
         intent = body.get("intent") or body.get("title") or body.get("question") or ""
         claim_ids = body.get("tested_claim_ids") or body.get("claim_ids") or []
-        return self.call_tool(name="experiment.create", arguments={"project_id": project_id, "intent": intent, "tested_claim_ids": claim_ids})
+        return self.call_tool(name="experiment.create", arguments={"project_id": project_id, "name": name, "intent": intent, "tested_claim_ids": claim_ids})
 
     def register_resource(self, project_id: str, body: dict[str, Any]) -> dict[str, Any]:
         path = body.get("path")
@@ -318,15 +335,9 @@ class ResearchHttpApi:
             experiment_id=experiment_id, project_id=project_id
         )
         attempt = experiment.get("attempt_index")
-        candidates = [
-            res
-            for res in experiment.get("resources", [])
-            if res.get("association_role") == "graph"
-        ]
-        current = [
-            res for res in candidates if res.get("association_attempt_index") == attempt
-        ]
-        chosen = (current or candidates)[-1] if candidates else None
+        chosen = _latest_graph_resource(
+            resources=experiment.get("resources", []), attempt=attempt
+        )
         base = {
             "experiment_id": experiment_id,
             "max_nodes": MAX_GRAPH_NODES,
@@ -337,9 +348,12 @@ class ResearchHttpApi:
             return {**base, "available": False, "graph": None, "problems": []}
         try:
             path = self._resource_path(resource=chosen)
-        except (NotFoundError, ValidationError):
+            text = path.read_text(errors="replace")
+        except (NotFoundError, ValidationError, OSError):
+            # OSError covers the file vanishing between the existence check and
+            # the read — possible while sandbox sync mirrors the folder with
+            # --delete. Degrade like a missing file, never a 500.
             return {**base, "available": False, "graph": None, "problems": ["graph file is missing on disk"], "path": chosen.get("path")}
-        text = path.read_text(errors="replace")
         graph: dict[str, Any] | None = None
         try:
             parsed = json.loads(text)
@@ -357,6 +371,100 @@ class ResearchHttpApi:
             "problems": graph_problems(text),
             "ref_index": self._resolve_graph_refs(project_id=project_id, graph=graph),
         }
+
+    def syntheses_view(self, *, project_id: str) -> dict[str, Any]:
+        """All reflection waves plus the staleness/coverage signal for the UI."""
+        syntheses = self.app.syntheses.list_syntheses(project_id=project_id)["syntheses"]
+        conn = self.app.store.connect()
+        try:
+            signal = self.app.syntheses.reflection_signal(project_id=project_id, conn=conn)
+            open_wave = self.app.syntheses.open_synthesis(conn=conn, project_id=project_id)
+            published = self.app.syntheses.latest_published(conn=conn, project_id=project_id)
+        finally:
+            conn.close()
+        return {
+            "syntheses": syntheses,
+            "current": open_wave or published,
+            "open_synthesis": open_wave,
+            "latest_published": published,
+            "signal": signal,
+        }
+
+    def synthesis_detail(self, *, project_id: str, synthesis_id: str) -> dict[str, Any]:
+        return self.app.syntheses.get_state(synthesis_id=synthesis_id, project_id=project_id)
+
+    def project_logic_graph(self, *, project_id: str) -> dict[str, Any]:
+        """The living project logic graph (role 'graph' on a synthesis).
+
+        Chooses the open wave's graph when one exists (so the user can watch
+        the synthesis being written), else the latest published one. The same
+        payload shape as the per-experiment graph endpoint so the UI renders
+        both through one component.
+        """
+        conn = self.app.store.connect()
+        try:
+            signal = self.app.syntheses.reflection_signal(project_id=project_id, conn=conn)
+            synthesis = self.app.syntheses.open_synthesis(conn=conn, project_id=project_id)
+            if synthesis is None or not self._synthesis_graph_resource(synthesis=synthesis):
+                published = self.app.syntheses.latest_published(conn=conn, project_id=project_id)
+                if published is not None and self._synthesis_graph_resource(synthesis=published):
+                    synthesis = published
+        finally:
+            conn.close()
+        base: dict[str, Any] = {
+            "max_nodes": MAX_GRAPH_NODES,
+            "signal": signal,
+        }
+        chosen = self._synthesis_graph_resource(synthesis=synthesis) if synthesis else None
+        if synthesis is None or chosen is None:
+            return {**base, "available": False, "synthesis": None, "graph": None, "problems": []}
+        base["synthesis"] = {
+            "id": synthesis.get("id"),
+            "title": synthesis.get("title"),
+            "status": synthesis.get("status"),
+            "attempt_index": synthesis.get("attempt_index"),
+            "published_at": synthesis.get("published_at"),
+        }
+        try:
+            path = self._resource_path(resource=chosen)
+            text = path.read_text(errors="replace")
+        except (NotFoundError, ValidationError, OSError):
+            return {
+                **base,
+                "available": False,
+                "graph": None,
+                "problems": ["graph file is missing on disk"],
+                "path": chosen.get("path"),
+            }
+        graph: dict[str, Any] | None = None
+        try:
+            parsed = json.loads(text)
+            if isinstance(parsed, dict):
+                graph = parsed
+        except json.JSONDecodeError:
+            graph = None
+        return {
+            **base,
+            "available": True,
+            "resource_id": chosen.get("id"),
+            "path": chosen.get("path"),
+            "association_attempt_index": chosen.get("association_attempt_index"),
+            "graph": graph,
+            "problems": graph_problems(text),
+            "ref_index": self._resolve_graph_refs(project_id=project_id, graph=graph),
+        }
+
+    def _synthesis_graph_resource(
+        self, *, synthesis: dict[str, Any] | None
+    ) -> dict[str, Any] | None:
+        """The synthesis's graph association — current attempt preferred, with
+        the prior-attempt fallback the experiment endpoint also uses."""
+        if synthesis is None:
+            return None
+        return _latest_graph_resource(
+            resources=synthesis.get("resources", []),
+            attempt=synthesis.get("attempt_index"),
+        )
 
     def _resolve_graph_refs(
         self, *, project_id: str, graph: dict[str, Any] | None
@@ -442,6 +550,20 @@ class ResearchHttpApi:
                     "experiment_id": row["id"],
                     "intent": row["intent"],
                     "status": row["status"],
+                }
+        elif ref.startswith("syn_"):
+            row = conn.execute(
+                "SELECT id, title, status, published_at FROM syntheses WHERE id = ? AND project_id = ?",
+                (ref, project_id),
+            ).fetchone()
+            if row:
+                return {
+                    "type": "synthesis",
+                    "resolved": True,
+                    "synthesis_id": row["id"],
+                    "title": row["title"],
+                    "status": row["status"],
+                    "published_at": row["published_at"],
                 }
         else:
             row = conn.execute(
@@ -723,6 +845,23 @@ def create_fastapi_app(
     @http.post("/api/projects/{project_id}/experiments/{experiment_id}/transition")
     def transition_experiment(project_id: str, experiment_id: str, body: JsonBody = Body(default=None)) -> dict[str, Any]:
         return api_for_project(project_id).call_tool(name="experiment.transition", arguments={"project_id": project_id, "experiment_id": experiment_id, **(body or {})})
+
+    @http.get("/api/projects/{project_id}/syntheses")
+    def list_syntheses(project_id: str) -> dict[str, Any]:
+        # Reflection waves + staleness/coverage signal for the UI panel.
+        return api_for_project(project_id).syntheses_view(project_id=project_id)
+
+    @http.get("/api/projects/{project_id}/syntheses/current/graph")
+    def project_logic_graph(project_id: str) -> dict[str, Any]:
+        # The living project logic graph; same payload shape as the
+        # per-experiment graph endpoint. UI-only read, no agent tool.
+        return api_for_project(project_id).project_logic_graph(project_id=project_id)
+
+    @http.get("/api/projects/{project_id}/syntheses/{synthesis_id}")
+    def get_synthesis(project_id: str, synthesis_id: str) -> dict[str, Any]:
+        return api_for_project(project_id).synthesis_detail(
+            project_id=project_id, synthesis_id=synthesis_id
+        )
 
     @http.get("/api/projects/{project_id}/resources")
     def list_resources(project_id: str, kind: str | None = None) -> dict[str, Any]:

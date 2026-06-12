@@ -25,6 +25,19 @@ research-state mutations. A file becomes a research resource only after MCP
 accepts a resource registration or sync and associates it with a claim,
 experiment, review, or attempt.
 
+## The experiment folder
+
+Every experiment owns exactly one folder: `experiments/<name>/`
+(created for you by `experiment.create`). Everything the experiment is lives
+there — plan.md, scripts, configs, results, report.md, graph.json. This
+matters because the folder is also the **sandbox sync unit**: when a sandbox
+is provisioned, the whole folder is pushed to the VM, and while the sandbox
+lives the folder is mirrored back to the local repo. Work you keep in the
+folder from planning onward (the plan, the code you wrote for the run, the
+notes the run needs) is therefore already on the VM when it boots. Shared
+repo material (papers/, notes/) is NOT pushed — copy the specific files a run
+needs into the experiment folder.
+
 ## Workflow
 
 1. Call `project.current` first. In project-local MCP this returns the project
@@ -109,31 +122,39 @@ SSH. You run ordinary shell commands. The default provider is **Lambda Labs**
    command stopped. Long foreground runs are safe; check the transcript
    (`sandbox.terminal`) for the command's `(exit N)` marker before re-running
    anything long.
-3. The sandbox starts with the experiment's local synced folder pushed to
-   `$RP_SYNC_DIR` (`/workspace/synced`). Once it is running, treat the sandbox as
-   the source of truth for experiment file changes: edit/run/write result files
-   inside `$RP_SYNC_DIR` through SSH, not in the local repo.
-4. Write compact scripts, configs, metrics, and result artifacts under
-   `$RP_SYNC_DIR`. Download large datasets and caches to `$RP_UNSYNCED_DIR` /
-   `$RP_SANDBOX_DATA_DIR` / `$RP_DATASET_DIR`, which is sandbox-local ephemeral
-   storage that is not pulled back locally. Data transformations written only
-   under `$RP_UNSYNCED_DIR` are ephemeral and will not be available to future
-   sandboxes; keep the reusable preprocessing/analysis scripts, configs, small
-   manifests, and final compact outputs under `$RP_SYNC_DIR` and call
-   `sandbox.sync` so they persist locally. Put deliberate large final artifacts
-   under `$RP_SYNC_DIR/artifacts_to_keep`. Prefer to write a Markdown data note
-   in the experiment folder under `$RP_SYNC_DIR`
-   (for example `experiments/<name>/data.md`) describing datasets used, source
-   identifiers, split/filter choices, important columns, row counts, caveats,
-   and where large ephemeral files were placed in `$RP_UNSYNCED_DIR`. This note
-   should be synced so future sandboxes carry the data context forward.
-5. If the sandbox response includes `environment.available_tokens` with
+3. The sandbox starts with your local experiment folder
+   (`experiments/<name>/`) pushed to `$RP_EXPERIMENT_DIR`
+   (`/workspace/<name>`). The push obeys the sync limits: files over
+   100 MB and caches/checkpoints/archives (.git, venvs, `*.pt`, `*.ckpt`,
+   `*.safetensors`, tarballs, ...) are skipped, except under
+   `artifacts_to_keep/` (5 GB per-file cap). The request/get response reports
+   how many files were pushed — 0 means the local folder had nothing eligible,
+   so the remote folder starts empty.
+4. While the sandbox is live, **the sandbox owns the experiment folder**. It is
+   mirrored back to the local repo every few seconds and on `sandbox.sync`, as
+   an exact replica: deletions and renames on the VM propagate locally, and
+   local edits are overwritten. So make ALL experiment-file edits on the VM
+   over SSH — including report.md and graph.json, whose local copies (and the
+   user's live UI) update through the mirror.
+5. The experiment folder is the **only** synced location. Keep datasets,
+   caches, temporary checkpoints, and anything else you do not want carried
+   into the repo OUTSIDE the folder — `$RP_DATASET_DIR` (`/workspace/data`) is
+   the conventional home. Nothing outside the folder is ever synced, and it
+   dies with the VM; anything reusable (preprocessing/analysis scripts,
+   configs, small manifests, compact outputs) belongs inside the folder. Put
+   deliberate large final artifacts under `$RP_EXPERIMENT_DIR/artifacts_to_keep`.
+   Prefer to write a Markdown data note in the experiment folder (for example
+   `data.md`) describing datasets used, source identifiers, split/filter
+   choices, important columns, row counts, caveats, and where large ephemeral
+   files were placed outside the folder — future sandboxes get the folder
+   pushed again, so the note carries the data context forward.
+6. If the sandbox response includes `environment.available_tokens` with
    `HF_TOKEN`, Hugging Face credentials are already available inside SSH
    commands. Use them through Hugging Face tooling or environment variables; do
    not print the token, write it into files, or sync it as a resource.
    **Training observability.** Every sandbox runs an MLflow tracking server and
-   a TensorBoard side-by-side under `$RP_SYNC_DIR/.research_plugin_sessions`.
-   Inside SSH commands,
+   a TensorBoard side-by-side (their state lives outside the experiment folder
+   and is preserved by the daemon — you never manage it). Inside SSH commands,
    `MLFLOW_TRACKING_URI=http://localhost:5000` is already exported and
    `$RP_TB_LOGDIR` points at the TensorBoard logdir. Log run params, metrics,
    and artifacts to MLflow, and write TensorBoard events to `$RP_TB_LOGDIR`.
@@ -141,21 +162,22 @@ SSH. You run ordinary shell commands. The default provider is **Lambda Labs**
    `MLFlowLogger` can use these env vars directly; for plain PyTorch, add
    `mlflow.autolog()` when useful. The user sees the dashboards live in their
    UI; you do not need to fetch, share, or open the URLs yourself.
-6. Before registering or associating result resources, call
-   `sandbox.sync(experiment_id)`. This pulls `$RP_SYNC_DIR` back to the local
-   experiment folder with SSH rsync. Resource tools only see local files, so
-   remote result paths are not valid resources until this sync completes. Also
-   call `sandbox.sync` after major file changes so the user can inspect the
-   latest files locally while the sandbox is still running.
-7. Use `sandbox.terminal(experiment_id)` to re-read the transcript,
+7. Before registering or associating result resources, call
+   `sandbox.sync(experiment_id)`. This mirrors `$RP_EXPERIMENT_DIR` back to the
+   local experiment folder with SSH rsync. Resource tools only see local files,
+   so remote result paths are not valid resources until this sync completes.
+   The backend also syncs automatically every few seconds, so the user is
+   already seeing your latest files — the explicit call is the durable handoff
+   before workflow mutations.
+8. Use `sandbox.terminal(experiment_id)` to re-read the transcript,
    `sandbox.get` to check status, and `sandbox.release` to shut the sandbox down
    when finished (it also expires automatically at `time_limit`). Call
    `sandbox.sync` before `sandbox.release` whenever you need files from the
    sandbox.
 
 Do not embed secrets in commands. Treat the sandbox as ephemeral: durable
-outputs must be written into `$RP_SYNC_DIR`, synced with `sandbox.sync`, and
-then registered/associated as resources.
+outputs must be written inside `$RP_EXPERIMENT_DIR`, synced with
+`sandbox.sync`, and then registered/associated as resources.
 
 ## Experiment creation
 
@@ -163,10 +185,29 @@ Prefer the minimal MCP shape:
 
 ```json
 {
+  "name": "lora-rank-sweep",
   "intent": "One concise statement of what the experiment will test.",
   "tested_claim_ids": ["claim_..."]
 }
 ```
+
+`name` is **required**: a short, folder-safe name (letters, digits, `.`, `_`,
+`-`; max 48 characters) that becomes the experiment folder
+`experiments/<name>/` — everything the experiment is (plan, code, results,
+report, graph) lives there, and that folder is what syncs to sandboxes. Names
+are unique within a project: if the name is already taken, creation is
+rejected and you must pick a new one.
+
+The create response confirms the folder: it includes `folder` (e.g.
+`experiments/lora-rank-sweep/`), already created on disk. Work inside it from
+that moment on — starting with `plan.md`.
+
+Pick the name for **navigation**: the project supplies the shared context, so
+the name should carry only the contrast — lead with what distinguishes this
+experiment from its siblings, and do not repeat the project topic. In a LoRA
+replication project, `released_adapters` / `scratch_training` /
+`paper_only_rebuild` scan instantly; `lora_glue`, `lora_glue_scratch`, and
+`lora_glue_paper_only` all read as the same experiment until the last word.
 
 `intent` is the durable **one-line headline** — the experiment's title in the
 UI. The full design (hypothesis, method, evaluation, risks) does **not** go in
@@ -179,8 +220,9 @@ state changes.
 
 ## Experiment plan
 
-The plan is one repo file (e.g. `experiments/<name>/plan.md`) associated with
-role `plan`. It is the **face of the experiment**: what the user reads in the UI
+The plan is one repo file in the experiment folder
+(`experiments/<name>/plan.md`) associated with role `plan`. It is the
+**face of the experiment**: what the user reads in the UI
 and what the design reviewer evaluates. Write it from
 `skills/research-workflow/plan-template.md` (a PRD-style template).
 
@@ -203,8 +245,9 @@ sync the plan as a resource so it is associated).
 
 ## Results report
 
-The report is one repo file (e.g. `experiments/<name>/report.md`) associated
-with role `report`. It is the **face of the executed experiment**: what the
+The report is one repo file in the experiment folder
+(`experiments/<name>/report.md`) associated with role `report`. It is
+the **face of the executed experiment**: what the
 user reads in the UI once results exist and what the experiment reviewer
 grades against the plan's Evaluation section. Write it from
 `skills/research-workflow/report-template.md`, in the same pass as your result
@@ -229,12 +272,21 @@ the experiment reviewer compares the two documents side by side.
 
 ## Logic graph
 
-The logic graph is one JSON repo file (e.g. `experiments/<name>/graph.json`)
-associated with role `graph`. It is the **story of how the experiment went**,
-told by you: the notable decisions, the problems you ran into, the pivots and
-iterations (including those forced by reviews), and what was learned — a small
-DAG the user explores in the UI during and after the run. Write it from
-`skills/research-workflow/graph-template.md`.
+The logic graph is one JSON repo file in the experiment folder
+(`experiments/<name>/graph.json`) associated with role `graph`. It is a
+**qualitative story you write about the logical path of the experiment** —
+the critical questions that needed answers, the hard decisions and the
+reasoning behind them, the pivots (including those forced by reviews), and
+what was learned — a small DAG the user explores in the UI during and after
+the run. Write it from `skills/research-workflow/graph-template.md`.
+
+This is not an event-driven graph. Events may be mentioned as anchors for
+reasoning, but the structure is logic: question → decision → consequence →
+lesson. It is NOT a pipeline or provenance diagram — if your nodes are
+components and your edges read `produces`/`contains`/`records`, you have
+drawn dataflow, not the story. And it is not a generated artifact: do not
+build it with a script over your result files; choosing what mattered is the
+authorship, so write the JSON yourself.
 
 You design the graph. Node `kind` names, edge labels, and structure are yours;
 the template's vocabulary is illustrative, not required. What deserves a node
@@ -256,10 +308,12 @@ under 16 KB. The lint checks shape only; the experiment reviewer judges
 whether the story is honest and consistent with the report and transcript.
 
 Start the graph early and sync it as the story develops — the user watches it
-live. After a review rejection, consider whether the rejection and the rework
-it forces belong in the story. If the graph is at the 16-node budget and
-something important must be added, reduce the graph first; how to retell the
-story within the budget is your call.
+live, and a hard decision is best recorded in the moment you make it, while
+the reasoning is fresh; a graph reconstructed at the end keeps the events but
+loses the *why*. After a review rejection, consider whether the rejection and
+the rework it forces belong in the story. If the graph is at the 16-node
+budget and something important must be added, reduce the graph first; how to
+retell the story within the budget is your call.
 
 ## Resource discipline
 
@@ -299,7 +353,8 @@ When MCP says the next action is `launch_design_reviewer` or
 
 Spawn an independent reviewer named by `reviewer_handoff.skill` or
 `workflow.review_gate.skill`. For design reviews, this is `design-review`. For
-full experiment reviews, this is `experiment-review`. Use your client's
+full experiment reviews, this is `experiment-review`. For project synthesis
+reviews, this is `synthesis-review`. Use your client's
 subagent or skill-spawn mechanism — the name is identical in both. In Claude
 Code, call the Agent tool with `subagent_type` set to this name (or
 `research-plugin:<name>` if your client namespaces plugin subagents). In Codex,
@@ -324,6 +379,26 @@ context attached either way:
   was flawed. Back in `running`, the approved plan and current attempt remain
   valid: address the revision context, re-run what is needed, sync results,
   and `submit_results` again — do not redo the plan or design review.
+
+## Project reflection
+
+The project also has a level above experiments: a **project logic graph** —
+one living JSON file, the current logic state of the whole project under the
+same 16-node budget — maintained through gated **reflection waves**
+(`synthesis.create / get / list / transition`). A wave fans out five
+differentiated reflection subagents, reconciles their reflections into the
+project graph plus a what's-next proposals file, and passes a synthesis
+review before publishing. When `workflow.status_and_next` carries a
+`project_reflection` block — either an open wave's guidance or a soft
+"Consider running a project reflection" staleness hint — see the
+`research-reflection` skill. When the project is idle (no active
+experiments) and at least one experiment has finished since the last
+published synthesis, the project-level call goes further and suggests the
+reflection as the next action (`current_gate: reflection_suggested`) — the
+natural moment to distill what was learned before starting the next
+experiment. The nudge is advisory either way: creating the next
+claim/experiment stays allowed, and whether new developments change the
+project's logic state is your call.
 
 ## Completion
 

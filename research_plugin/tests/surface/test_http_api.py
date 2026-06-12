@@ -47,7 +47,7 @@ class ResearchPluginHttpApiTest(unittest.TestCase):
         exp = self.request(
             "POST",
             f"/api/projects/{project_id}/experiments",
-            {"intent": "Compare threshold with baseline.", "claim_ids": [claim["id"]]},
+            {"name": "threshold-vs-baseline", "intent": "Compare threshold with baseline.", "claim_ids": [claim["id"]]},
         )
         exp_id = exp["id"]
         (self.repo / "plan.md").write_text(
@@ -108,7 +108,7 @@ class ResearchPluginHttpApiTest(unittest.TestCase):
     def test_review_start_and_submit_are_scoped_to_route_project(self) -> None:
         project = self.request("POST", "/api/projects", {"name": "Scoped A"})
         pid = project["id"]
-        exp = self.request("POST", f"/api/projects/{pid}/experiments", {"intent": "Scoped review"})
+        exp = self.request("POST", f"/api/projects/{pid}/experiments", {"name": "exp-1", "intent": "Scoped review"})
         exp_id = exp["id"]
         (self.repo / "plan.md").write_text(
             "## Summary\nScoped review.\n\n"
@@ -159,7 +159,7 @@ class ResearchPluginHttpApiTest(unittest.TestCase):
     def test_sandbox_http_endpoints(self) -> None:
         project = self.request("POST", "/api/projects", {"name": "Sandbox UI Project"})
         project_id = project["id"]
-        exp = self.request("POST", f"/api/projects/{project_id}/experiments", {"intent": "Run an experiment"})
+        exp = self.request("POST", f"/api/projects/{project_id}/experiments", {"name": "exp-2", "intent": "Run an experiment"})
         exp_id = exp["id"]
         # Drive the experiment to ready_to_run so a sandbox may be requested.
         with self.app.store.transaction() as conn:
@@ -229,7 +229,7 @@ class ResearchPluginHttpApiTest(unittest.TestCase):
         project = self.request("POST", "/api/projects", {"name": "Results Project"})
         project_id = project["id"]
         exp = self.request(
-            "POST", f"/api/projects/{project_id}/experiments", {"intent": "Train"}
+            "POST", f"/api/projects/{project_id}/experiments", {"name": "exp-3", "intent": "Train"}
         )
         exp_id = exp["id"]
         with self.app.store.transaction() as conn:
@@ -282,9 +282,9 @@ class ResearchPluginHttpApiTest(unittest.TestCase):
     def test_home_exposes_active_experiments_and_processes(self) -> None:
         project = self.request("POST", "/api/projects", {"name": "Active Work Project"})
         project_id = project["id"]
-        planned = self.request("POST", f"/api/projects/{project_id}/experiments", {"intent": "Planned active work"})
-        running = self.request("POST", f"/api/projects/{project_id}/experiments", {"intent": "Running active work"})
-        complete = self.request("POST", f"/api/projects/{project_id}/experiments", {"intent": "Finished work"})
+        planned = self.request("POST", f"/api/projects/{project_id}/experiments", {"name": "exp-4", "intent": "Planned active work"})
+        running = self.request("POST", f"/api/projects/{project_id}/experiments", {"name": "exp-5", "intent": "Running active work"})
+        complete = self.request("POST", f"/api/projects/{project_id}/experiments", {"name": "exp-6", "intent": "Finished work"})
         now = now_iso()
         with self.app.store.transaction() as conn:
             conn.execute("UPDATE experiments SET status = 'running', updated_at = ? WHERE id = ?", (now, running["id"]))
@@ -341,7 +341,7 @@ class ResearchPluginHttpApiTest(unittest.TestCase):
         exp = self.request(
             "POST",
             f"/api/projects/{pid}/experiments",
-            {"intent": "Compare LoRA ranks.", "claim_ids": [claim["id"]]},
+            {"name": "lora-ranks", "intent": "Compare LoRA ranks.", "claim_ids": [claim["id"]]},
         )
         exp_id = exp["id"]
         (self.repo / "plan.md").write_text(
@@ -436,7 +436,7 @@ class ResearchPluginHttpApiTest(unittest.TestCase):
         exp = self.request(
             "POST",
             f"/api/projects/{pid}/experiments",
-            {"intent": "Test warmup sensitivity.", "claim_ids": [claim["id"]]},
+            {"name": "warmup-sensitivity", "intent": "Test warmup sensitivity.", "claim_ids": [claim["id"]]},
         )
         exp_id = exp["id"]
 
@@ -526,6 +526,177 @@ class ResearchPluginHttpApiTest(unittest.TestCase):
         self.assertIn("not a registered resource", refs["notes.md"]["hint"])
         # Nothing at all: unresolved, no error.
         self.assertEqual(refs["ghost.json"], {"type": "unknown", "resolved": False})
+
+    def test_experiment_logic_graph_picks_latest_association_and_reports_broken_json(self) -> None:
+        import json as _json
+
+        project = self.request("POST", "/api/projects", {"name": "Graph Pick Project"})
+        pid = project["id"]
+        exp = self.request(
+            "POST",
+            f"/api/projects/{pid}/experiments",
+            {"name": "graph-pick", "intent": "Pick the right graph file."},
+        )
+        exp_id = exp["id"]
+
+        def graph_with(label):
+            return _json.dumps({"version": 1, "nodes": [{"id": "n", "label": label}]})
+
+        # Associate two graph-role files in the same attempt. The alphabetically
+        # later path goes FIRST, so a last-by-path picker would choose it; the
+        # endpoint must instead pick the most recently associated file — the
+        # same row the submit_results validator lints.
+        (self.repo / "b_old.json").write_text(graph_with("old story"))
+        (self.repo / "a_new.json").write_text(graph_with("new story"))
+        for path in ("b_old.json", "a_new.json"):
+            res = self.request("POST", f"/api/projects/{pid}/resources", {"path": path, "kind": "other"})
+            self.request(
+                "POST",
+                f"/api/projects/{pid}/resources/{res['id']}/associate",
+                {"target_type": "experiment", "target_id": exp_id, "role": "graph"},
+            )
+
+        payload = self.request("GET", f"/api/projects/{pid}/experiments/{exp_id}/graph")
+        self.assertTrue(payload["available"])
+        self.assertEqual(payload["path"], "a_new.json")
+        self.assertEqual(payload["graph"]["nodes"][0]["label"], "new story")
+
+        # Broken JSON in the live file: still available (a graph exists), with
+        # the problems stated — the UI renders the problems instead of hiding.
+        (self.repo / "a_new.json").write_text("{not json")
+        payload = self.request("GET", f"/api/projects/{pid}/experiments/{exp_id}/graph")
+        self.assertTrue(payload["available"])
+        self.assertIsNone(payload["graph"])
+        self.assertTrue(any("not valid JSON" in p for p in payload["problems"]))
+
+    def test_synthesis_endpoints_and_project_graph(self) -> None:
+        project = self.request("POST", "/api/projects", {"name": "Reflect"})
+        pid = project["id"]
+
+        # Drive a wave to published via the tool surface (the same path the
+        # MCP proxy exercises); read everything back over HTTP.
+        lenses = [
+            {"id": "outcomes"},
+            {"id": "dead_ends"},
+            {"id": "coverage"},
+            {
+                "id": "rigor",
+                "charter": "Method soundness.",
+                "why_distinct": "How we measured, not what we found.",
+            },
+            {
+                "id": "cost",
+                "charter": "Compute vs information gained.",
+                "why_distinct": "Prices the exploration.",
+            },
+        ]
+        syn = self.app.call_tool(
+            "synthesis.create",
+            {"project_id": pid, "title": "Wave 1", "lenses": lenses},
+        )
+        syn_id = syn["id"]
+
+        listing = self.request("GET", f"/api/projects/{pid}/syntheses")
+        self.assertEqual(len(listing["syntheses"]), 1)
+        self.assertEqual(listing["open_synthesis"]["id"], syn_id)
+        self.assertIn("signal", listing)
+
+        # No graph yet: the project-graph endpoint degrades, not errors.
+        empty = self.request("GET", f"/api/projects/{pid}/syntheses/current/graph")
+        self.assertFalse(empty["available"])
+
+        for lens in ("outcomes", "dead_ends", "coverage", "rigor", "cost"):
+            path = self.repo / f"syntheses/{syn_id}/reflections/{lens}.md"
+            path.parent.mkdir(parents=True, exist_ok=True)
+            path.write_text(f"{lens} findings\n")
+            res = self.request(
+                "POST",
+                f"/api/projects/{pid}/resources",
+                {"path": str(path.relative_to(self.repo))},
+            )
+            self.request(
+                "POST",
+                f"/api/projects/{pid}/resources/{res['id']}/associate",
+                {"target_type": "synthesis", "target_id": syn_id, "role": "reflection"},
+            )
+        self.app.call_tool(
+            "synthesis.transition",
+            {"project_id": pid, "synthesis_id": syn_id, "transition": "submit_reflections"},
+        )
+
+        # The project graph refs the wave itself (syn_) and a reflection file.
+        (self.repo / "project").mkdir()
+        (self.repo / "project/logic_graph.json").write_text(
+            '{"version": 1, "title": "Project logic", "nodes": ['
+            '{"id": "a", "kind": "lesson", "label": "Lesson", "refs": ["' + syn_id + '"]},'
+            '{"id": "b", "kind": "open", "label": "Open question", '
+            '"refs": ["syntheses/' + syn_id + '/reflections/dead_ends.md"]}],'
+            ' "edges": [{"from": "a", "to": "b"}]}'
+        )
+        (self.repo / "project/proposals.md").write_text("## P1\nHypothesis.\n")
+        for path, role in (("project/logic_graph.json", "graph"), ("project/proposals.md", "proposals")):
+            res = self.request("POST", f"/api/projects/{pid}/resources", {"path": path})
+            self.request(
+                "POST",
+                f"/api/projects/{pid}/resources/{res['id']}/associate",
+                {"target_type": "synthesis", "target_id": syn_id, "role": role},
+            )
+        self.app.call_tool(
+            "synthesis.transition",
+            {"project_id": pid, "synthesis_id": syn_id, "transition": "submit_synthesis"},
+        )
+
+        # The open wave's graph renders while still under review.
+        payload = self.request("GET", f"/api/projects/{pid}/syntheses/current/graph")
+        self.assertTrue(payload["available"])
+        self.assertEqual(payload["synthesis"]["id"], syn_id)
+        self.assertEqual(payload["synthesis"]["status"], "synthesis_review")
+        self.assertEqual(payload["problems"], [])
+        refs = payload["ref_index"]
+        self.assertEqual(refs[syn_id]["type"], "synthesis")
+        self.assertTrue(refs[syn_id]["resolved"])
+        self.assertEqual(refs[syn_id]["title"], "Wave 1")
+        reflection_ref = refs[f"syntheses/{syn_id}/reflections/dead_ends.md"]
+        self.assertEqual(reflection_ref["type"], "resource")
+
+        # Review over the HTTP review endpoints (target-polymorphic).
+        req = self.request(
+            "POST",
+            f"/api/projects/{pid}/reviews/request",
+            {"target_type": "synthesis", "target_id": syn_id, "role": "synthesis_reviewer"},
+        )
+        session = self.request(
+            "POST",
+            f"/api/projects/{pid}/reviews/start",
+            {
+                "review_request_id": req["review_request_id"],
+                "reviewer_capability": req["reviewer_capability"],
+                "caller_session_id": "http-reviewer",
+            },
+        )
+        self.request(
+            "POST",
+            f"/api/projects/{pid}/reviews/submit",
+            {"review_session_id": session["review_session_id"], "verdict": "pass"},
+        )
+        self.app.call_tool(
+            "synthesis.transition",
+            {"project_id": pid, "synthesis_id": syn_id, "transition": "publish"},
+        )
+
+        detail = self.request("GET", f"/api/projects/{pid}/syntheses/{syn_id}")
+        self.assertEqual(detail["status"], "published")
+        self.assertTrue(detail["published_graph_version_id"])
+        self.assertEqual(len(detail["roster"]), 5)
+
+        # Published wave still serves the living graph as "current".
+        payload = self.request("GET", f"/api/projects/{pid}/syntheses/current/graph")
+        self.assertTrue(payload["available"])
+        self.assertEqual(payload["synthesis"]["status"], "published")
+        listing = self.request("GET", f"/api/projects/{pid}/syntheses")
+        self.assertIsNone(listing["open_synthesis"])
+        self.assertEqual(listing["latest_published"]["id"], syn_id)
+        self.assertEqual(listing["current"]["id"], syn_id)
 
 
 class ResourceRelFileTest(unittest.TestCase):

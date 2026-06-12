@@ -72,12 +72,13 @@ class LocalShippingTest(unittest.TestCase):
         exp = self._tool(
             proc,
             "experiment.create",
+            name="shipping",
             intent="Record plan and result resources through the installed MCP launcher.",
             tested_claim_ids=[claim["id"]],
         )
         exp_id = exp["id"]
 
-        (self.research_repo / "experiments" / "shipping").mkdir(parents=True)
+        (self.research_repo / "experiments" / "shipping").mkdir(parents=True, exist_ok=True)
         (self.research_repo / "experiments" / "shipping" / "plan.md").write_text(
             "## Summary\nShip a plan and result through the installed launcher.\n\n"
             "## Objective & hypothesis\nThreshold rule beats the majority class.\n\n"

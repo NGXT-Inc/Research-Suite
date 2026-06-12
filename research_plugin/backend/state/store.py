@@ -38,6 +38,7 @@ CREATE TABLE IF NOT EXISTS claims (
 CREATE TABLE IF NOT EXISTS experiments (
   id TEXT PRIMARY KEY,
   project_id TEXT NOT NULL,
+  name TEXT NOT NULL DEFAULT '',
   intent TEXT NOT NULL,
   status TEXT NOT NULL,
   attempt_index INTEGER NOT NULL DEFAULT 1,
@@ -163,6 +164,29 @@ CREATE TABLE IF NOT EXISTS events (
   FOREIGN KEY(project_id) REFERENCES projects(id)
 );
 
+CREATE TABLE IF NOT EXISTS syntheses (
+  id TEXT PRIMARY KEY,
+  project_id TEXT NOT NULL,
+  title TEXT NOT NULL DEFAULT '',
+  status TEXT NOT NULL,
+  attempt_index INTEGER NOT NULL DEFAULT 1,
+  revision_context TEXT NOT NULL DEFAULT '',
+  -- The declared reflection roster: 5 lenses (3 core + 2 wave-authored), each
+  -- {id, title, charter, core, why_distinct}. JSON list, fixed at create.
+  roster_json TEXT NOT NULL DEFAULT '[]',
+  -- The corpus snapshot taken at create: terminal experiments (id + attempt +
+  -- status) and claim statuses at that moment. The synthesis review judges the
+  -- story against this fixed corpus, and staleness is computed against it.
+  corpus_json TEXT NOT NULL DEFAULT '{}',
+  published_at TEXT,
+  -- Version id of the project logic graph association at publish time, so the
+  -- single living graph file still yields an immutable per-wave history.
+  published_graph_version_id TEXT,
+  created_at TEXT NOT NULL,
+  updated_at TEXT NOT NULL,
+  FOREIGN KEY(project_id) REFERENCES projects(id)
+);
+
 CREATE TABLE IF NOT EXISTS sandboxes (
   experiment_id TEXT PRIMARY KEY,
   project_id TEXT NOT NULL,
@@ -186,6 +210,8 @@ CREATE TABLE IF NOT EXISTS sandboxes (
   unsynced_dir TEXT NOT NULL DEFAULT '',
   local_sync_dir TEXT NOT NULL DEFAULT '',
   sandbox_data_dir TEXT NOT NULL DEFAULT '',
+  -- Files delivered by the initial experiment-folder push (-1 = unknown).
+  initial_pushed INTEGER NOT NULL DEFAULT -1,
   volume_name TEXT NOT NULL DEFAULT '',
   -- Observability dashboards exposed inside the sandbox (MLflow at 5000,
   -- TensorBoard at 6006), surfaced to the user as provider URLs (Modal HTTPS
@@ -303,11 +329,16 @@ class StateStore:
 
     def _ensure_forward_schema(self, *, conn: sqlite3.Connection) -> None:
         # Experiments now persist the accepted conclusion on `complete`; older
-        # databases predate the column.
+        # databases predate the column. Named experiments (June 2026): the
+        # short unique name doubles as the experiment folder name; empty on
+        # rows that predate the requirement (their folders stay id-named).
         self._ensure_columns(
             conn=conn,
             table="experiments",
-            columns={"conclusion": "TEXT NOT NULL DEFAULT ''"},
+            columns={
+                "conclusion": "TEXT NOT NULL DEFAULT ''",
+                "name": "TEXT NOT NULL DEFAULT ''",
+            },
         )
         self._ensure_columns(
             conn=conn,
@@ -346,6 +377,11 @@ class StateStore:
                 # datacenter for backends that procure a fixed instance type.
                 "instance_type": "TEXT NOT NULL DEFAULT ''",
                 "region": "TEXT NOT NULL DEFAULT ''",
+                # Experiment-folder sync (June 2026): how many files the initial
+                # push delivered to the sandbox. -1 = unknown (pre-change rows
+                # or provisioning still in flight); 0 is meaningful — the local
+                # experiment folder had nothing eligible to push.
+                "initial_pushed": "INTEGER NOT NULL DEFAULT -1",
             },
         )
         # The shadow-git unplug (May 2026) dropped these columns from the

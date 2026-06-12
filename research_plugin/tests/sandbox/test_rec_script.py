@@ -44,10 +44,12 @@ class RecScriptHarness(unittest.TestCase):
     def setUp(self) -> None:
         self.tmp = tempfile.TemporaryDirectory()
         root = Path(self.tmp.name)
-        self.workdir = root / "synced"
-        self.unsynced = root / "unsynced"
+        self.workdir = root / "exp_t"
+        self.data_dir = root / "data"
+        self.sessions = root / ".research_plugin_sessions" / "exp_t"
         self.workdir.mkdir()
-        self.unsynced.mkdir()
+        self.data_dir.mkdir()
+        self.sessions.mkdir(parents=True)
         self.script = root / "rec.sh"
         self.script.write_text(self.rec_script)
         self.script.chmod(self.script.stat().st_mode | stat.S_IXUSR)
@@ -57,13 +59,15 @@ class RecScriptHarness(unittest.TestCase):
 
     @property
     def transcript(self) -> Path:
-        return self.workdir / ".research_plugin_sessions" / "exp_t" / "transcript.log"
+        return self.sessions / "transcript.log"
 
     def env(self, *, path: str | None = None) -> dict[str, str]:
         env = dict(os.environ)
         env.update(
             RP_WORKDIR=str(self.workdir),
-            RP_UNSYNCED_DIR=str(self.unsynced),
+            RP_EXPERIMENT_DIR=str(self.workdir),
+            RP_SANDBOX_DATA_DIR=str(self.data_dir),
+            RP_DASH_DIR=str(self.sessions),
             RP_EXPERIMENT_ID="exp_t",
         )
         if path is not None:
@@ -106,7 +110,7 @@ class TmuxSupervisorTest(RecScriptHarness):
     @unittest.skipUnless(HAVE_TMUX, "tmux not installed")
     def test_run_dir_records_cmd_output_exit_code(self) -> None:
         self.run_rec("printf abc")
-        runs = list((self.unsynced / ".rp_runs").iterdir())
+        runs = list((self.data_dir / ".rp_runs").iterdir())
         self.assertEqual(len(runs), 1)
         run_dir = runs[0]
         self.assertEqual((run_dir / "cmd").read_text(), "printf abc")
@@ -137,7 +141,7 @@ class TmuxSupervisorTest(RecScriptHarness):
         # transcript with nobody connected.
         self.wait_for(lambda: self.transcript.exists() and "SURVIVED" in self.transcript.read_text())
         self.wait_for(lambda: "(exit 5)" in self.transcript.read_text())
-        runs = list((self.unsynced / ".rp_runs").iterdir())
+        runs = list((self.data_dir / ".rp_runs").iterdir())
         self.assertEqual((runs[0] / "exit_code").read_text().strip(), "5")
 
     def test_falls_back_attached_when_tmux_broken(self) -> None:
@@ -154,7 +158,7 @@ class TmuxSupervisorTest(RecScriptHarness):
         log = self.transcript.read_text()
         self.assertIn("(exit 3)", log)
         # No run dir: the supervisor path was never entered.
-        self.assertEqual(list((self.unsynced / ".rp_runs").glob("*/exit_code")), [])
+        self.assertEqual(list((self.data_dir / ".rp_runs").glob("*/exit_code")), [])
 
 
 class ModalRecScriptTest(RecScriptHarness):

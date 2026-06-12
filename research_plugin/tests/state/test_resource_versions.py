@@ -19,7 +19,7 @@ class ResourceVersioningTest(unittest.TestCase):
         )
         self.project = self.call("project.create", name="Version Test")
         self.project_id = self.project["id"]
-        self.exp = self.call("experiment.create", project_id=self.project_id, intent="Track plan history.")
+        self.exp = self.call("experiment.create", name="exp-1", project_id=self.project_id, intent="Track plan history.")
         self.exp_id = self.exp["id"]
 
     def tearDown(self) -> None:

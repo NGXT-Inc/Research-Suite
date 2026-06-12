@@ -47,8 +47,10 @@ MVP gates:
    relative figure link must resolve to a synced file. See
    `skills/research-workflow/report-template.md`.
 5. Logic graph gate: before `submit_results`, the current attempt must also
-   carry the experiment's logic graph (role `graph`) — the agent-authored
-   story of notable decisions, problems, pivots, and lessons, told as a DAG.
+   carry the experiment's logic graph (role `graph`) — a qualitative story
+   the agent writes about the experiment's logical path: the hard decisions,
+   the reasoning behind them, pivots, and lessons, told as a DAG. It is not
+   an event or pipeline diagram and must be authored, never script-generated.
    The server lints only the envelope (valid JSON, every node with an id and
    label, at most 16 nodes, acyclic edges, under 16 KB); the story's
    vocabulary, structure, and substance are the agent's design, judged by the
@@ -171,6 +173,14 @@ The `submit_results` transition lints the report file (sections, metrics table,
 size, figure links) and the logic graph's envelope (valid JSON, node budget,
 DAG) before the experiment enters review.
 
+`workflow.status_and_next` runs those same deep lints once every required
+artifact exists: if a live file would fail the transition's lint, the gate is
+`plan_invalid` / `report_invalid` / `graph_invalid` with the lint problems in
+`missing_evidence` and the action `fix_<role>_resource` — the workflow never
+answers "ready to submit" for an artifact the transition would reject. The
+lints read the live files, so fixing the file (no re-association) clears the
+gate.
+
 On rejection, the attached revision context includes a soft reminder to
 *consider* updating the logic graph — whether the rejection and rework belong
 in the story is the agent's editorial call, and the 16-node budget still
@@ -184,3 +194,73 @@ An experiment can complete only when:
 - its design and experiment review gates are satisfied
 - its conclusion is tied to resources and/or sandbox outputs
 - MCP accepts the completion transition
+
+## Project synthesis lifecycle (reflection waves)
+
+One level above experiments, the project maintains a **living project logic
+graph** — one JSON file under the same 16-node envelope as experiment graphs,
+holding the project's current logic state — through gated **synthesis**
+records (`syn_…`), one per reflection wave:
+
+```text
+reflecting -> synthesizing -> synthesis_review -> published
+    ^               ^                |
+    |               |                v
+    |               +--- return_to=synthesizing (reflections stand;
+    |                     revise graph/proposals; attempt unchanged)
+    +------------------- return_to=reflecting (re-launch the fan-out;
+                          attempt advances)
+
+abandoned is the terminal exit. One wave may be open per project at a time.
+```
+
+Gates (envelope-only, same philosophy as experiment gates):
+
+1. Roster gate: `synthesis.create` requires exactly five lenses — the three
+   core ids (`outcomes`, `dead_ends`, `coverage`) plus two wave-authored
+   lenses, each with a charter and a stated `why_distinct`. The corpus
+   (terminal experiments + claim statuses) is snapshotted at create.
+2. Reflection coverage gate: `submit_reflections` is blocked until every
+   roster lens has a current-attempt role-`reflection` resource whose
+   filename is `<lens_id>.md`, non-empty on disk. Each reflection is
+   authored and submitted by its own read-only subagent.
+3. Synthesis artifacts gate: `submit_synthesis` requires the project logic
+   graph (role `graph`, the shared `graph_lint` envelope) and a non-empty
+   what's-next proposals file (role `proposals`), both associated to the
+   wave's current attempt.
+4. Synthesis review gate: `publish` requires a passing `synthesis_reviewer`
+   review pinned to the wave's snapshot. The reviewer judges substance —
+   does the story reconcile with the corpus, were the lenses genuinely
+   diverse, are the proposals grounded — through the same capability
+   machinery (one-time token, snapshot pinning, producer-session rejection,
+   read-only funnel) as experiment reviews. Rejections must route via
+   `return_to`: `synthesizing` or `reflecting`.
+
+On publish the record pins `published_graph_version_id`, so the single living
+graph file still yields an immutable per-wave history. The diversity
+heuristics (anti-overlap lens briefs, ambition quota, dead-end
+differentiation) live in the `research-reflection` skill, not in gates.
+
+Staleness is computed on read, never stored: `workflow.status_and_next`
+carries a `project_reflection` block when a wave is open (slim state + gate
+guidance) or when the project has drifted from the last published synthesis.
+Drift surfaces at two advisory tiers:
+
+- **Nudge** (any time): once drift crosses the staleness threshold (≥3
+  newly-terminal experiments, or any claim flipped to `contradicted`), the
+  block carries the soft hint — "Consider running a project reflection…" —
+  whatever else is in flight.
+- **Recommendation** (idle only): when no experiment is active and at least
+  one has finished since the last published synthesis, a project-level call
+  (no explicit `experiment_id`) also escalates the workflow block itself:
+  `current_gate: reflection_suggested`, `next_action:
+  consider_project_reflection`, with `synthesis.create` alongside
+  `claim.create` / `experiment.create` in the allowed actions. An open wave
+  wins that slot instead (its gate guidance becomes the workflow block), so
+  an idle orientation call always points at the project-level work rather
+  than answering "none" for the auto-resolved terminal experiment.
+
+Neither tier blocks anything — creating claims and experiments stays allowed,
+and whether new developments change the project's logic state is the agent's
+call. Explicitly experiment-scoped calls are never taken over; they get the
+side block only.

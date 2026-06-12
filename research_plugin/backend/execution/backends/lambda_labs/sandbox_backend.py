@@ -24,6 +24,7 @@ from backend.execution.bootstrap_tools import (
 )
 from backend.execution.usage_metrics import METRICS_SCRIPT, parse_metrics
 from ...errors import BackendUnavailableError, BackendValidationError
+from ...sync_dirs import remote_experiment_dir, remote_root_of, remote_sessions_dir
 from ...types import (
     BackendCapabilities,
     OnCreated,
@@ -56,20 +57,20 @@ SshRunner = Callable[[list[str]], "subprocess.CompletedProcess[str]"]
 
 REC_SCRIPT = r"""#!/usr/bin/env bash
 [ -f /opt/rp/env ] && . /opt/rp/env
-RP_WORKDIR="${RP_WORKDIR:-/workspace/synced}"
-RP_SYNC_DIR="${RP_SYNC_DIR:-$RP_WORKDIR}"
-RP_UNSYNCED_DIR="${RP_UNSYNCED_DIR:-${RP_SANDBOX_DATA_DIR:-/workspace/unsynced}}"
 RP_EXPERIMENT_ID="${RP_EXPERIMENT_ID:-unknown}"
-RP_SANDBOX_DATA_DIR="$RP_UNSYNCED_DIR"
+RP_WORKDIR="${RP_WORKDIR:-/workspace/$RP_EXPERIMENT_ID}"
+RP_EXPERIMENT_DIR="${RP_EXPERIMENT_DIR:-$RP_WORKDIR}"
+RP_SANDBOX_DATA_DIR="${RP_SANDBOX_DATA_DIR:-/workspace/data}"
 RP_DATASET_DIR="${RP_DATASET_DIR:-$RP_SANDBOX_DATA_DIR}"
-RP_TB_LOGDIR="${RP_TB_LOGDIR:-$RP_WORKDIR/.research_plugin_sessions/$RP_EXPERIMENT_ID/tb}"
+RP_DASH_DIR="${RP_DASH_DIR:-/workspace/.research_plugin_sessions/$RP_EXPERIMENT_ID}"
+RP_TB_LOGDIR="${RP_TB_LOGDIR:-$RP_DASH_DIR/tb}"
 MLFLOW_TRACKING_URI="${MLFLOW_TRACKING_URI:-http://localhost:5000}"
-export RP_WORKDIR RP_SYNC_DIR RP_UNSYNCED_DIR RP_EXPERIMENT_ID RP_SANDBOX_DATA_DIR RP_DATASET_DIR RP_TB_LOGDIR MLFLOW_TRACKING_URI
-mkdir -p "$RP_SYNC_DIR" "$RP_UNSYNCED_DIR" "$RP_SYNC_DIR/artifacts_to_keep" 2>/dev/null || true
+export RP_WORKDIR RP_EXPERIMENT_DIR RP_EXPERIMENT_ID RP_SANDBOX_DATA_DIR RP_DATASET_DIR RP_DASH_DIR RP_TB_LOGDIR MLFLOW_TRACKING_URI
+mkdir -p "$RP_EXPERIMENT_DIR" "$RP_SANDBOX_DATA_DIR" "$RP_EXPERIMENT_DIR/artifacts_to_keep" "$RP_DASH_DIR" 2>/dev/null || true
 if [ -x /opt/rp/start_dashboards.sh ]; then
   /opt/rp/start_dashboards.sh >/dev/null 2>&1 || true
 fi
-LOG_DIR="$RP_WORKDIR/.research_plugin_sessions/$RP_EXPERIMENT_ID"
+LOG_DIR="$RP_DASH_DIR"
 LOG="$LOG_DIR/transcript.log"
 mkdir -p "$LOG_DIR" 2>/dev/null || true
 ts() { date -u +%Y-%m-%dT%H:%M:%SZ; }
@@ -91,11 +92,11 @@ if [ -n "${SSH_ORIGINAL_COMMAND:-}" ]; then
       ;;
   esac
   { printf '\n[%s] $ %s\n' "$(ts)" "$SSH_ORIGINAL_COMMAND" >> "$LOG"; } 2>/dev/null || true
-  cd "$RP_WORKDIR" 2>/dev/null || true
+  cd "$RP_EXPERIMENT_DIR" 2>/dev/null || true
 """ + REC_EXEC_CORE + r"""
 else
   { printf '\n[%s] (interactive shell)\n' "$(ts)" >> "$LOG"; } 2>/dev/null || true
-  cd "$RP_WORKDIR" 2>/dev/null || true
+  cd "$RP_EXPERIMENT_DIR" 2>/dev/null || true
   exec bash -l
 fi
 """
@@ -104,9 +105,8 @@ fi
 DASHBOARD_SCRIPT = r"""#!/usr/bin/env bash
 set +e
 [ -f /opt/rp/env ] && . /opt/rp/env
-RP_WORKDIR="${RP_WORKDIR:-/workspace/synced}"
 RP_EXPERIMENT_ID="${RP_EXPERIMENT_ID:-unknown}"
-RP_DASH_DIR="${RP_DASH_DIR:-$RP_WORKDIR/.research_plugin_sessions/$RP_EXPERIMENT_ID}"
+RP_DASH_DIR="${RP_DASH_DIR:-/workspace/.research_plugin_sessions/$RP_EXPERIMENT_ID}"
 RP_MLFLOW_DB="$RP_DASH_DIR/mlflow.db"
 RP_MLFLOW_ARTIFACTS="$RP_DASH_DIR/mlflow-artifacts"
 RP_TB_LOGDIR="${RP_TB_LOGDIR:-$RP_DASH_DIR/tb}"
@@ -229,10 +229,16 @@ class LambdaLabsSandboxBackend(SandboxBackendBase):
             key_id = str(key.get("id") or "")
 
             _call(on_phase, "creating", f"{instance_type} in {region}")
+            workdir = request.remote_workdir or remote_experiment_dir(
+                experiment_id=request.experiment_id, root=self.config.remote_root
+            )
             user_data = build_user_data(
                 public_key=request.public_key,
                 experiment_id=request.experiment_id,
-                workdir=request.remote_workdir or self.config.remote_workdir,
+                workdir=workdir,
+                sessions_dir=remote_sessions_dir(
+                    experiment_id=request.experiment_id, root=remote_root_of(workdir)
+                ),
                 sandbox_data_dir=self.config.sandbox_data_dir,
                 tokens=_sandbox_tokens(),
             )
@@ -256,9 +262,9 @@ class LambdaLabsSandboxBackend(SandboxBackendBase):
                 ssh_host=ip,
                 ssh_port=22,
                 ssh_user=self.config.ssh_user,
-                workdir=request.remote_workdir or self.config.remote_workdir,
+                workdir=workdir,
                 volume_name="",
-                sync_dir=request.remote_workdir or self.config.remote_workdir,
+                sync_dir=workdir,
                 unsynced_dir=self.config.sandbox_data_dir,
                 sandbox_data_dir=self.config.sandbox_data_dir,
                 reused=False,
@@ -324,15 +330,23 @@ class LambdaLabsSandboxBackend(SandboxBackendBase):
         if not sandbox_id or not ssh_host or not key_path:
             return ""
         limit = int(tail) if tail and tail > 0 else TRANSCRIPT_TAIL_DEFAULT
+        base = workdir or remote_experiment_dir(
+            experiment_id=experiment_id, root=self.config.remote_root
+        )
+        # Sessions live outside the experiment folder; legacy sandboxes
+        # (pre-layout-change rows) kept them inside the synced workdir.
         log_path = PurePosixPath(
-            workdir or self.config.remote_workdir,
-            SESSIONS_DIR_NAME,
-            experiment_id,
+            remote_sessions_dir(experiment_id=experiment_id, root=remote_root_of(base)),
             TRANSCRIPT_FILENAME,
+        ).as_posix()
+        legacy_path = PurePosixPath(
+            base, SESSIONS_DIR_NAME, experiment_id, TRANSCRIPT_FILENAME
         ).as_posix()
         remote_command = (
             f"{TRANSCRIPT_READ_PREFIX}if [ -f {shlex.quote(log_path)} ]; then "
-            f"tail -c {limit} {shlex.quote(log_path)}; fi"
+            f"tail -c {limit} {shlex.quote(log_path)}; "
+            f"elif [ -f {shlex.quote(legacy_path)} ]; then "
+            f"tail -c {limit} {shlex.quote(legacy_path)}; fi"
         )
         command = [
             "ssh",
@@ -616,6 +630,7 @@ def build_user_data(
     public_key: str,
     experiment_id: str,
     workdir: str,
+    sessions_dir: str,
     sandbox_data_dir: str,
     tokens: Mapping[str, str] | None = None,
 ) -> str:
@@ -635,17 +650,15 @@ def build_user_data(
     public_key_b64 = base64.b64encode(public_key.encode("utf-8")).decode("ascii")
     rec_script_b64 = base64.b64encode(REC_SCRIPT.encode("utf-8")).decode("ascii")
     dashboard_script_b64 = base64.b64encode(DASHBOARD_SCRIPT.encode("utf-8")).decode("ascii")
-    dash_dir = workdir + "/" + SESSIONS_DIR_NAME + "/" + experiment_id
     env_lines = "\n".join(
         [
             f"RP_WORKDIR={shlex.quote(workdir)}",
-            f"RP_SYNC_DIR={shlex.quote(workdir)}",
-            f"RP_UNSYNCED_DIR={shlex.quote(sandbox_data_dir)}",
+            f"RP_EXPERIMENT_DIR={shlex.quote(workdir)}",
             f"RP_EXPERIMENT_ID={shlex.quote(experiment_id)}",
             f"RP_SANDBOX_DATA_DIR={shlex.quote(sandbox_data_dir)}",
             f"RP_DATASET_DIR={shlex.quote(sandbox_data_dir)}",
-            f"RP_DASH_DIR={shlex.quote(dash_dir)}",
-            f"RP_TB_LOGDIR={shlex.quote(dash_dir + '/tb')}",
+            f"RP_DASH_DIR={shlex.quote(sessions_dir)}",
+            f"RP_TB_LOGDIR={shlex.quote(sessions_dir + '/tb')}",
             "MLFLOW_TRACKING_URI=http://localhost:5000",
             # Credentials (e.g. HF_TOKEN) ride in /opt/rp/env with an explicit
             # `export` so rec.sh's sourcing puts them in every SSH session's
@@ -667,14 +680,14 @@ export DEBIAN_FRONTEND=noninteractive
 # rsync — which fires the moment SSH is reachable — always lands in a writable
 # directory. This used to run *after* a multi-minute Torch install, so the first
 # push could race a not-yet-existent /workspace and fail.
-mkdir -p /opt/rp /root/.ssh {shlex.quote(workdir)} {shlex.quote(sandbox_data_dir)} {shlex.quote(workdir)}/artifacts_to_keep
+mkdir -p /opt/rp /root/.ssh {shlex.quote(workdir)} {shlex.quote(sandbox_data_dir)} {shlex.quote(workdir)}/artifacts_to_keep {shlex.quote(sessions_dir)}
 printf '%s' {shlex.quote(public_key_b64)} | base64 -d > /root/.ssh/authorized_keys
 chmod 700 /root/.ssh
 chmod 600 /root/.ssh/authorized_keys
 if id ubuntu >/dev/null 2>&1; then
   mkdir -p /home/ubuntu/.ssh
   printf '%s' {shlex.quote(public_key_b64)} | base64 -d >> /home/ubuntu/.ssh/authorized_keys
-  chown -R ubuntu:ubuntu /home/ubuntu/.ssh {shlex.quote(workdir)} {shlex.quote(sandbox_data_dir)}
+  chown -R ubuntu:ubuntu /home/ubuntu/.ssh {shlex.quote(workdir)} {shlex.quote(sandbox_data_dir)} {shlex.quote(sessions_dir)}
   chmod 700 /home/ubuntu/.ssh
   chmod 600 /home/ubuntu/.ssh/authorized_keys
 fi
@@ -721,9 +734,9 @@ python3 -c 'import mlflow' >/dev/null 2>&1 || python3 -m pip install --break-sys
 python3 -c 'import tensorboard' >/dev/null 2>&1 || python3 -m pip install --break-system-packages --ignore-installed tensorboard || echo "[rp] tensorboard install failed" >> /opt/rp/bootstrap.log
 install_with_uv_or_pip torch torchvision torchaudio || true
 install_with_uv_or_pip {python_packages} || true
-# Dashboards write pids/logs into the synced workspace; start them as the SSH
-# login user, never root — root-owned files here break the ubuntu-user rsync
-# (--delete cannot unlink them: exit 23 on the very first workspace push).
+# Dashboards write pids/logs into the sessions dir, which the daemon pulls
+# over ubuntu-user rsync; start them as the SSH login user, never root —
+# root-owned files there would break that pull (exit 23, permission denied).
 if id ubuntu >/dev/null 2>&1; then
   sudo -u ubuntu /opt/rp/start_dashboards.sh || true
 else

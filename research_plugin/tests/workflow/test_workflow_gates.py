@@ -95,7 +95,7 @@ class WorkflowGateTest(unittest.TestCase):
         self.call("review.submit", review_session_id=session_id, verdict="pass")
 
     def _drive_to_running_with_result(self) -> str:
-        exp_id = self.call("experiment.create", project_id=self.project_id, intent="Rejection routing.")["id"]
+        exp_id = self.call("experiment.create", name="exp-1", project_id=self.project_id, intent="Rejection routing.")["id"]
         self._write_and_associate(exp_id=exp_id, path="plan.md", role="plan", body=VALID_PLAN)
         self.call("experiment.transition", project_id=self.project_id, experiment_id=exp_id, transition="submit_design")
         self._pass_review(exp_id=exp_id, role="design_reviewer")
@@ -112,7 +112,7 @@ class WorkflowGateTest(unittest.TestCase):
         return exp_id
 
     def _drive_to_complete(self, *, conclusion: str = "") -> str:
-        exp_id = self.call("experiment.create", project_id=self.project_id, intent="Full loop.")["id"]
+        exp_id = self.call("experiment.create", name="exp-2", project_id=self.project_id, intent="Full loop.")["id"]
         self._write_and_associate(exp_id=exp_id, path="plan.md", role="plan", body=VALID_PLAN)
         self.call("experiment.transition", project_id=self.project_id, experiment_id=exp_id, transition="submit_design")
         self._pass_review(exp_id=exp_id, role="design_reviewer")
@@ -136,7 +136,7 @@ class WorkflowGateTest(unittest.TestCase):
     # ---- plan gate ----
 
     def test_submit_design_requires_a_plan_resource(self) -> None:
-        exp = self.call("experiment.create", project_id=self.project_id, intent="No plan yet.")
+        exp = self.call("experiment.create", name="exp-3", project_id=self.project_id, intent="No plan yet.")
         with self.assertRaises(WorkflowError):
             self.call("experiment.transition", project_id=self.project_id, experiment_id=exp["id"], transition="submit_design")
         # Reaching design_review must be impossible without a plan, so ready_to_run is too.
@@ -148,8 +148,19 @@ class WorkflowGateTest(unittest.TestCase):
         out = self.call("experiment.transition", project_id=self.project_id, experiment_id=exp["id"], transition="submit_design")
         self.assertEqual(out["status"], "design_review")
 
+    def test_workflow_surfaces_plan_gate_with_folder_guidance(self) -> None:
+        exp = self.call("experiment.create", name="plan-gate", project_id=self.project_id, intent="No plan yet.")
+        wf = self.call("workflow.status_and_next", project_id=self.project_id, experiment_id=exp["id"])
+        workflow = wf.get("workflow") or wf
+        self.assertEqual(workflow["current_gate"], "plan_required")
+        self.assertEqual(workflow["next_action"], "write_or_sync_plan_resource")
+        guidance = workflow["resource_guidance"]
+        self.assertEqual(guidance["association_role"], "plan")
+        # The guidance names the experiment's actual folder, not a placeholder.
+        self.assertIn("experiments/plan-gate/plan.md", guidance["guidance"])
+
     def test_submit_design_requires_plan_spine_sections(self) -> None:
-        exp = self.call("experiment.create", project_id=self.project_id, intent="Thin plan.")
+        exp = self.call("experiment.create", name="exp-4", project_id=self.project_id, intent="Thin plan.")
         # A plan resource exists, but the file lacks the required spine sections.
         self._write_and_associate(exp_id=exp["id"], path="plan.md", role="plan", body="just some loose notes\n")
         with self.assertRaises(WorkflowError) as ctx:
@@ -187,7 +198,7 @@ class WorkflowGateTest(unittest.TestCase):
     # ---- transition discovery (allowed_transitions + helpful errors) ----
 
     def test_get_state_surfaces_allowed_transitions_with_requirements(self) -> None:
-        exp = self.call("experiment.create", project_id=self.project_id, intent="discover")
+        exp = self.call("experiment.create", name="exp-5", project_id=self.project_id, intent="discover")
         state = self.call("experiment.get_state", project_id=self.project_id, experiment_id=exp["id"])
         trans = {t["transition"]: t for t in state["allowed_transitions"]}
         self.assertIn("submit_design", trans)
@@ -196,7 +207,7 @@ class WorkflowGateTest(unittest.TestCase):
         self.assertIn("abandon", trans)  # always available from a non-terminal state
 
     def test_disallowed_transition_error_lists_allowed_options(self) -> None:
-        exp = self.call("experiment.create", project_id=self.project_id, intent="bad jump")
+        exp = self.call("experiment.create", name="exp-6", project_id=self.project_id, intent="bad jump")
         with self.assertRaises(WorkflowError) as ctx:
             self.call(
                 "experiment.transition", project_id=self.project_id,
@@ -207,7 +218,7 @@ class WorkflowGateTest(unittest.TestCase):
         self.assertIn("submit_design", msg)  # tells the agent what IS allowed from here
 
     def test_terminal_experiment_has_no_allowed_transitions(self) -> None:
-        exp = self.call("experiment.create", project_id=self.project_id, intent="dead end")
+        exp = self.call("experiment.create", name="exp-7", project_id=self.project_id, intent="dead end")
         self.call("experiment.transition", project_id=self.project_id, experiment_id=exp["id"], transition="abandon")
         state = self.call("experiment.get_state", project_id=self.project_id, experiment_id=exp["id"])
         self.assertEqual(state["allowed_transitions"], [])
@@ -230,7 +241,7 @@ class WorkflowGateTest(unittest.TestCase):
         )
 
     def test_abandoned_experiment_cannot_be_re_abandoned(self) -> None:
-        exp = self.call("experiment.create", project_id=self.project_id, intent="Dead end.")
+        exp = self.call("experiment.create", name="exp-8", project_id=self.project_id, intent="Dead end.")
         self.call("experiment.transition", project_id=self.project_id, experiment_id=exp["id"], transition="abandon")
         with self.assertRaises(WorkflowError):
             self.call("experiment.transition", project_id=self.project_id, experiment_id=exp["id"], transition="abandon")
@@ -306,6 +317,7 @@ class WorkflowGateTest(unittest.TestCase):
         self.assertEqual(workflow["current_gate"], "results_report_required")
         self.assertEqual(workflow["next_action"], "write_and_associate_results_report")
         self.assertEqual(workflow["resource_guidance"]["association_role"], "report")
+        self.assertIn("experiments/exp-1/report.md", workflow["resource_guidance"]["guidance"])
 
     # ---- logic graph gate ----
 
@@ -360,6 +372,37 @@ class WorkflowGateTest(unittest.TestCase):
         self.assertEqual(workflow["current_gate"], "logic_graph_required")
         self.assertEqual(workflow["next_action"], "write_and_associate_logic_graph")
         self.assertEqual(workflow["resource_guidance"]["association_role"], "graph")
+        self.assertIn("experiments/exp-1/graph.json", workflow["resource_guidance"]["guidance"])
+
+    # ---- readiness pre-lint (status_and_next runs the deep lints) ----
+
+    def test_ready_guidance_pre_lints_the_graph(self) -> None:
+        exp_id = self._drive_to_running_with_result()
+        self._write_and_associate(exp_id=exp_id, path="report.md", role="report", body=VALID_REPORT)
+        nodes = ",".join(f'{{"id": "n{i}", "label": "step {i}"}}' for i in range(17))
+        over_budget = f'{{"version": 1, "nodes": [{nodes}]}}'
+        self._write_and_associate(exp_id=exp_id, path="graph.json", role="graph", body=over_budget)
+        wf = self.call("workflow.status_and_next", project_id=self.project_id, experiment_id=exp_id)
+        workflow = wf.get("workflow") or wf
+        # The workflow never says "submit" while the live graph would be rejected.
+        self.assertEqual(workflow["current_gate"], "graph_invalid")
+        self.assertEqual(workflow["next_action"], "fix_graph_resource")
+        self.assertTrue(any("17 nodes" in p for p in workflow["missing_evidence"]))
+        self.assertEqual(workflow["resource_guidance"]["association_role"], "graph")
+        # Fixing the live file flips the guidance to ready — no re-association.
+        (self.repo / "graph.json").write_text(VALID_GRAPH)
+        wf = self.call("workflow.status_and_next", project_id=self.project_id, experiment_id=exp_id)
+        workflow = wf.get("workflow") or wf
+        self.assertEqual(workflow["current_gate"], "experiment_review_required")
+
+    def test_ready_guidance_pre_lints_the_plan(self) -> None:
+        exp = self.call("experiment.create", name="thin-plan", project_id=self.project_id, intent="Thin plan.")
+        self._write_and_associate(exp_id=exp["id"], path="plan.md", role="plan", body="loose notes\n")
+        wf = self.call("workflow.status_and_next", project_id=self.project_id, experiment_id=exp["id"])
+        workflow = wf.get("workflow") or wf
+        self.assertEqual(workflow["current_gate"], "plan_invalid")
+        self.assertEqual(workflow["next_action"], "fix_plan_resource")
+        self.assertTrue(any("missing required sections" in p for p in workflow["missing_evidence"]))
 
     # ---- review rejection routing (return_to) ----
 
@@ -413,7 +456,7 @@ class WorkflowGateTest(unittest.TestCase):
         self.assertEqual(state["attempt_index"], 2)
 
     def test_design_review_rejection_cannot_return_to_running(self) -> None:
-        exp = self.call("experiment.create", project_id=self.project_id, intent="Design reject.")
+        exp = self.call("experiment.create", name="exp-9", project_id=self.project_id, intent="Design reject.")
         self._write_and_associate(exp_id=exp["id"], path="plan.md", role="plan", body=VALID_PLAN)
         self.call("experiment.transition", project_id=self.project_id, experiment_id=exp["id"], transition="submit_design")
         session_id = self._open_review_session(exp_id=exp["id"], role="design_reviewer")

@@ -7,12 +7,11 @@ from dataclasses import dataclass
 from pathlib import Path
 
 from ...errors import BackendValidationError
-from ...sync_dirs import DEFAULT_SYNC_DIR, DEFAULT_UNSYNCED_DIR
+from ...sync_dirs import DEFAULT_DATA_DIR, DEFAULT_REMOTE_ROOT, SESSIONS_DIRNAME
 
 
 DEFAULT_BASE_URL = "https://cloud.lambda.ai/api/v1"
-DEFAULT_REMOTE_WORKDIR = DEFAULT_SYNC_DIR
-DEFAULT_SANDBOX_DATA_DIR = DEFAULT_UNSYNCED_DIR
+DEFAULT_SANDBOX_DATA_DIR = DEFAULT_DATA_DIR
 DEFAULT_SSH_USER = "ubuntu"
 DEFAULT_INSTANCE_POLL_TIMEOUT_SECONDS = 900
 DEFAULT_INSTANCE_POLL_INTERVAL_SECONDS = 10.0
@@ -56,7 +55,9 @@ class LambdaSandboxConfig:
     region_name: str = ""
     instance_type_name: str = ""
     ssh_user: str = DEFAULT_SSH_USER
-    remote_workdir: str = DEFAULT_REMOTE_WORKDIR
+    # Remote root under which each experiment's one synced folder
+    # (`<root>/<experiment_id>`) is created.
+    remote_root: str = DEFAULT_REMOTE_ROOT
     sandbox_data_dir: str = DEFAULT_SANDBOX_DATA_DIR
     poll_timeout_seconds: int = DEFAULT_INSTANCE_POLL_TIMEOUT_SECONDS
     poll_interval_seconds: float = DEFAULT_INSTANCE_POLL_INTERVAL_SECONDS
@@ -74,25 +75,22 @@ class LambdaSandboxConfig:
             "LAMBDA_LABS_INSTANCE_TYPE",
             "LAMBDA_INSTANCE_TYPE",
         )
-        remote_workdir = _absolute_posix_path(
-            os.environ.get("RESEARCH_PLUGIN_LAMBDA_WORKDIR", DEFAULT_REMOTE_WORKDIR),
+        remote_root = _absolute_posix_path(
+            os.environ.get("RESEARCH_PLUGIN_LAMBDA_WORKDIR", DEFAULT_REMOTE_ROOT),
             field="RESEARCH_PLUGIN_LAMBDA_WORKDIR",
         )
         sandbox_data_dir = _absolute_posix_path(
             os.environ.get("RESEARCH_PLUGIN_LAMBDA_DATA_DIR", DEFAULT_SANDBOX_DATA_DIR),
             field="RESEARCH_PLUGIN_LAMBDA_DATA_DIR",
         )
-        if _is_under_path(sandbox_data_dir, remote_workdir):
-            raise BackendValidationError(
-                "RESEARCH_PLUGIN_LAMBDA_DATA_DIR must be outside RESEARCH_PLUGIN_LAMBDA_WORKDIR"
-            )
+        _validate_data_dir(sandbox_data_dir, remote_root=remote_root, field="RESEARCH_PLUGIN_LAMBDA_DATA_DIR")
         return cls(
             cloud=cloud,
             region_name=region_name,
             instance_type_name=instance_type_name,
             ssh_user=os.environ.get("RESEARCH_PLUGIN_LAMBDA_SSH_USER", DEFAULT_SSH_USER).strip()
             or DEFAULT_SSH_USER,
-            remote_workdir=remote_workdir,
+            remote_root=remote_root,
             sandbox_data_dir=sandbox_data_dir,
             poll_timeout_seconds=_positive_int(
                 os.environ.get(
@@ -153,6 +151,22 @@ def _is_under_path(child: str, parent: str) -> bool:
     child = child.rstrip("/")
     parent = parent.rstrip("/")
     return child == parent or child.startswith(parent + "/")
+
+
+def _validate_data_dir(data_dir: str, *, remote_root: str, field: str) -> None:
+    """The data dir may live under the remote root (e.g. /workspace/data), but
+    must never collide with the locations the plugin manages there: the
+    per-experiment synced folders (``<root>/exp_*``) and the sessions tree."""
+    root = remote_root.rstrip("/")
+    if data_dir.rstrip("/") == root:
+        raise BackendValidationError(f"{field} must not equal the remote root {root}")
+    if _is_under_path(data_dir, root):
+        first = data_dir.rstrip("/")[len(root) + 1 :].split("/", 1)[0]
+        if first.startswith("exp_") or first == SESSIONS_DIRNAME:
+            raise BackendValidationError(
+                f"{field} must not collide with per-experiment folders or "
+                f"{SESSIONS_DIRNAME} under the remote root"
+            )
 
 
 def _positive_int(value: object, *, field: str) -> int:

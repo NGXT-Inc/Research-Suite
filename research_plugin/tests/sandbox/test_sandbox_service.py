@@ -39,7 +39,7 @@ class SandboxServiceTest(unittest.TestCase):
         return self.app.call_tool(tool, kwargs)
 
     def _experiment(self, *, status: str = "ready_to_run") -> str:
-        exp_id = self.call("experiment.create", project_id=self.project_id, intent="x")["id"]
+        exp_id = self.call("experiment.create", name="exp-1", project_id=self.project_id, intent="x")["id"]
         if status != "planned":
             with self.app.store.transaction() as conn:
                 conn.execute("UPDATE experiments SET status = ? WHERE id = ?", (status, exp_id))
@@ -68,16 +68,23 @@ class SandboxServiceTest(unittest.TestCase):
         self.assertTrue(result["sandbox_id"])
         # Short agent-facing command goes through the repo-local dispatcher.
         self.assertEqual(result["ssh"]["command"], f".research_plugin/sbx {exp_id}")
-        self.assertEqual(result["workdir"], "/workspace/synced")
-        self.assertEqual(result["sync_dir"], "/workspace/synced")
-        self.assertEqual(result["unsynced_dir"], "/workspace/unsynced")
-        self.assertEqual(result["sandbox_data_dir"], "/workspace/unsynced")
+        self.assertEqual(result["workdir"], "/workspace/exp-1")
+        self.assertEqual(result["experiment_dir"], "/workspace/exp-1")
+        self.assertEqual(result["data_dir"], "/workspace/data")
         self.assertEqual(
-            Path(result["local_sync_dir"]).resolve(),
-            (self.repo / "experiments" / exp_id / "synced").resolve(),
+            Path(result["local_experiment_dir"]).resolve(),
+            (self.repo / "experiments" / "exp-1").resolve(),
         )
-        self.assertEqual(self.rsync.push_calls[-1]["remote_sync_dir"], "/workspace/synced")
-        self.assertEqual(Path(self.rsync.push_calls[-1]["local_sync_dir"]), Path(result["local_sync_dir"]))
+        self.assertEqual(self.rsync.push_calls[-1]["remote_sync_dir"], "/workspace/exp-1")
+        self.assertEqual(
+            Path(self.rsync.push_calls[-1]["local_sync_dir"]),
+            Path(result["local_experiment_dir"]),
+        )
+        # The agent is told the folder contract at the moment it matters.
+        self.assertIn("files_pushed", result)
+        self.assertIn("experiment folder", result["hint"])
+        self.assertIn("OUTSIDE the experiment folder", result["hint"])
+        self.assertIn("the sandbox owns the folder", result["hint"])
         # Full ssh line is still available as a cwd-independent fallback.
         self.assertTrue(result["ssh"]["raw_command"].startswith("ssh -i "))
         self.assertIn("@sandbox.modal.test", result["ssh"]["raw_command"])
@@ -86,6 +93,19 @@ class SandboxServiceTest(unittest.TestCase):
         # experiment flips to running
         state = self.call("experiment.get_state", project_id=self.project_id, experiment_id=exp_id)
         self.assertEqual(state["status"], "running")
+
+    def test_request_reports_push_count_and_flags_empty_folder(self) -> None:
+        # files_pushed comes from the initial folder push; 0 is meaningful (the
+        # local experiment folder had nothing eligible) and the hint says so
+        # honestly instead of implying files are waiting on the VM.
+        self.rsync.push_pulled = 0
+        exp_id = self._experiment()
+        result = self.call(
+            "sandbox.request", project_id=self.project_id, experiment_id=exp_id
+        )
+        self.assertEqual(result["files_pushed"], 0)
+        self.assertIn("no eligible files", result["hint"])
+        self.assertIn("starts empty", result["hint"])
 
     def test_request_and_get_report_huggingface_env_without_secret_value(self) -> None:
         self.backend.sandbox_environment = lambda: {  # type: ignore[method-assign]
@@ -356,7 +376,7 @@ class SandboxServiceTest(unittest.TestCase):
         self.assertIn("$RP_TB_LOGDIR", result["hint"])
         self.assertIn("params, metrics, and artifacts", result["hint"])
         self.assertIn("mlflow.autolog", result["hint"])
-        self.assertIn("automatically rsyncs", result["hint"])
+        self.assertIn("mirrored back to the local repo", result["hint"])
 
     def test_ui_view_exposes_dashboards(self) -> None:
         # The HTTP API surfaces dashboards in the sandbox row so the UI can
@@ -768,7 +788,7 @@ class SandboxServiceTest(unittest.TestCase):
         self.assertEqual(result["sync"]["pulled"], 2)
         self.assertIn("resource.register_file", result["hint"])
         self.assertEqual(self.rsync.calls[-1]["ssh_host"], created["ssh"]["host"])
-        self.assertEqual(self.rsync.calls[-1]["remote_sync_dir"], "/workspace/synced")
+        self.assertEqual(self.rsync.calls[-1]["remote_sync_dir"], "/workspace/exp-1")
 
     def test_sync_requires_running_sandbox(self) -> None:
         exp_id = self._experiment()

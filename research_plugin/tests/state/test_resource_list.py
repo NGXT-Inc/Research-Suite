@@ -17,7 +17,7 @@ class ResourceListTest(unittest.TestCase):
         )
         self.project_id = self.call("project.create", name="List Test")["id"]
         self.exp_id = self.call(
-            "experiment.create", project_id=self.project_id, intent="list filters"
+            "experiment.create", name="exp-1", project_id=self.project_id, intent="list filters"
         )["id"]
         # Three resources of two kinds; one associated with the experiment.
         for name, kind in (("a.md", "note"), ("b.csv", "dataset"), ("c.py", "code")):

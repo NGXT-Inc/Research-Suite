@@ -5,10 +5,19 @@ from __future__ import annotations
 from ..utils import PermissionDeniedError, ValidationError
 
 
-REVIEW_ROLES = {"design_reviewer", "experiment_reviewer", "human", "automated_check"}
+REVIEW_ROLES = {
+    "design_reviewer",
+    "experiment_reviewer",
+    "synthesis_reviewer",
+    "human",
+    "automated_check",
+}
 REVIEW_VERDICTS = {"pass", "needs_changes", "fail"}
-RESOURCE_TARGET_TYPES = {"experiment", "claim", "review", "attempt"}
-RESOURCE_ROLES = {"plan", "input", "code", "config", "result", "report", "graph", "note", "model", "other"}
+RESOURCE_TARGET_TYPES = {"experiment", "synthesis", "claim", "review", "attempt"}
+RESOURCE_ROLES = {
+    "plan", "input", "code", "config", "result", "report", "graph",
+    "reflection", "proposals", "note", "model", "other",
+}
 
 
 class PermissionService:

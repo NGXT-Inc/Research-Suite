@@ -15,9 +15,10 @@ happened for user visibility.
   durable `sandboxes` table and the per-experiment SSH keypair.
 - **Sandbox backend** (`ModalSandboxBackend`) owns the Modal mechanics: create a
   sandbox, wire SSH, check liveness, terminate, and read the transcript.
-- **Sync contract** is provider-neutral. The remote synced directory is
-  `/workspace/synced`; the remote unsynced directory is `/workspace/unsynced`.
-  See `sync/sync.md`.
+- **Sync contract** is provider-neutral. The one synced location is the
+  experiment's folder `/workspace/<name>` (mirrors the local
+  `experiments/<name>/`); everything else on the VM stays on the VM.
+  `/workspace/data` is the conventional scratch home for datasets/caches.
 
 ## Procurement: one sandbox per experiment, reuse-if-alive
 
@@ -46,15 +47,15 @@ sandbox = modal.Sandbox.create(
     cpu=cpu,
     memory=memory,
     timeout=time_limit,
-    workdir="/workspace/synced",
+    workdir="/workspace/<name>",
     unencrypted_ports=[22],
     env={
         "RP_AUTHORIZED_KEY": public_key,
         "RP_EXPERIMENT_ID": experiment_id,
-        "RP_WORKDIR": "/workspace/synced",
-        "RP_SYNC_DIR": "/workspace/synced",
-        "RP_UNSYNCED_DIR": "/workspace/unsynced",
-        "RP_SANDBOX_DATA_DIR": "/workspace/unsynced",
+        "RP_WORKDIR": "/workspace/<name>",
+        "RP_EXPERIMENT_DIR": "/workspace/<name>",
+        "RP_SANDBOX_DATA_DIR": "/workspace/data",
+        "RP_DASH_DIR": "/workspace/.research_plugin_sessions/<experiment_id>",
     },
 )
 host, port = sandbox.tunnels()[22].tcp_socket
@@ -69,10 +70,10 @@ ssh -i <key_path> -p <port> -o StrictHostKeyChecking=no \
     -o UserKnownHostsFile=/dev/null root@<host> '<your shell command>'
 ```
 
-Use `$RP_SYNC_DIR` for files that should sync back locally. Use
-`$RP_UNSYNCED_DIR` / `$RP_DATASET_DIR` for large datasets, caches, checkpoints,
+Use `$RP_EXPERIMENT_DIR` for files that should sync back locally. Use
+`$RP_DATASET_DIR` (or anywhere outside the experiment folder) for large datasets, caches, checkpoints,
 and temporary derived data. Put deliberately preserved large artifacts under
-`$RP_SYNC_DIR/artifacts_to_keep`.
+`$RP_EXPERIMENT_DIR/artifacts_to_keep`.
 
 Agents should use CPU-only sandboxes for dataset inspection and data engineering
 unless the command needs GPU acceleration. They can request more RAM with
@@ -88,8 +89,8 @@ agent-visible API responses.
 
 The base image installs the baseline agent tooling plus two scripts:
 
-- `/opt/rp/boot.sh` writes `$RP_AUTHORIZED_KEY`, creates `/workspace/synced`,
-  `/workspace/unsynced`, and `/workspace/synced/artifacts_to_keep`, starts
+- `/opt/rp/boot.sh` writes `$RP_AUTHORIZED_KEY`, creates the experiment dir,
+  `/workspace/data`, `artifacts_to_keep/`, and the sessions dir, starts
   observability servers, then `exec`s `sshd -D`.
 - `/opt/rp/rec.sh` is the `ForceCommand` transcript wrapper.
 
@@ -99,7 +100,7 @@ The base image installs the baseline agent tooling plus two scripts:
 recorded to:
 
 ```bash
-$RP_SYNC_DIR/.research_plugin_sessions/$RP_EXPERIMENT_ID/transcript.log
+$RP_DASH_DIR/transcript.log
 ```
 
 The wrapper records commands, streams stdout/stderr back to the SSH channel, and
@@ -111,7 +112,7 @@ live from the running sandbox.
 Every sandbox also runs two observability servers:
 
 - MLflow tracking server on port `5000`, backed by
-  `$RP_SYNC_DIR/.research_plugin_sessions/<experiment_id>/mlflow.db`.
+  `$RP_DASH_DIR/mlflow.db` (outside the experiment folder).
 - TensorBoard on port `6006`, with `--logdir $RP_TB_LOGDIR`.
 
 Both ports ship as Modal encrypted tunnels, so the daemon receives HTTPS URLs
@@ -134,12 +135,12 @@ missing package or port collision loses observability for the run, never SSH.
 |------|---------|
 | `sandbox.request` | Procure or reuse the experiment's sandbox; returns SSH details and synced/unsynced paths. |
 | `sandbox.get` | Current sandbox status + SSH details for the experiment. |
-| `sandbox.sync` | Pull `$RP_SYNC_DIR` to the experiment's local sync directory with SSH rsync. |
+| `sandbox.sync` | Mirror `$RP_EXPERIMENT_DIR` back to the local experiment folder with SSH rsync. |
 | `sandbox.list` | All experiment sandboxes in the project. |
 | `sandbox.release` | Final best-effort sync, then terminate the experiment's sandbox. |
 | `sandbox.terminal` | Read the experiment's terminal transcript tail. |
 | `sandbox.health` | Is the execution backend reachable. |
 
 The agent's normal loop is: `sandbox.request` -> run/edit/write files over SSH
-in `$RP_SYNC_DIR` and `$RP_UNSYNCED_DIR` -> `sandbox.sync` ->
+in `$RP_EXPERIMENT_DIR` (heavy files outside it) -> `sandbox.sync` ->
 register/associate local result resources -> transition to review.

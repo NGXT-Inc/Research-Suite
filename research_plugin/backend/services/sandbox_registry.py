@@ -13,7 +13,7 @@ from __future__ import annotations
 from pathlib import Path
 from typing import Any, Callable
 
-from ..workspace import local_experiment_sync_dir
+from ..workspace import local_experiment_dir
 from ..state.store import StateStore, row_to_dict
 from ..utils import NotFoundError, now_iso
 
@@ -100,9 +100,22 @@ class SandboxRegistry:
         finally:
             conn.close()
 
+    def experiment_name(self, *, experiment_id: str) -> str:
+        """The experiment's short folder name; '' on rows that predate it."""
+        conn = self.store.connect()
+        try:
+            row = conn.execute(
+                "SELECT name FROM experiments WHERE id = ?", (experiment_id,)
+            ).fetchone()
+        finally:
+            conn.close()
+        return str(row["name"]) if row is not None and row["name"] else ""
+
     def local_sync_dir(self, *, experiment_id: str) -> Path:
-        return local_experiment_sync_dir(
-            repo_root=self.store.repo_root, experiment_id=experiment_id
+        return local_experiment_dir(
+            repo_root=self.store.repo_root,
+            experiment_id=experiment_id,
+            name=self.experiment_name(experiment_id=experiment_id),
         )
 
     # ---------- writes ----------

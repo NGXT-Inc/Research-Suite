@@ -82,6 +82,7 @@ class ClaimUpdateInput(ProjectScopedInput):
 
 
 class ExperimentCreateInput(ProjectScopedInput):
+    name: str = Field(default="", description="REQUIRED. Short folder-safe name, unique within the project — it becomes the experiment folder experiments/<name>/. Letters, digits, '.', '_', '-' only; max 48 characters. The project supplies the shared context, so name the contrast: lead with what distinguishes this experiment from its siblings and do not repeat the project topic (next to 'released_adapters', prefer 'scratch_training' over 'lora_glue_scratch').")
     intent: str = Field(default="", description="Durable one-line headline for the experiment (its UI title). The full design belongs in the plan.md resource.")
     tested_claim_ids: list[str] | str | None = Field(default_factory=list)
     claim_id: str | None = Field(default=None, description="Alias for a single tested claim id.")
@@ -114,6 +115,66 @@ class ExperimentTransitionInput(ProjectScopedInput):
         "mark_failed",
     ]
     evidence: dict[str, Any] | None = None
+
+
+class SynthesisLensInput(ContractModel):
+    id: str = Field(
+        description=(
+            "Lens id slug (lowercase letters/digits/'_'/'-'). It doubles as the "
+            "reflection filename: the lens's subagent submits <id>.md."
+        )
+    )
+    title: str = ""
+    charter: str = Field(
+        default="",
+        description=(
+            "What angle this lens reads the project from. The core lenses "
+            "(outcomes, dead_ends, coverage) default their charter; the two "
+            "wave-authored lenses must supply one."
+        ),
+    )
+    why_distinct: str = Field(
+        default="",
+        description=(
+            "Required for the two wave-authored lenses: how this lens differs "
+            "from the core three and from the other authored lens. Engineered "
+            "diversity is the point of the roster."
+        ),
+    )
+
+
+class SynthesisCreateInput(ProjectScopedInput):
+    title: str = Field(
+        default="", description="Optional short headline for this reflection wave."
+    )
+    lenses: list[SynthesisLensInput] = Field(
+        default_factory=list,
+        description=(
+            "The declared reflection roster: exactly 5 lenses — the 3 core ids "
+            "(outcomes, dead_ends, coverage) plus 2 you design for this "
+            "project, each with a charter and why_distinct. The roster is "
+            "fixed at create; every lens must submit its own reflection before "
+            "submit_reflections."
+        ),
+    )
+
+
+class SynthesisGetInput(ProjectScopedInput):
+    synthesis_id: str
+
+
+class SynthesisListInput(ProjectScopedInput):
+    pass
+
+
+class SynthesisTransitionInput(ProjectScopedInput):
+    synthesis_id: str
+    transition: Literal[
+        "submit_reflections",
+        "submit_synthesis",
+        "publish",
+        "abandon",
+    ]
 
 
 class ResourceRegisterFileInput(ProjectScopedInput):
@@ -186,9 +247,15 @@ class ResourceResolveInput(ProjectScopedInput):
 
 
 class ReviewRequestInput(ProjectScopedInput):
-    target_type: Literal["experiment"]
+    target_type: Literal["experiment", "synthesis"]
     target_id: str
-    role: Literal["design_reviewer", "experiment_reviewer", "human", "automated_check"]
+    role: Literal[
+        "design_reviewer",
+        "experiment_reviewer",
+        "synthesis_reviewer",
+        "human",
+        "automated_check",
+    ]
     reason: str = ""
     producer_session_id: str = "main"
 
@@ -203,15 +270,19 @@ class ReviewStartInput(ContractModel):
 class ReviewSubmitInput(ContractModel):
     review_session_id: str
     verdict: Literal["pass", "needs_changes", "fail"]
-    return_to: Literal["", "planned", "running"] = Field(
+    return_to: Literal["", "planned", "running", "reflecting", "synthesizing"] = Field(
         default="",
         description=(
-            "Where a rejected experiment goes next. REQUIRED on experiment-review "
-            "rejections (needs_changes/fail): 'planned' if the results show the "
-            "plan itself is flawed; 'running' if the plan stands but execution or "
-            "the conclusion is flawed (fix and re-run without redoing design "
-            "review). Omit on pass. Design-review rejections always return to "
-            "'planned'."
+            "Where a rejected target goes next. Omit on pass. REQUIRED on "
+            "experiment-review rejections (needs_changes/fail): 'planned' if "
+            "the results show the plan itself is flawed; 'running' if the plan "
+            "stands but execution or the conclusion is flawed (fix and re-run "
+            "without redoing design review). Design-review rejections always "
+            "return to 'planned'. REQUIRED on synthesis-review rejections: "
+            "'reflecting' to re-launch the reflection fan-out (every lens "
+            "re-submits for the new attempt), or 'synthesizing' if the "
+            "reflections stand but the synthesis (project graph and/or "
+            "proposals) must be revised."
         ),
     )
     notes: str = Field(default="", description="Free-text summary of the review.")
@@ -371,7 +442,11 @@ TOOL_CONTRACTS: dict[str, ToolContract] = {
     ),
     "experiment.create": ToolContract(
         input_model=ExperimentCreateInput,
-        description="Create a planned experiment.",
+        description=(
+            "Create a planned experiment. Requires an intent and a short "
+            "folder-safe 'name' unique within the project; the name becomes "
+            "the experiment folder experiments/<name>/."
+        ),
     ),
     "experiment.list": ToolContract(
         input_model=ExperimentListInput,
@@ -391,6 +466,38 @@ TOOL_CONTRACTS: dict[str, ToolContract] = {
             "Apply an allowed experiment transition. See "
             "experiment.get_state.allowed_transitions for valid transitions "
             "and their preconditions from the current status."
+        ),
+    ),
+    "synthesis.create": ToolContract(
+        input_model=SynthesisCreateInput,
+        description=(
+            "Open a project reflection wave (a gated synthesis record). "
+            "Declares the 5-lens reflection roster (3 core: outcomes, "
+            "dead_ends, coverage; plus 2 you design with charter + "
+            "why_distinct) and snapshots the corpus of finished experiments "
+            "the wave covers. One wave may be open at a time. See the "
+            "research-reflection skill."
+        ),
+    ),
+    "synthesis.get": ToolContract(
+        input_model=SynthesisGetInput,
+        description=(
+            "Get one synthesis (reflection wave) state: roster, per-lens "
+            "reflection coverage, current-attempt resources, reviews, and "
+            "allowed_transitions with preconditions."
+        ),
+    ),
+    "synthesis.list": ToolContract(
+        input_model=SynthesisListInput,
+        description="List the project's syntheses (reflection waves) with state.",
+    ),
+    "synthesis.transition": ToolContract(
+        input_model=SynthesisTransitionInput,
+        description=(
+            "Apply an allowed synthesis transition (submit_reflections, "
+            "submit_synthesis, publish, abandon). See "
+            "synthesis.get.allowed_transitions for preconditions from the "
+            "current status."
         ),
     ),
     "resource.register_file": ToolContract(
@@ -457,8 +564,10 @@ TOOL_CONTRACTS: dict[str, ToolContract] = {
         input_model=SandboxRequestInput,
         description=(
             "Procure (reuse or create) the experiment's sandbox and return SSH "
-            "details. On Lambda Labs, omit instance_type to receive a live menu "
-            "of available machines to pick from."
+            "details. A fresh sandbox starts with the experiment's local folder "
+            "(experiments/<name>/) pushed to it, so put anything the "
+            "run needs in that folder first. On Lambda Labs, omit instance_type "
+            "to receive a live menu of available machines to pick from."
         ),
     ),
     "sandbox.options": ToolContract(
@@ -475,8 +584,9 @@ TOOL_CONTRACTS: dict[str, ToolContract] = {
     "sandbox.sync": ToolContract(
         input_model=SandboxSyncInput,
         description=(
-            "Pull remote synced workspace files back to the local experiment "
-            "folder with SSH rsync."
+            "Mirror the sandbox's experiment folder back to the local "
+            "experiment folder with SSH rsync (exact replica; the durable "
+            "handoff before registering resources)."
         ),
     ),
     "sandbox.list": ToolContract(

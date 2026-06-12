@@ -132,12 +132,12 @@ DEFAULT_EXCLUDES: tuple[str, ...] = (
     "*.tgz",
 )
 
-# The sandbox authors this directory itself (command transcripts, MLflow/
-# TensorBoard stores and pid files — created at boot, before the first push).
-# It is remote-authored, pull-only state: the push must never manage it. With
-# --delete, an --exclude *protects* the remote tree; without this, the very
-# first push tries to delete the boot-created files and fails (rsync exit 23,
-# Permission denied on root-owned pids/logs).
+# Sandbox-authored telemetry (command transcripts, MLflow/TensorBoard stores
+# and pid files). It now lives OUTSIDE the remote experiment folder, but the
+# push still excludes it defensively: legacy local mirrors may contain an
+# in-folder copy, and with --delete an --exclude *protects* the remote tree —
+# without this, a push could try to delete boot-created root-owned files and
+# fail (rsync exit 23).
 SESSIONS_DIR_EXCLUDE = ".research_plugin_sessions/"
 
 
@@ -193,13 +193,17 @@ class SshRsyncSyncer:
         key_path: Path,
         remote_sync_dir: str,
         local_sync_dir: Path,
+        remote_sessions_dir: str = "",
+        local_sessions_dir: Path | None = None,
     ) -> SshRsyncResult:
         if not ssh_host or not ssh_port:
             raise RuntimeError("missing SSH endpoint for rsync")
         if not key_path.exists():
             raise RuntimeError(f"missing SSH key for rsync: {key_path}")
+        remote_sync_dir = remote_sync_dir.rstrip("/")
+        if not remote_sync_dir:
+            raise RuntimeError("missing remote experiment dir for rsync")
         self._ensure_rsync_usable()
-        remote_sync_dir = remote_sync_dir.rstrip("/") or "/workspace/synced"
         local_sync_dir.mkdir(parents=True, exist_ok=True)
         start = time.monotonic()
         commands = [
@@ -230,6 +234,26 @@ class SshRsyncSyncer:
                 True,
             ),
         ]
+        if remote_sessions_dir and local_sessions_dir is not None:
+            # Sandbox-authored telemetry (MLflow db, TB events, transcripts)
+            # lives outside the experiment folder and lands in a daemon-owned
+            # local dir. Optional: a legacy sandbox (sessions still inside the
+            # synced folder) simply has nothing at this path.
+            commands.append(
+                (
+                    self._pull_command(
+                        ssh_host=ssh_host,
+                        ssh_port=ssh_port,
+                        ssh_user=ssh_user,
+                        key_path=key_path,
+                        remote_dir=remote_sessions_dir.rstrip("/"),
+                        local_dir=local_sessions_dir,
+                        max_size="100m",
+                        excludes=DEFAULT_EXCLUDES,
+                    ),
+                    True,
+                )
+            )
         stdout_parts: list[str] = []
         stderr_parts: list[str] = []
         pulled = 0
@@ -272,8 +296,10 @@ class SshRsyncSyncer:
             raise RuntimeError("missing SSH endpoint for rsync")
         if not key_path.exists():
             raise RuntimeError(f"missing SSH key for rsync: {key_path}")
+        remote_sync_dir = remote_sync_dir.rstrip("/")
+        if not remote_sync_dir:
+            raise RuntimeError("missing remote experiment dir for rsync")
         self._ensure_rsync_usable()
-        remote_sync_dir = remote_sync_dir.rstrip("/") or "/workspace/synced"
         local_sync_dir.mkdir(parents=True, exist_ok=True)
         start = time.monotonic()
         commands = [

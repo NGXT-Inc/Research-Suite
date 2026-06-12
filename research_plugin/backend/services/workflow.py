@@ -9,6 +9,8 @@ from .permissions import RESOURCE_ROLES
 from .resources import ResourceService
 from .reviews import ReviewService
 from .sandboxes import SandboxService
+from .syntheses import SynthesisService
+from .synthesis_gates import SYNTHESIS_GATE_TABLE
 from .workflow_gates import (
     ACTIVE_PROCESS_STATUSES,
     GATE_TABLE,
@@ -16,8 +18,9 @@ from .workflow_gates import (
     ReviewRequirement,
     RoleRequirement,
 )
-from .workflow_views import slim_status_and_next
+from .workflow_views import slim_status_and_next, slim_synthesis
 from ..state.store import StateStore, row_to_dict, rows_to_dicts
+from ..workspace import experiment_folder_rel
 
 
 EXPERIMENT_STATUS_PRIORITY = {
@@ -44,16 +47,22 @@ class WorkflowService:
         reviews: ReviewService,
         sandboxes: SandboxService,
         resources: ResourceService,
+        syntheses: SynthesisService,
     ) -> None:
         self.store = store
         self.experiments = experiments
         self.reviews = reviews
         self.sandboxes = sandboxes
         self.resources = resources
+        self.syntheses = syntheses
 
     def status_and_next(
         self, *, project_id: str | None = None, experiment_id: str | None = None
     ) -> dict[str, Any]:
+        # Whether the caller scoped to an experiment explicitly: only the
+        # auto-resolved (project-level) orientation call is eligible for the
+        # idle reflection takeover below.
+        requested_experiment_id = experiment_id
         project_id, experiment_id = self._resolve_scope(
             project_id=project_id,
             experiment_id=experiment_id,
@@ -102,15 +111,22 @@ class WorkflowService:
             workflow = (
                 self._workflow_for(conn=conn, experiment=experiment)
                 if experiment
-                else {
-                    "current_gate": "project_setup",
-                    "next_action": "create_claim_or_experiment",
-                    "allowed_actions": ["claim.create", "experiment.create"],
-                    "blocked_actions": [],
-                    "missing_evidence": [],
-                    "revision_context": "",
-                }
+                else self._next(
+                    gate="project_setup",
+                    action="create_claim_or_experiment",
+                    allowed=["claim.create", "experiment.create"],
+                )
             )
+            idle = all(
+                str(row["status"]) in TERMINAL_STATUSES for row in exp_rows
+            )
+            reflection = self._project_reflection(
+                conn=conn, project_id=project_id, idle=idle
+            )
+            if requested_experiment_id is None and idle:
+                takeover = self._reflection_workflow_takeover(reflection=reflection)
+                if takeover is not None:
+                    workflow = takeover
             result = {
                 "project": {
                     **(project or {}),
@@ -123,6 +139,8 @@ class WorkflowService:
             }
             if resource_refresh["count"]:
                 result["resource_refresh"] = resource_refresh
+            if reflection is not None:
+                result["project_reflection"] = reflection
             return result
 
     def status_and_next_agent(
@@ -263,7 +281,10 @@ class WorkflowService:
             )
         if forward.review is not None:
             return self._review_next(
-                conn=conn, experiment=experiment, review=forward.review
+                conn=conn,
+                target_type="experiment",
+                target=experiment,
+                review=forward.review,
             )
         roles = {
             res.get("association_role")
@@ -280,9 +301,32 @@ class WorkflowService:
                 action=requirement.action,
                 allowed=list(requirement.allowed),
                 missing=[requirement.missing],
-                resource_guidance=self._resource_guidance(key=requirement.guidance_key),
+                resource_guidance=self._resource_guidance(
+                    key=requirement.guidance_key, experiment=experiment
+                ),
                 revision=experiment.get("revision_context", ""),
             )
+        # Every required artifact exists — now run the same deep lints the
+        # transition runs, so "ready" is never announced for an artifact the
+        # transition would reject (the agent fixes the file instead of
+        # discovering the problem via a failed transition).
+        for requirement in forward.requirements:
+            if not requirement.validator:
+                continue
+            problems = self.experiments.validator_problems(
+                conn=conn, experiment_id=experiment["id"], name=requirement.validator
+            )
+            if problems:
+                return self._next(
+                    gate=f"{requirement.role}_invalid",
+                    action=f"fix_{requirement.role}_resource",
+                    allowed=list(requirement.allowed),
+                    missing=problems,
+                    resource_guidance=self._resource_guidance(
+                        key=requirement.guidance_key, experiment=experiment
+                    ),
+                    revision=experiment.get("revision_context", ""),
+                )
         return self._next(
             gate=forward.ready_gate,
             action=forward.ready_action,
@@ -303,13 +347,23 @@ class WorkflowService:
                 return "execution_active"
         return requirement.gate
 
-    def _resource_guidance(self, *, key: str) -> dict[str, Any] | None:
+    def _resource_guidance(
+        self, *, key: str, experiment: dict[str, Any]
+    ) -> dict[str, Any] | None:
+        # Guidance names the experiment's actual folder (experiments/<name>/)
+        # so the agent is told exactly where the artifact lives.
+        folder = experiment_folder_rel(
+            experiment_id=str(experiment.get("id") or ""),
+            name=str(experiment.get("name") or ""),
+        )
+        if key == "plan":
+            return self._plan_resource_guidance(folder=folder)
         if key == "result":
             return self._result_resource_guidance()
         if key == "report":
-            return self._report_resource_guidance()
+            return self._report_resource_guidance(folder=folder)
         if key == "graph":
-            return self._graph_resource_guidance()
+            return self._graph_resource_guidance(folder=folder)
         return None
 
     def _refresh_experiment_resources(
@@ -325,28 +379,36 @@ class WorkflowService:
         )
 
     def _review_next(
-        self, *, conn, experiment: dict[str, Any], review: ReviewRequirement
+        self,
+        *,
+        conn,
+        target_type: str,
+        target: dict[str, Any],
+        review: ReviewRequirement,
     ) -> dict[str, Any]:
-        exp_id = experiment["id"]
-        gate = experiment["status"]
+        target_id = target["id"]
+        gate = target["status"]
         role, skill, action_name = review.role, review.skill, review.action_name
+        transition_tool = (
+            "synthesis.transition" if target_type == "synthesis" else "experiment.transition"
+        )
         verdict = self.reviews.latest_verdict(
             conn=conn,
-            target_type="experiment",
-            target_id=exp_id,
+            target_type=target_type,
+            target_id=target_id,
             role=role,
         )
         if verdict == "pass":
             return self._next(
                 gate=f"{action_name}_passed",
                 action=review.pass_action,
-                allowed=["experiment.transition"],
+                allowed=[transition_tool],
             )
 
         request = self.reviews.open_request(
             conn=conn,
-            target_type="experiment",
-            target_id=exp_id,
+            target_type=target_type,
+            target_id=target_id,
             role=role,
         )
         if request is None:
@@ -358,7 +420,8 @@ class WorkflowService:
                     role=role,
                     skill=skill,
                     status="none",
-                    target_id=exp_id,
+                    target_type=target_type,
+                    target_id=target_id,
                 ),
             )
         if request["status"] == "requested":
@@ -370,7 +433,8 @@ class WorkflowService:
                     role=role,
                     skill=skill,
                     status="requested",
-                    target_id=exp_id,
+                    target_type=target_type,
+                    target_id=target_id,
                     request=request,
                 ),
             )
@@ -382,7 +446,8 @@ class WorkflowService:
                 role=role,
                 skill=skill,
                 status=str(request["status"]),
-                target_id=exp_id,
+                target_type=target_type,
+                target_id=target_id,
                 request=request,
             ),
         )
@@ -394,6 +459,7 @@ class WorkflowService:
         skill: str,
         status: str,
         target_id: str,
+        target_type: str = "experiment",
         request: dict[str, Any] | None = None,
     ) -> dict[str, Any]:
         labels = {
@@ -404,7 +470,7 @@ class WorkflowService:
         gate = {
             "role": role,
             "skill": skill,
-            "target_type": "experiment",
+            "target_type": target_type,
             "target_id": target_id,
             "status": status,
             "label": labels.get(status, status),
@@ -415,6 +481,242 @@ class WorkflowService:
             gate["expires_at"] = request["expires_at"]
         return gate
 
+    def _project_reflection(
+        self, *, conn, project_id: str, idle: bool
+    ) -> dict[str, Any] | None:
+        """Project-level reflection orientation, surfaced only when relevant.
+
+        While a reflection wave is open: the wave's slim state plus the same
+        gate-table-derived guidance experiments get. Otherwise the drift
+        signal decides, at two advisory tiers:
+
+        - stale (>= 3 newly-terminal experiments since the last published
+          synthesis, or a claim flipped to contradicted): the soft
+          "Consider…" hint, whatever else is in flight.
+        - recommended (the project is idle AND at least one experiment has
+          finished since the last published synthesis): nothing is running
+          and there is something new to reflect on, so reflection is worth
+          suggesting as the next action (_reflection_workflow_takeover).
+
+        Nothing at all when there is nothing to say, so the constantly-polled
+        orientation call stays lean. Neither tier blocks anything — whether
+        new developments change the project's logic state stays the agent's
+        call.
+        """
+        open_wave = self.syntheses.open_synthesis(conn=conn, project_id=project_id)
+        if open_wave is not None:
+            refresh = self.resources.refresh_target_resources(
+                conn=conn,
+                target_type="synthesis",
+                target_id=open_wave["id"],
+                attempt_index=open_wave["attempt_index"],
+            )
+            if refresh["count"]:
+                open_wave = self.syntheses.get_state(
+                    synthesis_id=open_wave["id"], conn=conn
+                )
+            return {
+                "synthesis": slim_synthesis(open_wave),
+                "workflow": self._synthesis_workflow_for(conn=conn, synthesis=open_wave),
+            }
+        signal = self.syntheses.reflection_signal(project_id=project_id, conn=conn)
+        has_new_material = (
+            signal["new_terminal_since_publish"] >= 1 or signal["contradicted_flip"]
+        )
+        recommended = idle and has_new_material
+        if not signal["stale"] and not recommended:
+            return None
+        block: dict[str, Any] = {
+            "synthesis": None,
+            "hint": signal["hint"] or self._idle_reflection_hint(signal=signal),
+            "signal": signal,
+        }
+        if recommended:
+            block["recommended"] = True
+        return block
+
+    def _reflection_workflow_takeover(
+        self, *, reflection: dict[str, Any] | None
+    ) -> dict[str, Any] | None:
+        """The workflow block for an idle, project-level orientation call.
+
+        An idle project's auto-resolved experiment is terminal, so its gate
+        answers "none" — exactly the moment the agent is deciding what to do
+        next. An open reflection wave's gate guidance takes the slot;
+        otherwise the 'recommended' tier suggests starting one. Positional
+        emphasis only: claim/experiment creation stays allowed and nothing is
+        gated. Explicit experiment-scoped calls never reach this (the
+        project_reflection side block still carries the signal there).
+        """
+        if reflection is None:
+            return None
+        if reflection.get("synthesis") is not None:
+            return reflection["workflow"]
+        if not reflection.get("recommended"):
+            return None
+        return self._next(
+            gate="reflection_suggested",
+            action=(
+                "consider_project_reflection (start a reflection wave with "
+                "synthesis.create via the research-reflection skill — or "
+                "proceed with claim.create / experiment.create if you judge "
+                "the project's logic state current)"
+            ),
+            allowed=["synthesis.create", "claim.create", "experiment.create"],
+            missing=[reflection["hint"]] if reflection.get("hint") else [],
+        )
+
+    def _idle_reflection_hint(self, *, signal: dict[str, Any]) -> str:
+        """Hint for the idle 'recommended' tier while the project is still
+        below the staleness threshold (reflection_signal leaves its hint
+        empty there)."""
+        new = signal["new_terminal_since_publish"]
+        finished = f"{new} experiment{'s have' if new != 1 else ' has'} finished"
+        if signal["last_published_synthesis_id"]:
+            drift = f"{finished} since the last published synthesis"
+            if signal["claims_changed_since_publish"]:
+                drift += (
+                    f" and {signal['claims_changed_since_publish']} claims "
+                    "have changed"
+                )
+        else:
+            drift = f"{finished} and no project synthesis exists yet"
+        return (
+            f"No experiments are active and {drift} — a good moment for a "
+            "project reflection (synthesis.create, research-reflection "
+            "skill), or start the next experiment if the logic state is "
+            "current."
+        )
+
+    def _synthesis_workflow_for(self, *, conn, synthesis: dict[str, Any]) -> dict[str, Any]:
+        """Guidance for a reflection wave, derived from SYNTHESIS_GATE_TABLE —
+        the same walk as _workflow_for, with the roster-coverage requirement
+        reported per missing lens."""
+        status = synthesis["status"]
+        forward = SYNTHESIS_GATE_TABLE.get(status)
+        if forward is None:
+            return self._next(gate="terminal", action="none", allowed=[])
+        if forward.review is not None:
+            return self._review_next(
+                conn=conn,
+                target_type="synthesis",
+                target=synthesis,
+                review=forward.review,
+            )
+        if status == "reflecting":
+            coverage = synthesis.get("reflection_coverage", {})
+            requirement = forward.requirements[0]
+            if not coverage.get("complete"):
+                return self._next(
+                    gate=requirement.gate,
+                    action=requirement.action,
+                    allowed=list(requirement.allowed),
+                    missing=[
+                        f"reflection for lens '{lens_id}' (role 'reflection', file <lens_id>.md)"
+                        for lens_id in coverage.get("missing", [])
+                    ],
+                    resource_guidance=self._reflection_resource_guidance(),
+                    revision=synthesis.get("revision_context", ""),
+                )
+            return self._next(
+                gate=forward.ready_gate,
+                action=forward.ready_action,
+                allowed=list(forward.ready_allowed),
+                revision=synthesis.get("revision_context", ""),
+            )
+        roles = {
+            res.get("association_role")
+            for res in synthesis.get("current_attempt_resources", [])
+            if not res.get("missing")
+        }
+        for requirement in forward.requirements:
+            if requirement.role in roles:
+                continue
+            return self._next(
+                gate=requirement.gate,
+                action=requirement.action,
+                allowed=list(requirement.allowed),
+                missing=[requirement.missing],
+                resource_guidance=self._synthesis_resource_guidance(
+                    key=requirement.guidance_key
+                ),
+                revision=synthesis.get("revision_context", ""),
+            )
+        return self._next(
+            gate=forward.ready_gate,
+            action=forward.ready_action,
+            allowed=list(forward.ready_allowed),
+            revision=synthesis.get("revision_context", ""),
+        )
+
+    def _reflection_resource_guidance(self) -> dict[str, Any]:
+        return {
+            "target_type": "synthesis",
+            "association_role": "reflection",
+            "guidance": (
+                "Fan out one read-only subagent per missing lens. Each subagent "
+                "reads the project through its lens only (tell it which other "
+                "lenses are running so it stays in its lane), writes its "
+                "reflection to a file named <lens_id>.md (e.g. "
+                "syntheses/<syn_id>/reflections/<lens_id>.md), registers it, and "
+                "associates it with role 'reflection' for this synthesis. See "
+                "the research-reflection skill for the lens briefs."
+            ),
+        }
+
+    def _synthesis_resource_guidance(self, *, key: str) -> dict[str, Any] | None:
+        if key == "project_graph":
+            return {
+                "target_type": "synthesis",
+                "association_role": "graph",
+                "template": "skills/research-workflow/graph-template.md",
+                "guidance": (
+                    "Update the living project logic graph (one JSON file, e.g. "
+                    "project/logic_graph.json): the current logic state of the "
+                    "whole project — what is established, what was ruled out and "
+                    "why, the open questions — as a DAG of at most 16 nodes. "
+                    "Treat the lens reflections as unverified inputs: reconcile "
+                    "them against the actual records, don't average them. Edit "
+                    "the living graph in place and prune within the budget; "
+                    "node refs may point at exp_/claim_/rev_/syn_ ids or files. "
+                    "Then register the file and associate it with role 'graph' "
+                    "for this synthesis."
+                ),
+            }
+        if key == "proposals":
+            return {
+                "target_type": "synthesis",
+                "association_role": "proposals",
+                "template": "skills/research-reflection/synthesis-template.md",
+                "guidance": (
+                    "Write the what's-next proposals file: one block per "
+                    "proposed experiment with a hypothesis, builds_on refs, and "
+                    "the claim it would move. Then register it and associate it "
+                    "with role 'proposals' for this synthesis."
+                ),
+            }
+        return None
+
+    def _plan_resource_guidance(self, *, folder: str) -> dict[str, Any]:
+        return {
+            "target_type": "experiment",
+            "association_role": "plan",
+            "template": "skills/research-workflow/plan-template.md",
+            "guidance": (
+                f"Write the experiment plan as one markdown file at {folder}plan.md "
+                "— the folder experiment.create made for this experiment. That "
+                "folder is also the sandbox sync unit: keep the plan, scripts, "
+                "configs, and everything a run needs inside it from the start. "
+                "Start from the template's required sections, then register the "
+                "file and associate it with role 'plan'. Consider seeding the "
+                f"logic graph now too ({folder}graph.json, see "
+                "skills/research-workflow/graph-template.md): an objective node "
+                "costs a minute, and the story of the experiment's hard "
+                "decisions should grow as you make them — not be reconstructed "
+                "at the end."
+            ),
+        }
+
     def _result_resource_guidance(self) -> dict[str, Any]:
         return {
             "target_type": "experiment",
@@ -422,22 +724,28 @@ class WorkflowService:
             "allowed_resource_roles": sorted(RESOURCE_ROLES),
             "dataset_guidance": (
                 "Prefer CPU-only sandboxes for data inspection and data engineering "
-                "unless the command needs GPU. Work in $RP_SYNC_DIR for scripts, configs, "
-                "metrics, and compact results that should rsync back to the local experiment "
-                "folder. Download large datasets, caches, checkpoints, parquet files, and "
-                "other heavy intermediates to $RP_UNSYNCED_DIR / $RP_DATASET_DIR. If a large "
-                "artifact deliberately must persist locally, place it under "
-                "$RP_SYNC_DIR/artifacts_to_keep. Prefer saving an experiment-folder data.md "
-                "that records dataset sources, splits, filters, schema/row-count notes, "
-                "caveats, and where ephemeral data lives."
+                "unless the command needs GPU. Work inside the experiment folder "
+                "($RP_EXPERIMENT_DIR on the sandbox) for scripts, configs, metrics, "
+                "and compact results — it is the only directory that syncs back to "
+                "the local repo. Download large datasets, caches, checkpoints, "
+                "parquet files, and other heavy intermediates OUTSIDE the folder "
+                "(e.g. $RP_DATASET_DIR); nothing outside it is ever synced. If a "
+                "large artifact deliberately must persist locally, place it under "
+                "$RP_EXPERIMENT_DIR/artifacts_to_keep (5 GB per-file cap). Prefer "
+                "saving a data.md in the experiment folder that records dataset "
+                "sources, splits, filters, schema/row-count notes, caveats, and "
+                "where ephemeral data lives on the VM."
             ),
             "sync_guidance": (
-                "After the sandbox is running, make experiment file changes inside "
-                "$RP_SYNC_DIR. Before registering or associating result resources, call "
-                "sandbox.sync so remote synced files exist under the experiment's local "
-                "sync directory. The backend also rsyncs periodically while the sandbox is "
-                "running, but explicit sandbox.sync is the durable handoff before workflow "
-                "mutations."
+                "While a sandbox is live it owns the experiment folder: make all "
+                "experiment file changes inside $RP_EXPERIMENT_DIR over SSH, not "
+                "in the local repo — the folder is mirrored back locally every few "
+                "seconds as an exact replica, so local edits are overwritten. "
+                "Before registering or associating result resources, call "
+                "sandbox.sync so remote files exist under the local experiment "
+                "folder. The backend also rsyncs periodically while the sandbox is "
+                "running, but explicit sandbox.sync is the durable handoff before "
+                "workflow mutations."
             ),
             "report_guidance": (
                 "A results report (role 'report') is also required before "
@@ -447,22 +755,24 @@ class WorkflowService:
             ),
             "graph_guidance": (
                 "A logic graph (role 'graph') is also required before "
-                "submit_results — the experiment's own story of notable decisions, "
-                "problems, and pivots, told as a DAG of at most 16 nodes "
-                "(graph.json). Consider keeping it up to date as the work unfolds; "
-                "the user can watch it live, and what deserves a node is your "
-                "call. See skills/research-workflow/graph-template.md."
+                "submit_results — a qualitative story you author about the "
+                "experiment's logical path: the hard decisions and the "
+                "reasoning behind them, not an event or pipeline diagram "
+                "(graph.json, a DAG of at most 16 nodes, written by hand — "
+                "never script-generated). Record decisions in the graph as you "
+                "make them, while the reasoning is fresh; the user watches it "
+                "live. See skills/research-workflow/graph-template.md."
             ),
         }
 
-    def _report_resource_guidance(self) -> dict[str, Any]:
+    def _report_resource_guidance(self, *, folder: str) -> dict[str, Any]:
         return {
             "target_type": "experiment",
             "association_role": "report",
             "template": "skills/research-workflow/report-template.md",
             "guidance": (
                 "Write a SHORT markdown results report in the experiment folder "
-                "($RP_SYNC_DIR on the sandbox), e.g. experiments/<name>/report.md. "
+                f"($RP_EXPERIMENT_DIR on the sandbox), i.e. {folder}report.md. "
                 "Required sections: Summary; Results — MUST contain a markdown "
                 "table of metrics (paper/target value vs achieved, per task/seed "
                 "where relevant); Deviations from plan ('none' if faithful); "
@@ -475,23 +785,28 @@ class WorkflowService:
             ),
         }
 
-    def _graph_resource_guidance(self) -> dict[str, Any]:
+    def _graph_resource_guidance(self, *, folder: str) -> dict[str, Any]:
         return {
             "target_type": "experiment",
             "association_role": "graph",
             "template": "skills/research-workflow/graph-template.md",
             "guidance": (
-                "Write the experiment's logic graph as one JSON file (e.g. "
-                "experiments/<name>/graph.json): the story of how the experiment "
-                "actually went — the notable decisions, the problems you ran "
-                "into, the pivots and iterations (including those forced by "
-                "reviews), and what was learned — told as a DAG of at most 16 "
-                "nodes. You design the graph: node 'kind' vocabulary, edge "
-                "labels, and structure are yours, and what deserves a node is "
-                "your editorial call. If the graph is at the 16-node budget and "
-                "something important must be added, reduce the graph to make "
-                "room. Then register the file and associate it with role "
-                "'graph'."
+                "Write the experiment's logic graph as one JSON file in the "
+                f"experiment folder ({folder}graph.json): a qualitative story "
+                "you author about the logical path of the experiment — the "
+                "critical questions that needed answers, the hard decisions "
+                "and the reasoning behind them, the pivots (including those "
+                "forced by reviews), and the lessons — told as a DAG of at "
+                "most 16 nodes. Events may appear as anchors for reasoning, "
+                "but this is not an event or pipeline diagram: if your nodes "
+                "are components and your edges read produces/contains/records, "
+                "you have drawn dataflow, not the story. Do not generate it "
+                "with a script over your result files — choosing what mattered "
+                "is the authorship; write the JSON yourself. You design the "
+                "graph: node 'kind' vocabulary, edge labels, and structure are "
+                "yours. If the graph is at the 16-node budget and something "
+                "important must be added, reduce the graph to make room. Then "
+                "register the file and associate it with role 'graph'."
             ),
         }
 

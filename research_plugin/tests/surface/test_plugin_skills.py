@@ -24,6 +24,36 @@ class PluginSkillTest(unittest.TestCase):
         )
         subprocess.check_call([ruby, "-e", script, *map(str, skill_paths)])
 
+    def test_agent_frontmatter_is_valid_yaml(self) -> None:
+        # Shared agents are loaded by Claude Code, Cursor, and Gemini CLI;
+        # `name` + `description` is the common frontmatter subset they all
+        # accept. OpenCode agents add mode/permission in clients/opencode/.
+        ruby = shutil.which("ruby")
+        if ruby is None:
+            self.skipTest("ruby is not available for YAML validation")
+        shared = sorted(PLUGIN_ROOT.glob("agents/*.md"))
+        opencode = sorted(PLUGIN_ROOT.glob("clients/opencode/agents/*.md"))
+        self.assertGreater(len(shared), 0)
+        self.assertEqual(
+            [path.name for path in shared],
+            [path.name for path in opencode],
+            "OpenCode reviewer agents must mirror the shared agent set",
+        )
+        script = (
+            "require 'yaml'; "
+            "ARGV.each { |p| front = File.read(p).split(/^---\\s*$/, 3)[1]; "
+            "raise \"missing frontmatter: #{p}\" unless front; "
+            "data = YAML.safe_load(front); "
+            "raise \"missing description: #{p}\" unless data['description']; "
+            "if p.include?('clients/opencode/') then "
+            "raise \"missing mode: #{p}\" unless data['mode'] == 'subagent'; "
+            "raise \"missing permission: #{p}\" unless data['permission']; "
+            "else "
+            "raise \"missing name: #{p}\" unless data['name']; "
+            "end }"
+        )
+        subprocess.check_call([ruby, "-e", script, *map(str, shared + opencode)])
+
 
 if __name__ == "__main__":
     unittest.main()

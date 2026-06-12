@@ -36,7 +36,7 @@ class ExperimentSlimTest(unittest.TestCase):
 
     def _experiment_with_resources(self) -> str:
         exp_id = self.call(
-            "experiment.create", project_id=self.project_id,
+            "experiment.create", name="reve-small", project_id=self.project_id,
             intent="Train REVE-Small.\n\nTitle: REVE-Small",
         )["id"]
         for path, kind, role in [
@@ -52,14 +52,16 @@ class ExperimentSlimTest(unittest.TestCase):
                       target_type="experiment", target_id=exp_id, role=role)
         return exp_id
 
-    def test_create_makes_visible_local_sync_folder(self) -> None:
+    def test_create_makes_experiment_folder(self) -> None:
         exp_id = self.call(
             "experiment.create",
+            name="folder-test",
             project_id=self.project_id,
-            intent="Create local sync folder.",
+            intent="Create the experiment folder.",
         )["id"]
 
-        self.assertTrue((self.repo / "experiments" / exp_id / "synced").is_dir())
+        self.assertTrue(exp_id)
+        self.assertTrue((self.repo / "experiments" / "folder-test").is_dir())
 
     def test_get_state_tool_is_slim(self) -> None:
         exp_id = self._experiment_with_resources()

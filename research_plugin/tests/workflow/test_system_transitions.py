@@ -50,7 +50,7 @@ class SystemTransitionTestBase(unittest.TestCase):
         return self.app.call_tool(tool, kwargs)
 
     def _experiment(self, *, status: str = "ready_to_run") -> str:
-        exp_id = self.call("experiment.create", project_id=self.project_id, intent="x")["id"]
+        exp_id = self.call("experiment.create", name="exp-1", project_id=self.project_id, intent="x")["id"]
         if status != "planned":
             with self.app.store.transaction() as conn:
                 conn.execute("UPDATE experiments SET status = ? WHERE id = ?", (status, exp_id))

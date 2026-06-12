@@ -47,6 +47,7 @@ had. **Start the daemon before opening Codex.**
 
 - [docs/STARTUP_CHEATSHEET.md](docs/STARTUP_CHEATSHEET.md) - local startup commands for the daemon, Codex, sandboxes, and activity logs
 - [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) - full plug-in architecture
+- [docs/CLIENTS.md](docs/CLIENTS.md) - client support matrix and per-client install (Claude Code, Codex, Cursor, Gemini CLI, OpenCode)
 - [docs/MCP_SERVER_CONTRACT.md](docs/MCP_SERVER_CONTRACT.md) - MCP tools and state ownership
 - [docs/UI_API.md](docs/UI_API.md) - lightweight HTTP API for frontend work
 - [docs/WORKFLOW_AND_REVIEW.md](docs/WORKFLOW_AND_REVIEW.md) - experiment workflow and review gates
@@ -57,8 +58,12 @@ had. **Start the daemon before opening Codex.**
 
 - `.codex-plugin/plugin.json` - Codex plug-in manifest (references `.mcp.codex.json`)
 - `.claude-plugin/plugin.json` - Claude Code plug-in manifest
+- `.cursor-plugin/plugin.json` - Cursor plug-in manifest (skills/agents/`mcp.json` auto-discovered)
+- `gemini-extension.json` - Gemini CLI extension manifest (bundles the MCP server and `GEMINI.md` context)
+- `clients/opencode/` - OpenCode adapter: installer, reviewer agents, and config example
 - `.mcp.json` - Claude Code MCP server registration, portable via `${CLAUDE_PLUGIN_ROOT}`
 - `.mcp.codex.json` - Codex MCP server registration with absolute install path
+- `mcp.json` - Cursor MCP server registration (`${workspaceFolder}` supplies the project root)
 - `.env.example` - template for the per-user credentials file (see "Use with Claude Code" below)
 - `pyproject.toml` - package metadata, dependency declaration, `console_scripts`
 - `backend/` - HTTP daemon code: services, SQLite state, activity log, execution backends, and SSH rsync (Python package `backend`)
@@ -263,6 +268,17 @@ The Codex install path is unchanged. Its absolute-path `.mcp.codex.json` lives
 beside the Claude Code `.mcp.json`; `.codex-plugin/plugin.json` references the
 Codex-specific file so both clients coexist without stepping on each other.
 
+### Use with Cursor, Gemini CLI, or OpenCode
+
+The same content tree (`bin/`, `skills/`, `agents/`) is exposed to three more
+clients through thin adapters — a Cursor plugin bundle
+(`.cursor-plugin/plugin.json` + root `mcp.json`), a Gemini CLI extension
+(`gemini-extension.json` + `GEMINI.md`), and an OpenCode installer
+(`clients/opencode/install.sh`). The HTTP daemon and startup flow are
+identical everywhere; only MCP registration and reviewer-agent spawning are
+client-specific. See [docs/CLIENTS.md](docs/CLIENTS.md) for the support
+matrix, install commands, and per-client caveats.
+
 #### Updating after source changes
 
 The plugin cache is a snapshot taken at install time, so edits to the source
@@ -397,14 +413,14 @@ running, exposes SSH, authorizes the public key, and returns SSH details. A
 background **reaper** terminates any sandbox past its `time_limit`/`expires_at`
 (after a final sync), so a Lambda VM — which has no server-side lifetime — never
 bills past its deadline.
-The remote synced workspace is `/workspace/synced`; the remote unsynced scratch
-directory is `/workspace/unsynced`. The local side is
-`experiments/<experiment_id>/synced/`, created automatically by
-`experiment.create`. Fresh sandbox setup pushes that local folder to
-`/workspace/synced` before returning `status: running`.
-Large datasets and caches should be downloaded to `/workspace/unsynced` (also
-exposed inside SSH commands as `$RP_UNSYNCED_DIR`, `$RP_SANDBOX_DATA_DIR`, and
-`$RP_DATASET_DIR`), which is remote-only ephemeral storage.
+There is exactly one synced location per experiment: the experiment folder
+`experiments/<name>/` (created automatically by `experiment.create`),
+mirrored on the VM as `/workspace/<name>` (`$RP_EXPERIMENT_DIR`).
+Fresh sandbox setup pushes the whole local folder there before returning
+`status: running`. Everything outside that folder stays on the VM and dies
+with it; large datasets and caches should be downloaded to `/workspace/data`
+(exposed inside SSH commands as `$RP_DATASET_DIR` and `$RP_SANDBOX_DATA_DIR`),
+the conventional remote-only scratch home.
 If `HF_TOKEN` is present in the backend `.env` or process environment, sandbox
 creation passes it with `modal.Secret.from_local_environ(["HF_TOKEN"])`, while
 non-secret bootstrap values use `Sandbox.create(env=...)`. The SSH wrapper then
@@ -423,8 +439,9 @@ a sandbox removes the conn file so the dispatcher fails loudly rather than
 connecting to a recycled host:port.
 
 Visibility: an in-sandbox `sshd` `ForceCommand` wrapper records every command and
-its output to `.research_plugin_sessions/<experiment>/transcript.log` under
-`/workspace/synced`. `sandbox.terminal` reads it live from the sandbox; the UI
+its output to `/workspace/.research_plugin_sessions/<experiment>/transcript.log`
+(outside the experiment folder — it is sandbox-authored telemetry, not
+experiment content). `sandbox.terminal` reads it live from the sandbox; the UI
 renders it as a per-experiment terminal window.
 
 Durability: the wrapper runs every recorded command inside a detached tmux
@@ -433,8 +450,8 @@ than to the SSH channel — dropped connections and timed-out agent calls stop
 the viewing, not the work. Output keeps streaming into the transcript and the
 `(exit N)` marker is written when the command ends, even with nobody connected.
 Per-command run records (command, output, exit code) live under
-`$RP_UNSYNCED_DIR/.rp_runs/`. If tmux is unavailable the wrapper falls back to
-the legacy attached execution.
+`$RP_SANDBOX_DATA_DIR/.rp_runs/`. If tmux is unavailable the wrapper falls back
+to the legacy attached execution.
 
 For training runs the sandbox also boots an **MLflow tracking server** (port
 5000) and a **TensorBoard** (port 6006) backed by the synced sessions directory.
@@ -446,18 +463,22 @@ every SSH command, so Hugging Face `Trainer` and PyTorch Lightning's
 `MLFlowLogger` can log to MLflow directly. Agents log run params, metrics, and
 artifacts to MLflow and write TensorBoard events to `$RP_TB_LOGDIR`; for plain
 PyTorch they can call `mlflow.autolog()` when useful. Stores live under
-`.research_plugin_sessions/<experiment>/{mlflow.db, mlflow-artifacts, tb}` so
-runs accumulate across re-acquires of the same experiment.
+`/workspace/.research_plugin_sessions/<experiment>/{mlflow.db, mlflow-artifacts,
+tb}`, outside the experiment folder; the daemon pulls them into
+`.research_plugin/sessions/<experiment>/<sandbox_id>/` locally, one subdir per
+VM generation, and archives MLflow metrics via REST so results outlive the VM.
 
-`sandbox.sync` is the explicit live-sandbox visibility boundary: it pulls
-`/workspace/synced` back to `experiments/<experiment_id>/synced/` with SSH
-rsync. A best-effort background rsync also runs while sandboxes are active, and
-`sandbox.release` attempts one final pull before terminating the sandbox/VM.
-Regular rsync excludes common heavy file types and applies a conservative size
-cap. Deliberate large final artifacts belong under
-`/workspace/synced/artifacts_to_keep`, which is pulled by a separate higher-size
+`sandbox.sync` is the explicit live-sandbox visibility boundary: it mirrors
+`/workspace/<name>` back to `experiments/<name>/` with SSH
+rsync (`--delete`: an exact replica — deletions and renames propagate, local
+edits are overwritten, so while a sandbox lives the VM owns the folder). A
+best-effort background rsync also runs every few seconds while sandboxes are
+active, and `sandbox.release` attempts one final pull before terminating the
+sandbox/VM. Regular rsync excludes common heavy file types and applies a
+conservative size cap. Deliberate large final artifacts belong under
+`$RP_EXPERIMENT_DIR/artifacts_to_keep`, which syncs via a separate higher-size
 rsync pass. Keep datasets, caches, checkpoints, parquet files, and scratch data
-under `/workspace/unsynced`.
+outside the experiment folder (e.g. `/workspace/data`).
 
 Implemented MCP tools:
 

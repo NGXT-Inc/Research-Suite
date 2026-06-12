@@ -50,7 +50,7 @@ claim.list(project_id)
 claim.create(project_id, statement, scope?)
 claim.propose_update(project_id, claim_id, patch, rationale)
 experiment.list(project_id)
-experiment.create(project_id, intent, tested_claim_ids?)
+experiment.create(project_id, name, intent, tested_claim_ids?)
 experiment.get(project_id, experiment_id)
 experiment.get_state(project_id, experiment_id)   # see "get_state shape" below
 resource.list(project_id, kind?, experiment_id?, missing?, compact?, limit?, offset?)
@@ -59,9 +59,18 @@ event.list(project_id, limit?)
 ```
 
 `experiment.create` is intentionally simple in durable storage: it creates a
-planned experiment with one `intent` string and optional linked claims. The MCP
-schema advertises `intent` and `tested_claim_ids` as the preferred shape, but
-the server accepts common Codex/user aliases:
+planned experiment with a short unique `name`, one `intent` string, and
+optional linked claims. `name` is required and folder-safe (letters, digits,
+`.`, `_`, `-`; max 48 chars): it becomes the experiment folder
+`experiments/<name>/`, created on the spot, which is also the folder synced to
+sandboxes. Names are unique per project (case-insensitive) — proposing a name
+that already exists is rejected with "an experiment named '<name>' already
+exists in this project — choose a new name". The create response confirms the
+folder in-band: alongside the experiment state it carries `folder`
+(`experiments/<name>/`) and a one-line `folder_guidance` telling the agent to
+work inside it from the start. The MCP schema advertises `name`,
+`intent`, and `tested_claim_ids` as the preferred shape, but the server
+accepts common Codex/user aliases:
 
 ```text
 claim_id -> tested_claim_ids[0]
@@ -91,6 +100,44 @@ unique node ids with non-empty labels, **at most 16 nodes**, edges that
 reference existing nodes and form a DAG, file under 16 KB. Vocabulary,
 structure, and what deserves a node are the agent's editorial calls; the
 experiment reviewer judges the story's substance.
+
+### Synthesis tools (project reflection waves)
+
+```text
+synthesis.create(project_id, title?, lenses)   # lenses: exactly 5 (3 core + 2 authored)
+synthesis.get(project_id, synthesis_id)
+synthesis.list(project_id)
+synthesis.transition(project_id, synthesis_id, transition)
+```
+
+A synthesis (`syn_…`) is the project-level reflection record:
+`reflecting → synthesizing → synthesis_review → published` (plus `abandoned`).
+One wave may be open per project. `synthesis.create` validates the roster
+envelope (the core lens ids `outcomes`/`dead_ends`/`coverage` plus two
+authored lenses, each with `charter` + `why_distinct`) and snapshots the
+corpus. `submit_reflections` requires a current-attempt role-`reflection`
+resource named `<lens_id>.md` for every roster lens — each submitted by its
+own subagent. `submit_synthesis` requires the project logic graph (role
+`graph`, the same `graph_lint` envelope as experiment graphs — ≤16 nodes,
+DAG) and a non-empty `proposals` resource. `publish` requires a passing
+`synthesis_reviewer` review at the current snapshot and pins the published
+graph version. Resource associations on syntheses are attempt-scoped, exactly
+like experiments, so a `return_to: "reflecting"` rejection (attempt bump)
+invalidates the prior reflections.
+
+Graph node `refs` resolve `syn_` ids too, so experiment graphs and the
+project graph can cross-link to the synthesis that motivated them.
+`workflow.status_and_next` carries a `project_reflection` block while a wave
+is open (slim wave state + gate guidance) or when the project has drifted
+from the last published synthesis (a soft "Consider running a project
+reflection…" hint; computed on read, never stored). When the project is idle
+(no non-terminal experiments) and at least one experiment has finished since
+the last published synthesis, a project-level call (no explicit
+`experiment_id`) additionally makes reflection the suggested next action:
+the workflow block becomes `current_gate: reflection_suggested` (or the open
+wave's gate guidance, if one is open). Advisory either way — `synthesis.create`
+joins `claim.create`/`experiment.create` in `allowed_actions`, nothing is
+blocked, and explicitly experiment-scoped calls are never taken over.
 
 ### Resource tools
 
@@ -172,7 +219,7 @@ the service directly.) The slim shape, scoped to an experiment:
 
 When a sandbox is live, `sandbox` is `{ "active": true, "sandbox_id", "status",
 "gpu", "cpu", "memory", "ssh_host", "ssh_port", "ssh_user", "workdir",
-"sync_dir", "unsynced_dir", "local_sync_dir", "sandbox_data_dir", "expires_at" }`.
+"sandbox_data_dir", "expires_at" }`.
 Dropped vs. the underlying `experiment.get_state`: the duplicate
 all-attempts `resources` list, per-resource version bookkeeping (`version_token`,
 `mtime_ns`, `*_version_id`, `git_commit`, timestamps), full review
@@ -227,9 +274,10 @@ runs shell commands on the sandbox itself. Lightweight work still runs locally.
 `sandbox.request` is the only procurement call. The registry keeps **one sandbox
 per experiment** and reuses the live one if it is still alive, otherwise creates
 a fresh one. The response carries `ssh` (host, port, user, key_path, command,
-raw_command), `workdir`, `sync_dir`, `unsynced_dir`, `local_sync_dir`,
-`sandbox_data_dir`, `status`, `expires_at`, `reused`, and — when set — the
-reserved hardware (`gpu`, `cpu`, `memory`, `instance_type`, `region`).
+raw_command), `workdir`, `experiment_dir`, `local_experiment_dir`, `data_dir`,
+`files_pushed` (how many files the initial folder push delivered; null while
+unknown), `status`, `expires_at`, `reused`, and — when set — the reserved
+hardware (`gpu`, `cpu`, `memory`, `instance_type`, `region`).
 `ssh.command` is the short dispatcher form
 `.research_plugin/sbx <experiment_id>` (run from the repo root); `ssh.raw_command`
 is the full `ssh -i … user@host` line for use from any directory.
@@ -263,22 +311,23 @@ filtering, and other data engineering unless a command specifically needs GPU
 acceleration. On Lambda that means picking the smallest/cheapest viable SKU from
 the menu; on Modal, omitting `gpu`.
 
-`workdir` is the synced working directory, currently the same as `sync_dir`
-(default `/workspace/synced`). `unsynced_dir` / `sandbox_data_dir` is
-sandbox-local ephemeral storage outside the synced tree (default
-`/workspace/unsynced`) and is exported inside SSH commands as
-`$RP_UNSYNCED_DIR`, `$RP_SANDBOX_DATA_DIR`, and `$RP_DATASET_DIR`. Agents should
-download large datasets, caches, checkpoints, parquet files, and heavy
-intermediates there, then write only scripts, configs, metrics, and compact
-results under `sync_dir`. Data transformations and temporary derived datasets
-left under `unsynced_dir` are ephemeral and will not carry into future
-sandboxes. If a large artifact deliberately must be preserved locally, agents
-place it under `$RP_SYNC_DIR/artifacts_to_keep`; this subdirectory is pulled by
-a separate higher-size rsync pass. Agents should also prefer to save a Markdown
-data note in the experiment folder under `sync_dir` (for example
-`experiments/<name>/data.md`) describing datasets used, source identifiers,
-split/filter choices, important columns, row counts, caveats, and where large
-ephemeral files were placed in `unsynced_dir`.
+There is exactly **one synced location** on the VM: the experiment's own
+folder, `experiment_dir` (`/workspace/<name>`, exported inside SSH
+commands as `$RP_EXPERIMENT_DIR`; `workdir` is the same path — SSH commands
+start there). It mirrors the local `experiments/<name>/` folder both
+ways: pushed wholesale at provisioning, pulled back continuously while the
+sandbox lives. Everything outside that folder stays on the VM and dies with
+it — there is no "unsynced directory" concept, just *outside the folder*.
+`data_dir` (`/workspace/data`, exported as `$RP_DATASET_DIR` /
+`$RP_SANDBOX_DATA_DIR`) is the conventional home for large datasets, caches,
+checkpoints, parquet files, and heavy intermediates. If a large artifact
+deliberately must be preserved locally, agents place it under
+`$RP_EXPERIMENT_DIR/artifacts_to_keep`; this subdirectory syncs via a separate
+higher-size rsync pass (5 GB per-file cap vs the usual 100 MB). Agents should
+also prefer to save a Markdown data note in the experiment folder (for example
+`experiments/<name>/data.md`) describing datasets used, source
+identifiers, split/filter choices, important columns, row counts, caveats, and
+where large ephemeral files were placed outside the folder.
 
 When the backend has `HF_TOKEN` in its env file or process environment,
 `sandbox.request` / `sandbox.get` include an `environment.available_tokens`
@@ -289,19 +338,28 @@ plain sandbox `env` value and not as a synced repo `.env` file.
 Agents must not print the token, write it into synced files, or register it as a
 resource.
 
-When a fresh sandbox/VM is created, setup pushes the experiment's `local_sync_dir`
-to `$RP_SYNC_DIR` before returning `status: running`. This makes existing local
-experiment files available to a newly provisioned remote environment. Before
-registering or associating result resources, the agent must call
-`sandbox.sync(experiment_id)`: the daemon pulls `$RP_SYNC_DIR` over SSH with
-`rsync` into the experiment's `local_sync_dir`. The regular pass skips heavy file
-types and enforces a conservative file-size limit; `$RP_SYNC_DIR/artifacts_to_keep`
-is the deliberate exception path for large final artifacts. Resource tools only
-operate on local repo files, so a file produced remotely cannot be associated
-until it has synced locally. Call `sandbox.sync` before `sandbox.release` for
-any outputs that must survive, and after major sandbox file changes so the user
-can inspect the latest local files while the sandbox is still running. The
-daemon also runs a best-effort periodic rsync for live sandboxes.
+When a fresh sandbox/VM is created, setup pushes the experiment's whole local
+folder (`experiments/<name>/`) to `$RP_EXPERIMENT_DIR` before
+returning `status: running`, and the response reports `files_pushed`. This
+makes existing local experiment files (plan, scripts, configs, notes) available
+to a newly provisioned remote environment — including a replacement sandbox
+after expiry, which receives everything the previous one synced back. While
+the sandbox lives, the daemon mirrors the folder back continuously
+(best-effort periodic rsync, default every ~5s) and on explicit
+`sandbox.sync(experiment_id)`. The mirror is an **exact replica with
+deletions**: file deletions and renames on the VM propagate to the local copy,
+and local edits are overwritten — while a sandbox is live, the VM owns the
+folder, and agents make all experiment-file edits there over SSH. The regular
+pass skips heavy file types and enforces a conservative file-size limit;
+`$RP_EXPERIMENT_DIR/artifacts_to_keep` is the deliberate exception path for
+large final artifacts. Resource tools only operate on local repo files, so a
+file produced remotely cannot be associated until it has synced locally —
+call `sandbox.sync` as the durable handoff before registering resources and
+before `sandbox.release`. Sandbox-authored telemetry (MLflow database,
+TensorBoard events, command transcripts) lives outside the experiment folder
+on the VM and is pulled separately into the daemon-owned
+`.research_plugin/sessions/<experiment_id>/<sandbox_id>/` dir, one subdir per
+VM generation.
 
 Provisioning is **best-effort-synchronous**. Creating a sandbox can outlast the
 MCP call timeout (large first sync, cold GPU), so `sandbox.request` provisions on
@@ -369,8 +427,16 @@ Reviewer roles:
 - `design_reviewer`: reviews experiment plan before execution.
 - `experiment_reviewer`: reviews executed attempt, result resources, metrics,
   and conclusion before completion or claim update.
+- `synthesis_reviewer`: reviews a project reflection wave — the synthesized
+  project logic graph and what's-next proposals against the corpus and the
+  five lens reflections — before publish. Rejections route via `return_to`:
+  `synthesizing` (reflections stand) or `reflecting` (re-launch the fan-out).
 - `human`: records a human decision with the same mechanism.
 - `automated_check`: records deterministic checks or audit scripts.
+
+Review targets are polymorphic: `target_type` is `experiment` or `synthesis`.
+The same capability machinery applies to both — snapshot pinning covers the
+target's status, attempt, and current-attempt resource versions.
 
 Reviewers are read-only. A reviewer capability may only call read tools for the
 target context plus `review.submit` for its own review request. Recording a

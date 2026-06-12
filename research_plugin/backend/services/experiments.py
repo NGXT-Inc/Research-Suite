@@ -3,9 +3,10 @@
 from __future__ import annotations
 
 import json
+import re
 from typing import Any
 
-from ..workspace import local_experiment_sync_dir
+from ..workspace import experiment_folder_rel, local_experiment_dir
 from ..utils import NotFoundError, ValidationError, WorkflowError
 from ..utils import new_id
 from ..state.store import StateStore, row_to_dict, rows_to_dicts
@@ -22,6 +23,13 @@ from .workflow_gates import (
 )
 
 
+# The experiment name doubles as its folder name (experiments/<name>/), so it
+# must be short and filesystem-safe as written — no sanitization, what the
+# agent names is what appears on disk.
+MAX_EXPERIMENT_NAME_LEN = 48
+_EXPERIMENT_NAME_RE = re.compile(r"[A-Za-z0-9][A-Za-z0-9._-]*")
+
+
 class ExperimentService:
     def __init__(self, *, store: StateStore) -> None:
         self.store = store
@@ -29,6 +37,7 @@ class ExperimentService:
     def create(
         self,
         *,
+        name: str = "",
         intent: str = "",
         tested_claim_ids: list[str] | str | None = None,
         claim_id: str | None = None,
@@ -59,10 +68,20 @@ class ExperimentService:
             claim_id=claim_id,
             claim_ids=claim_ids,
         )
+        name = self._validate_name(name)
         if not intent.strip():
             raise ValidationError("intent is required")
         with self.store.transaction() as conn:
             project_id = self.store.require_project_id(conn=conn, project_id=project_id)
+            duplicate = conn.execute(
+                "SELECT id FROM experiments WHERE project_id = ? AND lower(name) = lower(?)",
+                (project_id, name),
+            ).fetchone()
+            if duplicate is not None:
+                raise ValidationError(
+                    f"an experiment named {name!r} already exists in this project "
+                    "— choose a new name"
+                )
             for claim_id in tested_claim_ids or []:
                 if conn.execute("SELECT id FROM claims WHERE id = ? AND project_id = ?", (claim_id, project_id)).fetchone() is None:
                     raise NotFoundError(f"claim not found: {claim_id}")
@@ -71,10 +90,10 @@ class ExperimentService:
             conn.execute(
                 """
                 INSERT INTO experiments
-                  (id, project_id, intent, status, attempt_index, revision_context, created_at, updated_at)
-                VALUES (?, ?, ?, 'planned', 1, '', ?, ?)
+                  (id, project_id, name, intent, status, attempt_index, revision_context, created_at, updated_at)
+                VALUES (?, ?, ?, ?, 'planned', 1, '', ?, ?)
                 """,
-                (experiment_id, project_id, intent.strip(), now, now),
+                (experiment_id, project_id, name, intent.strip(), now, now),
             )
             for claim_id in tested_claim_ids or []:
                 conn.execute(
@@ -87,13 +106,38 @@ class ExperimentService:
                 event_type="experiment.created",
                 target_type="experiment",
                 target_id=experiment_id,
-                payload={"intent": intent},
+                payload={"name": name, "intent": intent},
             )
-            local_experiment_sync_dir(
+            local_experiment_dir(
                 repo_root=self.store.repo_root,
                 experiment_id=experiment_id,
+                name=name,
             ).mkdir(parents=True, exist_ok=True)
-            return self.get_state(experiment_id=experiment_id, conn=conn)
+            state = self.get_state(experiment_id=experiment_id, conn=conn)
+            state["folder"] = experiment_folder_rel(experiment_id=experiment_id, name=name)
+            state["folder_guidance"] = (
+                f"Created {state['folder']} — the experiment's one folder and its "
+                "sandbox sync unit. Work in it from the start: plan.md, scripts, "
+                "configs, and results all live there, and everything a run needs "
+                "must be staged inside it before sandbox.request."
+            )
+            return state
+
+    @staticmethod
+    def _validate_name(name: str) -> str:
+        name = (name or "").strip()
+        if not name:
+            raise ValidationError(
+                "name is required: a short, folder-safe experiment name — it "
+                "becomes the experiment folder experiments/<name>/"
+            )
+        if len(name) > MAX_EXPERIMENT_NAME_LEN or not _EXPERIMENT_NAME_RE.fullmatch(name):
+            raise ValidationError(
+                "experiment name must work as a folder name: start with a letter "
+                "or digit and use only letters, digits, '.', '_' and '-', at most "
+                f"{MAX_EXPERIMENT_NAME_LEN} characters"
+            )
+        return name
 
     def _compose_intent(
         self,
@@ -173,7 +217,7 @@ class ExperimentService:
             resource_rows = conn.execute(
                 """
                 SELECT r.*, a.role AS association_role, a.attempt_index AS association_attempt_index,
-                       a.version_id AS association_version_id
+                       a.version_id AS association_version_id, a.rowid AS association_rowid
                 FROM resources r
                 JOIN resource_associations a ON a.resource_id = r.id
                 WHERE a.target_type = 'experiment' AND a.target_id = ?
@@ -376,6 +420,18 @@ class ExperimentService:
             self._validate_results_report(conn=conn, experiment_id=experiment_id)
         elif name == "graph":
             self._validate_logic_graph(conn=conn, experiment_id=experiment_id)
+
+    def validator_problems(self, *, conn, experiment_id: str, name: str) -> list[str]:
+        """A gate-table validator's findings as data instead of a raise.
+
+        Runs the exact same deep lint the transition runs, so the workflow's
+        readiness guidance can never call an artifact ready that the
+        transition would reject."""
+        try:
+            self._run_validator(conn=conn, experiment_id=experiment_id, name=name)
+        except WorkflowError as exc:
+            return [str(exc)]
+        return []
 
     def apply_system_transition(
         self, *, experiment_id: str, transition: str, reason: str = ""

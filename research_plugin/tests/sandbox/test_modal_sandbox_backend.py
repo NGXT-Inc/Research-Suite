@@ -219,8 +219,11 @@ class ModalSandboxBackendTest(unittest.TestCase):
         self.assertEqual(provisioned.sandbox_data_dir, self.backend.config.sandbox_data_dir)
         self.assertEqual(provisioned.volume_name, "")
         self.assertNotIn("secrets", kwargs)
-        self.assertEqual(kwargs["env"]["RP_SYNC_DIR"], kwargs["workdir"])
-        self.assertEqual(kwargs["env"]["RP_UNSYNCED_DIR"], self.backend.config.sandbox_data_dir)
+        self.assertEqual(kwargs["workdir"], "/workspace/exp1")
+        self.assertEqual(kwargs["env"]["RP_EXPERIMENT_DIR"], kwargs["workdir"])
+        self.assertEqual(
+            kwargs["env"]["RP_DASH_DIR"], "/workspace/.research_plugin_sessions/exp1"
+        )
         self.assertEqual(kwargs["env"]["RP_SANDBOX_DATA_DIR"], self.backend.config.sandbox_data_dir)
         self.assertEqual(kwargs["env"]["RP_EXPERIMENT_ID"], "exp1")
         self.assertNotIn("HF_TOKEN", kwargs["env"])
@@ -364,18 +367,21 @@ class ModalSandboxBackendTest(unittest.TestCase):
         )
         self.assertEqual(text, "")
 
-    def test_config_rejects_unsynced_dir_inside_sync_dir(self) -> None:
-        with self.assertRaises(BackendValidationError):
-            ModalConfig(
-                app_name="research-plugin-jobs",
-                retention_seconds=600,
-                sandbox_timeout=4200,
-                job_timeout=3000,
-                idle_timeout=0,
-                remote_workdir="/workspace/synced",
-                sandbox_data_dir="/workspace/synced/cache",
-                runner_dir="/workspace/synced/.research_plugin_job",
-            ).validated()
+    def test_config_rejects_data_dir_colliding_with_experiment_folders(self) -> None:
+        # The data dir may live under the remote root (/workspace/data is the
+        # default), but never where per-experiment synced folders land.
+        for bad in ("/workspace", "/workspace/exp_cache", "/workspace/.research_plugin_sessions"):
+            with self.assertRaises(BackendValidationError):
+                ModalConfig(
+                    app_name="research-plugin-jobs",
+                    retention_seconds=600,
+                    sandbox_timeout=4200,
+                    job_timeout=3000,
+                    idle_timeout=0,
+                    remote_root="/workspace",
+                    sandbox_data_dir=bad,
+                    runner_dir="/workspace/.research_plugin_job",
+                ).validated()
 
     def test_sample_metrics_parses_gauges(self) -> None:
         provisioned = self.backend.acquire(request=self._request())

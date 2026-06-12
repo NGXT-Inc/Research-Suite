@@ -9,7 +9,7 @@ HTTP daemon (`python -m backend.http_server`) and the stdlib-only stdio proxy
 (`python -m mcp_server`) are local, and the daemon happens to sit on the same
 filesystem as the user's research repo. That co-location is the only reason
 sync works: the daemon can `rsync` between a Modal/Lambda VM and a local path
-like `experiments/<id>/synced/`.
+like `experiments/<id>/`.
 
 When the backend moves to the cloud and serves multiple users, that assumption
 breaks. This doc proposes splitting the monolith into a **cloud control plane**
@@ -20,7 +20,7 @@ which side.
 
 > **The cloud backend cannot see a user's local filesystem.**
 
-A cloud-hosted backend has no access to `experiments/<id>/synced/`, the user's
+A cloud-hosted backend has no access to `experiments/<id>/`, the user's
 repo files, or their SSH `known_hosts`. Therefore **any code that reads or
 writes local files, or spawns processes that do (rsync, ssh, ssh-keygen), must
 run in a process on the user's machine.** Everything else — orchestration,
@@ -44,7 +44,7 @@ Three roles instead of two:
 │                                                 │                      │
 │                                                 │ rsync / ssh          │
 │                                   reads/writes  ▼                      │
-│                              experiments/<id>/synced/, repo files,     │
+│                              experiments/<id>/, repo files,             │
 │                              .research_plugin/ keys + state            │
 │                                                 │                      │
 │                                                 │ ssh ─────────────►   │  Modal / Lambda VM
@@ -105,7 +105,7 @@ wires the services below. Here is where each lands.
 |---|---|---|
 | **rsync transfer** | [`execution/ssh_rsync.py`](../backend/execution/ssh_rsync.py) | Reads/writes the local experiment folder; spawns `rsync`/`ssh`. |
 | **Auto-sync poller + per-experiment sync locks** | `services/sandboxes.py` `_auto_sync_loop` / `_sync_row` / `_push_initial_files` | Drives the local rsync; must be near the files. |
-| **Local sync directory layout** | [`execution/sync_dirs.py`](../backend/execution/sync_dirs.py) `local_experiment_sync_dir` | `experiments/<id>/synced/` is a local path. |
+| **Local sync directory layout** | [`execution/sync_dirs.py`](../backend/execution/sync_dirs.py) `local_experiment_dir` | `experiments/<id>/` is a local path. |
 | **SSH keypair material on disk** | `services/sandbox_conn.py` `SandboxConnFiles.ensure_keypair` (ssh-keygen → `.research_plugin/sandboxes/keys`) | Private key stays on the user's machine (see credential model below). |
 | **Sandbox dispatcher + conn files** | `services/sandbox_conn.py` (`.research_plugin/sbx`, `conn/<id>`) | Local helper the agent shells out to. |
 | **Resource file observation** | `services/resources.py` `register_file` (single `path` or `paths` batch) | Hashes/reads **repo-relative local files**; only the resulting metadata is cloud state. |
@@ -117,7 +117,7 @@ wires the services below. Here is where each lands.
 A few responsibilities are genuinely two-sided. The **bytes/IO half is local;
 the record/metadata half is cloud.**
 
-- **Sandbox sync.** Cloud sets up the remote `/workspace/synced` contract and
+- **Sandbox sync.** Cloud sets up the remote `/workspace/<name>` contract and
   tracks status/last-sync metadata; the local daemon moves the bytes.
 - **Resources.** Local daemon reads the file and computes the version hash;
   cloud stores the resource record and immutable version history.
@@ -142,13 +142,13 @@ local daemon acts on:
   "sandbox_id": "...",
   "ssh": { "host": "...", "port": 22, "user": "root",
            "credential": "<short-lived cert or ephemeral key ref>" },
-  "remote": { "synced": "/workspace/synced",
-              "unsynced": "/workspace/unsynced",
-              "artifacts_to_keep": "/workspace/synced/artifacts_to_keep" },
+  "remote": { "experiment_dir": "/workspace/<name>",
+              "data_dir": "/workspace/data",
+              "artifacts_to_keep": "/workspace/<name>/artifacts_to_keep" },
   "lease": { "id": "...", "ttl_seconds": 120, "holder_client_id": "..." },
   "direction_policy": {
     // per-subtree authority — closes the --delete footgun
-    "synced": "remote_authoritative_for_results",
+    "experiment_dir": "remote_authoritative_for_results",
     "artifacts_to_keep": "remote_append_only"
   }
 }

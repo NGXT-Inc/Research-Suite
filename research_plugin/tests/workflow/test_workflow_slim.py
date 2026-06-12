@@ -41,6 +41,7 @@ class WorkflowSlimTest(unittest.TestCase):
     def _experiment_with_plan(self) -> str:
         exp_id = self.call(
             "experiment.create",
+            name="the-thing",
             project_id=self.project_id,
             intent="Do the thing on the staged subset.\n\nTitle: The Thing",
         )["id"]
@@ -60,6 +61,8 @@ class WorkflowSlimTest(unittest.TestCase):
         self.assertIn("current_gate", slim["workflow"])
 
         exp = slim["experiment"]
+        # The agent sees the experiment's identity: its name.
+        self.assertEqual(exp["name"], "the-thing")
         # The duplicate all-attempts `resources` list is gone…
         self.assertNotIn("resources", exp)
         self.assertIn("current_attempt_resources", exp)

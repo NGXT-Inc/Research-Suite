@@ -455,11 +455,11 @@ A sandbox row looks like:
   "cpu": 2.0,
   "memory": 8192,
   "ssh_host": "...", "ssh_port": 50022, "ssh_user": "root",
-  "workdir": "/workspace/synced",
-  "sync_dir": "/workspace/synced",
-  "unsynced_dir": "/workspace/unsynced",
-  "sandbox_data_dir": "/workspace/unsynced",
-  "local_sync_dir": "/path/to/repo/experiments/exp_.../synced",
+  "workdir": "/workspace/exp_...",
+  "sync_dir": "/workspace/exp_...",
+  "sandbox_data_dir": "/workspace/data",
+  "local_sync_dir": "/path/to/repo/experiments/exp_...",
+  "initial_pushed": 12,
   "dashboards": {
     "mlflow": "https://...modal.host",
     "tensorboard": "https://...modal.host"
@@ -480,16 +480,21 @@ are recreated by the daemon when needed.
 
 The terminal endpoint returns `{ experiment_id, sandbox_id, status, transcript }`
 where `transcript` is the recorded command/output log for the experiment's
-sandbox. Fresh sandbox setup pushes `local_sync_dir` to `/workspace/synced`
-before returning `status: running`, so a new remote environment starts with the
-current local experiment files. The sync endpoint pulls `/workspace/synced` from
-the live sandbox/VM into `local_sync_dir` with SSH `rsync` before resource
-registration. The regular sync excludes common heavy files and limits file size;
-`/workspace/synced/artifacts_to_keep` is the deliberate large-artifact exception
-path. `/workspace/unsynced` is for datasets, caches, checkpoints, parquet files,
-and other heavy intermediates that should stay remote. The release endpoint runs
-a final best-effort sync, then terminates the sandbox and returns the updated
-row.
+sandbox. Fresh sandbox setup pushes the experiment's whole local folder
+(`experiments/<name>/`) to `/workspace/<name>` before
+returning `status: running` (`initial_pushed` reports how many files made the
+trip), so a new remote environment starts with the current local experiment
+files. The sync endpoint mirrors `/workspace/<name>` from the live
+sandbox/VM back into the local experiment folder with SSH `rsync` (an exact
+replica: deletions propagate, local edits are overwritten while the sandbox is
+live). The regular sync excludes common heavy files and limits file size;
+`artifacts_to_keep/` inside the experiment folder is the deliberate
+large-artifact exception path. Everything outside the experiment folder (e.g.
+`/workspace/data` for datasets, caches, checkpoints) stays remote and is never
+synced. Sandbox telemetry (mlflow.db, TensorBoard events, transcript) is pulled
+separately into `.research_plugin/sessions/<experiment_id>/<sandbox_id>/`. The
+release endpoint runs a final best-effort sync, then terminates the sandbox and
+returns the updated row.
 
 Lambda Labs is the **default** backend (`RESEARCH_PLUGIN_EXECUTION_BACKEND`
 unset or `lambda_labs`): sandbox procurement launches a Lambda Labs VM with SSH

@@ -51,6 +51,11 @@ class ServiceLayoutTest(unittest.TestCase):
     def test_graph_lint_is_a_leaf_module(self) -> None:
         self.assertEqual(_import_modules("graph_lint.py"), {"json"})
 
+    def test_synthesis_gates_only_reuses_workflow_gate_dataclasses(self) -> None:
+        # The second gate table must not grow service dependencies: it shares
+        # the experiment table's dataclasses so the two workflows cannot drift.
+        self.assertEqual(_import_modules("synthesis_gates.py"), {"typing", "workflow_gates"})
+
     def test_view_modules_do_not_import_service_state_machines(self) -> None:
         for name in ("experiment_views.py", "workflow_views.py"):
             with self.subTest(module=name):

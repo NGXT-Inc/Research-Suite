@@ -13,6 +13,7 @@ from .projects import ProjectService
 from .resources import ResourceService
 from .reviews import ReviewService
 from .sandboxes import SandboxService
+from .syntheses import SynthesisService
 from .workflow import WorkflowService
 
 __all__ = [
@@ -24,5 +25,6 @@ __all__ = [
     "ResourceService",
     "ReviewService",
     "SandboxService",
+    "SynthesisService",
     "WorkflowService",
 ]

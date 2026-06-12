@@ -35,6 +35,7 @@ def slim_experiment_state(full: dict[str, Any]) -> dict[str, Any]:
 
     slim: dict[str, Any] = {
         "id": full.get("id"),
+        "name": full.get("name"),
         "status": full.get("status"),
         "attempt_index": attempt,
         "intent": full.get("intent"),

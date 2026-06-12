@@ -31,8 +31,9 @@ class SandboxRequest:
     """A request to procure a sandbox for one experiment.
 
     `public_key` is the registry-owned per-experiment SSH public key that the
-    backend authorizes inside the sandbox. `remote_workdir` is filled from the
-    backend's default when left empty.
+    backend authorizes inside the sandbox. `remote_workdir` is the experiment's
+    one synced folder on the VM; when left empty the backend derives
+    `<remote_root>/<experiment_id>` from its config.
 
     Hardware selection is provider-shaped:
 

@@ -21,6 +21,7 @@ from .services import (
     ResourceService,
     ReviewService,
     SandboxService,
+    SynthesisService,
     WorkflowService,
 )
 from .state import ActivityLogger, StateStore, ToolCallStore, monotonic_ms
@@ -95,10 +96,12 @@ class ResearchPluginApp:
             store=self.store,
             permissions=self.permissions,
         )
+        self.syntheses = SynthesisService(store=self.store)
         self.reviews = ReviewService(
             store=self.store,
             permissions=self.permissions,
             experiments=self.experiments,
+            syntheses=self.syntheses,
         )
         if execution_backend is None:
             execution_backend = build_sandbox_backend(
@@ -119,6 +122,7 @@ class ResearchPluginApp:
             reviews=self.reviews,
             sandboxes=self.sandboxes,
             resources=self.resources,
+            syntheses=self.syntheses,
         )
         handlers: dict[str, Callable[..., dict[str, Any]]] = {
             "workflow.status_and_next": self.workflow.status_and_next_agent,
@@ -134,6 +138,10 @@ class ResearchPluginApp:
             "experiment.list": self.experiments.list_experiments_agent,
             "experiment.get_state": self.experiments.get_state_agent,
             "experiment.transition": self.experiments.transition,
+            "synthesis.create": self.syntheses.create,
+            "synthesis.get": self.syntheses.get_state,
+            "synthesis.list": self.syntheses.list_syntheses,
+            "synthesis.transition": self.syntheses.transition,
             "resource.register_file": self.resources.register_file,
             "resource.associate": self.resources.associate,
             "resource.delete": self.resources.delete,

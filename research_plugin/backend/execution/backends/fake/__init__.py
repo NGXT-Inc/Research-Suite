@@ -5,7 +5,7 @@ from __future__ import annotations
 import threading
 
 from ...errors import BackendUnavailableError
-from ...sync_dirs import DEFAULT_SYNC_DIR, DEFAULT_UNSYNCED_DIR
+from ...sync_dirs import DEFAULT_DATA_DIR, remote_experiment_dir
 from ...types import (
     BackendCapabilities,
     OnCreated,
@@ -102,7 +102,9 @@ class FakeSandboxBackend(SandboxBackendBase):
         self.alive[sandbox_id] = True
         self.by_experiment[request.experiment_id] = sandbox_id
         self.endpoints[sandbox_id] = ("sandbox.modal.test", 40000 + self.counter)
-        workdir = request.remote_workdir or DEFAULT_SYNC_DIR
+        workdir = request.remote_workdir or remote_experiment_dir(
+            experiment_id=request.experiment_id
+        )
         # Past create: a failure must terminate the sandbox (mirrors Modal).
         try:
             if on_created is not None:
@@ -138,8 +140,8 @@ class FakeSandboxBackend(SandboxBackendBase):
             workdir=workdir,
             volume_name="",
             sync_dir=workdir,
-            unsynced_dir=DEFAULT_UNSYNCED_DIR,
-            sandbox_data_dir=DEFAULT_UNSYNCED_DIR,
+            unsynced_dir=DEFAULT_DATA_DIR,
+            sandbox_data_dir=DEFAULT_DATA_DIR,
             reused=False,
             dashboards=dict(self.dashboards[sandbox_id]),
             gpu=request.gpu or "",

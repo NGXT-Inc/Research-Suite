@@ -1,13 +1,14 @@
 """Pure envelope lint for the agent-authored experiment logic graph.
 
-graph.json is the agent's own story of how the experiment went — the notable
-decisions, problems, pivots, and lessons, told as a small DAG the UI renders
-live. The agent designs the graph: its vocabulary (node ``kind``), its shape,
-and what deserves a node are editorial calls that belong to the author and are
-judged by the experiment reviewer, not by this lint. The server checks only
-the envelope: it parses, it stays within the node budget, and it renders as a
-DAG. Same philosophy as the plan/report lints — shape here, substance in
-review.
+graph.json is a qualitative story the agent writes about the experiment's
+logical path — the hard decisions, the reasoning behind them, pivots, and
+lessons, told as a small DAG the UI renders live. Not an event or pipeline
+diagram, and authored by hand, never script-generated. The agent designs the
+graph: its vocabulary (node ``kind``), its shape, and what deserves a node
+are editorial calls that belong to the author and are judged by the
+experiment reviewer, not by this lint. The server checks only the envelope:
+it parses, it stays within the node budget, and it renders as a DAG. Same
+philosophy as the plan/report lints — shape here, substance in review.
 """
 
 from __future__ import annotations

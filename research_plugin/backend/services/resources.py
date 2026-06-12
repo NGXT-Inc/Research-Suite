@@ -492,7 +492,12 @@ class ResourceService:
         return rel.as_posix(), full
 
     def _ensure_target_exists(self, *, conn: sqlite3.Connection, target_type: str, target_id: str) -> str | None:
-        table_by_type = {"experiment": "experiments", "claim": "claims", "review": "reviews"}
+        table_by_type = {
+            "experiment": "experiments",
+            "synthesis": "syntheses",
+            "claim": "claims",
+            "review": "reviews",
+        }
         table = table_by_type.get(target_type)
         if target_type == "attempt":
             # Attempts are implicit in v0.0001.
@@ -505,11 +510,16 @@ class ResourceService:
         return str(row["project_id"])
 
     def _association_attempt_index(self, *, conn: sqlite3.Connection, target_type: str, target_id: str) -> int:
-        if target_type != "experiment":
+        # Experiments and syntheses both scope associations to their current
+        # attempt, so a review rejection that bumps the attempt naturally
+        # invalidates stale associations for either target kind.
+        table_by_type = {"experiment": "experiments", "synthesis": "syntheses"}
+        table = table_by_type.get(target_type)
+        if table is None:
             return 0
-        row = conn.execute("SELECT attempt_index FROM experiments WHERE id = ?", (target_id,)).fetchone()
+        row = conn.execute(f"SELECT attempt_index FROM {table} WHERE id = ?", (target_id,)).fetchone()
         if row is None:
-            raise NotFoundError(f"experiment not found: {target_id}")
+            raise NotFoundError(f"{target_type} not found: {target_id}")
         return int(row["attempt_index"])
 
     def _version_token(self, *, path: str, mtime_ns: int, ctime_ns: int, size_bytes: int) -> str:

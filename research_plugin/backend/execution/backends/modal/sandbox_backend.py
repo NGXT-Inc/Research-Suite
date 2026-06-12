@@ -32,6 +32,7 @@ from backend.execution.usage_metrics import (
     parse_metrics,
 )
 from ...errors import BackendUnavailableError, BackendValidationError
+from ...sync_dirs import remote_experiment_dir, remote_root_of, remote_sessions_dir
 from ...types import (
     BackendCapabilities,
     OnCreated,
@@ -69,26 +70,28 @@ TENSORBOARD_PORT = 6006
 # wrapper, then execs sshd in the foreground (which keeps the container alive).
 BOOT_SCRIPT = r"""#!/usr/bin/env bash
 set -eu
-RP_WORKDIR="${RP_WORKDIR:-/workspace/synced}"
-RP_SYNC_DIR="${RP_SYNC_DIR:-$RP_WORKDIR}"
-RP_UNSYNCED_DIR="${RP_UNSYNCED_DIR:-${RP_SANDBOX_DATA_DIR:-/workspace/unsynced}}"
-RP_SANDBOX_DATA_DIR="$RP_UNSYNCED_DIR"
-mkdir -p "$RP_SYNC_DIR" "$RP_UNSYNCED_DIR" "$RP_SYNC_DIR/artifacts_to_keep"
+RP_EXPERIMENT_ID="${RP_EXPERIMENT_ID:-unknown}"
+RP_WORKDIR="${RP_WORKDIR:-/workspace/$RP_EXPERIMENT_ID}"
+RP_EXPERIMENT_DIR="${RP_EXPERIMENT_DIR:-$RP_WORKDIR}"
+RP_SANDBOX_DATA_DIR="${RP_SANDBOX_DATA_DIR:-/workspace/data}"
+mkdir -p "$RP_EXPERIMENT_DIR" "$RP_SANDBOX_DATA_DIR" "$RP_EXPERIMENT_DIR/artifacts_to_keep"
 mkdir -p /root/.ssh && chmod 700 /root/.ssh
 if [ -n "${RP_AUTHORIZED_KEY:-}" ]; then
   printf '%s\n' "$RP_AUTHORIZED_KEY" > /root/.ssh/authorized_keys
   chmod 600 /root/.ssh/authorized_keys
 fi
 # Observability dashboards: an MLflow tracking server on port 5000 and a
-# TensorBoard on port 6006. Both serve from per-experiment dirs under the synced
-# workspace. Launched as backgrounded processes BEFORE `exec sshd`
-# so they're already up by the time the agent's first SSH command lands.
+# TensorBoard on port 6006. Both serve from the per-experiment sessions dir,
+# which lives OUTSIDE the experiment folder (it is sandbox-authored telemetry,
+# not experiment content). Launched as backgrounded processes BEFORE
+# `exec sshd` so they're already up by the time the agent's first SSH command
+# lands.
 #
 # Failure to launch is non-fatal: a missing python package or a port collision
 # only loses observability for this run; the sandbox is still usable. The
 # transcript wrapper exports MLFLOW_TRACKING_URI to every command so training
 # code can log to MLflow without managing the server.
-RP_DASH_DIR="$RP_SYNC_DIR/.research_plugin_sessions/${RP_EXPERIMENT_ID:-unknown}"
+RP_DASH_DIR="${RP_DASH_DIR:-/workspace/.research_plugin_sessions/$RP_EXPERIMENT_ID}"
 RP_MLFLOW_DB="$RP_DASH_DIR/mlflow.db"
 RP_MLFLOW_ARTIFACTS="$RP_DASH_DIR/mlflow-artifacts"
 RP_TB_LOGDIR="$RP_DASH_DIR/tb"
@@ -112,12 +115,11 @@ mkdir -p "$RP_MLFLOW_ARTIFACTS" "$RP_TB_LOGDIR" 2>/dev/null || true
 # Persist the session env so the ForceCommand wrapper can read it (sshd does not
 # pass the container environment through to forced commands).
 {
-  printf 'RP_WORKDIR=%q\n' "$RP_SYNC_DIR"
-  printf 'RP_SYNC_DIR=%q\n' "$RP_SYNC_DIR"
-  printf 'RP_UNSYNCED_DIR=%q\n' "$RP_UNSYNCED_DIR"
-  printf 'RP_EXPERIMENT_ID=%q\n' "${RP_EXPERIMENT_ID:-unknown}"
-  printf 'RP_SANDBOX_DATA_DIR=%q\n' "$RP_UNSYNCED_DIR"
-  printf 'RP_DATASET_DIR=%q\n' "$RP_UNSYNCED_DIR"
+  printf 'RP_WORKDIR=%q\n' "$RP_EXPERIMENT_DIR"
+  printf 'RP_EXPERIMENT_DIR=%q\n' "$RP_EXPERIMENT_DIR"
+  printf 'RP_EXPERIMENT_ID=%q\n' "$RP_EXPERIMENT_ID"
+  printf 'RP_SANDBOX_DATA_DIR=%q\n' "$RP_SANDBOX_DATA_DIR"
+  printf 'RP_DATASET_DIR=%q\n' "$RP_SANDBOX_DATA_DIR"
   printf 'RP_DASH_DIR=%q\n' "$RP_DASH_DIR"
   printf 'RP_TB_LOGDIR=%q\n' "$RP_TB_LOGDIR"
   printf 'MLFLOW_TRACKING_URI=%s\n' 'http://localhost:5000'
@@ -144,24 +146,24 @@ exec /usr/sbin/sshd -D -e
 
 
 # ForceCommand wrapper: records every SSH channel (interactive shell or
-# `ssh host 'cmd'`) to a per-experiment transcript under the synced workspace while
+# `ssh host 'cmd'`) to a per-experiment transcript in the sessions dir while
 # still streaming output back to the agent. Exit code is preserved.
 REC_SCRIPT = r"""#!/usr/bin/env bash
 [ -f /opt/rp/env ] && . /opt/rp/env
-RP_WORKDIR="${RP_WORKDIR:-/workspace/synced}"
-RP_SYNC_DIR="${RP_SYNC_DIR:-$RP_WORKDIR}"
-RP_UNSYNCED_DIR="${RP_UNSYNCED_DIR:-${RP_SANDBOX_DATA_DIR:-/workspace/unsynced}}"
 RP_EXPERIMENT_ID="${RP_EXPERIMENT_ID:-unknown}"
-RP_SANDBOX_DATA_DIR="$RP_UNSYNCED_DIR"
+RP_WORKDIR="${RP_WORKDIR:-/workspace/$RP_EXPERIMENT_ID}"
+RP_EXPERIMENT_DIR="${RP_EXPERIMENT_DIR:-$RP_WORKDIR}"
+RP_SANDBOX_DATA_DIR="${RP_SANDBOX_DATA_DIR:-/workspace/data}"
 RP_DATASET_DIR="${RP_DATASET_DIR:-$RP_SANDBOX_DATA_DIR}"
 MLFLOW_TRACKING_URI="${MLFLOW_TRACKING_URI:-http://localhost:5000}"
-RP_TB_LOGDIR="${RP_TB_LOGDIR:-$RP_WORKDIR/.research_plugin_sessions/$RP_EXPERIMENT_ID/tb}"
+RP_DASH_DIR="${RP_DASH_DIR:-/workspace/.research_plugin_sessions/$RP_EXPERIMENT_ID}"
+RP_TB_LOGDIR="${RP_TB_LOGDIR:-$RP_DASH_DIR/tb}"
 if [ -n "${HF_TOKEN:-}" ] && [ -z "${HUGGING_FACE_HUB_TOKEN:-}" ]; then
   HUGGING_FACE_HUB_TOKEN="$HF_TOKEN"
 fi
-export RP_WORKDIR RP_SYNC_DIR RP_UNSYNCED_DIR RP_EXPERIMENT_ID RP_SANDBOX_DATA_DIR RP_DATASET_DIR HF_TOKEN HUGGING_FACE_HUB_TOKEN MLFLOW_TRACKING_URI RP_TB_LOGDIR
-mkdir -p "$RP_SYNC_DIR" "$RP_UNSYNCED_DIR" "$RP_SYNC_DIR/artifacts_to_keep" 2>/dev/null || true
-LOG_DIR="$RP_WORKDIR/.research_plugin_sessions/$RP_EXPERIMENT_ID"
+export RP_WORKDIR RP_EXPERIMENT_DIR RP_EXPERIMENT_ID RP_SANDBOX_DATA_DIR RP_DATASET_DIR HF_TOKEN HUGGING_FACE_HUB_TOKEN MLFLOW_TRACKING_URI RP_DASH_DIR RP_TB_LOGDIR
+mkdir -p "$RP_EXPERIMENT_DIR" "$RP_SANDBOX_DATA_DIR" "$RP_EXPERIMENT_DIR/artifacts_to_keep" "$RP_DASH_DIR" 2>/dev/null || true
+LOG_DIR="$RP_DASH_DIR"
 LOG="$LOG_DIR/transcript.log"
 mkdir -p "$LOG_DIR" 2>/dev/null || true
 ts() { date -u +%Y-%m-%dT%H:%M:%SZ; }
@@ -175,11 +177,11 @@ if [ -n "${SSH_ORIGINAL_COMMAND:-}" ]; then
       ;;
   esac
   { printf '\n[%s] $ %s\n' "$(ts)" "$SSH_ORIGINAL_COMMAND" >> "$LOG"; } 2>/dev/null || true
-  cd "$RP_WORKDIR" 2>/dev/null || true
+  cd "$RP_EXPERIMENT_DIR" 2>/dev/null || true
 """ + REC_EXEC_CORE + r"""
 else
   { printf '\n[%s] (interactive shell)\n' "$(ts)" >> "$LOG"; } 2>/dev/null || true
-  cd "$RP_WORKDIR" 2>/dev/null || true
+  cd "$RP_EXPERIMENT_DIR" 2>/dev/null || true
   exec bash -l
 fi
 """
@@ -215,7 +217,9 @@ class ModalSandboxBackend(SandboxBackendBase):
         on_created: OnCreated | None = None,
     ) -> ProvisionedSandbox:
         self._ensure_credentials()
-        workdir = request.remote_workdir or self.config.remote_workdir
+        workdir = request.remote_workdir or remote_experiment_dir(
+            experiment_id=request.experiment_id, root=self.config.remote_root
+        )
         sandbox_data_dir = self.config.sandbox_data_dir
         modal = self._modal_module()
         image = self._image(cuda_devel=request.cuda_devel, image_packages=request.image_packages)
@@ -395,11 +399,10 @@ class ModalSandboxBackend(SandboxBackendBase):
         key_path: str = "",  # noqa: ARG002
     ) -> str:
         limit = int(tail) if tail and tail > 0 else TRANSCRIPT_TAIL_DEFAULT
-        rel_path = _transcript_rel_path(experiment_id)
         live = self._read_transcript_live(
             sandbox_id=sandbox_id,
+            experiment_id=experiment_id,
             workdir=workdir,
-            rel_path=rel_path,
             limit=limit,
         )
         return live
@@ -494,14 +497,25 @@ class ModalSandboxBackend(SandboxBackendBase):
     # ---------- transcript helpers ----------
 
     def _read_transcript_live(
-        self, *, sandbox_id: str, workdir: str, rel_path: str, limit: int
+        self, *, sandbox_id: str, experiment_id: str, workdir: str, limit: int
     ) -> str:
         if not sandbox_id:
             return ""
-        abs_path = PurePosixPath(workdir, rel_path).as_posix()
+        base = workdir or remote_experiment_dir(
+            experiment_id=experiment_id, root=self.config.remote_root
+        )
+        # Sessions live outside the experiment folder; legacy sandboxes
+        # (pre-layout-change rows) kept them inside the synced workdir.
+        abs_path = PurePosixPath(
+            remote_sessions_dir(experiment_id=experiment_id, root=remote_root_of(base)),
+            TRANSCRIPT_FILENAME,
+        ).as_posix()
+        legacy_path = PurePosixPath(base, _transcript_rel_path(experiment_id)).as_posix()
         command = (
             f"if [ -f {shlex.quote(abs_path)} ]; then "
-            f"tail -c {int(limit)} {shlex.quote(abs_path)}; fi"
+            f"tail -c {int(limit)} {shlex.quote(abs_path)}; "
+            f"elif [ -f {shlex.quote(legacy_path)} ]; then "
+            f"tail -c {int(limit)} {shlex.quote(legacy_path)}; fi"
         )
         try:
             sandbox = self._sandbox_from_id(sandbox_id)
@@ -526,9 +540,11 @@ class ModalSandboxBackend(SandboxBackendBase):
             "RP_AUTHORIZED_KEY": public_key,
             "RP_EXPERIMENT_ID": experiment_id,
             "RP_WORKDIR": workdir,
-            "RP_SYNC_DIR": workdir,
-            "RP_UNSYNCED_DIR": sandbox_data_dir,
+            "RP_EXPERIMENT_DIR": workdir,
             "RP_SANDBOX_DATA_DIR": sandbox_data_dir,
+            "RP_DASH_DIR": remote_sessions_dir(
+                experiment_id=experiment_id, root=remote_root_of(workdir)
+            ),
         }
 
     def _sandbox_secrets(self, modal: Any) -> list[Any]:

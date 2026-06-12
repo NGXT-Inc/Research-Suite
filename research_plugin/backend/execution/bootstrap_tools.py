@@ -57,9 +57,9 @@ BASELINE_APT_PACKAGES: tuple[str, ...] = (
 #                          so it lands even if nobody is connected.
 #
 # Expects the surrounding script to have set: $LOG, $RP_WORKDIR,
-# $RP_UNSYNCED_DIR, a ts() helper, and $SSH_ORIGINAL_COMMAND. Every path ends
-# in `exit`. If tmux is unavailable or fails to start, falls back open to the
-# legacy attached execution (work then dies with the channel, as before).
+# $RP_SANDBOX_DATA_DIR, a ts() helper, and $SSH_ORIGINAL_COMMAND. Every path
+# ends in `exit`. If tmux is unavailable or fails to start, falls back open to
+# the legacy attached execution (work then dies with the channel, as before).
 #
 # The command's stdin is /dev/null: agents pass input as in-command heredocs
 # (`python3 - <<'PY' ... PY`), which the remote bash evaluates from the
@@ -80,7 +80,7 @@ rp_drain() {
   fi
 }
 command -v tmux >/dev/null 2>&1 || rp_exec_attached
-RUNS_DIR="${RP_UNSYNCED_DIR:-/workspace/unsynced}/.rp_runs"
+RUNS_DIR="${RP_SANDBOX_DATA_DIR:-/workspace/data}/.rp_runs"
 RUN_ID="rp_$(date +%s)_$$"
 RUN_DIR="$RUNS_DIR/$RUN_ID"
 mkdir -p "$RUN_DIR" 2>/dev/null || rp_exec_attached

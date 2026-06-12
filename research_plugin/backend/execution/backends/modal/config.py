@@ -8,7 +8,7 @@ from pathlib import Path, PurePosixPath
 from typing import Any, Mapping
 
 from ...errors import BackendValidationError
-from ...sync_dirs import DEFAULT_SYNC_DIR, DEFAULT_UNSYNCED_DIR
+from ...sync_dirs import DEFAULT_DATA_DIR, DEFAULT_REMOTE_ROOT, SESSIONS_DIRNAME
 
 
 VALID_GPUS: frozenset[str] = frozenset({"T4", "L4", "A10G", "L40S", "A100", "A100-80GB", "H100", "B200"})
@@ -22,9 +22,8 @@ COMPUTE_TIERS: dict[str, dict[str, int]] = {
 }
 
 DEFAULT_APP_NAME = "research-plugin-jobs"
-DEFAULT_REMOTE_WORKDIR = DEFAULT_SYNC_DIR
-DEFAULT_SANDBOX_DATA_DIR = DEFAULT_UNSYNCED_DIR
-DEFAULT_RUNNER_DIR = f"{DEFAULT_SYNC_DIR}/.research_plugin_job"
+DEFAULT_SANDBOX_DATA_DIR = DEFAULT_DATA_DIR
+DEFAULT_RUNNER_DIR = f"{DEFAULT_REMOTE_ROOT}/.research_plugin_job"
 DEFAULT_VOLUME_NAME_PREFIX = "research-plugin"
 DEFAULT_VOLUME_VERSION = 2
 DEFAULT_RETENTION_SECONDS = 600
@@ -57,7 +56,9 @@ class ModalConfig:
     sandbox_timeout: int
     job_timeout: int
     idle_timeout: int
-    remote_workdir: str
+    # Remote root under which each experiment's one synced folder
+    # (`<root>/<experiment_id>`) is created.
+    remote_root: str
     sandbox_data_dir: str
     runner_dir: str
     timeout_buffer_seconds: int = DEFAULT_TIMEOUT_BUFFER_SECONDS
@@ -79,8 +80,8 @@ class ModalConfig:
             idle_timeout=_env_non_negative_int(
                 "RESEARCH_PLUGIN_MODAL_IDLE_TIMEOUT", DEFAULT_IDLE_TIMEOUT
             ),
-            remote_workdir=_absolute_posix_path(
-                _env_str("RESEARCH_PLUGIN_MODAL_WORKDIR", DEFAULT_REMOTE_WORKDIR),
+            remote_root=_absolute_posix_path(
+                _env_str("RESEARCH_PLUGIN_MODAL_WORKDIR", DEFAULT_REMOTE_ROOT),
                 field="RESEARCH_PLUGIN_MODAL_WORKDIR",
             ),
             sandbox_data_dir=_absolute_posix_path(
@@ -106,11 +107,23 @@ class ModalConfig:
         ).validated()
 
     def validated(self) -> "ModalConfig":
-        if _is_under_path(self.sandbox_data_dir, self.remote_workdir):
+        # The data dir may live under the remote root (e.g. /workspace/data),
+        # but must never collide with the locations the plugin manages there:
+        # the per-experiment synced folders (`<root>/exp_*`) and the sessions
+        # tree — that would drag heavy datasets into the rsynced mirror.
+        root = self.remote_root.rstrip("/")
+        data = self.sandbox_data_dir.rstrip("/")
+        if data == root:
             raise BackendValidationError(
-                "RESEARCH_PLUGIN_MODAL_DATA_DIR must be outside RESEARCH_PLUGIN_MODAL_WORKDIR "
-                "so large datasets stay out of the rsynced workspace"
+                "RESEARCH_PLUGIN_MODAL_DATA_DIR must not equal RESEARCH_PLUGIN_MODAL_WORKDIR"
             )
+        if _is_under_path(data, root):
+            first = data[len(root) + 1 :].split("/", 1)[0]
+            if first.startswith("exp_") or first == SESSIONS_DIRNAME:
+                raise BackendValidationError(
+                    "RESEARCH_PLUGIN_MODAL_DATA_DIR must not collide with "
+                    f"per-experiment folders or {SESSIONS_DIRNAME} under the remote root"
+                )
         return self
 
     def validate_timeout_budget(self, *, job_timeout: int | None = None) -> None:
@@ -331,8 +344,13 @@ def _absolute_posix_path(value: str, *, field: str) -> str:
     if not path.is_absolute():
         raise BackendValidationError(f"{field} must be an absolute POSIX path")
     cleaned = path.as_posix().rstrip("/") or "/"
-    non_root_parts = [part for part in PurePosixPath(cleaned).parts if part != "/"]
-    if cleaned in {"/", "/root", "/home"} or len(non_root_parts) < 2:
+    # A single-segment root like /workspace is fine (it is the default remote
+    # root); only genuine system directories are blocked.
+    blocked = {
+        "/", "/root", "/home", "/usr", "/etc", "/var", "/bin", "/sbin",
+        "/lib", "/lib64", "/opt", "/tmp", "/dev", "/proc", "/sys", "/run",
+    }
+    if cleaned in blocked:
         raise BackendValidationError(f"{field} must not point at a top-level system directory")
     return cleaned
 

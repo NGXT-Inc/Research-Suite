@@ -1,0 +1,13 @@
+{
+  "mcpServers": {
+    "research-plugin": {
+      "type": "stdio",
+      "command": "bin/research-plugin-mcp",
+      "args": [],
+      "env": {
+        "RESEARCH_PLUGIN_REPO_ROOT": "${workspaceFolder}",
+        "RESEARCH_PLUGIN_DAEMON_URL": "http://127.0.0.1:8787"
+      }
+    }
+  }
+}

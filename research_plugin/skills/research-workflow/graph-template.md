@@ -1,11 +1,32 @@
 # Logic graph (graph.json)
 
 The logic graph is one JSON repo file (e.g. `experiments/<name>/graph.json`)
-associated with the experiment under role `graph`. It is the **story of how
-the experiment actually went**, told by you: the notable decisions, the
-problems you ran into, the pivots and iterations (including those forced by
-reviews), and what was learned. The UI renders it as a DAG the user can
-explore while the experiment runs and after it ends.
+associated with the experiment under role `graph`. It is a **qualitative
+story you write about the logical path of the experiment**: the critical
+questions that needed answers, the hard decisions and the reasoning behind
+them, the pivots (including those forced by reviews), what was ruled out, and
+what was learned. The UI renders it as a DAG the user explores while the
+experiment runs and after it ends — it is the reader's main window into *why*
+the experiment went the way it did.
+
+## A story of reasoning, not an event log
+
+Write it the way you would walk a colleague through what actually mattered.
+Events may appear — a crash, a rejection, a surprising number — but as
+anchors for reasoning, never as the structure. The structure is logic:
+question → decision → consequence → lesson.
+
+What the graph is NOT:
+
+- **Not a pipeline or provenance diagram.** If your nodes are components
+  (code, environment, observability) and your edges read `produces`,
+  `contains`, `records`, `implements`, you have drawn dataflow, not the
+  story. Lineage belongs in resources and the report.
+- **Not a metrics dump.** A number earns a node only when it changed a
+  decision; raw metrics belong in result files a node may `ref`.
+- **Not generated.** Do not build it with a script over your result files —
+  choosing what mattered IS the authorship, and a generator cannot make that
+  judgment. Write the JSON yourself.
 
 ## You design the graph
 
@@ -13,7 +34,8 @@ The graph is yours to author. Node `kind` names, edge labels, structure, and
 what deserves a node are editorial calls — record what shaped the experiment,
 not every step. If a development adds no valuable information to the story,
 you may choose not to add it. The vocabulary in the example below is
-illustrative, not required.
+illustrative, not required. A useful test for every node: does it help answer
+"what did we have to figure out here, what did we choose, and why?"
 
 ## Envelope (the only server-enforced rules)
 
@@ -46,10 +68,13 @@ synced (and usually registered as resources) so the links resolve.
 ## Keeping it current
 
 Start the graph early (the objective node costs one minute) and sync it as
-the story develops — the user watches it live. After a review rejection,
-consider whether the rejection and the rework belong in the story. If the
-graph is at the 16-node budget and something important must be added, reduce
-the graph first; how to retell the story within the budget is your call.
+the story develops — the user watches it live, and a decision is best
+recorded in the moment you make it, while the reasoning is still fresh; a
+graph reconstructed at the end keeps the events but loses the *why*. After a
+review rejection, consider whether the rejection and the rework belong in the
+story. If the graph is at the 16-node budget and something important must be
+added, reduce the graph first; how to retell the story within the budget is
+your call.
 
 ## Shape
 
@@ -83,10 +108,12 @@ the graph first; how to retell the story within the budget is your call.
     { "id": "plan2", "kind": "pivot", "label": "Plan v2 after design review",
       "detail": "Reviewer required an explicit decision rule.", "refs": ["rev_..."] },
     { "id": "oom", "kind": "problem", "label": "OOM on A10 at batch 32" },
-    { "id": "accum", "kind": "fix", "label": "Gradient accumulation 4x8" },
+    { "id": "accum", "kind": "fix", "label": "Gradient accumulation 4x8",
+      "detail": "Chose accumulation over a smaller model: keeps the paper's effective batch, costs only wall-clock." },
     { "id": "gap", "kind": "problem", "label": "Val accuracy 3.1 pts low" },
     { "id": "tok", "kind": "insight", "label": "Paper tokenizes at max_len 128, ours 64" },
-    { "id": "rerun", "kind": "pivot", "label": "Re-tokenize and rerun all seeds" },
+    { "id": "rerun", "kind": "pivot", "label": "Re-tokenize and rerun all seeds",
+      "detail": "Rerunning everything was cheaper than reasoning about which checkpoints the truncation tainted." },
     { "id": "out", "kind": "outcome", "label": "91.0% ± 0.2 — claim supported" }
   ],
   "edges": [

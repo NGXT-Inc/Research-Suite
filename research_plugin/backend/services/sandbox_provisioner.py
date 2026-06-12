@@ -24,7 +24,7 @@ from ..execution import (
     SandboxBackend,
     SandboxRequest,
 )
-from ..execution.sync_dirs import DEFAULT_SYNC_DIR, DEFAULT_UNSYNCED_DIR
+from ..execution.sync_dirs import DEFAULT_DATA_DIR, remote_experiment_dir
 from ..utils import now_iso
 from .experiments import ExperimentService
 from .sandbox_registry import SandboxRegistry
@@ -231,7 +231,7 @@ class SandboxProvisioner:
                 self._terminate_quietly(sandbox_id=provisioned.sandbox_id)
                 self._settle_canceled(experiment_id=experiment_id, project_id=project_id)
                 return
-            on_phase("syncing", "pushing local experiment files")
+            on_phase("syncing", "pushing the local experiment folder")
             try:
                 initial_sync = self._push_initial(
                     experiment_id=experiment_id,
@@ -269,6 +269,7 @@ class SandboxProvisioner:
                     self.registry.local_sync_dir(experiment_id=experiment_id)
                 ),
                 sandbox_data_dir=provisioned.sandbox_data_dir,
+                initial_pushed=int(initial_sync.get("pulled", -1)),
                 volume_name=provisioned.volume_name,
                 dashboards_json=encode_dashboards(provisioned.dashboards),
                 expires_at=iso_after(seconds=req.time_limit),
@@ -335,10 +336,11 @@ class SandboxProvisioner:
             ssh_host="",
             ssh_port=0,
             ssh_user="root",
-            workdir=DEFAULT_SYNC_DIR,
-            sync_dir=DEFAULT_SYNC_DIR,
-            unsynced_dir=DEFAULT_UNSYNCED_DIR,
+            workdir=req.remote_workdir or remote_experiment_dir(experiment_id=experiment_id),
+            sync_dir=req.remote_workdir or remote_experiment_dir(experiment_id=experiment_id),
+            unsynced_dir=DEFAULT_DATA_DIR,
             local_sync_dir=str(self.registry.local_sync_dir(experiment_id=experiment_id)),
+            initial_pushed=-1,
             gpu=req.gpu or "",
             cpu=req.cpu,
             memory=req.memory,

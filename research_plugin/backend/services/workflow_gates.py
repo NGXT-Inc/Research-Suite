@@ -98,6 +98,7 @@ GATE_TABLE: dict[str, ForwardTransition] = {
                 action="write_or_sync_plan_resource",
                 allowed=("resource.register_file", "resource.associate"),
                 missing="experiment plan resource",
+                guidance_key="plan",
             ),
         ),
         ready_gate="design_review_required",
@@ -176,9 +177,11 @@ GATE_TABLE: dict[str, ForwardTransition] = {
                 role="graph",
                 error=(
                     "a logic graph must be synced before experiment_review: write "
-                    "the experiment's logic graph (e.g. experiments/<name>/graph.json "
-                    "— the story of the experiment's notable decisions, problems, and "
-                    "pivots as a DAG of at most 16 nodes), sync it, and associate it "
+                    "the experiment's logic graph (experiments/<name>/graph.json "
+                    "— your story of the experiment's logical path: the hard "
+                    "decisions and the reasoning behind them, as a DAG of at most "
+                    "16 nodes; not a pipeline/provenance diagram and never "
+                    "script-generated), sync it, and associate it "
                     "with role 'graph' — see skills/research-workflow/graph-template.md"
                 ),
                 validator="graph",

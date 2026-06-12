@@ -73,6 +73,65 @@ class SshRsyncSyncerTest(unittest.TestCase):
         self.assertEqual(result.pulled, 1)
         self.assertEqual(result.command_count, 2)
 
+    def test_sessions_pass_pulls_telemetry_into_daemon_dir(self) -> None:
+        calls: list[list[str]] = []
+
+        def runner(command: list[str]) -> subprocess.CompletedProcess[str]:
+            calls.append(command)
+            if len(calls) == 3:
+                return subprocess.CompletedProcess(command, 0, stdout="mlflow.db\n", stderr="")
+            return subprocess.CompletedProcess(command, 0, stdout="", stderr="")
+
+        with tempfile.TemporaryDirectory() as td:
+            root = Path(td)
+            key = root / "id_ed25519"
+            key.write_text("test-key")
+            syncer = SshRsyncSyncer(runner=runner)
+
+            result = syncer.sync(
+                ssh_host="127.0.0.1",
+                ssh_port=2222,
+                ssh_user="root",
+                key_path=key,
+                remote_sync_dir="/workspace/exp_1",
+                local_sync_dir=root / "local",
+                remote_sessions_dir="/workspace/.research_plugin_sessions/exp_1",
+                local_sessions_dir=root / "sessions" / "exp_1" / "sb-1",
+            )
+
+        self.assertEqual(result.command_count, 3)
+        self.assertIn(
+            "root@127.0.0.1:/workspace/.research_plugin_sessions/exp_1/", calls[2]
+        )
+        self.assertTrue(str(calls[2][-1]).endswith("sessions/exp_1/sb-1/"))
+
+    def test_missing_sessions_dir_is_tolerated(self) -> None:
+        # A legacy sandbox keeps its telemetry inside the synced folder, so the
+        # dedicated sessions path simply does not exist remotely (rsync 23).
+        def runner(command: list[str]) -> subprocess.CompletedProcess[str]:
+            if "/.research_plugin_sessions/" in command[-2]:
+                return subprocess.CompletedProcess(command, 23, stdout="", stderr="missing")
+            return subprocess.CompletedProcess(command, 0, stdout="", stderr="")
+
+        with tempfile.TemporaryDirectory() as td:
+            root = Path(td)
+            key = root / "id_ed25519"
+            key.write_text("test-key")
+            syncer = SshRsyncSyncer(runner=runner)
+
+            result = syncer.sync(
+                ssh_host="127.0.0.1",
+                ssh_port=2222,
+                ssh_user="root",
+                key_path=key,
+                remote_sync_dir="/workspace/synced",
+                local_sync_dir=root / "local",
+                remote_sessions_dir="/workspace/.research_plugin_sessions/exp_1",
+                local_sessions_dir=root / "sessions" / "exp_1" / "sb-1",
+            )
+
+        self.assertEqual(result.command_count, 3)
+
     def test_push_initial_builds_local_to_remote_passes(self) -> None:
         calls: list[list[str]] = []
 
