@@ -4,7 +4,9 @@
       "command": "${CLAUDE_PLUGIN_ROOT}/bin/research-plugin-mcp",
       "args": [],
       "env": {
-        "RESEARCH_PLUGIN_DAEMON_URL": "http://127.0.0.1:8787"
+        "RESEARCH_PLUGIN_DAEMON_URL": "http://127.0.0.1:8787",
+        "RESEARCH_PLUGIN_CONTROL_URL": "",
+        "RESEARCH_PLUGIN_CONTROL_TOKEN_FILE": ""
       }
     }
   }

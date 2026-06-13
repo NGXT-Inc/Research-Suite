@@ -749,6 +749,8 @@ def create_fastapi_app(
     router: ProjectRouter | None = None,
     auth: AuthService | None = None,
     allowed_origins: list[str] | None = None,
+    task_queue: Any | None = None,
+    sync_targets_source: Any | None = None,
 ) -> FastAPI:
     # Auth seam (cloud plan Phase 7). ``auth=None`` is local mode: auth OFF, the
     # implicit LOCAL_PRINCIPAL on every request, CORS wide open, loopback bind
@@ -1202,5 +1204,49 @@ def create_fastapi_app(
             activity_source="mcp",
         )
         return {"result": result}
+
+    # ---- daemon task channel + sync-target poll (cloud plan Phase 8) ----
+    # Daemon-initiated only: the cloud NEVER connects inbound. These endpoints
+    # exist only on the control composition (task_queue/sync_targets_source
+    # injected); local mode's in-process channel never mounts them. They are
+    # principal-gated by the middleware above when auth is on (control mode).
+    if task_queue is not None:
+        @http.get("/api/daemon/tasks")
+        def daemon_poll_tasks(
+            client_id: str = Query(""),  # noqa: ARG001 — v1 single daemon per tenant
+            wait: int = Query(25, ge=0, le=60),
+        ) -> dict[str, Any]:
+            # Long-poll for the next data-plane task; {"task": null} on timeout.
+            task = task_queue.poll(wait_seconds=float(wait))
+            return {"task": task}
+
+        @http.post("/api/daemon/tasks/{task_id}/ack")
+        def daemon_ack_task(task_id: str, body: JsonBody = Body(default=None)) -> dict[str, Any]:
+            payload = body or {}
+            task_queue.ack(
+                task_id=task_id,
+                ok=bool(payload.get("ok")),
+                result=payload.get("result"),
+                error=payload.get("error"),
+            )
+            return {"acked": True}
+
+    if sync_targets_source is not None:
+        @http.get("/api/daemon/sync-targets")
+        def daemon_sync_targets(client_id: str = Query("")) -> dict[str, Any]:  # noqa: ARG001
+            # "My running sandboxes + a lease-backed session for each" — the
+            # exact InProcessControlPlaneView call, now an HTTP poll. The
+            # session carries SSH endpoint + remote dirs + lease; no
+            # machine-local path (the daemon enriches its own key paths).
+            targets = sync_targets_source.sync_targets()
+            return {
+                "targets": [
+                    {
+                        "experiment_id": str(t["row"].get("experiment_id") or ""),
+                        "session": t["session"],
+                    }
+                    for t in targets
+                ]
+            }
 
     return http

@@ -1,0 +1,49 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+# Launcher for the slim local data-plane daemon (cloud plan Phase 8, §3.4).
+# Unlike research-plugin-http (the local/control launcher), the daemon profile
+# does NOT require the provider SDK (modal) — modal is lazily imported at one
+# site and the daemon never provisions. It only needs the base HTTP deps
+# (fastapi, uvicorn, pydantic, httpx) plus stdlib. The daemon dials the cloud
+# at RESEARCH_PLUGIN_CONTROL_URL and refuses to start without it.
+
+SOURCE="${BASH_SOURCE[0]}"
+while [ -h "$SOURCE" ]; do
+  DIR="$(cd -P "$(dirname "$SOURCE")" >/dev/null 2>&1 && pwd)"
+  TARGET="$(readlink "$SOURCE")"
+  if [[ "$TARGET" == /* ]]; then
+    SOURCE="$TARGET"
+  else
+    SOURCE="$DIR/$TARGET"
+  fi
+done
+
+BIN_DIR="$(cd -P "$(dirname "$SOURCE")" >/dev/null 2>&1 && pwd)"
+PLUGIN_DIR="$(cd "$BIN_DIR/.." >/dev/null 2>&1 && pwd)"
+
+if [[ -n "${RESEARCH_PLUGIN_PYTHON:-}" ]]; then
+  PYTHON_BIN="$RESEARCH_PLUGIN_PYTHON"
+elif [[ -n "${CLAUDE_PLUGIN_DATA:-}" && -x "$CLAUDE_PLUGIN_DATA/.venv/bin/python" ]]; then
+  PYTHON_BIN="$CLAUDE_PLUGIN_DATA/.venv/bin/python"
+elif [[ -x "$PLUGIN_DIR/.venv/bin/python" ]]; then
+  PYTHON_BIN="$PLUGIN_DIR/.venv/bin/python"
+else
+  cat >&2 <<EOF
+research-plugin-daemon: no Python interpreter found.
+
+One-time setup (the daemon profile is slim — no provider SDK needed):
+  python3 -m venv "$PLUGIN_DIR/.venv"
+  "$PLUGIN_DIR/.venv/bin/pip" install -e "$PLUGIN_DIR[daemon]"
+
+Or point at any venv with: export RESEARCH_PLUGIN_PYTHON=/path/to/python
+EOF
+  exit 1
+fi
+
+export PYTHONPATH="$PLUGIN_DIR${PYTHONPATH:+:$PYTHONPATH}"
+# Provider credential discovery is DISABLED on the daemon (cloud plan §3.4): the
+# cloud holds the platform keys; the daemon never resolves them. No .env probe.
+export RESEARCH_PLUGIN_MODE=daemon
+
+exec "$PYTHON_BIN" -m backend.http_server "$@"

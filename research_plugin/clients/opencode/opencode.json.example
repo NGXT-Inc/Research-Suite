@@ -6,7 +6,9 @@
       "command": ["/absolute/path/to/research_plugin/bin/research-plugin-mcp"],
       "enabled": true,
       "environment": {
-        "RESEARCH_PLUGIN_DAEMON_URL": "http://127.0.0.1:8787"
+        "RESEARCH_PLUGIN_DAEMON_URL": "http://127.0.0.1:8787",
+        "RESEARCH_PLUGIN_CONTROL_URL": "",
+        "RESEARCH_PLUGIN_CONTROL_TOKEN_FILE": ""
       }
     }
   }

@@ -1,0 +1,116 @@
+"""The daemon's HTTP window onto the control plane (cloud plan Phase 8).
+
+In-process, ``InProcessControlPlaneView.sync_targets`` is the auto-sync poller's
+"my running sandboxes + a lease for each" call, and ``InProcessTaskChannel``
+dispatches tasks. In split mode the daemon talks to the cloud over HTTP for
+both: ``HttpControlPlaneView`` polls ``/api/daemon/sync-targets`` for lease-
+backed sessions and ``/api/daemon/tasks`` for data-plane work, posting acks
+back. The cloud never dials in — every call here is daemon-initiated.
+
+Sessions returned by the cloud are JSON sync-session dicts (the same shape the
+worker already requires); the daemon enriches its own key paths locally — the
+cloud never holds the user key path (§3.2).
+"""
+
+from __future__ import annotations
+
+import json
+from typing import Any
+from urllib import error as urllib_error
+from urllib.request import Request, urlopen
+
+from ..control_client import ControlPlaneUnreachableError, HttpControlPlaneClient
+
+
+class HttpControlPlaneView:
+    """Daemon-side HTTP client for sync targets + the task long-poll/ack.
+
+    Reuses the control client's base_url + bearer token; the task poll uses a
+    longer per-request timeout than ordinary tool calls because it is a long
+    poll the cloud holds open.
+    """
+
+    def __init__(
+        self,
+        *,
+        control: HttpControlPlaneClient,
+        worker: Any,
+        client_id: str,
+        poll_timeout_seconds: float = 35.0,
+    ) -> None:
+        self._control = control
+        self._worker = worker
+        self._client_id = client_id
+        self._poll_timeout = poll_timeout_seconds
+
+    # ---- sync targets (the ControlPlaneView poll) ----
+
+    def sync_targets(self) -> list[dict[str, Any]]:
+        body = self._request(
+            method="GET",
+            path=f"/api/daemon/sync-targets?client_id={self._client_id}",
+        )
+        targets = body.get("targets")
+        if not isinstance(targets, list):
+            return []
+        # The cloud sends provider-portable row facts + the lease-backed
+        # session; the worker reads its own local key path by experiment_id.
+        return [t for t in targets if isinstance(t, dict) and t.get("session")]
+
+    # ---- task long-poll + ack ----
+
+    def poll_task(self, wait_seconds: float) -> dict[str, Any] | None:
+        try:
+            body = self._request(
+                method="GET",
+                path=(
+                    f"/api/daemon/tasks?client_id={self._client_id}"
+                    f"&wait={int(wait_seconds)}"
+                ),
+                timeout=max(self._poll_timeout, wait_seconds + 5.0),
+            )
+        except ControlPlaneUnreachableError:
+            return None
+        task = body.get("task")
+        return task if isinstance(task, dict) else None
+
+    def ack_task(
+        self, *, task_id: str, ok: bool, result: Any = None, error: str | None = None
+    ) -> None:
+        payload: dict[str, Any] = {"ok": ok}
+        if result is not None:
+            payload["result"] = result
+        if error is not None:
+            payload["error"] = error
+        self._request(method="POST", path=f"/api/daemon/tasks/{task_id}/ack", body=payload)
+
+    # ---- transport (reuses the control client's auth + base) ----
+
+    def _request(
+        self,
+        *,
+        method: str,
+        path: str,
+        body: dict[str, Any] | None = None,
+        timeout: float | None = None,
+    ) -> dict[str, Any]:
+        url = self._control.base_url + path
+        data = json.dumps(body).encode("utf-8") if body is not None else None
+        headers = {"Accept": "application/json"}
+        if data is not None:
+            headers["Content-Type"] = "application/json"
+        if self._control.token:
+            headers["Authorization"] = f"Bearer {self._control.token}"
+        req = Request(url, data=data, method=method, headers=headers)
+        try:
+            with urlopen(req, timeout=timeout or self._control.timeout_seconds) as response:
+                raw = response.read()
+        except urllib_error.URLError as exc:
+            raise ControlPlaneUnreachableError(
+                f"control plane unreachable at {self._control.base_url}",
+                details={"path": path},
+            ) from exc
+        try:
+            return json.loads(raw.decode("utf-8"))
+        except (json.JSONDecodeError, UnicodeDecodeError):
+            return {}

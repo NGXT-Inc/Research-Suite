@@ -125,6 +125,7 @@ class SandboxService:
         mgmt_keys: MgmtKeyStore | None = None,
         blobs: BlobStore | None = None,
         quotas: QuotaService | None = None,
+        task_channel: Any | None = None,
     ) -> None:
         self.store = store
         self.backend = sandbox_backend
@@ -178,9 +179,12 @@ class SandboxService:
             leases=self.leases, client_id=worker.client_id()
         )
         # The task channel (plan Phase 4): control enqueues, data executes.
-        # In-process it dispatches synchronously, so ordering is unchanged;
-        # in split mode it becomes the daemon's long-poll loop (Phase 8).
-        self.tasks = InProcessTaskChannel(worker=self.worker)
+        # In-process it dispatches synchronously, so ordering is unchanged
+        # (the default). In split mode the control composition injects an
+        # HttpTaskChannel that enqueues to the daemon's long-poll loop
+        # (Phase 8), with the SAME submit signature so this service is
+        # channel-blind.
+        self.tasks = task_channel or InProcessTaskChannel(worker=self.worker)
         # Marking a row failed/terminated also tears down its runtime
         # attachments; the registry stays persistence-only via this hook.
         self.registry.on_terminal = self._on_terminal_row
@@ -871,10 +875,18 @@ class SandboxService:
             self.mgmt_keys.remove(experiment_id=experiment_id)
         except Exception:  # noqa: BLE001 — key cleanup must never block the mark
             pass
-        self.tasks.submit(
-            task_type="teardown",
-            payload={"experiment_id": experiment_id, "sandbox_id": sandbox_id},
-        )
+        # Teardown is best-effort data-plane cleanup (conn files, tunnels). It
+        # must never block or abort the terminal mark — in split mode the
+        # HttpTaskChannel could time out (daemon long-poll asleep), and the
+        # reaper still has to revert the experiment and free billing. The
+        # daemon also drops stale conn state on its next reconnect/get.
+        try:
+            self.tasks.submit(
+                task_type="teardown",
+                payload={"experiment_id": experiment_id, "sandbox_id": sandbox_id},
+            )
+        except Exception:  # noqa: BLE001 — best-effort; never block the mark
+            pass
 
     def _refresh_row(self, *, row: dict[str, Any]) -> dict[str, Any]:
         """Endpoint + provider-dashboard refresh for a confirmed-live row."""

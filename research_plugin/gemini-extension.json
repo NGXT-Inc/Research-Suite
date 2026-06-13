@@ -1,6 +1,6 @@
 {
   "name": "research-plugin",
-  "version": "0.0006",
+  "version": "0.0007",
   "description": "Lean research-state workflow with project-local MCP context, resources, reviews, and cloud SSH sandboxes. Skills for the agent loop, subagents for read-only design, experiment, and synthesis review.",
   "contextFileName": "GEMINI.md",
   "mcpServers": {
@@ -9,7 +9,9 @@
       "args": [],
       "env": {
         "RESEARCH_PLUGIN_REPO_ROOT": "${workspacePath}",
-        "RESEARCH_PLUGIN_DAEMON_URL": "http://127.0.0.1:8787"
+        "RESEARCH_PLUGIN_DAEMON_URL": "http://127.0.0.1:8787",
+        "RESEARCH_PLUGIN_CONTROL_URL": "",
+        "RESEARCH_PLUGIN_CONTROL_TOKEN_FILE": ""
       }
     }
   }

@@ -17,7 +17,12 @@ from pathlib import Path
 import uvicorn
 
 from .app import ResearchPluginApp
-from .config import resolve_mode
+from .config import (
+    Mode,
+    resolve_control_token,
+    resolve_control_url,
+    resolve_mode,
+)
 from .daemon_marker import clear_marker, write_marker
 from .http_api import create_fastapi_app
 from .project_router import ProjectRouter
@@ -117,6 +122,91 @@ def make_http_server(
     return UvicornHttpServer(app=app, router=router, host=host, port=port)
 
 
+def _serve_uvicorn(*, fastapi_app, host: str, port: int) -> tuple[str, int, "uvicorn.Server", socket.socket]:
+    server_socket = _bind_socket(host=host, port=port)
+    selected_port = int(server_socket.getsockname()[1])
+    config = uvicorn.Config(
+        fastapi_app,
+        host=host,
+        port=selected_port,
+        log_level="warning",
+        access_log=False,
+        lifespan="off",
+    )
+    return host, selected_port, uvicorn.Server(config), server_socket
+
+
+def _serve_control(*, host: str, port: int) -> int:
+    """Run the cloud control-plane composition (cloud plan Phase 8).
+
+    Postgres when RESEARCH_PLUGIN_DB_URL is set, else SQLite (fine for dev, not
+    multi-tenant production — documented in the composition root). Auth is ON.
+    """
+    from .composition import build_control_server
+
+    server = build_control_server()
+    host, selected_port, uv, server_socket = _serve_uvicorn(
+        fastapi_app=server.fastapi_app, host=host, port=port
+    )
+    print(
+        f"research_plugin CONTROL plane listening on http://{host}:{selected_port}",
+        flush=True,
+    )
+    try:
+        uv.run(sockets=[server_socket])
+    except KeyboardInterrupt:
+        pass
+    finally:
+        server.shutdown()
+        server_socket.close()
+    return 0
+
+
+def _serve_daemon(*, host: str, port: int) -> int:
+    """Run the slim local data-plane daemon (cloud plan Phase 8, §3.4).
+
+    Fail-fast: refuses to start without RESEARCH_PLUGIN_CONTROL_URL (no silent
+    127.0.0.1 fallback). Starts the task long-poll + auto-sync loops and serves
+    a loopback surface for the proxy (GET /local/route + the data-plane tools).
+    """
+    from .composition import build_daemon_server
+    from .daemon_loopback import create_daemon_loopback_app
+
+    control_url = resolve_control_url()
+    token = resolve_control_token()
+    daemon = build_daemon_server(control_url=control_url, token=token)
+    daemon.start()
+    loopback = create_daemon_loopback_app(daemon=daemon)
+    host, selected_port, uv, server_socket = _serve_uvicorn(
+        fastapi_app=loopback, host=host, port=port
+    )
+    print(
+        f"research_plugin DAEMON (data plane) listening on "
+        f"http://{host}:{selected_port}; upstream {control_url}",
+        flush=True,
+    )
+    try:
+        uv.run(sockets=[server_socket])
+    except KeyboardInterrupt:
+        pass
+    finally:
+        daemon.stop()
+        server_socket.close()
+    return 0
+
+
+def daemon_main() -> int:
+    """Launch the slim data-plane daemon (cloud plan Phase 8, §3.4).
+
+    The console-script entry for the ``daemon`` extra: forces daemon mode
+    (RESEARCH_PLUGIN_MODE=daemon) so it never accidentally binds the control or
+    local topology, and does NOT import any provider SDK at startup. Fail-fast
+    on a missing control URL lives in the composition root.
+    """
+    os.environ["RESEARCH_PLUGIN_MODE"] = "daemon"
+    return main()
+
+
 def main() -> int:
     parser = argparse.ArgumentParser()
     parser.add_argument("--host", default=os.environ.get("RESEARCH_PLUGIN_HTTP_HOST", "127.0.0.1"))
@@ -140,8 +230,14 @@ def main() -> int:
     args = parser.parse_args()
 
     # Fail fast on a wrong/unsupported RESEARCH_PLUGIN_MODE rather than
-    # silently starting in the wrong topology.
-    resolve_mode()
+    # silently starting in the wrong topology. Mode dispatch (cloud plan
+    # Phase 8): local stays the byte-identical default path below; control and
+    # daemon route to their composition roots.
+    mode = resolve_mode()
+    if mode is Mode.CONTROL:
+        return _serve_control(host=args.host, port=args.port)
+    if mode is Mode.DAEMON:
+        return _serve_daemon(host=args.host, port=args.port)
 
     if args.activity_stderr:
         os.environ["RESEARCH_PLUGIN_ACTIVITY_STDERR"] = "1"

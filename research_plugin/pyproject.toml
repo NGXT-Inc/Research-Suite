@@ -4,24 +4,41 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "research-plugin"
-version = "0.0006"
+version = "0.0007"
 description = "Lean research-state workflow with project-local MCP context, resources, reviews, and Modal SSH sandboxes."
 readme = "README.md"
 requires-python = ">=3.11"
 license = { text = "UNLICENSED" }
 authors = [{ name = "Papyrus" }]
 keywords = ["research", "ml", "mcp", "experiments"]
+# Base deps are the common HTTP surface (cloud plan Phase 8 packaging split):
+# enough to run the control plane's record services and the daemon's loopback +
+# loops. Provider SDKs (modal) and the Postgres/object-store/auth deps live in
+# the profile extras below so the daemon profile stays slim and the stdio proxy
+# stays stdlib-only (verified by tests/structure/test_proxy_stdlib).
 dependencies = [
     "fastapi>=0.115,<1",
     "httpx>=0.27,<1",
-    "modal>=1.4,<2",
     "pydantic>=2.8,<3",
     "uvicorn>=0.30,<1",
 ]
 
+[project.optional-dependencies]
+# local = today's single-process install: both planes, the provider SDK, the
+# SQLite store and LocalDirBlobStore (no extra store/blob deps needed).
+local = ["modal>=1.4,<2"]
+# control = the cloud control plane: Postgres driver + object-store SDK + auth.
+# No provider SDK is required at module load (modal is lazily imported at one
+# site); a control plane that provisions Modal still needs it, so include it.
+control = ["modal>=1.4,<2", "psycopg[binary]>=3.1,<4", "boto3>=1.34,<2"]
+# daemon = the slim user-machine data plane: NO provider SDK, NO Postgres/S3.
+# It rsyncs, holds keys, and talks HTTP to the cloud — the base deps suffice.
+daemon = []
+
 [project.scripts]
 research-plugin-mcp = "mcp_server.__main__:main"
 research-plugin-http = "backend.http_server:main"
+research-plugin-daemon = "backend.http_server:daemon_main"
 
 [tool.setuptools]
 packages = ["backend", "mcp_server"]

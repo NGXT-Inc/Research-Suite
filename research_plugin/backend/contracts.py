@@ -673,6 +673,16 @@ def static_tool_catalog() -> list[dict[str, Any]]:
         schema = contract.input_model.model_json_schema()
         schema.pop("title", None)
         catalog.append(
-            {"name": name, "description": contract.description, "inputSchema": schema}
+            {
+                "name": name,
+                "description": contract.description,
+                "inputSchema": schema,
+                # The routing source of truth (cloud plan §3.3): the stdlib-only
+                # proxy reads this off the served catalog to build its
+                # dual-upstream route map, so the proxy never imports the
+                # pydantic-bound contracts module and the routing cannot drift
+                # from TOOL_CONTRACTS.
+                "plane": contract.plane,
+            }
         )
     return catalog

@@ -28,7 +28,7 @@ from .services import (
 )
 from .services.sandbox_mgmt_keys import LocalMgmtKeyStore
 from .state import ActivityLogger, BaseStateStore, StateStore, ToolCallStore, monotonic_ms
-from .state.blobs import LocalDirBlobStore
+from .state.blobs import BlobStore, LocalDirBlobStore
 
 
 @dataclass(frozen=True)
@@ -85,6 +85,8 @@ class ResearchPluginApp:
         execution_backend: SandboxBackend | None = None,
         rsync_syncer: SshRsyncSyncer | None = None,
         store: BaseStateStore | None = None,
+        blobs: "BlobStore | None" = None,
+        task_channel: Any | None = None,
     ) -> None:
         # The plane seam (cloud plan Phase 3): the record store knows nothing
         # about the checkout; local paths flow from the workspace and every
@@ -94,8 +96,8 @@ class ResearchPluginApp:
         # Store injection (cloud plan Phase 6): the dual-dialect contract
         # tests hand in a PostgresStateStore; absent that, local mode builds
         # its SQLite store at db_path exactly as before. The control profile
-        # (Phase 8) gets its own composition root rather than db_url plumbing
-        # through this constructor.
+        # (Phase 8) injects a PostgresStateStore + S3BlobStore via the control
+        # composition root rather than db_url plumbing through here.
         self.store = store if store is not None else StateStore(db_path=db_path)
         # Telemetry sinks are machine-local by construction: composition hands
         # them explicit paths (the control composition gets its own sinks).
@@ -106,9 +108,13 @@ class ResearchPluginApp:
             db_path=self.workspace.research_dir / "tool_calls.sqlite"
         )
         self.permissions = PermissionService()
-        # Content-addressed store for gated-artifact bytes (and, later, figures
-        # and parachute objects). Local mode roots it next to the state DB.
-        self.blobs = LocalDirBlobStore(root=self.workspace.research_dir / "blobs")
+        # Content-addressed store for gated-artifact bytes (and figures and
+        # parachute objects). Local mode roots it next to the state DB; the
+        # control composition injects an S3BlobStore (Phase 8). Same protocol,
+        # same contract tests, so the rest of the app is blob-impl-blind.
+        self.blobs = blobs if blobs is not None else LocalDirBlobStore(
+            root=self.workspace.research_dir / "blobs"
+        )
         if execution_backend is None:
             execution_backend = build_sandbox_backend(
                 repo_root=self.workspace.repo_root,
@@ -158,6 +164,10 @@ class ResearchPluginApp:
             ),
             # Decision 7's one shared blob store also holds parachute objects.
             blobs=self.blobs,
+            # Split mode (Phase 8): the control composition injects an
+            # HttpTaskChannel so control enqueues data-plane work to the daemon
+            # over HTTP. None ⇒ the synchronous in-process channel (local mode).
+            task_channel=task_channel,
         )
         self.workflow = WorkflowService(
             store=self.store,
@@ -208,10 +218,20 @@ class ResearchPluginApp:
             name: ToolSpec(contract.description, contract.input_model, handlers[name])
             for name, contract in TOOL_CONTRACTS.items()
         }
+        # Plane annotation per tool (cloud plan §3.3): served so the stdlib-only
+        # proxy can route from the catalog without importing contracts.
+        self._tool_planes = {
+            name: contract.plane for name, contract in TOOL_CONTRACTS.items()
+        }
 
     def list_tools(self) -> list[dict[str, Any]]:
         return [
-            {"name": name, "description": spec.description, "inputSchema": spec.input_schema()}
+            {
+                "name": name,
+                "description": spec.description,
+                "inputSchema": spec.input_schema(),
+                "plane": self._tool_planes[name],
+            }
             for name, spec in self._tools.items()
         ]
 

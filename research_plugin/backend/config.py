@@ -32,38 +32,46 @@ MODE_ENV_VAR = "RESEARCH_PLUGIN_MODE"
 
 # Record-store selection (cloud plan Phase 6). Absent ⇒ the SQLite default
 # (local mode, today's behavior, byte-identical). A postgres:// URL selects
-# the Postgres dialect — used only by tests and the future control profile;
-# ResearchPluginApp stays SQLite-only until Phase 8 wires the control
-# composition.
+# the Postgres dialect — used by tests and the control profile.
 DB_URL_ENV_VAR = "RESEARCH_PLUGIN_DB_URL"
+
+# Split-transport config (cloud plan Phase 8, §3.4). The daemon dials the cloud
+# at CONTROL_URL with a bearer token read from CONTROL_TOKEN_FILE; the cloud
+# never dials in. The blob bucket/dir selects the BlobStore impl per mode.
+CONTROL_URL_ENV_VAR = "RESEARCH_PLUGIN_CONTROL_URL"
+CONTROL_TOKEN_FILE_ENV_VAR = "RESEARCH_PLUGIN_CONTROL_TOKEN_FILE"
+BLOB_DIR_ENV_VAR = "RESEARCH_PLUGIN_BLOB_DIR"
+BLOB_BUCKET_ENV_VAR = "RESEARCH_PLUGIN_BLOB_BUCKET"
 
 _POSTGRES_URL_PREFIXES = ("postgres://", "postgresql://")
 
-# Modes the migration plan defines but later phases implement. Recognized so
-# the error says "not yet implemented" instead of "unknown mode".
-PLANNED_MODES = ("control", "daemon")
-
 
 class Mode(str, Enum):
+    """The process role (cloud plan §1.1). ``local`` is the default forever."""
+
     LOCAL = "local"
+    CONTROL = "control"
+    DAEMON = "daemon"
 
 
 def resolve_mode(env: Mapping[str, str] | None = None) -> Mode:
-    """Resolve the process mode from the environment, failing fast."""
+    """Resolve the process mode from the environment, failing fast.
+
+    All three modes are runnable as of Phase 8; an unknown value still refuses
+    to start rather than silently running the wrong topology. Mode-specific
+    fail-fast validation (a daemon without a control URL, a control plane's DB)
+    lives in the composition roots, not here, so this stays a pure parse.
+    """
     source = env if env is not None else os.environ
     raw = (source.get(MODE_ENV_VAR) or "").strip().lower() or Mode.LOCAL.value
-    if raw == Mode.LOCAL.value:
-        return Mode.LOCAL
-    if raw in PLANNED_MODES:
+    try:
+        return Mode(raw)
+    except ValueError as exc:
         raise ValidationError(
-            f"RESEARCH_PLUGIN_MODE={raw!r} is not implemented yet; "
-            "only 'local' is available (see docs/CLOUD_BACKEND_MIGRATION_PLAN.md)",
+            f"unknown RESEARCH_PLUGIN_MODE: {raw!r} "
+            "(expected 'local', 'control', or 'daemon')",
             details={"mode": raw},
-        )
-    raise ValidationError(
-        f"unknown RESEARCH_PLUGIN_MODE: {raw!r} (expected 'local')",
-        details={"mode": raw},
-    )
+        ) from exc
 
 
 def resolve_db_url(env: Mapping[str, str] | None = None) -> str | None:
@@ -81,16 +89,79 @@ def resolve_auth_required(env: Mapping[str, str] | None = None) -> bool:
     - ``local`` (default) ⇒ False: auth off, loopback bind enforced by
       http_server, single implicit 'local' tenant — today's behavior.
     - ``control`` ⇒ True: mandatory bearer auth on every route.
+    - ``daemon`` ⇒ False: it authenticates UPSTREAM to the control plane, not
+      its own (loopback) callers. The daemon's own loopback hardening (a local
+      auth secret) is a separate Phase 8 concern, not this bearer gate.
+    """
+    return resolve_mode(env) is Mode.CONTROL
 
-    Resolved directly from the env value rather than through ``resolve_mode``
-    so it answers truthfully for ``control`` even though ``resolve_mode`` still
-    refuses to *start* a control process at runtime (the mode is wired but the
-    composition lands in Phase 8). ``daemon`` authenticates upstream to the
-    control plane, not its own callers, so it is auth-off locally.
+
+def resolve_control_url(env: Mapping[str, str] | None = None) -> str | None:
+    """The cloud control-plane URL the daemon dials, or None (plan §3.4)."""
+    source = env if env is not None else os.environ
+    return (source.get(CONTROL_URL_ENV_VAR) or "").strip().rstrip("/") or None
+
+
+def resolve_control_token(env: Mapping[str, str] | None = None) -> str | None:
+    """Read the daemon's cloud bearer token from its 0600 token file (§3.4).
+
+    The file is JSON ``{"token": "..."}`` (matching the credentials.json shape
+    in the config matrix); a bare token line is also accepted. Never logged.
+    Returns None when no token file is configured (local control-to-daemon).
     """
     source = env if env is not None else os.environ
-    raw = (source.get(MODE_ENV_VAR) or "").strip().lower() or Mode.LOCAL.value
-    return raw == "control"
+    path = (source.get(CONTROL_TOKEN_FILE_ENV_VAR) or "").strip()
+    if not path:
+        return None
+    try:
+        import json
+
+        raw = Path(path).expanduser().read_text(encoding="utf-8").strip()
+    except OSError:
+        return None
+    if not raw:
+        return None
+    try:
+        parsed = json.loads(raw)
+    except ValueError:
+        return raw  # a bare token line
+    if isinstance(parsed, dict):
+        token = parsed.get("token")
+        return str(token) if token else None
+    return raw
+
+
+def resolve_blob_dir(env: Mapping[str, str] | None = None) -> str | None:
+    source = env if env is not None else os.environ
+    return (source.get(BLOB_DIR_ENV_VAR) or "").strip() or None
+
+
+def resolve_blob_bucket(env: Mapping[str, str] | None = None) -> str | None:
+    source = env if env is not None else os.environ
+    return (source.get(BLOB_BUCKET_ENV_VAR) or "").strip() or None
+
+
+def build_blob_store(
+    *, default_root: Path, env: Mapping[str, str] | None = None
+):
+    """The BlobStore the configuration selects (cloud plan Phase 8).
+
+    A bucket name selects ``S3BlobStore`` (boto3 imported only on that branch,
+    so local installs never need it); otherwise a ``LocalDirBlobStore`` rooted
+    at the configured dir or ``default_root``. Same protocol + contract tests
+    either way, so callers stay blob-impl-blind. The control profile MUST set a
+    bucket — its "presign" must be a real HTTPS PUT a sandbox VM can reach (a
+    LocalDirBlobStore loopback token cannot, breaking the parachute).
+    """
+    bucket = resolve_blob_bucket(env)
+    if bucket:
+        from .state.s3_blobs import S3BlobStore
+
+        return S3BlobStore(bucket=bucket)
+    from .state.blobs import LocalDirBlobStore
+
+    root = resolve_blob_dir(env)
+    return LocalDirBlobStore(root=Path(root) if root else default_root)
 
 
 def build_state_store(

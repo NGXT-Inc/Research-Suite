@@ -156,5 +156,34 @@ class PlaneImportLintTest(unittest.TestCase):
                 self.assertNotIn("StateStore", source)
 
 
+class ProxyStdlibOnlyTest(unittest.TestCase):
+    """The stdio MCP proxy must stay stdlib-only (cloud plan Phase 8 packaging).
+
+    The proxy ships as part of the base wheel with no third-party deps so it
+    runs under any Python — even the daemon profile that drops the provider
+    SDKs. Walk the mcp_server package and assert no import resolves outside the
+    stdlib (or the package itself), so the dual-upstream rewrite never reaches
+    for pydantic/fastapi/boto3 by accident.
+    """
+
+    # The proxy's own package + the standard library are the only allowed
+    # roots. (sys.stdlib_module_names covers the stdlib on 3.11+.)
+    def test_mcp_server_imports_only_stdlib(self) -> None:
+        import sys
+
+        plugin_root = BACKEND_ROOT.parent
+        mcp_root = plugin_root / "mcp_server"
+        # The package's own siblings (imported relatively) plus the stdlib.
+        own = {p.stem for p in mcp_root.glob("*.py")} | {"mcp_server"}
+        allowed = set(sys.stdlib_module_names) | own | {"__future__"}
+        for path in sorted(mcp_root.glob("*.py")):
+            with self.subTest(module=path.name):
+                external = _imports(path) - allowed
+                self.assertFalse(
+                    external,
+                    f"{path.name} imports non-stdlib modules: {sorted(external)}",
+                )
+
+
 if __name__ == "__main__":
     unittest.main()

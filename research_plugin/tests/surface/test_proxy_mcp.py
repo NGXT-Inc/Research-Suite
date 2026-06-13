@@ -323,6 +323,9 @@ class HttpProxyMcpServerOfflineTest(unittest.TestCase):
         self.tmp.cleanup()
 
     def test_tools_call_returns_actionable_error_when_daemon_missing(self) -> None:
+        # Phase 8: the TRANSPORT taxonomy (daemon_not_running) is returned as a
+        # TOOL RESULT, not a -32000 protocol error, so a transient outage never
+        # disables the server. The actionable message still reaches the client.
         with mock.patch.dict(
             os.environ,
             {"RESEARCH_PLUGIN_DEFAULT_DAEMON_URL": "http://127.0.0.1:1"},
@@ -338,8 +341,12 @@ class HttpProxyMcpServerOfflineTest(unittest.TestCase):
                     "params": {"name": "project.current", "arguments": {}},
                 }
             )
-        self.assertEqual(response["error"]["data"]["error_code"], "daemon_not_running")
-        self.assertIn("research-plugin-http", response["error"]["message"])
+        self.assertNotIn("error", response)
+        result = response["result"]
+        self.assertTrue(result.get("isError"))
+        structured = result["structuredContent"]
+        self.assertEqual(structured["error_code"], "daemon_not_running")
+        self.assertIn("research-plugin-http", structured["error"])
 
 if __name__ == "__main__":
     unittest.main()

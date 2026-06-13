@@ -2,7 +2,7 @@
 
 Lean Codex plug-in architecture for research state.
 
-Current version: `0.0006`.
+Current version: `0.0007`.
 
 This project starts fresh. It does not port the existing `research_state_mockup/backend`
 implementation. The goal is to keep the durable model small:

@@ -23,12 +23,13 @@ class ModeConfigTest(unittest.TestCase):
         self.assertIs(resolve_mode(env={"RESEARCH_PLUGIN_MODE": "local"}), Mode.LOCAL)
         self.assertIs(resolve_mode(env={"RESEARCH_PLUGIN_MODE": " Local "}), Mode.LOCAL)
 
-    def test_planned_modes_fail_with_not_implemented_message(self) -> None:
-        for planned in ("control", "daemon"):
-            with self.subTest(mode=planned):
-                with self.assertRaises(ValidationError) as ctx:
-                    resolve_mode(env={"RESEARCH_PLUGIN_MODE": planned})
-                self.assertIn("not implemented", ctx.exception.message)
+    def test_control_and_daemon_modes_are_runnable(self) -> None:
+        # Phase 8: control and daemon were stubbed as NotImplementedError in
+        # Phase 0; now resolve_mode parses them to their Mode enum (the
+        # compositions are real). Mode-specific fail-fast (daemon needs a
+        # control URL) lives in the composition roots, not here.
+        self.assertIs(resolve_mode(env={"RESEARCH_PLUGIN_MODE": "control"}), Mode.CONTROL)
+        self.assertIs(resolve_mode(env={"RESEARCH_PLUGIN_MODE": " Daemon "}), Mode.DAEMON)
 
     def test_unknown_mode_fails(self) -> None:
         with self.assertRaises(ValidationError) as ctx:
@@ -137,6 +138,51 @@ class ControlModeAuthTest(unittest.TestCase):
         # Preflight is never auth-challenged; Authorization is an allowed header.
         allow = resp.headers.get("access-control-allow-headers", "")
         self.assertIn("Authorization", allow)
+
+
+class ModeCompositionTest(unittest.TestCase):
+    """The three composition roots build (or fail-fast) as the matrix says."""
+
+    def setUp(self) -> None:
+        self.tmp = tempfile.TemporaryDirectory()
+        self.repo = Path(self.tmp.name)
+
+    def tearDown(self) -> None:
+        self.tmp.cleanup()
+
+    def test_control_server_builds_with_auth_and_daemon_endpoints(self) -> None:
+        from backend.composition import build_control_server
+
+        server = build_control_server(repo_root=self.repo)
+        self.addCleanup(server.shutdown)
+        # Auth ON (control mode) and the daemon task/sync-target endpoints exist.
+        paths = {getattr(r, "path", "") for r in server.fastapi_app.routes}
+        self.assertIn("/api/daemon/tasks", paths)
+        self.assertIn("/api/daemon/sync-targets", paths)
+        self.assertIn("/mcp/call", paths)
+        # A valid token is required: the AuthService can mint one.
+        token = server.auth.mint_token(tenant_id="acme")
+        client = TestClient(server.fastapi_app, raise_server_exceptions=False)
+        unauth = client.get("/api/projects")
+        self.assertEqual(unauth.status_code, 401)
+        ok = client.get("/api/projects", headers={"Authorization": f"Bearer {token}"})
+        self.assertEqual(ok.status_code, 200, ok.text)
+
+    def test_daemon_refuses_to_start_without_control_url(self) -> None:
+        from backend.composition import build_daemon_server
+
+        with self.assertRaises(ValidationError) as ctx:
+            build_daemon_server(control_url=None)
+        self.assertIn("RESEARCH_PLUGIN_CONTROL_URL", ctx.exception.message)
+
+    def test_local_app_builder_is_a_plain_research_plugin_app(self) -> None:
+        from backend.composition import build_local_app
+
+        app = build_local_app(
+            repo_root=self.repo, db_path=self.repo / ".research_plugin" / "state.sqlite"
+        )
+        self.addCleanup(app.shutdown)
+        self.assertIsInstance(app, ResearchPluginApp)
 
 
 if __name__ == "__main__":

@@ -194,6 +194,14 @@ class SandboxDaemons:
     # ---------- auto rsync poller ----------
 
     def _auto_sync_enabled(self) -> bool:
+        # Config matrix (cloud plan §3.4): control mode runs the reaper but NOT
+        # the auto-rsync poller — the cloud never rsyncs a user checkout (the
+        # daemon owns that). In local/daemon mode the env switch + the backend
+        # capability decide as before.
+        from ..config import Mode, resolve_mode
+
+        if resolve_mode() is Mode.CONTROL:
+            return False
         raw = os.environ.get("RESEARCH_PLUGIN_SANDBOX_AUTO_RSYNC", "1").lower()
         if raw in {"0", "false", "no", "off"}:
             return False

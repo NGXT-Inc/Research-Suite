@@ -1,6 +1,6 @@
 {
   "name": "research-plugin",
-  "version": "0.0006+codex.20260612",
+  "version": "0.0007+codex.20260613",
   "description": "Lean Codex research-state workflow with project-local MCP context, resources, reviews, and Modal SSH sandboxes.",
   "license": "UNLICENSED",
   "keywords": [
