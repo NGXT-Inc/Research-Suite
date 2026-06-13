@@ -317,6 +317,10 @@ class SandboxProvisioner:
                 memory=provisioned.memory if provisioned.memory is not None else int(req.memory),
                 instance_type=provisioned.instance_type or (req.instance_type or ""),
                 region=provisioned.region or (req.region or ""),
+                # Cost governance (cloud plan Phase 7): record the provider's
+                # price quote on the row, and append a per-generation ledger row
+                # below so spend survives the row's per-experiment overwrite.
+                price_usd_per_hour=provisioned.price_usd_per_hour,
                 ssh_host=provisioned.ssh_host,
                 ssh_port=provisioned.ssh_port,
                 ssh_user=provisioned.ssh_user,
@@ -334,6 +338,21 @@ class SandboxProvisioner:
                 error="",
                 terminated_at="",
             )
+            # Per-generation spend ledger (cloud plan Phase 7): one row per
+            # provisioned generation so the price survives the row's
+            # per-experiment overwrite. Best-effort — a ledger write must never
+            # fail an otherwise-successful provision.
+            try:
+                self.registry.record_generation(
+                    experiment_id=experiment_id,
+                    project_id=project_id,
+                    sandbox_id=provisioned.sandbox_id,
+                    instance_type=provisioned.instance_type or (req.instance_type or ""),
+                    gpu=provisioned.gpu or (req.gpu or ""),
+                    price_usd_per_hour=provisioned.price_usd_per_hour,
+                )
+            except Exception:  # noqa: BLE001
+                pass
             self.experiments.apply_system_transition(
                 experiment_id=experiment_id,
                 transition="sandbox_started",

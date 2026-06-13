@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import hashlib
+import hmac
 import json
 import secrets
 from datetime import UTC, datetime, timedelta
@@ -11,10 +13,22 @@ from ..utils import NotFoundError, PermissionDeniedError, ValidationError
 from .experiments import ExperimentService
 from ..utils import new_id
 from ..state.blobs import BlobStore
+from .identity import LOCAL_TENANT_ID
 from .permissions import GATED_ROLES, PermissionService
 from ..state.store import StateStore, next_created_seq, row_to_dict
 from .syntheses import SynthesisService
 from ..utils import now_iso
+
+
+def _hash_capability(capability: str) -> str:
+    """Stored form of a reviewer capability (cloud plan Phase 7).
+
+    A reviewer capability is a high-entropy one-time token (token_urlsafe), so
+    sha256 is the correct fast hash — same rationale as services.identity's
+    bearer-token hashing. Never store the plaintext; review.start hashes the
+    presented token and compares with hmac.compare_digest.
+    """
+    return hashlib.sha256(capability.encode("utf-8")).hexdigest()
 
 
 class ReviewService:
@@ -65,13 +79,16 @@ class ReviewService:
                 target_type=target_type, target_status=target["status"], role=role
             )
             request_id = new_id(prefix="rr")
+            # The plaintext capability is minted here, returned ONCE to the
+            # caller, and never stored — only its sha256 lands in the row (cloud
+            # plan Phase 7). review.start resolves by hashing the presented token.
             capability = f"rp_{secrets.token_urlsafe(24)}"
             expires_at = (datetime.now(UTC) + timedelta(hours=1)).replace(microsecond=0).isoformat().replace("+00:00", "Z")
             snapshot_id = self._target_snapshot_id(conn=conn, target_type=target_type, target_id=target_id)
             conn.execute(
                 """
                 INSERT INTO review_requests (
-                  id, project_id, target_type, target_id, role, reason, capability,
+                  id, project_id, target_type, target_id, role, reason, capability_hash,
                   status, target_snapshot_id, producer_session_id, expires_at, created_at,
                   created_seq
                 )
@@ -84,7 +101,7 @@ class ReviewService:
                     target_id,
                     role,
                     reason,
-                    capability,
+                    _hash_capability(capability),
                     snapshot_id,
                     producer_session_id,
                     expires_at,
@@ -117,12 +134,26 @@ class ReviewService:
         reviewer_capability: str,
         declared_agent: str = "",
         caller_session_id: str = "",
+        tenant_id: str | None = None,
     ) -> dict[str, Any]:
+        # ``tenant_id`` is the authenticated principal's tenant (cloud plan
+        # Phase 7). None = local mode (single implicit 'local' tenant, auth
+        # off) — a no-op. When given, the request's project must belong to that
+        # tenant, so a reviewer authenticated to tenant B cannot start a review
+        # against tenant A's target.
         with self.store.transaction() as conn:
             req = conn.execute("SELECT * FROM review_requests WHERE id = ?", (review_request_id,)).fetchone()
             if req is None:
                 raise NotFoundError(f"review request not found: {review_request_id}")
             self._validate_request_open(req=req, capability=reviewer_capability)
+            if tenant_id is not None:
+                owner = conn.execute(
+                    "SELECT tenant_id FROM projects WHERE id = ?", (req["project_id"],)
+                ).fetchone()
+                if owner is None or str(owner["tenant_id"]) != tenant_id:
+                    # Same shape as an unknown request: do not confirm the
+                    # target exists to a foreign tenant.
+                    raise NotFoundError(f"review request not found: {review_request_id}")
             if caller_session_id and caller_session_id == req["producer_session_id"]:
                 raise PermissionDeniedError("reviewer session must differ from producer session")
             snapshot_now = self._target_snapshot_id(conn=conn, target_type=req["target_type"], target_id=req["target_id"])
@@ -133,11 +164,20 @@ class ReviewService:
             conn.execute(
                 """
                 INSERT INTO review_sessions (
-                  id, request_id, declared_agent, caller_session_id, independence, status, created_at
+                  id, request_id, declared_agent, caller_session_id, tenant_id,
+                  independence, status, created_at
                 )
-                VALUES (?, ?, ?, ?, ?, 'started', ?)
+                VALUES (?, ?, ?, ?, ?, ?, 'started', ?)
                 """,
-                (session_id, review_request_id, declared_agent, caller_session_id, independence, now_iso()),
+                (
+                    session_id,
+                    review_request_id,
+                    declared_agent,
+                    caller_session_id,
+                    tenant_id if tenant_id is not None else LOCAL_TENANT_ID,
+                    independence,
+                    now_iso(),
+                ),
             )
             conn.execute("UPDATE review_requests SET status = 'started' WHERE id = ?", (review_request_id,))
             self.store.record_event(
@@ -527,7 +567,10 @@ class ReviewService:
         }
 
     def _validate_request_open(self, *, req, capability: str) -> None:
-        if req["capability"] != capability:
+        # Constant-time compare of the presented token's hash against the stored
+        # hash (cloud plan Phase 7): the plaintext capability never sits at rest.
+        presented = _hash_capability(capability)
+        if not hmac.compare_digest(str(req["capability_hash"]), presented):
             raise PermissionDeniedError("invalid reviewer capability")
         if req["status"] not in {"requested", "started"}:
             raise PermissionDeniedError("review request is no longer open")

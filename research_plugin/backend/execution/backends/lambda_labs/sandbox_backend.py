@@ -311,6 +311,7 @@ class LambdaLabsSandboxBackend(SandboxBackendBase):
                 memory=int(specs["memory_gib"]) * 1024 if specs.get("memory_gib") else None,
                 instance_type=instance_type,
                 region=region,
+                price_usd_per_hour=float(specs.get("price_usd_per_hour") or 0.0),
             )
         except Exception:
             if instance_id:
@@ -639,6 +640,9 @@ class LambdaLabsSandboxBackend(SandboxBackendBase):
             "gpus": _int_or_zero(specs_raw.get("gpus")),
             "vcpus": _int_or_zero(specs_raw.get("vcpus")),
             "memory_gib": _int_or_zero(specs_raw.get("memory_gib")),
+            # Cloud plan Phase 7: the price the catalog quoted for this SKU,
+            # captured here instead of being fetched-then-discarded.
+            "price_usd_per_hour": float(option.get("price_usd_per_hour") or 0.0),
         }
         return chosen, specs
 

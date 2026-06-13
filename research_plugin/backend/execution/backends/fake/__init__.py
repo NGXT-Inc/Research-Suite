@@ -183,7 +183,30 @@ class FakeSandboxBackend(SandboxBackendBase):
             gpu=request.gpu or "",
             instance_type=request.instance_type or "",
             region=request.region or "",
+            # Cloud plan Phase 7: quote the catalog price for the chosen SKU so
+            # the price-recording path is exercised in-process. Mirrors Lambda;
+            # 0 when no instance_type / no matching catalog option (Modal-like).
+            price_usd_per_hour=self._price_for(request.instance_type),
         )
+
+    def _price_for(self, instance_type: str | None) -> float:
+        """Catalog price for an instance_type (cloud plan Phase 7), or 0.
+
+        Reads the same option list the selection menu exposes, so a test that
+        requests a known SKU gets a non-zero price plumbed through to the row +
+        the sandbox_generations ledger without a cloud.
+        """
+        if not instance_type:
+            return 0.0
+        options = (
+            self._default_catalog_options()
+            if self._catalog_options is None
+            else self._catalog_options
+        )
+        for option in options:
+            if str(option.get("instance_type") or "") == instance_type:
+                return float(option.get("price_usd_per_hour") or 0.0)
+        return 0.0
 
     def refresh_ssh_endpoint(self, *, sandbox_id: str) -> tuple[str, int] | None:
         if not self.alive.get(sandbox_id):

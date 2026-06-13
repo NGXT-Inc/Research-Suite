@@ -81,6 +81,7 @@ from . import sandbox_views
 from .experiments import ExperimentService
 from .metrics_archive import snapshot_mlflow
 from .metrics_records import MetricsSnapshotStore
+from .quotas import AdmissionRequest, QuotaService
 from .sandbox_daemons import SandboxDaemons
 from .sandbox_mgmt_keys import LocalMgmtKeyStore, MgmtKeyStore
 from .sandbox_provisioner import SandboxProvisioner
@@ -123,10 +124,15 @@ class SandboxService:
         experiments: ExperimentService | None = None,
         mgmt_keys: MgmtKeyStore | None = None,
         blobs: BlobStore | None = None,
+        quotas: QuotaService | None = None,
     ) -> None:
         self.store = store
         self.backend = sandbox_backend
         self.activity = activity
+        # Cost governance (cloud plan Phase 7): admission gate at the
+        # procurement choke point. The 'local' tenant has no quota row ⇒
+        # unlimited ⇒ a no-op, so local mode is byte-identical.
+        self.quotas = quotas or QuotaService(store=store)
         # Per-sandbox management keypairs (plan Phase 5, fixed decision 4):
         # control-plane custody; transcript reads, metrics sampling, and the
         # parachute authenticate with these, never with the user key.
@@ -292,6 +298,22 @@ class SandboxService:
                 gpu=gpu,
                 region=region,
             )
+
+        # 2b) Cost-governance admission (cloud plan Phase 7). The choke point for
+        #     a NEW provision: count the tenant's running sandboxes and check the
+        #     request's time_limit + (resolvable) instance price against the
+        #     tenant's ceilings. The 'local' tenant has no quota row ⇒ unlimited
+        #     ⇒ this raises nothing, so local mode is unchanged. Reuse (step 1)
+        #     is already past this gate — only fresh procurement is governed.
+        self.quotas.check_admission(
+            request=AdmissionRequest(
+                tenant_id=self._tenant_for_project(project_id=project_id),
+                time_limit_seconds=int(time_limit),
+                price_usd_per_hour=self._price_for_instance(
+                    instance_type=instance_type, region=region
+                ),
+            )
+        )
 
         # 3) Otherwise (re)start provisioning in the background and best-effort
         #    wait up to the budget. A big first sync or a cold GPU returns
@@ -1225,6 +1247,41 @@ class SandboxService:
         )
 
     # ---------- backend introspection ----------
+
+    def _tenant_for_project(self, *, project_id: str) -> str:
+        """The owning tenant of a project (cloud plan Phase 7), 'local' default."""
+        conn = self.store.connect()
+        try:
+            row = conn.execute(
+                "SELECT tenant_id FROM projects WHERE id = ?", (project_id,)
+            ).fetchone()
+        finally:
+            conn.close()
+        return str(row["tenant_id"]) if row is not None else "local"
+
+    def _price_for_instance(
+        self, *, instance_type: str | None, region: str | None
+    ) -> float | None:
+        """Resolve the catalog price for a chosen SKU, for the quota price gate.
+
+        Best-effort: only meaningful for bundled-hardware backends that expose a
+        catalog with prices (Lambda, the fake's selection mode). Returns None
+        when there is no instance_type or no matching priced option, in which
+        case QuotaService skips the price ceiling (Modal has no per-hour quote).
+        """
+        if not instance_type:
+            return None
+        try:
+            catalog = self.backend.hardware_catalog(region=region)
+        except Exception:  # noqa: BLE001 — admission must not hinge on a catalog call
+            return None
+        if not catalog:
+            return None
+        for option in catalog.get("options", []) or []:
+            if str(option.get("instance_type") or "") == instance_type:
+                price = option.get("price_usd_per_hour")
+                return float(price) if price is not None else None
+        return None
 
     def _hardware_catalog(
         self, *, gpu: str | None = None, region: str | None = None

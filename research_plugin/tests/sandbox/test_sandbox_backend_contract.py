@@ -161,6 +161,27 @@ class SandboxBackendContractTest(unittest.TestCase):
             self.assertFalse(daemons._reaper_enabled())
             self.assertFalse(daemons._auto_sync_enabled())
 
+    def test_local_mode_honors_reaper_off_switch(self) -> None:
+        # Local mode (the default): the user owns their bill, so the env
+        # off-switch disables the reaper even on a backend that enforces expiry.
+        daemons = self._daemons_for_backend(MinimalBackend())
+        with mock.patch.dict(os.environ, {"RESEARCH_PLUGIN_SANDBOX_REAPER": "0"}):
+            self.assertFalse(daemons._reaper_enabled())
+
+    def test_control_mode_ignores_reaper_off_switch(self) -> None:
+        # Cost governance (cloud plan Phase 7): the cloud pays for every VM, so
+        # an operator-set RESEARCH_PLUGIN_SANDBOX_REAPER=0 is IGNORED in control
+        # mode — the reaper stays on (still gated by the backend's enforce_expiry).
+        daemons = self._daemons_for_backend(MinimalBackend())
+        with mock.patch.dict(
+            os.environ,
+            {
+                "RESEARCH_PLUGIN_MODE": "control",
+                "RESEARCH_PLUGIN_SANDBOX_REAPER": "0",
+            },
+        ):
+            self.assertTrue(daemons._reaper_enabled())
+
     def test_services_do_not_dispatch_on_provider_name_literals(self) -> None:
         provider_names = {"modal", "lambda_labs"}
         for path in SERVICES_ROOT.glob("*.py"):

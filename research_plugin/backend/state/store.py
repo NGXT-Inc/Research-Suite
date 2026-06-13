@@ -8,6 +8,7 @@ lives in ``dialects.py`` (cloud plan Phase 6).
 
 from __future__ import annotations
 
+import hashlib
 import json
 import sqlite3
 from collections.abc import Iterator, Mapping
@@ -132,7 +133,13 @@ CREATE TABLE IF NOT EXISTS review_requests (
   target_id TEXT NOT NULL,
   role TEXT NOT NULL,
   reason TEXT NOT NULL DEFAULT '',
-  capability TEXT NOT NULL UNIQUE,
+  -- Capability hardening (cloud plan Phase 7): the reviewer capability is
+  -- stored HASHED (sha256 of the minted token), never in plaintext. The
+  -- plaintext is returned once to the caller at request time; review.start
+  -- resolves the request by hashing the presented token and comparing with a
+  -- constant-time check. Replaces the pre-Phase-7 plaintext `capability`
+  -- column (legacy DBs converge in _ensure_forward_schema).
+  capability_hash TEXT NOT NULL UNIQUE,
   status TEXT NOT NULL,
   target_snapshot_id TEXT NOT NULL,
   producer_session_id TEXT NOT NULL DEFAULT '',
@@ -148,6 +155,11 @@ CREATE TABLE IF NOT EXISTS review_sessions (
   request_id TEXT NOT NULL,
   declared_agent TEXT NOT NULL DEFAULT '',
   caller_session_id TEXT NOT NULL DEFAULT '',
+  -- Principal binding (cloud plan Phase 7): the authenticated tenant that
+  -- started the session, so cross-tenant review hijacking is rejected at
+  -- start. Local mode (single tenant, auth off) writes the 'local' tenant —
+  -- a no-op. Empty on legacy rows that predate the column.
+  tenant_id TEXT NOT NULL DEFAULT '',
   independence TEXT NOT NULL,
   status TEXT NOT NULL,
   created_at TEXT NOT NULL,
@@ -225,6 +237,11 @@ CREATE TABLE IF NOT EXISTS sandboxes (
   -- Modal, which sets gpu/cpu/memory above instead.
   instance_type TEXT NOT NULL DEFAULT '',
   region TEXT NOT NULL DEFAULT '',
+  -- Provider price quote at provision (cloud plan Phase 7): captured from the
+  -- catalog option (Lambda has it; Modal leaves 0). Recorded on the row AND
+  -- appended to sandbox_generations so per-generation spend is reconstructable
+  -- even though the row itself is upsert-overwritten per experiment.
+  price_usd_per_hour REAL NOT NULL DEFAULT 0,
   time_limit INTEGER NOT NULL DEFAULT 0,
   ssh_host TEXT NOT NULL DEFAULT '',
   ssh_port INTEGER NOT NULL DEFAULT 0,
@@ -318,6 +335,66 @@ CREATE TABLE IF NOT EXISTS schema_migrations (
   name TEXT NOT NULL,
   applied_at TEXT NOT NULL
 );
+
+-- Identity (cloud plan Phase 7, §3.2). Dormant in local mode: the implicit
+-- 'local' tenant needs no row here and auth is off on loopback, so these
+-- tables stay empty until the control plane provisions tenants out of band.
+-- A tenant owns projects (projects.tenant_id) and, through them, every
+-- project-scoped record. Bearer tokens are minted per tenant and resolved to
+-- a Principal by AuthService (services/identity.py).
+CREATE TABLE IF NOT EXISTS tenants (
+  id TEXT PRIMARY KEY,
+  name TEXT NOT NULL DEFAULT '',
+  created_at TEXT NOT NULL
+);
+
+-- API bearer tokens (cloud plan Phase 7). The PK is the sha256 hash of the
+-- token — the plaintext is shown once at mint and never stored (see
+-- services/identity.py for why a fast hash is correct for high-entropy bearer
+-- secrets). expires_at/revoked_at are nullable: NULL means "no expiry" /
+-- "not revoked". Lookups are by hash with a constant-time compare.
+CREATE TABLE IF NOT EXISTS api_tokens (
+  token_hash TEXT PRIMARY KEY,
+  tenant_id TEXT NOT NULL,
+  label TEXT NOT NULL DEFAULT '',
+  created_at TEXT NOT NULL,
+  expires_at TEXT,
+  revoked_at TEXT
+);
+
+-- Cost governance (cloud plan Phase 7). One quota row per tenant; every
+-- column nullable = unlimited. Local mode's 'local' tenant has no row, so
+-- QuotaService.check_admission is a no-op (unlimited) — byte-identical
+-- behavior. Enforcement gates at the procurement choke point only when a
+-- ceiling is set and exceeded.
+CREATE TABLE IF NOT EXISTS tenant_quotas (
+  tenant_id TEXT PRIMARY KEY,
+  max_concurrent_sandboxes INTEGER,
+  max_time_limit_seconds INTEGER,
+  max_price_usd_per_hour REAL,
+  gpu_hours_budget REAL,
+  blob_bytes_budget INTEGER
+);
+
+-- Per-generation sandbox spend ledger (cloud plan Phase 7). The sandboxes row
+-- is upsert-overwritten per experiment, so it cannot reconstruct historical
+-- spend; each provisioned generation appends a row here with the price the
+-- provider quoted (Lambda has it; Modal leaves it 0/null). Reconstructable
+-- spend = sum over rows of price_usd_per_hour * runtime. Dormant in local
+-- mode (no quota to govern) but always recorded so the ledger is truthful.
+CREATE TABLE IF NOT EXISTS sandbox_generations (
+  id TEXT PRIMARY KEY,
+  experiment_id TEXT NOT NULL,
+  project_id TEXT NOT NULL,
+  tenant_id TEXT NOT NULL DEFAULT 'local',
+  sandbox_id TEXT NOT NULL DEFAULT '',
+  instance_type TEXT NOT NULL DEFAULT '',
+  gpu TEXT NOT NULL DEFAULT '',
+  price_usd_per_hour REAL NOT NULL DEFAULT 0,
+  started_at TEXT NOT NULL,
+  ended_at TEXT,
+  created_seq INTEGER NOT NULL DEFAULT 0
+);
 """
 
 
@@ -362,6 +439,33 @@ CREATE TABLE resources_migrate (
 """
 
 
+# Rebuild shape for the legacy `review_requests` table whose `capability`
+# column carried a column-level UNIQUE (cloud plan Phase 7). SQLite cannot drop
+# such a column in place, so copy into this shape — `capability_hash` replaces
+# `capability` — and swap. No UNIQUE on capability_hash here: empty-string
+# placeholders during the row-by-row rehash would collide under it; fresh DBs
+# get the UNIQUE constraint from the SCHEMA constant. Kept in sync with the
+# review_requests block in SCHEMA above (minus that one constraint).
+_REVIEW_REQUESTS_REBUILD_DDL = """
+CREATE TABLE review_requests_migrate (
+  id TEXT PRIMARY KEY,
+  project_id TEXT NOT NULL,
+  target_type TEXT NOT NULL,
+  target_id TEXT NOT NULL,
+  role TEXT NOT NULL,
+  reason TEXT NOT NULL DEFAULT '',
+  capability_hash TEXT NOT NULL,
+  status TEXT NOT NULL,
+  target_snapshot_id TEXT NOT NULL,
+  producer_session_id TEXT NOT NULL DEFAULT '',
+  expires_at TEXT NOT NULL,
+  created_at TEXT NOT NULL,
+  created_seq INTEGER NOT NULL DEFAULT 0,
+  FOREIGN KEY(project_id) REFERENCES projects(id)
+);
+"""
+
+
 class BaseStateStore:
     """Dialect-neutral record-store contract and shared persistence helpers.
 
@@ -396,10 +500,33 @@ class BaseStateStore:
                 (version, name, now_iso()),
             )
 
-    def require_project_id(self, *, conn: sqlite3.Connection, project_id: str | None) -> str:
+    def require_project_id(
+        self,
+        *,
+        conn: sqlite3.Connection,
+        project_id: str | None,
+        tenant_id: str | None = None,
+    ) -> str:
+        """Resolve and existence-check a project id, optionally tenant-scoped.
+
+        Tenancy enforcement (cloud plan Phase 7): when ``tenant_id`` is given,
+        the lookup is scoped to that tenant — a project owned by another tenant
+        reads as not-found, so cross-tenant access is denied at the record
+        layer. The default (``tenant_id`` unset) is today's behavior exactly, so
+        every existing call site is unchanged and local mode (single implicit
+        'local' tenant) never threads a tenant.
+        """
         if not project_id:
             raise ValidationError("project_id is required")
-        row = conn.execute("SELECT id FROM projects WHERE id = ?", (project_id,)).fetchone()
+        if tenant_id is None:
+            row = conn.execute(
+                "SELECT id FROM projects WHERE id = ?", (project_id,)
+            ).fetchone()
+        else:
+            row = conn.execute(
+                "SELECT id FROM projects WHERE id = ? AND tenant_id = ?",
+                (project_id, tenant_id),
+            ).fetchone()
         if row is None:
             raise NotFoundError(f"project not found: {project_id}")
         return project_id
@@ -493,6 +620,7 @@ class StateStore(BaseStateStore):
 
     def _initialize(self) -> None:
         self._migrate_resources_unique()
+        self._migrate_capability_hash()
         conn = self.connect()
         try:
             conn.executescript(SCHEMA)
@@ -551,6 +679,13 @@ class StateStore(BaseStateStore):
             table="reviews",
             columns={"return_to": "TEXT NOT NULL DEFAULT ''"},
         )
+        # Cloud-split Phase 7: review sessions bind to the authenticated tenant
+        # (single 'local' tenant in local mode); legacy rows predate the column.
+        self._ensure_columns(
+            conn=conn,
+            table="review_sessions",
+            columns={"tenant_id": "TEXT NOT NULL DEFAULT ''"},
+        )
         # Async provisioning (June 2026): sandboxes gained a provisioning/failed
         # lifecycle with progress + error fields. Older DBs predate these columns.
         self._ensure_columns(
@@ -574,6 +709,9 @@ class StateStore(BaseStateStore):
                 # datacenter for backends that procure a fixed instance type.
                 "instance_type": "TEXT NOT NULL DEFAULT ''",
                 "region": "TEXT NOT NULL DEFAULT ''",
+                # Cloud-split Phase 7 (June 2026): provider price quote captured
+                # at provision for cost governance. 0 on rows that predate it.
+                "price_usd_per_hour": "REAL NOT NULL DEFAULT 0",
                 # Experiment-folder sync (June 2026): how many files the initial
                 # push delivered to the sandbox. -1 = unknown (pre-change rows
                 # or provisioning still in flight); 0 is meaningful — the local
@@ -633,6 +771,80 @@ class StateStore(BaseStateStore):
             )
             if "created_seq" in added:
                 conn.execute(f"UPDATE {table} SET created_seq = rowid")
+
+    def _migrate_capability_hash(self) -> None:
+        """Migrate review_requests.capability (plaintext) → capability_hash.
+
+        Pre-Phase-7 databases stored the minted capability in plaintext under a
+        column-level UNIQUE `capability` column. Phase 7 stores its sha256
+        instead. SQLite cannot DROP a column carrying a column-level UNIQUE in
+        place, so — exactly like _migrate_resources_unique — the table is
+        rebuilt into the new shape (own connection, foreign_keys toggled off so
+        the review_sessions/reviews FKs to review_requests(id) don't block the
+        DROP/RENAME): `capability_hash` replaces `capability`, backfilled with
+        the sha256 of the existing plaintext so already-issued tokens still
+        resolve. A request whose plaintext was empty converges to the
+        empty-string hash, which no presented token matches — voided, must be
+        re-requested (documented acceptable cost). No-op on fresh DBs (the table
+        does not exist yet) and once `capability` is already gone.
+        """
+        conn = sqlite3.connect(self.db_path)
+        conn.row_factory = sqlite3.Row
+        try:
+            table = conn.execute(
+                "SELECT name FROM sqlite_master WHERE type = 'table' AND name = 'review_requests'"
+            ).fetchone()
+            if table is None:
+                return
+            cols = {
+                str(row["name"])
+                for row in conn.execute("PRAGMA table_info(review_requests)").fetchall()
+            }
+            if "capability" not in cols:
+                return
+            seq_expr = "created_seq" if "created_seq" in cols else "rowid"
+            conn.execute("PRAGMA foreign_keys = OFF")
+            conn.execute("BEGIN IMMEDIATE")
+            try:
+                conn.execute(_REVIEW_REQUESTS_REBUILD_DDL)
+                conn.execute(
+                    f"""
+                    INSERT INTO review_requests_migrate (
+                      id, project_id, target_type, target_id, role, reason,
+                      capability_hash, status, target_snapshot_id,
+                      producer_session_id, expires_at, created_at, created_seq
+                    )
+                    SELECT
+                      id, project_id, target_type, target_id, role, reason,
+                      '', status, target_snapshot_id, producer_session_id,
+                      expires_at, created_at, {seq_expr}
+                    FROM review_requests
+                    """
+                )
+                # SQLite has no portable sha256(); rehash row-by-row in Python.
+                for row in conn.execute(
+                    "SELECT id, capability FROM review_requests"
+                ).fetchall():
+                    plaintext = str(row["capability"] or "")
+                    conn.execute(
+                        "UPDATE review_requests_migrate SET capability_hash = ? WHERE id = ?",
+                        (
+                            hashlib.sha256(plaintext.encode("utf-8")).hexdigest(),
+                            row["id"],
+                        ),
+                    )
+                conn.execute("DROP TABLE review_requests")
+                conn.execute(
+                    "ALTER TABLE review_requests_migrate RENAME TO review_requests"
+                )
+                conn.commit()
+            except Exception:
+                conn.rollback()
+                raise
+            finally:
+                conn.execute("PRAGMA foreign_keys = ON")
+        finally:
+            conn.close()
 
     def _ensure_columns(
         self,

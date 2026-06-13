@@ -13,7 +13,7 @@ from __future__ import annotations
 from typing import Any, Callable
 
 from ..state.store import StateStore, next_created_seq, row_to_dict
-from ..utils import NotFoundError, now_iso
+from ..utils import NotFoundError, new_id, now_iso
 
 
 # (experiment_id, sandbox_id) — sandbox_id is "" when the row never recorded
@@ -137,6 +137,54 @@ class SandboxRegistry:
                     f"UPDATE sandboxes SET {assignments} WHERE experiment_id = ?",
                     [*payload.values(), experiment_id],
                 )
+
+    def record_generation(
+        self,
+        *,
+        experiment_id: str,
+        project_id: str,
+        sandbox_id: str = "",
+        instance_type: str = "",
+        gpu: str = "",
+        price_usd_per_hour: float = 0.0,
+    ) -> str:
+        """Append a per-generation spend-ledger row (cloud plan Phase 7).
+
+        The sandboxes row is upsert-overwritten per experiment, so historical
+        spend cannot be reconstructed from it. Each provisioned generation lands
+        here with its provider price quote and the tenant (reached through the
+        project) so total spend is reconstructable. Always recorded; in local
+        mode the 'local' tenant simply has no quota to govern it.
+        """
+        generation_id = new_id(prefix="sbg")
+        now = now_iso()
+        with self.store.transaction() as conn:
+            tenant_row = conn.execute(
+                "SELECT tenant_id FROM projects WHERE id = ?", (project_id,)
+            ).fetchone()
+            tenant_id = str(tenant_row["tenant_id"]) if tenant_row is not None else "local"
+            conn.execute(
+                """
+                INSERT INTO sandbox_generations (
+                  id, experiment_id, project_id, tenant_id, sandbox_id,
+                  instance_type, gpu, price_usd_per_hour, started_at, created_seq
+                )
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                """,
+                (
+                    generation_id,
+                    experiment_id,
+                    project_id,
+                    tenant_id,
+                    sandbox_id,
+                    instance_type,
+                    gpu,
+                    price_usd_per_hour,
+                    now,
+                    next_created_seq(conn=conn, table="sandbox_generations"),
+                ),
+            )
+        return generation_id
 
     def touch_alive(self, *, experiment_id: str) -> None:
         now = now_iso()

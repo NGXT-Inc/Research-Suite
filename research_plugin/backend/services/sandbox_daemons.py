@@ -102,9 +102,18 @@ class SandboxDaemons:
     # ---------- expiration reaper ----------
 
     def _reaper_enabled(self) -> bool:
-        raw = os.environ.get("RESEARCH_PLUGIN_SANDBOX_REAPER", "1").lower()
-        if raw in {"0", "false", "no", "off"}:
-            return False
+        # Cost governance (cloud plan Phase 7): in CONTROL mode the env
+        # off-switch is IGNORED — the cloud holds the provider keys and pays for
+        # every VM, so an operator-set RESEARCH_PLUGIN_SANDBOX_REAPER=0 must not
+        # be able to leave billing VMs unreaped. Local/daemon mode keeps the
+        # switch (the user owns their own bill). enforce_expiry still gates by
+        # backend (the in-memory fake opts out).
+        from ..config import resolve_auth_required
+
+        if not resolve_auth_required():
+            raw = os.environ.get("RESEARCH_PLUGIN_SANDBOX_REAPER", "1").lower()
+            if raw in {"0", "false", "no", "off"}:
+                return False
         return self.backend.capabilities.enforce_expiry
 
     def _reaper_loop(self) -> None:

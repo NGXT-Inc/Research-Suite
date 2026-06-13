@@ -99,6 +99,11 @@ class ProvisionedSandbox:
     memory: int | None = None
     instance_type: str = ""
     region: str = ""
+    # Provider price quote for the procured instance (cloud plan Phase 7, cost
+    # governance). Lambda returns it from the catalog option; Modal has no
+    # per-hour quote and leaves it 0. Recorded on the sandbox row + the
+    # sandbox_generations ledger so spend is reconstructable.
+    price_usd_per_hour: float = 0.0
 
 
 @dataclass(frozen=True)

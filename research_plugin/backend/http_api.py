@@ -23,6 +23,7 @@ from .contracts import PROJECT_SCOPED_TOOL_NAMES
 from .project_router import ProjectRouter
 from .services.figure_view import build_experiment_figure
 from .services.graph_lint import MAX_GRAPH_NODES, graph_problems
+from .services.identity import LOCAL_PRINCIPAL, AuthError, AuthService
 from .services.permissions import GATED_ROLES
 from .utils import NotFoundError, ResearchPluginError, ValidationError
 from .state import monotonic_ms
@@ -170,6 +171,10 @@ class ResearchHttpApi:
         self.app.reviews.assert_request_in_project(
             project_id=project_id, review_request_id=body.get("review_request_id")
         )
+        # Phase 8: thread request.state.principal.tenant_id into reviews.start so
+        # the cross-tenant binding (already enforced at the service layer, cloud
+        # plan Phase 7) is checked over the HTTP/proxy boundary too. Local mode
+        # is the single 'local' tenant, so the default-None path is correct now.
         return self.call_tool(name="review.start", arguments=body)
 
     def submit_review(self, *, project_id: str, body: dict[str, Any]) -> dict[str, Any]:
@@ -742,10 +747,18 @@ def create_fastapi_app(
     app: ResearchPluginApp | None = None,
     *,
     router: ProjectRouter | None = None,
+    auth: AuthService | None = None,
+    allowed_origins: list[str] | None = None,
 ) -> FastAPI:
+    # Auth seam (cloud plan Phase 7). ``auth=None`` is local mode: auth OFF, the
+    # implicit LOCAL_PRINCIPAL on every request, CORS wide open, loopback bind
+    # enforced by http_server — byte-identical to before this phase. An injected
+    # AuthService flips on mandatory bearer auth and origin-restricted CORS
+    # (control mode). Every existing caller passes neither, so nothing changes.
     if (app is None) == (router is None):
         raise ValueError("provide exactly one of app or router")
     api = ResearchHttpApi(app=app) if app is not None else None
+    auth_required = auth is not None
 
     def api_for_project(project_id: str) -> ResearchHttpApi:
         if router is not None:
@@ -787,12 +800,55 @@ def create_fastapi_app(
         return api.app.call_tool(name=name, arguments=arguments, activity_source=activity_source)
 
     http = FastAPI(title="Research Plugin API", version=__version__)
-    http.add_middleware(
-        CORSMiddleware,
-        allow_origins=["*"],
-        allow_methods=["GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"],
-        allow_headers=["Content-Type", "Accept"],
-    )
+    # CORS (cloud plan Phase 7): local mode keeps the wide-open `*` policy
+    # (loopback-only, auth off) — unchanged. Control mode uses an explicit
+    # allowed-origins list (empty by default until the hosted UI origin is
+    # configured) and allows the Authorization header so the SPA can send a
+    # bearer token.
+    if auth_required:
+        http.add_middleware(
+            CORSMiddleware,
+            allow_origins=allowed_origins or [],
+            allow_methods=["GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"],
+            allow_headers=["Content-Type", "Accept", "Authorization"],
+        )
+    else:
+        http.add_middleware(
+            CORSMiddleware,
+            allow_origins=["*"],
+            allow_methods=["GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"],
+            allow_headers=["Content-Type", "Accept"],
+        )
+
+    @http.middleware("http")
+    async def attach_principal(request: Request, call_next):
+        # Principal middleware (cloud plan Phase 7). Auth off (local mode): the
+        # implicit LOCAL_PRINCIPAL is attached and behavior is unchanged —
+        # loopback bind already enforced by http_server. Auth on (control
+        # mode): a valid `Authorization: Bearer` is required; missing/invalid/
+        # expired/revoked returns 401 before any handler runs. CORS preflights
+        # (OPTIONS) are never authenticated.
+        if not auth_required:
+            request.state.principal = LOCAL_PRINCIPAL
+            return await call_next(request)
+        if request.method == "OPTIONS":
+            return await call_next(request)
+        # /health is unauthenticated liveness (load balancers probe it before a
+        # token exists); it returns a slim, path-free shape in control mode, so
+        # no host detail leaks despite being open.
+        if request.url.path == "/health":
+            return await call_next(request)
+        header = request.headers.get("authorization") or ""
+        token = header[7:].strip() if header[:7].lower() == "bearer " else None
+        try:
+            assert auth is not None
+            request.state.principal = auth.resolve(token=token)
+        except AuthError as exc:
+            return JSONResponse(
+                {"detail": str(exc), "error_code": "unauthorized"},
+                status_code=401,
+            )
+        return await call_next(request)
 
     @http.middleware("http")
     async def log_http_activity(request: Request, call_next):
@@ -823,6 +879,12 @@ def create_fastapi_app(
 
     @http.get("/health")
     def health() -> dict[str, Any]:
+        # Surface hygiene (cloud plan Phase 7): /health leaks machine-local
+        # paths (repo_root, store path, registry path). Local mode keeps the
+        # rich shape (loopback, single user). Control mode returns a slim
+        # liveness shape — no host paths cross the cloud edge.
+        if auth_required:
+            return {"ok": True, "version": __version__}
         if router is not None:
             return {"ok": True, "version": __version__, **router.health()}
         assert api is not None
@@ -835,6 +897,10 @@ def create_fastapi_app(
         assert api is not None
         return api.activity(limit=limit, source=source)
 
+    # /api/debug/* expose tool-call internals. In control mode the principal
+    # middleware above already requires a valid bearer on every route, so these
+    # are principal-gated with no per-route change (cloud plan Phase 7); local
+    # mode keeps them open on loopback, unchanged.
     @http.get("/api/debug/tool-calls")
     def tool_call_stats(
         minutes: int | None = Query(None, ge=1),

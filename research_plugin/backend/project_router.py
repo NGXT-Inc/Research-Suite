@@ -1,4 +1,15 @@
-"""Directory-backed project routing for a shared HTTP daemon."""
+"""Directory-backed project routing for a shared HTTP daemon.
+
+Identity mapping (cloud plan Phase 7, §3.2): the ``directory_projects``
+registry is DAEMON-LOCAL state — the ``repo_root ↔ project_id`` mapping that
+lets a local/daemon process resolve "which project is this folder". It is
+conceptually ``project_links`` (the table is left named ``directory_projects``
+to avoid an unmigrated rename; the name is cosmetic). The cloud control plane
+mints ``project_id`` and never sees a filesystem path, so this registry — and
+the ``_canonical_repo`` mkdir side effect — never run in the control plane:
+``create_project`` is a daemon/local-only entry point, and the cloud onboarding
+(Phase 8 import tool) creates projects without a repo_root.
+"""
 
 from __future__ import annotations
 
@@ -322,6 +333,12 @@ class ProjectRouter:
         return conn
 
     def _canonical_repo(self, repo_root: str | Path) -> Path:
+        # The mkdir side effect (cloud plan Phase 7, §3.2): only ever runs in
+        # the local/daemon context, where ProjectRouter lives. The control
+        # plane never holds a repo_root, so it never reaches this code path —
+        # ``create_project`` and ``project_for_repo`` are daemon-only. (Phase 8
+        # makes this a hard mode boundary; today it is structural: the cloud
+        # composition does not construct a ProjectRouter.)
         repo = Path(repo_root).expanduser().resolve()
         repo.mkdir(parents=True, exist_ok=True)
         if not repo.is_dir():

@@ -289,6 +289,114 @@ class StoreMigrationTest(unittest.TestCase):
         finally:
             conn.close()
 
+    def test_fresh_db_has_phase7_tables_and_columns(self) -> None:
+        # Cloud-split Phase 7: identity + cost-governance schema lands on fresh
+        # DBs, the reviewer capability is hashed, and sandboxes record price.
+        store = StateStore(db_path=self.db)
+        conn = store.connect()
+        try:
+            tables = {
+                str(row["name"])
+                for row in conn.execute(
+                    "SELECT name FROM sqlite_master WHERE type = 'table'"
+                ).fetchall()
+            }
+            for table in (
+                "tenants",
+                "api_tokens",
+                "tenant_quotas",
+                "sandbox_generations",
+            ):
+                self.assertIn(table, tables)
+            rr_cols = {
+                str(row["name"])
+                for row in conn.execute("PRAGMA table_info(review_requests)").fetchall()
+            }
+            self.assertIn("capability_hash", rr_cols)
+            self.assertNotIn("capability", rr_cols)
+            rs_cols = {
+                str(row["name"])
+                for row in conn.execute("PRAGMA table_info(review_sessions)").fetchall()
+            }
+            self.assertIn("tenant_id", rs_cols)
+            self.assertIn("price_usd_per_hour", self._sandbox_columns(conn))
+        finally:
+            conn.close()
+
+    def test_legacy_plaintext_capability_is_rehashed(self) -> None:
+        # Cloud-split Phase 7: the plaintext, column-level-UNIQUE `capability`
+        # column is rebuilt to `capability_hash` (= sha256 of the plaintext),
+        # so an already-issued token still resolves; the table is rebuilt
+        # because SQLite cannot drop a UNIQUE column in place.
+        import hashlib
+
+        self._seed_legacy_db()
+        conn = sqlite3.connect(self.db)
+        try:
+            conn.executescript(
+                """
+                CREATE TABLE review_requests (
+                  id TEXT PRIMARY KEY,
+                  project_id TEXT NOT NULL,
+                  target_type TEXT NOT NULL,
+                  target_id TEXT NOT NULL,
+                  role TEXT NOT NULL,
+                  reason TEXT NOT NULL DEFAULT '',
+                  capability TEXT NOT NULL UNIQUE,
+                  status TEXT NOT NULL,
+                  target_snapshot_id TEXT NOT NULL,
+                  producer_session_id TEXT NOT NULL DEFAULT '',
+                  expires_at TEXT NOT NULL,
+                  created_at TEXT NOT NULL,
+                  FOREIGN KEY(project_id) REFERENCES projects(id)
+                );
+                CREATE TABLE review_sessions (
+                  id TEXT PRIMARY KEY,
+                  request_id TEXT NOT NULL,
+                  declared_agent TEXT NOT NULL DEFAULT '',
+                  caller_session_id TEXT NOT NULL DEFAULT '',
+                  independence TEXT NOT NULL,
+                  status TEXT NOT NULL,
+                  created_at TEXT NOT NULL,
+                  FOREIGN KEY(request_id) REFERENCES review_requests(id)
+                );
+                """
+            )
+            conn.execute(
+                """
+                INSERT INTO review_requests (
+                  id, project_id, target_type, target_id, role, capability,
+                  status, target_snapshot_id, expires_at, created_at
+                )
+                VALUES ('rr_old', 'proj_old', 'experiment', 'exp1',
+                        'design_reviewer', 'rp_legacy_token', 'requested',
+                        'snap', '2099-01-01T00:00:00Z', '2026-01-01T00:00:00Z')
+                """
+            )
+            conn.commit()
+        finally:
+            conn.close()
+
+        StateStore(db_path=self.db)  # converge, then re-boot for idempotence
+        store = StateStore(db_path=self.db)
+        conn = store.connect()
+        try:
+            cols = {
+                str(row["name"])
+                for row in conn.execute("PRAGMA table_info(review_requests)").fetchall()
+            }
+            self.assertNotIn("capability", cols)
+            self.assertIn("capability_hash", cols)
+            row = conn.execute(
+                "SELECT capability_hash FROM review_requests WHERE id = 'rr_old'"
+            ).fetchone()
+            self.assertEqual(
+                row["capability_hash"],
+                hashlib.sha256(b"rp_legacy_token").hexdigest(),
+            )
+        finally:
+            conn.close()
+
     def test_legacy_db_gains_phase5_columns_and_metrics_records(self) -> None:
         # Cloud-split Phase 5: the management-key reference and the expiry
         # parachute record join the sandboxes row, and metrics snapshots gain

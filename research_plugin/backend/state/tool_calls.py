@@ -28,7 +28,7 @@ from pathlib import Path
 from typing import Any, Iterator
 
 from ..utils import now_iso
-from .activity import jsonable, payload_chars
+from .activity import SENSITIVE_KEYS, jsonable, payload_chars
 
 
 DEFAULT_MAX_ROWS = 1500
@@ -77,6 +77,14 @@ class ToolCallStore:
         if not self.enabled:
             return
         try:
+            # Redact bearer secrets before they hit disk (cloud plan Phase 7):
+            # this store keeps FULL arguments, so a reviewer capability passed to
+            # review.start would otherwise sit in plaintext in tool_calls.sqlite.
+            # Top-level keys only — the sensitive args are top-level fields.
+            arguments = {
+                key: ("[redacted]" if key in SENSITIVE_KEYS else value)
+                for key, value in arguments.items()
+            }
             args_text, args_trunc, sent_chars = self._encode(arguments)
             if status == "error":
                 result_text = error or ""

@@ -72,6 +72,27 @@ def resolve_db_url(env: Mapping[str, str] | None = None) -> str | None:
     return (source.get(DB_URL_ENV_VAR) or "").strip() or None
 
 
+def resolve_auth_required(env: Mapping[str, str] | None = None) -> bool:
+    """Whether the HTTP surface must authenticate every request (plan Phase 7).
+
+    Derived from the mode, NOT from a separate switch, so auth-on and the
+    control topology are the same decision:
+
+    - ``local`` (default) ⇒ False: auth off, loopback bind enforced by
+      http_server, single implicit 'local' tenant — today's behavior.
+    - ``control`` ⇒ True: mandatory bearer auth on every route.
+
+    Resolved directly from the env value rather than through ``resolve_mode``
+    so it answers truthfully for ``control`` even though ``resolve_mode`` still
+    refuses to *start* a control process at runtime (the mode is wired but the
+    composition lands in Phase 8). ``daemon`` authenticates upstream to the
+    control plane, not its own callers, so it is auth-off locally.
+    """
+    source = env if env is not None else os.environ
+    raw = (source.get(MODE_ENV_VAR) or "").strip().lower() or Mode.LOCAL.value
+    return raw == "control"
+
+
 def build_state_store(
     *, db_path: Path, env: Mapping[str, str] | None = None
 ) -> "BaseStateStore":
