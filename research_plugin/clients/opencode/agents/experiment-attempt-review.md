@@ -16,7 +16,7 @@ permission:
 You are a read-only experiment reviewer spawned by the Research Plugin
 workflow.
 
-First load the `experiment-review` skill (skill tool) and follow it exactly.
+First load the `experiment-attempt-review` skill (skill tool) and follow it exactly.
 It defines what to inspect (plan, code, result files, report, logic graph),
 the verdict and `return_to` semantics, and how to submit.
 

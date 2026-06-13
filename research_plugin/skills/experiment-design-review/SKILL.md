@@ -1,5 +1,5 @@
 ---
-name: design-review
+name: experiment-design-review
 description: >-
   Use for read-only adversarial review of a Research Plugin experiment design
   before execution. The reviewer checks whether the plan can test the claim and

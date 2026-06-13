@@ -1,5 +1,5 @@
 ---
-name: experiment-review
+name: experiment-attempt-review
 description: >-
   Use for read-only adversarial review of a completed Research Plugin experiment
   attempt. The reviewer checks code, result files, metrics, and conclusions,

@@ -284,7 +284,7 @@ class ReviewSubmitInput(ContractModel):
         default="",
         description=(
             "Where a rejected target goes next. Omit on pass. REQUIRED on "
-            "experiment-review rejections (needs_changes/fail): 'planned' if "
+            "experiment-attempt-review rejections (needs_changes/fail): 'planned' if "
             "the results show the plan itself is flawed; 'running' if the plan "
             "stands but execution or the conclusion is flawed (fix and re-run "
             "without redoing design review). Design-review rejections always "
@@ -565,7 +565,7 @@ TOOL_CONTRACTS: dict[str, ToolContract] = {
             "Submit a review from a reviewer session. Accepts ONLY: "
             "review_session_id, verdict (pass|needs_changes|fail), return_to, "
             "notes, findings (list of {issue, severity?}), and evidence "
-            "(free-form dict). On experiment-review rejections return_to is "
+            "(free-form dict). On experiment-attempt-review rejections return_to is "
             "REQUIRED: 'planned' if the results show the plan itself is "
             "flawed, 'running' if the plan stands but execution or the "
             "conclusion is flawed (the experiment resumes running with its "

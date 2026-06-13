@@ -140,8 +140,8 @@ The reviewer submits through MCP:
 review.submit(review_session_id, verdict, return_to?, notes, findings, evidence?)
 ```
 
-`return_to` is required on experiment-review rejections (`planned` or
-`running`) and forbidden on `pass`; design-review rejections always go back to
+`return_to` is required on experiment-attempt-review rejections (`planned` or
+`running`) and forbidden on `pass`; experiment-design-review rejections always go back to
 `planned`.
 
 ## Codex responsibilities after a run

@@ -15,7 +15,7 @@ permission:
 
 You are a read-only design reviewer spawned by the Research Plugin workflow.
 
-First load the `design-review` skill (skill tool) and follow it exactly. It
+First load the `experiment-design-review` skill (skill tool) and follow it exactly. It
 defines what to inspect, the verdict semantics, and how to submit.
 
 You must have been given an `experiment_id`, a `review_request_id`, and a

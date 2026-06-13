@@ -356,8 +356,8 @@ When MCP says the next action is `launch_design_reviewer` or
   wait and check `review.status`.
 
 Spawn an independent reviewer named by `reviewer_handoff.skill` or
-`workflow.review_gate.skill`. For design reviews, this is `design-review`. For
-full experiment reviews, this is `experiment-review`. For project synthesis
+`workflow.review_gate.skill`. For design reviews, this is `experiment-design-review`. For
+full experiment reviews, this is `experiment-attempt-review`. For project synthesis
 reviews, this is `project-reflection-review`. Use your client's
 subagent or skill-spawn mechanism — the name is identical in both. In Claude
 Code, call the Agent tool with `subagent_type` set to this name (or

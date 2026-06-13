@@ -521,8 +521,8 @@ class ReviewService:
 
     def reviewer_handoff(self, *, role: str, target_type: str, target_id: str) -> dict[str, Any]:
         skill = {
-            "design_reviewer": "design-review",
-            "experiment_reviewer": "experiment-review",
+            "design_reviewer": "experiment-design-review",
+            "experiment_reviewer": "experiment-attempt-review",
             "synthesis_reviewer": "project-reflection-review",
         }.get(role, "")
         return {
@@ -619,13 +619,13 @@ class ReviewService:
             return return_to or "synthesizing"
         if role == "experiment_reviewer" and not return_to:
             raise ValidationError(
-                "experiment-review rejections must set return_to: 'planned' if the "
+                "experiment-attempt-review rejections must set return_to: 'planned' if the "
                 "results show the plan itself is flawed, or 'running' if the plan "
                 "stands but execution or the conclusion is flawed"
             )
         if role == "design_reviewer" and return_to == "running":
             raise ValidationError(
-                "design-review rejections cannot return_to 'running'; a flawed plan "
+                "experiment-design-review rejections cannot return_to 'running'; a flawed plan "
                 "goes back to 'planned'"
             )
         return return_to or "planned"

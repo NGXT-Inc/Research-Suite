@@ -109,7 +109,7 @@ class TenancyTest(unittest.TestCase):
             "experiment.create",
             {"project_id": project_id, "name": "exp-x", "intent": "test it"},
         )["id"]
-        # Put the experiment in a design-review gate so review.request accepts a
+        # Put the experiment in a design review gate so review.request accepts a
         # design_reviewer role.
         with self.store.transaction() as conn:
             conn.execute(

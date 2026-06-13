@@ -17,8 +17,8 @@ Operating rules:
 - For the full operating procedure, load the `research-workflow` skill. For
   project-level reflection waves, load the `project-reflection` skill.
 - When `workflow.status_and_next` asks for a design, experiment, or synthesis
-  review, delegate to the matching bundled subagent (`design-review`,
-  `experiment-review`, or `project-reflection-review`), passing the target id,
+  review, delegate to the matching bundled subagent (`experiment-design-review`,
+  `experiment-attempt-review`, or `project-reflection-review`), passing the target id,
   `review_request_id`, and `reviewer_capability` in the prompt. Reviewers are
   read-only and submit verdicts themselves via `review.start` / `review.submit`.
 - Expensive or GPU work runs in a sandbox over SSH (`sandbox.request` /

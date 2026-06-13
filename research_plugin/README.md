@@ -71,10 +71,10 @@ had. **Start the daemon before opening Codex.**
 - `bin/research-plugin-mcp` - launcher for the stdio MCP proxy
 - `bin/research-plugin-http` - launcher for the HTTP daemon
 - `skills/research-workflow/SKILL.md` - primary operating skill (Codex + Claude Code)
-- `skills/design-review/SKILL.md` - read-only design review skill (Codex spawn path)
-- `skills/experiment-review/SKILL.md` - read-only full experiment review skill (Codex spawn path)
-- `agents/design-review.md` - Claude Code subagent for read-only design review (`research-plugin:design-review`)
-- `agents/experiment-review.md` - Claude Code subagent for read-only experiment review (`research-plugin:experiment-review`)
+- `skills/experiment-design-review/SKILL.md` - read-only design review skill (Codex spawn path)
+- `skills/experiment-attempt-review/SKILL.md` - read-only full experiment review skill (Codex spawn path)
+- `agents/experiment-design-review.md` - Claude Code subagent for read-only design review (`research-plugin:experiment-design-review`)
+- `agents/experiment-attempt-review.md` - Claude Code subagent for read-only experiment review (`research-plugin:experiment-attempt-review`)
 
 ## v0.0005 server
 
@@ -256,11 +256,11 @@ in-session `/permissions` prompts.
 **Reviewer handoff**: when `workflow.status_and_next` returns
 `launch_design_reviewer` or `launch_experiment_reviewer`, the orchestrator
 calls the Agent tool with `subagent_type` set to
-`research-plugin:design-review` or `research-plugin:experiment-review` and
+`research-plugin:experiment-design-review` or `research-plugin:experiment-attempt-review` and
 passes `experiment_id`, `review_request_id`, and `reviewer_capability` in the
 prompt. The subagent calls `review.start` with the capability, then
 `review.submit` with the structured verdict. The skill name returned by the
-daemon (`design-review` / `experiment-review`) matches the subagent file name;
+daemon (`experiment-design-review` / `experiment-attempt-review`) matches the subagent file name;
 the `research-plugin:` namespace prefix is added by Claude Code's plugin
 loader.
 

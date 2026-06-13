@@ -39,15 +39,15 @@ The daemon's `workflow.status_and_next` returns a client-neutral
 per client is only how the separate read-only reviewer agent is spawned:
 
 - **Claude Code**: Agent tool with `subagent_type` set to
-  `research-plugin:design-review` / `research-plugin:experiment-review` /
+  `research-plugin:experiment-design-review` / `research-plugin:experiment-attempt-review` /
   `research-plugin:project-reflection-review`.
 - **Codex**: spawn a reviewer agent with the matching review skill.
-- **Cursor**: delegate to the plugin subagent (`/design-review`, or natural
+- **Cursor**: delegate to the plugin subagent (`/experiment-design-review`, or natural
   language); subagents run with a clean context window.
 - **Gemini CLI**: the extension's agents are exposed as tools; the main agent
-  delegates automatically, or the user forces it with `@design-review`.
+  delegates automatically, or the user forces it with `@experiment-design-review`.
 - **OpenCode**: the main agent delegates via the task tool to the installed
-  subagent (or the user @-mentions it, e.g. `@design-review`).
+  subagent (or the user @-mentions it, e.g. `@experiment-design-review`).
 
 Independence is enforced server-side and identically everywhere: a one-time
 capability pinned to a target snapshot, a read-only reviewer funnel, and a
