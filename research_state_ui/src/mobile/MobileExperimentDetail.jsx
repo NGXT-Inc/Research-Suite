@@ -7,12 +7,14 @@ import GateBanner from '../components/GateBanner';
 import PlanSpotlight from '../components/PlanSpotlight';
 import ReportSpotlight from '../components/ReportSpotlight';
 import OutcomesSection from '../components/OutcomesSection';
-import ResultsMetricsPanel from '../components/ResultsMetricsPanel';
 import SandboxTerminal from '../components/SandboxTerminal';
+import MobileGraphSection from './MobileGraphSection';
+import MobileMetricsPanel from './MobileMetricsPanel';
 import { expName } from '../utils/experiment';
 
 const SEGMENTS = [
   { id: 'status',   label: 'Status' },
+  { id: 'graph',    label: 'Graph' },
   { id: 'plan',     label: 'Plan' },
   { id: 'run',      label: 'Run' },
   { id: 'outcomes', label: 'Outcomes' },
@@ -164,6 +166,15 @@ export default function MobileExperimentDetail() {
         />
       )}
 
+      {seg === 'graph' && (
+        <MobileGraphSection
+          projectId={projectId}
+          experimentId={experimentId}
+          experimentStatus={experiment.status}
+          attemptIndex={currentAttempt}
+        />
+      )}
+
       {seg === 'plan' && (
         <>
           <PlanSpotlight
@@ -202,7 +213,7 @@ export default function MobileExperimentDetail() {
             experimentReviews={experimentReviews}
             experimentStatus={experiment.status}
           />
-          <ResultsMetricsPanel projectId={projectId} experimentId={experimentId} />
+          <MobileMetricsPanel projectId={projectId} experimentId={experimentId} />
         </>
       )}
     </div>

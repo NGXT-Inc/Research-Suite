@@ -588,3 +588,210 @@ html[data-surface="mobile"] .slide-confirm-knob {
   transition: transform 0.18s ease;
   touch-action: none;
 }
+
+/* ── Inline segmented control (graph Figure/Story toggle) ──────────── */
+html[data-surface="mobile"] .mseg--inline {
+  position: static;
+  display: inline-grid;
+  grid-auto-flow: column;
+  grid-auto-columns: minmax(62px, auto);
+  margin: 0;
+  top: auto;
+}
+
+/* ── Graph outline (depth-ordered node rows) ───────────────────────── */
+html[data-surface="mobile"] .goutline {
+  display: flex;
+  flex-direction: column;
+  border: 1px solid var(--line);
+  border-radius: var(--radius-lg);
+  background: var(--bg-elev);
+  overflow: hidden;
+}
+html[data-surface="mobile"] .goutline-row {
+  display: flex;
+  align-items: stretch;
+  gap: 10px;
+  width: 100%;
+  min-height: 48px;
+  padding: 9px 12px 9px 10px;
+  border: none;
+  background: none;
+  text-align: left;
+  color: var(--text);
+  border-top: 1px solid var(--line-soft);
+}
+html[data-surface="mobile"] .goutline-row:first-child { border-top: 0; }
+html[data-surface="mobile"] .goutline-row:active { background: var(--hover); }
+html[data-surface="mobile"] .goutline-rail {
+  flex-shrink: 0;
+  width: 3px;
+  border-radius: 2px;
+  background: var(--line-strong);
+}
+html[data-surface="mobile"] .goutline-main { min-width: 0; flex: 1; }
+html[data-surface="mobile"] .goutline-line {
+  display: flex;
+  align-items: baseline;
+  gap: 7px;
+}
+html[data-surface="mobile"] .goutline-kind {
+  flex-shrink: 0;
+  font-size: 10px;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  color: var(--faint);
+}
+html[data-surface="mobile"] .goutline-label {
+  flex: 1;
+  min-width: 0;
+  font-size: var(--text-sm);
+  font-weight: 540;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+html[data-surface="mobile"] .goutline-glyph { flex-shrink: 0; font-size: var(--text-sm); }
+html[data-surface="mobile"] .goutline-sub {
+  display: block;
+  margin-top: 2px;
+  font-size: var(--text-xs);
+  color: var(--muted);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* Node-detail sheet body */
+html[data-surface="mobile"] .gnode-meta {
+  font-size: var(--text-xs);
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  color: var(--faint);
+  margin-bottom: 8px;
+}
+html[data-surface="mobile"] .gnode-detail {
+  font-size: var(--text-sm);
+  color: var(--text);
+  margin: 0 0 10px;
+  overflow-wrap: anywhere;
+}
+html[data-surface="mobile"] .gnode-ref {
+  display: block;
+  font-size: var(--text-sm);
+  color: var(--active);
+  text-decoration: none;
+  padding: 6px 0;
+  overflow-wrap: anywhere;
+}
+html[data-surface="mobile"] .gnode-ref--static { color: var(--muted); }
+html[data-surface="mobile"] .gnode-ref--unresolved { color: var(--faint); }
+html[data-surface="mobile"] .gnode-edges { margin-top: 10px; border-top: 1px solid var(--line-soft); padding-top: 10px; }
+html[data-surface="mobile"] .gnode-edges-head {
+  font-size: 10px;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  color: var(--faint);
+  margin-bottom: 4px;
+}
+html[data-surface="mobile"] .gnode-edge { display: flex; gap: 6px; font-size: var(--text-sm); padding: 3px 0; align-items: baseline; }
+html[data-surface="mobile"] .gnode-edge-arrow { color: var(--faint); }
+html[data-surface="mobile"] .gnode-edge-label { color: var(--muted); font-size: var(--text-xs); }
+html[data-surface="mobile"] .gnode-edge-target { color: var(--text); overflow-wrap: anywhere; }
+
+/* ── Fullscreen graph canvas overlay ───────────────────────────────── */
+html[data-surface="mobile"] .gcanvas-overlay {
+  position: fixed;
+  inset: 0;
+  z-index: 80;
+  display: flex;
+  flex-direction: column;
+  background: var(--bg);
+}
+html[data-surface="mobile"] .gcanvas-overlay--loading {
+  align-items: center;
+  justify-content: center;
+  color: var(--muted);
+}
+html[data-surface="mobile"] .gcanvas-bar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  padding: 10px 14px;
+  padding-top: calc(10px + env(safe-area-inset-top, 0px));
+  border-bottom: 1px solid var(--line);
+}
+html[data-surface="mobile"] .gcanvas-title { font-weight: 600; font-size: var(--text-md); }
+html[data-surface="mobile"] .gcanvas-flow { flex: 1; min-height: 0; }
+html[data-surface="mobile"] .gcanvas-node {
+  border: 1px solid var(--line);
+  border-left-width: 3px;
+  border-radius: var(--radius-md);
+  background: var(--bg-elev);
+  padding: 8px 10px;
+  box-shadow: var(--shadow-sm);
+}
+html[data-surface="mobile"] .gcanvas-node-kind {
+  font-size: 9.5px;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  color: var(--faint);
+}
+html[data-surface="mobile"] .gcanvas-node-label {
+  font-size: var(--text-sm);
+  font-weight: 540;
+  color: var(--text);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+}
+
+/* ── Metric curves (durable results) ───────────────────────────────── */
+html[data-surface="mobile"] .mmetric-list {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  margin-top: 8px;
+}
+html[data-surface="mobile"] .mmetric {
+  border: 1px solid var(--line-soft);
+  border-radius: var(--radius-md);
+  background: var(--bg-soft);
+  padding: 8px 10px;
+}
+html[data-surface="mobile"] .mmetric-head {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 10px;
+}
+html[data-surface="mobile"] .mmetric-key {
+  font-size: var(--text-xs);
+  color: var(--muted);
+  overflow-wrap: anywhere;
+}
+html[data-surface="mobile"] .mmetric-val {
+  font-size: var(--text-md);
+  font-weight: 600;
+  font-variant-numeric: tabular-nums;
+  color: var(--text);
+}
+html[data-surface="mobile"] .msparkline { display: block; margin-top: 6px; }
+html[data-surface="mobile"] .mmetric-params {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin-top: 10px;
+}
+html[data-surface="mobile"] .mmetric-param {
+  font-size: var(--text-xs);
+  color: var(--text);
+  background: var(--bg-soft);
+  border: 1px solid var(--line-soft);
+  border-radius: var(--radius-pill);
+  padding: 3px 9px;
+}
+html[data-surface="mobile"] .mmetric-param-key { color: var(--faint); }
