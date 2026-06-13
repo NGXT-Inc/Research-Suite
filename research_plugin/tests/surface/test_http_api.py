@@ -880,5 +880,66 @@ class RoutedResearchPluginHttpApiTest(unittest.TestCase):
         self.assertIn("already exists", duplicate.text)
 
 
+class DegradedStatesTest(unittest.TestCase):
+    """Control-mode content reads return documented degraded shapes, not 500s
+    (cloud plan Phase 9, open decision F)."""
+
+    def setUp(self) -> None:
+        self.tmp = tempfile.TemporaryDirectory()
+        self.repo = Path(self.tmp.name)
+        self.app = ResearchPluginApp(
+            repo_root=self.repo,
+            db_path=self.repo / ".research_plugin" / "state.sqlite",
+            execution_backend=FakeSandboxBackend(),
+            rsync_syncer=FakeRsyncSyncer(),
+        )
+        self.client = TestClient(create_fastapi_app(self.app), raise_server_exceptions=False)
+
+    def tearDown(self) -> None:
+        self.tmp.cleanup()
+
+    def _result_resource(self) -> tuple[str, str]:
+        project = self.client.post(
+            "/api/projects", json={"name": "P", "summary": "s"}
+        ).json()
+        pid = project["id"]
+        # A result-role file exists on disk locally so registration succeeds...
+        (self.repo / "results.json").write_text('{"acc": 0.9}', encoding="utf-8")
+        res = self.client.post(
+            f"/api/projects/{pid}/resources",
+            json={"path": "results.json", "kind": "result"},
+        ).json()
+        return pid, res["id"]
+
+    def test_result_content_degrades_in_control_mode(self) -> None:
+        pid, rid = self._result_resource()
+        # ...but in control mode there is no checkout to read it from.
+        with patch("backend.http_api._control_mode", return_value=True):
+            resp = self.client.get(f"/api/projects/{pid}/resources/{rid}/content")
+        self.assertEqual(resp.status_code, 200, resp.text)
+        body = resp.json()
+        self.assertFalse(body["available"])
+        self.assertEqual(body["reason"], "content_unavailable_in_this_mode")
+        self.assertIsNone(body["content"])
+
+    def test_result_content_is_live_in_local_mode(self) -> None:
+        pid, rid = self._result_resource()
+        resp = self.client.get(f"/api/projects/{pid}/resources/{rid}/content")
+        self.assertEqual(resp.status_code, 200, resp.text)
+        body = resp.json()
+        self.assertTrue(body["available"])
+        self.assertIn("acc", body["content"])
+
+    def test_figure_file_degrades_in_control_mode(self) -> None:
+        pid, rid = self._result_resource()
+        with patch("backend.http_api._control_mode", return_value=True):
+            resp = self.client.get(
+                f"/api/projects/{pid}/resources/{rid}/file", params={"rel": "fig.png"}
+            )
+        self.assertEqual(resp.status_code, 404)
+        body = resp.json()
+        self.assertEqual(body["error_code"], "content_unavailable")
+
+
 if __name__ == "__main__":
     unittest.main()

@@ -98,6 +98,24 @@ class SandboxRegistry:
         finally:
             conn.close()
 
+    def list_rows_by_status(self, *, status: str) -> list[dict[str, Any]]:
+        """All sandbox rows (across tenants/projects) in ``status``.
+
+        The cross-project read the cloud cleanup sweeps need: the orphan-VM and
+        stale-provision reapers reconcile every running/provisioning row, not a
+        single project's. Local mode (one project) gets the same rows it always
+        did.
+        """
+        conn = self.store.connect()
+        try:
+            rows = conn.execute(
+                "SELECT * FROM sandboxes WHERE status = ? ORDER BY created_seq DESC",
+                (status,),
+            ).fetchall()
+            return [row_to_dict(row=row) or {} for row in rows]
+        finally:
+            conn.close()
+
     def experiment_name(self, *, experiment_id: str) -> str:
         """The experiment's short folder name; '' on rows that predate it."""
         conn = self.store.connect()
@@ -186,6 +204,23 @@ class SandboxRegistry:
             )
         return generation_id
 
+    def close_generation(self, *, experiment_id: str, now: str | None = None) -> None:
+        """Stamp ``ended_at`` on this experiment's open generation(s).
+
+        Cost governance (cloud plan Phase 9): an open generation (``ended_at IS
+        NULL``) is billed to "now" by the spend accountant; closing it on
+        termination freezes its runtime so the running total stops climbing.
+        Idempotent — already-closed generations are untouched. Best-effort and
+        clock-injectable (the reaper passes its own ``now``).
+        """
+        closed_at = now or now_iso()
+        with self.store.transaction() as conn:
+            conn.execute(
+                "UPDATE sandbox_generations SET ended_at = ? "
+                "WHERE experiment_id = ? AND ended_at IS NULL",
+                (closed_at, experiment_id),
+            )
+
     def touch_alive(self, *, experiment_id: str) -> None:
         now = now_iso()
         with self.store.transaction() as conn:
@@ -206,6 +241,8 @@ class SandboxRegistry:
                 """,
                 (now, now, experiment_id),
             )
+        # Freeze the spend ledger: a terminated generation stops accruing.
+        self.close_generation(experiment_id=experiment_id, now=now)
         self._fire_terminal(experiment_id=experiment_id, sandbox_id=sandbox_id)
 
     def mark_failed(self, *, experiment_id: str, error: str) -> None:
@@ -221,6 +258,8 @@ class SandboxRegistry:
                 """,
                 (error, now, now, experiment_id),
             )
+        # Freeze the spend ledger: a failed generation stops accruing.
+        self.close_generation(experiment_id=experiment_id, now=now)
         self._fire_terminal(experiment_id=experiment_id, sandbox_id=sandbox_id)
 
     def emit_event(

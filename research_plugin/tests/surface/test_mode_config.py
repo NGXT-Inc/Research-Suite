@@ -140,6 +140,187 @@ class ControlModeAuthTest(unittest.TestCase):
         self.assertIn("Authorization", allow)
 
 
+class SecretStoreCredentialsTest(unittest.TestCase):
+    """Control mode disables user-machine .env discovery (cloud plan Phase 9)."""
+
+    def setUp(self) -> None:
+        import os
+
+        self.tmp = tempfile.TemporaryDirectory()
+        self.env_file = Path(self.tmp.name) / ".env"
+        self.env_file.write_text("MODAL_TOKEN_ID=from_dotenv\n", encoding="utf-8")
+        self._saved = {
+            k: os.environ.get(k)
+            for k in (
+                "RESEARCH_PLUGIN_MODE",
+                "RESEARCH_PLUGIN_MODAL_ENV_FILE",
+                "MODAL_TOKEN_ID",
+            )
+        }
+        os.environ.pop("MODAL_TOKEN_ID", None)
+
+    def tearDown(self) -> None:
+        import os
+
+        for k, v in self._saved.items():
+            if v is None:
+                os.environ.pop(k, None)
+            else:
+                os.environ[k] = v
+        self.tmp.cleanup()
+
+    def test_explicit_env_file_is_the_secret_store_seam_in_control(self) -> None:
+        import os
+
+        from backend.execution.backends.modal.config import load_modal_env_file
+
+        os.environ["RESEARCH_PLUGIN_MODE"] = "control"
+        os.environ["RESEARCH_PLUGIN_MODAL_ENV_FILE"] = str(self.env_file)
+        load_modal_env_file()
+        # An EXPLICIT env file (a mounted secret) is still honored in control.
+        self.assertEqual(os.environ.get("MODAL_TOKEN_ID"), "from_dotenv")
+
+    def test_implicit_dotenv_disabled_in_control(self) -> None:
+        import os
+        from unittest.mock import patch
+
+        from backend.execution.backends.modal import config as modal_config
+
+        os.environ["RESEARCH_PLUGIN_MODE"] = "control"
+        os.environ.pop("RESEARCH_PLUGIN_MODAL_ENV_FILE", None)
+        # Point the implicit package-root .env at our fixture; control mode must
+        # NOT read it (only an explicit env file is honored).
+        with patch.object(
+            modal_config.Path, "exists", return_value=True
+        ), patch.object(
+            modal_config.Path, "read_text", return_value="MODAL_TOKEN_ID=leak\n"
+        ):
+            modal_config.load_modal_env_file()
+        self.assertIsNone(os.environ.get("MODAL_TOKEN_ID"))
+
+    def test_implicit_dotenv_still_works_in_local(self) -> None:
+        import os
+        from unittest.mock import patch
+
+        from backend.execution.backends.modal import config as modal_config
+
+        os.environ["RESEARCH_PLUGIN_MODE"] = "local"
+        os.environ.pop("RESEARCH_PLUGIN_MODAL_ENV_FILE", None)
+        with patch.object(
+            modal_config.Path, "exists", return_value=True
+        ), patch.object(
+            modal_config.Path, "read_text", return_value="MODAL_TOKEN_ID=local_ok\n"
+        ):
+            modal_config.load_modal_env_file()
+        self.assertEqual(os.environ.get("MODAL_TOKEN_ID"), "local_ok")
+
+
+class VersionHandshakeTest(unittest.TestCase):
+    """GET /api/meta + the X-RP-Client-Version floor check (cloud plan Phase 9)."""
+
+    def setUp(self) -> None:
+        self.tmp = tempfile.TemporaryDirectory()
+        self.repo = Path(self.tmp.name)
+        self.app = ResearchPluginApp(
+            repo_root=self.repo,
+            db_path=self.repo / ".research_plugin" / "state.sqlite",
+            execution_backend=FakeSandboxBackend(),
+            rsync_syncer=FakeRsyncSyncer(),
+        )
+        self.auth = AuthService(store=self.app.store)
+        self.token = self.auth.mint_token(tenant_id="acme")
+        # Auth ON = control mode, where the floor is enforced.
+        self.client = TestClient(
+            create_fastapi_app(self.app, auth=self.auth),
+            raise_server_exceptions=False,
+        )
+        # Local mode (no auth) — floor never enforced.
+        self.local_client = TestClient(
+            create_fastapi_app(self.app), raise_server_exceptions=False
+        )
+
+    def tearDown(self) -> None:
+        self.tmp.cleanup()
+
+    def _auth(self, extra: dict | None = None) -> dict:
+        headers = {"Authorization": f"Bearer {self.token}"}
+        headers.update(extra or {})
+        return headers
+
+    def test_meta_returns_server_version_and_floors(self) -> None:
+        from backend.version import (
+            MIN_DAEMON_VERSION,
+            MIN_PROXY_VERSION,
+            SERVER_VERSION,
+        )
+
+        resp = self.client.get("/api/meta")
+        self.assertEqual(resp.status_code, 200, resp.text)
+        body = resp.json()
+        self.assertEqual(body["server_version"], SERVER_VERSION)
+        self.assertEqual(body["min_daemon_version"], MIN_DAEMON_VERSION)
+        self.assertEqual(body["min_proxy_version"], MIN_PROXY_VERSION)
+
+    def test_meta_is_unauthenticated(self) -> None:
+        # A client must be able to discover the floor before holding a token.
+        resp = self.client.get("/api/meta")
+        self.assertEqual(resp.status_code, 200)
+
+    def test_in_range_client_passes(self) -> None:
+        from backend.version import SERVER_VERSION
+
+        resp = self.client.get(
+            "/api/projects",
+            headers=self._auth({"X-RP-Client-Version": SERVER_VERSION}),
+        )
+        self.assertEqual(resp.status_code, 200, resp.text)
+
+    def test_below_floor_client_rejected_with_upgrade_message(self) -> None:
+        resp = self.client.get(
+            "/api/projects",
+            headers=self._auth({"X-RP-Client-Version": "0.0001"}),
+        )
+        self.assertEqual(resp.status_code, 426, resp.text)
+        body = resp.json()
+        self.assertEqual(body["error_code"], "client_too_old")
+        self.assertIn("upgrade", body["detail"])
+        # The floor is named so the client knows the target.
+        self.assertIn("min_version", body)
+
+    def test_missing_version_header_is_tolerated(self) -> None:
+        # No header ⇒ pre-Phase-9 client; served (auth still applies normally).
+        resp = self.client.get("/api/projects", headers=self._auth())
+        self.assertEqual(resp.status_code, 200, resp.text)
+
+    def test_local_mode_never_enforces_floor(self) -> None:
+        # An ancient client against local mode is served unchanged.
+        resp = self.local_client.get(
+            "/api/projects", headers={"X-RP-Client-Version": "0.0001"}
+        )
+        self.assertEqual(resp.status_code, 200, resp.text)
+
+    def test_below_floor_rejected_before_auth(self) -> None:
+        # The 426 fires even without a valid token (it precedes the auth check),
+        # so an outdated client gets "upgrade", not a confusing 401.
+        resp = self.client.get(
+            "/api/projects", headers={"X-RP-Client-Version": "0.0001"}
+        )
+        self.assertEqual(resp.status_code, 426)
+
+    def test_proxy_header_literal_matches_backend_constant(self) -> None:
+        # The stdlib-only proxy duplicates the header name as a literal (it can't
+        # import backend.version). Pin the two together so a rename can't desync
+        # the daemon/proxy from the control-plane check.
+        from pathlib import Path as _Path
+
+        from backend.version import CLIENT_VERSION_HEADER
+
+        proxy_src = (
+            _Path(__file__).resolve().parents[2] / "mcp_server" / "proxy.py"
+        ).read_text(encoding="utf-8")
+        self.assertIn(f'"{CLIENT_VERSION_HEADER}"', proxy_src)
+
+
 class ModeCompositionTest(unittest.TestCase):
     """The three composition roots build (or fail-fast) as the matrix says."""
 

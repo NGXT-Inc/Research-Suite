@@ -49,6 +49,18 @@ class WorkflowError(ResearchPluginError):
     error_code = "workflow_error"
 
 
+class ContentUnavailableError(ResearchPluginError):
+    """A file's bytes are not reachable from this plane (cloud plan Phase 9).
+
+    Raised when content lives only on an offline/absent data-plane daemon (or is
+    metadata-only in the cloud, fixed decision 6). Distinct from NotFoundError so
+    the UI can render an explicit "content unavailable in this mode" degraded
+    state instead of treating it as a missing record.
+    """
+
+    error_code = "content_unavailable"
+
+
 # ---------------------------------------------------------------------------
 # Identifier + clock helpers
 # ---------------------------------------------------------------------------

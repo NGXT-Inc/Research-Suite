@@ -1,0 +1,100 @@
+"""Deploy-artifact structural lints (cloud plan Phase 9).
+
+Pure file parsing — no docker — that the reference deploy stack references the
+right entrypoints, extras, and config, and that no secrets are committed. Keeps
+the Dockerfile/compose from silently drifting away from the console scripts and
+the §3.4 config matrix the rest of the phase wired.
+"""
+
+from __future__ import annotations
+
+import tomllib
+import unittest
+
+from tests.paths import PLUGIN_ROOT
+
+
+DEPLOY = PLUGIN_ROOT / "deploy"
+
+
+class DeployArtifactsTest(unittest.TestCase):
+    def test_deploy_dir_has_the_expected_files(self) -> None:
+        for name in (
+            "Dockerfile",
+            "docker-compose.yml",
+            "README.md",
+            ".dockerignore",
+            ".env.example",
+        ):
+            with self.subTest(file=name):
+                self.assertTrue((DEPLOY / name).is_file(), f"missing deploy/{name}")
+
+    def test_dockerfile_installs_control_extra_and_runs_control_entrypoint(self) -> None:
+        text = (DEPLOY / "Dockerfile").read_text(encoding="utf-8")
+        # Installs the `control` extra (Postgres + object store + provider SDK).
+        self.assertIn('.[control]', text)
+        # Runs the control console-script entrypoint, not a raw module.
+        self.assertIn("research-plugin-control", text)
+        # Non-root user.
+        self.assertIn("USER ", text)
+        self.assertIn("useradd", text)
+        # HEALTHCHECK hits the version handshake (or /health).
+        self.assertIn("HEALTHCHECK", text)
+        self.assertTrue("/api/meta" in text or "/health" in text)
+
+    def test_control_entrypoint_exists_in_pyproject(self) -> None:
+        with (PLUGIN_ROOT / "pyproject.toml").open("rb") as handle:
+            pyproject = tomllib.load(handle)
+        scripts = pyproject["project"]["scripts"]
+        self.assertEqual(
+            scripts.get("research-plugin-control"),
+            "backend.http_server:control_main",
+        )
+        # The control extra exists and carries the Postgres + object-store deps.
+        control_extra = " ".join(
+            pyproject["project"]["optional-dependencies"]["control"]
+        )
+        self.assertIn("psycopg", control_extra)
+        self.assertIn("boto3", control_extra)
+
+    def test_compose_wires_control_postgres_and_object_store(self) -> None:
+        text = (DEPLOY / "docker-compose.yml").read_text(encoding="utf-8")
+        # The three legs of the reference stack.
+        for service in ("control:", "postgres:", "minio:"):
+            self.assertIn(service, text)
+        # Control points at the Postgres dialect and the blob bucket (§3.4).
+        self.assertIn("RESEARCH_PLUGIN_DB_URL", text)
+        self.assertIn("postgresql://", text)
+        self.assertIn("RESEARCH_PLUGIN_BLOB_BUCKET", text)
+        # Builds from the deploy Dockerfile.
+        self.assertIn("dockerfile: deploy/Dockerfile", text)
+
+    def test_env_example_documents_control_matrix(self) -> None:
+        text = (DEPLOY / ".env.example").read_text(encoding="utf-8")
+        for var in (
+            "RESEARCH_PLUGIN_MODE",
+            "RESEARCH_PLUGIN_DB_URL",
+            "RESEARCH_PLUGIN_BLOB_BUCKET",
+        ):
+            self.assertIn(var, text)
+
+    def test_no_real_secrets_committed(self) -> None:
+        # .env.example must only carry placeholders, never a filled-in token.
+        text = (DEPLOY / ".env.example").read_text(encoding="utf-8")
+        self.assertIn("CHANGE_ME", text)
+        # No real HF token prefix (hf_<chars>) in the example file.
+        import re
+
+        self.assertIsNone(
+            re.search(r"\bhf_[A-Za-z0-9]{8,}", text),
+            "deploy/.env.example appears to contain a real HF token",
+        )
+        # .dockerignore excludes secret files + the UI from the build context.
+        ignore = (DEPLOY / ".dockerignore").read_text(encoding="utf-8")
+        self.assertIn(".env", ignore)
+        self.assertIn("credentials.json", ignore)
+        self.assertIn("research_state_ui/", ignore)
+
+
+if __name__ == "__main__":
+    unittest.main()

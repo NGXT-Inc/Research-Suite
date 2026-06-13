@@ -11,6 +11,17 @@ from ...errors import BackendValidationError
 from ...sync_dirs import DEFAULT_DATA_DIR, DEFAULT_REMOTE_ROOT, SESSIONS_DIRNAME
 
 
+def _env_discovery_disabled() -> bool:
+    """True in control mode, where implicit user-machine .env discovery is off.
+
+    Reads RESEARCH_PLUGIN_MODE directly (no backend.config import) to keep the
+    execution backends loosely coupled from the composition layer. Local and
+    daemon modes keep today's .env behavior (the user owns the machine and the
+    bill); control resolves creds from the process env / secret store only.
+    """
+    return (os.environ.get("RESEARCH_PLUGIN_MODE") or "").strip().lower() == "control"
+
+
 VALID_GPUS: frozenset[str] = frozenset({"T4", "L4", "A10G", "L40S", "A100", "A100-80GB", "H100", "B200"})
 DEFAULT_GPU = "A100"
 
@@ -189,6 +200,13 @@ def load_modal_env_file() -> None:
 
     Values already present in the environment always win over file values, so an
     explicit ``export MODAL_TOKEN_ID=...`` is never overridden.
+
+    Control mode (cloud plan Phase 9, §3.4): user-machine ``.env`` discovery is
+    DISABLED — the control plane's provider credentials come from the process
+    env / a secret store only, never a checkout's ``.env``. An explicitly
+    configured ``RESEARCH_PLUGIN_MODAL_ENV_FILE`` is still honored (that IS the
+    secret-store seam: point it at a mounted secret file), but the implicit
+    package-root ``.env`` fallback is gated off in control mode.
     """
 
     configured = os.environ.get("RESEARCH_PLUGIN_MODAL_ENV_FILE")
@@ -196,6 +214,8 @@ def load_modal_env_file() -> None:
         path = Path(configured).expanduser()
         if not path.exists():
             raise BackendValidationError(f"RESEARCH_PLUGIN_MODAL_ENV_FILE does not exist: {path}")
+    elif _env_discovery_disabled():
+        return  # control mode: no implicit .env discovery
     else:
         # research_plugin/backend/execution/backends/modal/config.py -> research_plugin/
         path = Path(__file__).resolve().parents[4] / ".env"

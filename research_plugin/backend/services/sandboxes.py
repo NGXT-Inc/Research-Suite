@@ -82,6 +82,7 @@ from .experiments import ExperimentService
 from .metrics_archive import snapshot_mlflow
 from .metrics_records import MetricsSnapshotStore
 from .quotas import AdmissionRequest, QuotaService
+from .transcript_cache import TranscriptCache
 from .sandbox_daemons import SandboxDaemons
 from .sandbox_mgmt_keys import LocalMgmtKeyStore, MgmtKeyStore
 from .sandbox_provisioner import SandboxProvisioner
@@ -219,6 +220,10 @@ class SandboxService:
             parachute=self._parachute_row,
         )
         self.daemons.start()
+        # Control-side transcript cursor cache (plan Phase 9, risk 14): coalesces
+        # the UI's 3 s-per-viewer SSH transcript reads. Bounded + TTL'd; serves
+        # the last full transcript per sandbox so `since=` polls stay cheap.
+        self.transcript_cache = TranscriptCache()
 
     # ---------- agent / tool surface ----------
 
@@ -352,6 +357,12 @@ class SandboxService:
         row = self.registry.load_row(experiment_id=experiment_id)
         row = self.worker.ensure_local_dashboards(row=row)
         reused = False if row.get("status") == "running" else None
+        # Post-boot secret delivery (plan Phase 9, risk 16): once the VM is up,
+        # push provider credentials over the management channel rather than
+        # baking them into user_data. Best-effort and only on a fresh provision
+        # (reuse already has them); never blocks or fails the request.
+        if reused is False:
+            self._deliver_secrets(row=row, experiment_id=experiment_id)
         return self._agent_view(row=row, reused=reused)
 
     def get(self, *, experiment_id: str, project_id: str | None = None) -> dict[str, Any]:
@@ -421,6 +432,12 @@ class SandboxService:
         # still mid-flight when we return.
         self.provisioner.cancel(experiment_id=experiment_id)
         stopped = False
+        # Daemon-reachability signal for the UI (plan Phase 9): a failed final
+        # pull means the data-plane daemon was unreachable (or its rsync broke),
+        # so the parachute was used and the latest local files may be stale. The
+        # release still proceeds — freeing billing always beats data recovery —
+        # but the result flags it so the UI can show a "daemon unreachable" state.
+        daemon_unreachable = False
         if row.get("sandbox_id") and row.get("status") in ACTIVE_SANDBOX_STATUSES:
             try:
                 self._final_pull_row(row=row)
@@ -428,6 +445,7 @@ class SandboxService:
                 # The agent is present at release, so the parachute only
                 # fires when the pull itself failed — same injectable branch
                 # as the reaper (plan Phase 5). Loud either way, never raises.
+                daemon_unreachable = True
                 self._parachute_row(row=row)
             # Last chance to read MLflow: the server dies with the VM.
             self._persist_metrics_row(row=row, force=True)
@@ -443,9 +461,15 @@ class SandboxService:
             project_id=str(row["project_id"]),
             event_type="sandbox.released",
             experiment_id=experiment_id,
-            payload={"sandbox_id": row.get("sandbox_id", ""), "stopped": stopped},
+            payload={
+                "sandbox_id": row.get("sandbox_id", ""),
+                "stopped": stopped,
+                "daemon_unreachable": daemon_unreachable,
+            },
         )
-        return self._row_view(row=self.registry.load_row(experiment_id=experiment_id))
+        view = self._row_view(row=self.registry.load_row(experiment_id=experiment_id))
+        view["daemon_unreachable"] = daemon_unreachable
+        return view
 
     def terminal(
         self,
@@ -476,11 +500,13 @@ class SandboxService:
         """
         row = self.registry.fetch_scoped(experiment_id=experiment_id, project_id=project_id)
         status = str(row.get("status", "none"))
+        sandbox_id = str(row.get("sandbox_id") or "")
         full = ""
         unavailable = False
-        try:
-            full = self.backend.read_transcript(
-                sandbox_id=str(row.get("sandbox_id") or ""),
+
+        def _read() -> str:
+            return self.backend.read_transcript(
+                sandbox_id=sandbox_id,
                 experiment_id=experiment_id,
                 volume_name=str(row.get("volume_name") or ""),
                 workdir=str(row.get("workdir") or ""),
@@ -493,6 +519,17 @@ class SandboxService:
                 ssh_port=int(row.get("ssh_port") or 0),
                 ssh_user=str(row.get("ssh_user") or ""),
                 key_path=str(self.mgmt_keys.key_path(experiment_id=experiment_id)),
+            )
+
+        try:
+            # Cursor cache (plan Phase 9, risk 14): repeated control-side reads
+            # for the same sandbox within the TTL serve the cached full
+            # transcript instead of re-hitting SSH every 3 s poll. `since=` is
+            # applied to the cached bytes below, so incremental polls stay
+            # correct AND cheap. A terminal sandbox can't produce more output,
+            # so caching its transcript is always safe.
+            full = self.transcript_cache.get_or_read(
+                sandbox_id=sandbox_id, read=_read, since=since
             )
         except Exception as exc:  # noqa: BLE001
             full = f"(terminal unavailable: {exc})"
@@ -550,6 +587,16 @@ class SandboxService:
             # Domain errors stay actionable as-is — notably a sync lease held
             # by another client (plan Phase 4), which names the holder.
             raise
+        except TimeoutError as exc:
+            # The data-plane daemon never executed the sync task within budget
+            # (split mode: daemon offline / long-poll asleep). Surface a clear
+            # daemon-unreachable status the UI can render rather than a generic
+            # backend error (plan Phase 9).
+            raise BackendUnavailableError(
+                "the data-plane daemon is unreachable, so the sandbox could not "
+                "be synced; check that the local daemon is running and retry",
+                details={"reason": "daemon_unreachable", "experiment_id": experiment_id},
+            ) from exc
         except Exception as exc:  # noqa: BLE001
             raise BackendUnavailableError(f"sandbox sync failed: {exc}") from exc
         self._persist_metrics_row(row=row, force=True)
@@ -1089,6 +1136,38 @@ class SandboxService:
                     experiment_id=experiment_id,
                     payload={"sandbox_id": sandbox_id, "error": str(exc)},
                 )
+
+    def _deliver_secrets(self, *, row: dict[str, Any], experiment_id: str) -> None:
+        """Push provider credentials over the management channel post-boot.
+
+        Replaces the cleartext-in-user_data token embed (plan Phase 9, risk 16).
+        Only fires for a running row over a backend that has a secret channel
+        and something to deliver. Best-effort: any failure (no mgmt key, VM not
+        yet reachable, no tokens configured) is swallowed — the worst case is
+        the agent's HF downloads lack a token, never a failed provision. The
+        secret value is never logged.
+        """
+        if row.get("status") != "running":
+            return
+        sandbox_id = str(row.get("sandbox_id") or "")
+        if not sandbox_id:
+            return
+        try:
+            secrets = self.backend.sandbox_secrets()
+        except Exception:  # noqa: BLE001
+            secrets = {}
+        if not secrets:
+            return
+        try:
+            self.backend.write_secrets(
+                sandbox_id=sandbox_id,
+                secrets=secrets,
+                ssh_host=str(row.get("ssh_host") or ""),
+                ssh_port=int(row.get("ssh_port") or 0),
+                key_path=str(self.mgmt_keys.key_path(experiment_id=experiment_id)),
+            )
+        except Exception:  # noqa: BLE001 — secret delivery must never fail a request
+            pass
 
     def _maybe_restore_parachute(self, *, row: dict[str, Any]) -> dict[str, Any]:
         """Land an unclaimed parachute in the local experiment folder.

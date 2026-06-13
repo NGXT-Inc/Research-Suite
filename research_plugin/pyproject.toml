@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "research-plugin"
-version = "0.0007"
+version = "0.0008"
 description = "Lean research-state workflow with project-local MCP context, resources, reviews, and Modal SSH sandboxes."
 readme = "README.md"
 requires-python = ">=3.11"
@@ -39,10 +39,13 @@ daemon = []
 research-plugin-mcp = "mcp_server.__main__:main"
 research-plugin-http = "backend.http_server:main"
 research-plugin-daemon = "backend.http_server:daemon_main"
+research-plugin-control = "backend.http_server:control_main"
 
-[tool.setuptools]
-packages = ["backend", "mcp_server"]
-
-[tool.setuptools.package-dir]
-backend = "backend"
-mcp_server = "mcp_server"
+[tool.setuptools.packages.find]
+# Discover backend + mcp_server AND their subpackages (backend.services,
+# backend.state, backend.execution.*, …). The old explicit two-package list
+# shipped only the top-level dirs, so an installed wheel (the control image)
+# could not import backend.services — the source-checkout tests never caught it
+# because they run from a copytree, not the wheel. ``find`` keeps the wheel and
+# the checkout in sync. research_state_ui has no __init__ and is excluded anyway.
+include = ["backend*", "mcp_server*"]

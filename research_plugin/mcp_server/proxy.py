@@ -527,6 +527,12 @@ class HttpProxyMcpServer:
 
     def _headers(self, *, is_cloud: bool) -> dict[str, str]:
         headers = {"Content-Type": "application/json", "Accept": "application/json"}
+        # Version/compat handshake (cloud plan Phase 9): stamp the proxy's
+        # version so the control plane can reject below-floor clients with an
+        # actionable upgrade error. The header name is duplicated as a literal
+        # (not imported from backend) so the proxy stays stdlib-only; it matches
+        # backend.version.CLIENT_VERSION_HEADER, pinned by a surface test.
+        headers["X-RP-Client-Version"] = __version__
         if is_cloud and self.config.token:
             # Never logged.
             headers["Authorization"] = f"Bearer {self.config.token}"

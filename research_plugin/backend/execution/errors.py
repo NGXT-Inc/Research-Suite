@@ -9,7 +9,17 @@ from __future__ import annotations
 
 
 class ExecutionBackendError(Exception):
-    """Base error for execution backends."""
+    """Base error for execution backends.
+
+    Carries an optional ``details`` dict (cloud plan Phase 9) so a backend error
+    can attach a machine-readable reason (e.g. ``daemon_unreachable``) the HTTP
+    layer / UI keys off, without forcing every raise site to populate it.
+    """
+
+    def __init__(self, message: str = "", *, details: dict | None = None) -> None:
+        super().__init__(message)
+        self.message = message
+        self.details = details or {}
 
 
 class BackendValidationError(ExecutionBackendError):

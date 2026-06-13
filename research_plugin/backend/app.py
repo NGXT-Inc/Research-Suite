@@ -29,6 +29,7 @@ from .services import (
 from .services.sandbox_mgmt_keys import LocalMgmtKeyStore
 from .state import ActivityLogger, BaseStateStore, StateStore, ToolCallStore, monotonic_ms
 from .state.blobs import BlobStore, LocalDirBlobStore
+from .observability import StructuredLogger
 
 
 @dataclass(frozen=True)
@@ -107,6 +108,10 @@ class ResearchPluginApp:
         self.tool_calls = ToolCallStore(
             db_path=self.workspace.research_dir / "tool_calls.sqlite"
         )
+        # Structured cloud log stream (cloud plan Phase 9): one redacted JSON
+        # line per tool call / HTTP request to stdout, in control mode only.
+        # Dormant (disabled) in local mode, so behavior is byte-identical.
+        self.structured_logger = StructuredLogger()
         self.permissions = PermissionService()
         # Content-addressed store for gated-artifact bytes (and figures and
         # parachute objects). Local mode roots it next to the state DB; the

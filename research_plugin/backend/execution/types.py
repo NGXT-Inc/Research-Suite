@@ -214,6 +214,24 @@ class SandboxBackend(Protocol):
         """
         ...
 
+    def write_secrets(
+        self,
+        *,
+        sandbox_id: str,
+        secrets: Mapping[str, str],
+        ssh_host: str = "",
+        ssh_port: int = 0,
+        key_path: str = "",
+    ) -> bool:
+        """Optionally deliver provider credentials post-boot (plan Phase 9).
+
+        Replaces the cleartext-in-user_data token embed (risk 16): the control
+        plane writes secrets over the management channel after the VM is up.
+        Returns True on success, False when the backend has no such channel
+        (Modal injects secrets natively; the fake has nowhere to write).
+        """
+        ...
+
     def shutdown(self) -> None:
         """Optionally release backend-level resources. Unsupported backends no-op."""
         ...
@@ -267,6 +285,23 @@ class SandboxBackendBase:
     ) -> dict[str, Any] | None:
         """Unsupported default: no parachute channel is available."""
         return None
+
+    def sandbox_secrets(self) -> dict[str, str]:
+        """Unsupported default: no post-boot secrets to deliver."""
+        return {}
+
+    def write_secrets(
+        self,
+        *,
+        sandbox_id: str,
+        secrets: Mapping[str, str],
+        ssh_host: str = "",
+        ssh_port: int = 0,
+        key_path: str = "",
+    ) -> bool:
+        """Unsupported default: no post-boot secret channel (Modal injects its
+        own secrets at create; the fake VM has nowhere to write)."""
+        return False
 
     def shutdown(self) -> None:
         """Unsupported default: no backend-level resources need cleanup."""

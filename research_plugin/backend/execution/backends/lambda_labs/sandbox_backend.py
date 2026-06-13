@@ -76,6 +76,11 @@ SshRunner = Callable[[list[str]], "subprocess.CompletedProcess[str]"]
 
 REC_SCRIPT = r"""#!/usr/bin/env bash
 [ -f /opt/rp/env ] && . /opt/rp/env
+# Credentials (HF_TOKEN, etc.) are NOT baked into user_data (plan Phase 9,
+# risk 16). They are written post-boot to /opt/rp/secrets.env over the
+# management channel and sourced here, so the cleartext token never lives in
+# the provider's user_data blob or its on-disk copy.
+[ -f /opt/rp/secrets.env ] && . /opt/rp/secrets.env
 RP_EXPERIMENT_ID="${RP_EXPERIMENT_ID:-unknown}"
 RP_WORKDIR="${RP_WORKDIR:-/workspace/$RP_EXPERIMENT_ID}"
 RP_EXPERIMENT_DIR="${RP_EXPERIMENT_DIR:-$RP_WORKDIR}"
@@ -277,7 +282,8 @@ class LambdaLabsSandboxBackend(SandboxBackendBase):
                 ),
                 sandbox_data_dir=self.config.sandbox_data_dir,
                 management_public_key=request.management_public_key,
-                tokens=_sandbox_tokens(),
+                # No tokens embedded in user_data (plan Phase 9, risk 16): they
+                # are delivered post-boot via write_secrets over the mgmt channel.
             )
             instance_id = self.client.launch_instance(
                 region_name=region,
@@ -505,6 +511,66 @@ class LambdaLabsSandboxBackend(SandboxBackendBase):
         if receipt is None:
             raise BackendUnavailableError("parachute produced no upload receipt")
         return receipt
+
+    def sandbox_secrets(self) -> dict[str, str]:
+        """The credentials to deliver to a fresh VM post-boot (HF tokens).
+
+        Resolved from the control plane's env / secret store (HF_TOKEN +
+        HUGGING_FACE_HUB_TOKEN); the control side hands these to write_secrets.
+        Empty when none are configured.
+        """
+        return _sandbox_tokens()
+
+    def write_secrets(
+        self,
+        *,
+        sandbox_id: str,
+        secrets: Mapping[str, str],
+        ssh_host: str = "",
+        ssh_port: int = 0,
+        key_path: str = "",
+    ) -> bool:
+        """Deliver provider credentials post-boot over the management channel.
+
+        Writes ``/opt/rp/secrets.env`` (sourced by rec.sh) as ``export NAME=...``
+        lines, replacing the cleartext-in-user_data embed (plan Phase 9, risk
+        16). The whole file is base64-encoded into the remote command so the
+        token never appears as a process argument (it would otherwise show in
+        ``ps``); the remote ``base64 -d`` reconstructs it into a 0600 file owned
+        by root. Best-effort: returns False on any failure (the agent's HF
+        downloads simply won't have the token) and never raises — provisioning
+        must not fail because a token write was flaky.
+        """
+        if not sandbox_id or not ssh_host or not key_path or not secrets:
+            return False
+        body = "\n".join(
+            f"export {name}={shlex.quote(value)}"
+            for name, value in sorted(secrets.items())
+            if value
+        )
+        if not body:
+            return False
+        payload_b64 = base64.b64encode((body + "\n").encode("utf-8")).decode("ascii")
+        remote_command = (
+            f"sudo -n bash -c "
+            f"{shlex.quote(f'umask 077; printf %s {shlex.quote(payload_b64)} | base64 -d > /opt/rp/secrets.env; chmod 600 /opt/rp/secrets.env')}"
+        )
+        command = [
+            "ssh",
+            "-i", key_path,
+            "-p", str(int(ssh_port) or 22),
+            "-o", "BatchMode=yes",
+            "-o", "StrictHostKeyChecking=no",
+            "-o", "UserKnownHostsFile=/dev/null",
+            "-o", f"ConnectTimeout={TRANSCRIPT_SSH_CONNECT_TIMEOUT}",
+            f"{MGMT_SSH_USER}@{ssh_host}",
+            remote_command,
+        ]
+        try:
+            result = self._ssh_runner(command)
+        except Exception:  # noqa: BLE001 — secret delivery is best-effort
+            return False
+        return result.returncode == 0
 
     def local_dashboard_ports(self) -> dict[str, int]:
         """Dashboard ports reachable only from inside the VM.
@@ -755,17 +821,15 @@ def build_bootstrap_core(
             f"RP_DASH_DIR={shlex.quote(sessions_dir)}",
             f"RP_TB_LOGDIR={shlex.quote(sessions_dir + '/tb')}",
             "MLFLOW_TRACKING_URI=http://localhost:5000",
-            # Credentials (e.g. HF_TOKEN) ride in /opt/rp/env with an explicit
-            # `export` so rec.sh's sourcing puts them in every SSH session's
-            # environment without naming them in its export list. The VM is
-            # single-tenant for the agent, which is allowed to *use* (not print)
-            # them — same exposure as Modal's secret-injected env vars.
-            *(
-                f"export {name}={shlex.quote(value)}"
-                for name, value in sorted((tokens or {}).items())
-            ),
+            # NOTE (plan Phase 9, risk 16): credentials are deliberately NOT
+            # embedded here. Cleartext in user_data lands in the provider's
+            # instance metadata and on the VM's disk. Tokens are delivered
+            # post-boot to /opt/rp/secrets.env over the management channel
+            # (SandboxBackend.write_secrets) and sourced by rec.sh. ``tokens``
+            # is accepted for signature stability but never written to user_data.
         ]
     )
+    _ = tokens  # intentionally unused: never embedded in user_data (see above)
     mgmt_block = ""
     if management_public_key:
         mgmt_key_b64 = base64.b64encode(

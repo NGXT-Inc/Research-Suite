@@ -33,6 +33,7 @@ from ..app import ResearchPluginApp
 from ..config import build_blob_store, build_state_store
 from ..dataplane.http_channel import HttpTaskChannel, HttpTaskQueue
 from ..http_api import create_fastapi_app
+from ..services.cleanup import CleanupService
 from ..services.identity import AuthService
 
 
@@ -50,11 +51,17 @@ class ControlPlaneServer:
         app: ResearchPluginApp,
         task_queue: HttpTaskQueue,
         auth: AuthService,
+        cleanup: CleanupService,
         fastapi_app: FastAPI,
     ) -> None:
         self.app = app
         self.task_queue = task_queue
         self.auth = auth
+        # The cloud cleanup sweeps (plan Phase 9). Built but NOT scheduled here —
+        # scheduling is a documented seam (a managed cron / sidecar tick calls
+        # ``cleanup.run_all(now=...)``). The reaper thread that IS owned lives in
+        # SandboxDaemons; this is the broader periodic housekeeping.
+        self.cleanup = cleanup
         self.fastapi_app = fastapi_app
 
     def shutdown(self) -> None:
@@ -115,15 +122,21 @@ def build_control_server(
 ) -> ControlPlaneServer:
     """Build the control-plane FastAPI server (auth ON, daemon endpoints on)."""
     app, task_queue, auth = build_control_app(repo_root=repo_root, env=env)
+    cleanup = CleanupService(sandboxes=app.sandboxes, blobs=app.blobs)
     fastapi_app = create_fastapi_app(
         app=app,
         auth=auth,
         allowed_origins=allowed_origins,
         task_queue=task_queue,
         sync_targets_source=app.sandboxes.control_view,
+        cleanup=cleanup,
     )
     return ControlPlaneServer(
-        app=app, task_queue=task_queue, auth=auth, fastapi_app=fastapi_app
+        app=app,
+        task_queue=task_queue,
+        auth=auth,
+        cleanup=cleanup,
+        fastapi_app=fastapi_app,
     )
 
 

@@ -242,6 +242,33 @@ class LeaseService:
                 "DELETE FROM sync_leases WHERE experiment_id = ?", (experiment_id,)
             )
 
+    def sweep_expired(self, *, now: datetime | None = None) -> int:
+        """Delete every lease whose ``expires_at`` is at/before ``now``.
+
+        The cloud lease-expiry sweep (cloud plan Phase 9): an abandoned lease
+        (a dead client that never released) is normally taken over by the next
+        ``acquire`` (a live foreign lease only blocks while unexpired), so this
+        is housekeeping — it stops the table accumulating dead rows and makes a
+        free experiment observably free. Clock-injectable for tests; returns the
+        count removed. Idempotent.
+        """
+        now_dt = now or datetime.now(tz=UTC)
+        with self.store.transaction() as conn:
+            rows = conn.execute(
+                "SELECT experiment_id, expires_at FROM sync_leases"
+            ).fetchall()
+            stale = [
+                str(row["experiment_id"])
+                for row in rows
+                if _expired_at(row["expires_at"], now=now_dt)
+            ]
+            for experiment_id in stale:
+                conn.execute(
+                    "DELETE FROM sync_leases WHERE experiment_id = ?",
+                    (experiment_id,),
+                )
+        return len(stale)
+
     def holder(self, *, experiment_id: str) -> dict[str, Any] | None:
         """The current lease row (holder + expiry for the agent views), or None."""
         conn = self.store.connect()
@@ -383,3 +410,10 @@ def _expired(lease: dict[str, Any]) -> bool:
     if expires is None:
         return True
     return datetime.now(tz=UTC) >= expires
+
+
+def _expired_at(expires_at: Any, *, now: datetime) -> bool:
+    expires = parse_iso(expires_at)
+    if expires is None:
+        return True
+    return now >= expires

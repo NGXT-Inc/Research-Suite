@@ -1,0 +1,41 @@
+# Build-context excludes for the control-plane image (plan Phase 9). Keep the
+# context small and never copy secrets, local state, the UI, or test fixtures
+# into the image. The Dockerfile copies only backend/, mcp_server/, pyproject,
+# and README explicitly, so this is belt-and-suspenders.
+
+# Secrets / local config — NEVER in an image.
+.env
+*.env
+!deploy/.env.example
+**/credentials.json
+**/.research_plugin/
+
+# Python build + cache churn.
+__pycache__/
+*.pyc
+*.pyo
+.venv/
+venv/
+*.egg-info/
+build/
+dist/
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+
+# VCS + editor noise.
+.git/
+.gitignore
+.idea/
+.vscode/
+
+# Out of scope for the control image: the React UI (served separately) and the
+# test suite / fixtures (not shipped in the runtime image).
+research_state_ui/
+tests/
+
+# Local databases / blobs / logs that may sit in the tree.
+*.sqlite
+*.sqlite-*
+blobs/
+activity.jsonl

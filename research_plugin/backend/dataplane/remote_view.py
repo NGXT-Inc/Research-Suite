@@ -101,6 +101,13 @@ class HttpControlPlaneView:
             headers["Content-Type"] = "application/json"
         if self._control.token:
             headers["Authorization"] = f"Bearer {self._control.token}"
+        # Version/compat handshake (cloud plan Phase 9): stamp the daemon's
+        # version so the control plane can reject below-floor clients with an
+        # actionable upgrade error. Sourced from the package version.
+        from .. import __version__ as _client_version
+        from ..version import CLIENT_VERSION_HEADER
+
+        headers[CLIENT_VERSION_HEADER] = _client_version
         req = Request(url, data=data, method=method, headers=headers)
         try:
             with urlopen(req, timeout=timeout or self._control.timeout_seconds) as response:

@@ -1,0 +1,90 @@
+# Local full-stack bring-up of the Research Plugin control plane (plan Phase 9).
+#
+# Wires the control plane to Postgres (the record store) and MinIO (the S3-shape
+# blob store) so the whole cloud topology runs on a laptop. This is the
+# REFERENCE stack for development and testing — NOT a managed deploy (no TLS, no
+# managed Postgres, no secret store, no cleanup scheduler; see deploy/README.md).
+#
+#   docker compose -f deploy/docker-compose.yml up --build
+#
+# Then mint a tenant token inside the control container and point a daemon /
+# proxy at http://localhost:8787 (RESEARCH_PLUGIN_CONTROL_URL).
+
+services:
+  postgres:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_USER: rp
+      POSTGRES_PASSWORD: rp_dev_password
+      POSTGRES_DB: research_plugin
+    ports:
+      - "5432:5432"
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U rp -d research_plugin"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+  minio:
+    image: minio/minio:latest
+    command: server /data --console-address ":9001"
+    environment:
+      MINIO_ROOT_USER: rpminio
+      MINIO_ROOT_PASSWORD: rpminio_dev_password
+    ports:
+      - "9000:9000"
+      - "9001:9001"
+    volumes:
+      - miniodata:/data
+    healthcheck:
+      test: ["CMD", "curl", "-fsS", "http://127.0.0.1:9000/minio/health/live"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+  # One-shot: create the blob bucket the control plane expects, then exit.
+  createbucket:
+    image: minio/mc:latest
+    depends_on:
+      minio:
+        condition: service_healthy
+    entrypoint: >
+      /bin/sh -c "
+      mc alias set local http://minio:9000 rpminio rpminio_dev_password &&
+      mc mb --ignore-existing local/research-plugin-blobs &&
+      echo 'bucket ready';
+      "
+
+  control:
+    build:
+      context: ..
+      dockerfile: deploy/Dockerfile
+    depends_on:
+      postgres:
+        condition: service_healthy
+      createbucket:
+        condition: service_completed_successfully
+    environment:
+      RESEARCH_PLUGIN_MODE: control
+      RESEARCH_PLUGIN_HTTP_HOST: 0.0.0.0
+      RESEARCH_PLUGIN_HTTP_PORT: 8787
+      # Record store: the Postgres dialect (cloud plan Phase 6).
+      RESEARCH_PLUGIN_DB_URL: postgresql://rp:rp_dev_password@postgres:5432/research_plugin
+      # Blob store: the S3-shape bucket on MinIO (cloud plan Phase 8). boto3
+      # reads these standard AWS env vars; the endpoint URL points it at MinIO.
+      RESEARCH_PLUGIN_BLOB_BUCKET: research-plugin-blobs
+      AWS_ACCESS_KEY_ID: rpminio
+      AWS_SECRET_ACCESS_KEY: rpminio_dev_password
+      AWS_DEFAULT_REGION: us-east-1
+      AWS_ENDPOINT_URL_S3: http://minio:9000
+      # Provider creds come from the env / a secret store ONLY in control mode
+      # (.env discovery is disabled). Leave unset for a record-only dev stack;
+      # set MODAL_* / LAMBDA_* (and HF_TOKEN) to actually provision sandboxes.
+    ports:
+      - "8787:8787"
+
+volumes:
+  pgdata:
+  miniodata:

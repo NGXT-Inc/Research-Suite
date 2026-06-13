@@ -10,6 +10,11 @@ from ...errors import BackendValidationError
 from ...sync_dirs import DEFAULT_DATA_DIR, DEFAULT_REMOTE_ROOT, SESSIONS_DIRNAME
 
 
+def _env_discovery_disabled() -> bool:
+    """True in control mode, where user-machine .env discovery is off (§3.4)."""
+    return (os.environ.get("RESEARCH_PLUGIN_MODE") or "").strip().lower() == "control"
+
+
 DEFAULT_BASE_URL = "https://cloud.lambda.ai/api/v1"
 DEFAULT_SANDBOX_DATA_DIR = DEFAULT_DATA_DIR
 DEFAULT_SSH_USER = "ubuntu"
@@ -110,12 +115,19 @@ class LambdaSandboxConfig:
 
 
 def load_lambda_env_file() -> None:
-    """Load Lambda credentials/settings from the configured plugin env file."""
+    """Load Lambda credentials/settings from the configured plugin env file.
 
-    configured = (
-        os.environ.get("RESEARCH_PLUGIN_LAMBDA_ENV_FILE")
-        or os.environ.get("RESEARCH_PLUGIN_MODAL_ENV_FILE")
-    )
+    Only an EXPLICITLY configured env file is ever read (no implicit package-root
+    ``.env`` fallback), so this is already the secret-store seam: in control mode
+    point ``RESEARCH_PLUGIN_LAMBDA_ENV_FILE`` at a mounted secret. Control mode
+    additionally refuses to fall through to the Modal env-file alias so a user
+    machine's ``RESEARCH_PLUGIN_MODAL_ENV_FILE`` can't smuggle creds into the
+    cloud — the control plane reads its own env / secret store only.
+    """
+
+    configured = os.environ.get("RESEARCH_PLUGIN_LAMBDA_ENV_FILE")
+    if not configured and not _env_discovery_disabled():
+        configured = os.environ.get("RESEARCH_PLUGIN_MODAL_ENV_FILE")
     if not configured:
         return
     path = Path(configured).expanduser()

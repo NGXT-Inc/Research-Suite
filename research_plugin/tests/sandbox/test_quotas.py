@@ -12,9 +12,11 @@ import tempfile
 import unittest
 from pathlib import Path
 
+from datetime import UTC, datetime
+
 from backend.app import ResearchPluginApp
 from backend.execution.backends.fake import FakeSandboxBackend
-from backend.services.quotas import AdmissionRequest, QuotaService
+from backend.services.quotas import GLOBAL_SCOPE, AdmissionRequest, QuotaService
 from backend.utils import PermissionDeniedError
 from tests.fakes import FakeRsyncSyncer
 
@@ -130,6 +132,131 @@ class QuotaAdmissionTest(unittest.TestCase):
             )
         )
 
+    # ---- Phase 9: spend kill-switch + running-total budgets ----
+
+    def _generation(
+        self,
+        *,
+        tenant_id: str,
+        price: float,
+        started_at: str,
+        ended_at: str | None,
+    ) -> None:
+        with self.store.transaction() as conn:
+            conn.execute(
+                """
+                INSERT INTO sandbox_generations
+                  (id, experiment_id, project_id, tenant_id, price_usd_per_hour,
+                   started_at, ended_at, created_seq)
+                VALUES (?, 'exp_g', ?, ?, ?, ?, ?, 0)
+                """,
+                (
+                    f"sbg_{started_at}",
+                    self.project_id,
+                    tenant_id,
+                    price,
+                    started_at,
+                    ended_at,
+                ),
+            )
+
+    def test_tenant_kill_switch_denies_admission(self) -> None:
+        self.quotas.set_kill_switch(
+            scope="tenant_q", tripped=True, reason="abuse review"
+        )
+        with self.assertRaises(PermissionDeniedError) as ctx:
+            self.quotas.check_admission(
+                request=AdmissionRequest(tenant_id="tenant_q", time_limit_seconds=3600)
+            )
+        self.assertIn("kill-switch", ctx.exception.message)
+        self.assertIn("abuse review", ctx.exception.message)
+        # Arming it again restores admission.
+        self.quotas.set_kill_switch(scope="tenant_q", tripped=False)
+        self.quotas.check_admission(
+            request=AdmissionRequest(tenant_id="tenant_q", time_limit_seconds=3600)
+        )
+
+    def test_global_kill_switch_denies_every_tenant(self) -> None:
+        self.quotas.set_kill_switch(
+            scope=GLOBAL_SCOPE, tripped=True, reason="provider outage"
+        )
+        # Even a tenant with no quota row is halted by the platform breaker.
+        with self.assertRaises(PermissionDeniedError) as ctx:
+            self.quotas.check_admission(
+                request=AdmissionRequest(tenant_id="any_tenant", time_limit_seconds=60)
+            )
+        self.assertIn("platform", ctx.exception.message)
+
+    def test_local_tenant_unaffected_without_kill_switch(self) -> None:
+        # No kill-switch rows exist ⇒ local 'local' tenant admits freely.
+        self.quotas.check_admission(
+            request=AdmissionRequest(tenant_id="local", time_limit_seconds=86400)
+        )
+
+    def test_gpu_hour_budget_exhausted_denies(self) -> None:
+        self.quotas.set_quota(tenant_id="tenant_q", gpu_hours_budget=2.0)
+        # A closed 3-hour generation already exceeds the 2 GPU-hour budget.
+        self._generation(
+            tenant_id="tenant_q",
+            price=1.0,
+            started_at="2026-01-01T00:00:00Z",
+            ended_at="2026-01-01T03:00:00Z",
+        )
+        with self.assertRaises(PermissionDeniedError) as ctx:
+            self.quotas.check_admission(
+                request=AdmissionRequest(tenant_id="tenant_q", time_limit_seconds=60)
+            )
+        self.assertEqual(ctx.exception.details.get("quota"), "gpu_hours_budget")
+
+    def test_usd_budget_exhausted_denies(self) -> None:
+        self.quotas.set_quota(tenant_id="tenant_q", usd_budget=10.0)
+        # 5 hours at $3/hr = $15 spent, over the $10 budget.
+        self._generation(
+            tenant_id="tenant_q",
+            price=3.0,
+            started_at="2026-01-01T00:00:00Z",
+            ended_at="2026-01-01T05:00:00Z",
+        )
+        with self.assertRaises(PermissionDeniedError) as ctx:
+            self.quotas.check_admission(
+                request=AdmissionRequest(tenant_id="tenant_q", time_limit_seconds=60)
+            )
+        self.assertEqual(ctx.exception.details.get("quota"), "usd_budget")
+
+    def test_open_generation_bills_to_now(self) -> None:
+        # An open generation started 4h ago bills 4 GPU-hours at "now".
+        now = datetime(2026, 1, 1, 4, 0, 0, tzinfo=UTC)
+        self._generation(
+            tenant_id="tenant_q",
+            price=2.0,
+            started_at="2026-01-01T00:00:00Z",
+            ended_at=None,
+        )
+        spend = self.quotas.tenant_spend(tenant_id="tenant_q", now=now)
+        self.assertAlmostEqual(spend["gpu_hours"], 4.0)
+        self.assertAlmostEqual(spend["usd"], 8.0)
+
+    def test_closing_a_generation_freezes_spend(self) -> None:
+        # Open generation bills to a far-future now; closing it caps the runtime.
+        self._generation(
+            tenant_id="tenant_q",
+            price=2.0,
+            started_at="2026-01-01T00:00:00Z",
+            ended_at=None,
+        )
+        far = datetime(2026, 1, 1, 10, 0, 0, tzinfo=UTC)
+        open_spend = self.quotas.tenant_spend(tenant_id="tenant_q", now=far)
+        self.assertGreater(open_spend["gpu_hours"], 9.0)
+        # Close it at +1h, then the same far-future read is frozen at 1 GPU-hour.
+        with self.store.transaction() as conn:
+            conn.execute(
+                "UPDATE sandbox_generations SET ended_at = ? WHERE tenant_id = ?",
+                ("2026-01-01T01:00:00Z", "tenant_q"),
+            )
+        closed_spend = self.quotas.tenant_spend(tenant_id="tenant_q", now=far)
+        self.assertAlmostEqual(closed_spend["gpu_hours"], 1.0)
+        self.assertAlmostEqual(closed_spend["usd"], 2.0)
+
 
 class QuotaProvisionRecordingTest(unittest.TestCase):
     """End-to-end: price plumbed through provision, generation row recorded."""
@@ -224,6 +351,32 @@ class QuotaProvisionRecordingTest(unittest.TestCase):
             conn.close()
         # Two fresh provisions ⇒ two ledger rows (the row itself was overwritten).
         self.assertEqual(len(gens), 2)
+
+    def test_release_closes_the_generation(self) -> None:
+        # Termination (here via release) stamps ended_at so spend stops accruing.
+        exp_id = self._experiment()
+        self.app.call_tool(
+            "sandbox.request",
+            {
+                "project_id": self.project_id,
+                "experiment_id": exp_id,
+                "instance_type": "gpu_1x_a10",
+            },
+        )
+        self.app.call_tool(
+            "sandbox.release",
+            {"project_id": self.project_id, "experiment_id": exp_id},
+        )
+        conn = self.store.connect()
+        try:
+            gens = conn.execute(
+                "SELECT ended_at FROM sandbox_generations WHERE experiment_id = ?",
+                (exp_id,),
+            ).fetchall()
+        finally:
+            conn.close()
+        self.assertEqual(len(gens), 1)
+        self.assertIsNotNone(gens[0]["ended_at"])
 
 
 if __name__ == "__main__":

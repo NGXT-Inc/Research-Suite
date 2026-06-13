@@ -1,6 +1,6 @@
 {
   "name": "research-plugin",
-  "version": "0.0007",
+  "version": "0.0008",
   "description": "Lean research-state workflow with project-local MCP context, resources, reviews, and cloud SSH sandboxes. Skills for the agent loop, subagents for read-only design, experiment, and synthesis review.",
   "license": "UNLICENSED",
   "keywords": [

@@ -207,6 +207,20 @@ def daemon_main() -> int:
     return main()
 
 
+def control_main() -> int:
+    """Launch the cloud control plane (cloud plan Phase 9, §3.4).
+
+    The console-script entry for the ``control`` extra and the deploy Dockerfile:
+    forces control mode (RESEARCH_PLUGIN_MODE=control) so the image entrypoint
+    never accidentally binds the local or daemon topology. Auth is ON, the
+    daemon task/sync-target endpoints are served, and the reaper runs. Cleanup
+    sweeps are BUILT (ControlPlaneServer.cleanup) but scheduling them is a
+    documented seam — a managed cron / sidecar POSTs /api/admin/cleanup.
+    """
+    os.environ["RESEARCH_PLUGIN_MODE"] = "control"
+    return main()
+
+
 def main() -> int:
     parser = argparse.ArgumentParser()
     parser.add_argument("--host", default=os.environ.get("RESEARCH_PLUGIN_HTTP_HOST", "127.0.0.1"))

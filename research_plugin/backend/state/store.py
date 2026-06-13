@@ -373,6 +373,7 @@ CREATE TABLE IF NOT EXISTS tenant_quotas (
   max_time_limit_seconds INTEGER,
   max_price_usd_per_hour REAL,
   gpu_hours_budget REAL,
+  usd_budget REAL,
   blob_bytes_budget INTEGER
 );
 
@@ -394,6 +395,19 @@ CREATE TABLE IF NOT EXISTS sandbox_generations (
   started_at TEXT NOT NULL,
   ended_at TEXT,
   created_seq INTEGER NOT NULL DEFAULT 0
+);
+
+-- Spend kill-switch (cloud plan Phase 9, risk 13). An operator-trippable
+-- circuit breaker that refuses NEW sandbox provisioning when set, independent
+-- of (and faster to act than) per-dimension budgets. ``scope = 'global'`` is a
+-- platform-wide halt; ``scope = '<tenant_id>'`` halts one tenant. A row exists
+-- only when the switch was tripped; absence = armed/off. Dormant in local mode
+-- (no row, no tripping). Never carries secrets — just a reason string.
+CREATE TABLE IF NOT EXISTS spend_kill_switches (
+  scope TEXT PRIMARY KEY,
+  tripped INTEGER NOT NULL DEFAULT 0,
+  reason TEXT NOT NULL DEFAULT '',
+  tripped_at TEXT
 );
 """
 
@@ -771,6 +785,14 @@ class StateStore(BaseStateStore):
             )
             if "created_seq" in added:
                 conn.execute(f"UPDATE {table} SET created_seq = rowid")
+        # Cloud-split Phase 9 (June 2026): the per-tenant USD spend budget. The
+        # GPU-hour budget shipped in Phase 7; USD is its sibling. Nullable =
+        # unlimited; pre-Phase-9 quota rows predate the column.
+        self._ensure_columns(
+            conn=conn,
+            table="tenant_quotas",
+            columns={"usd_budget": "REAL"},
+        )
 
     def _migrate_capability_hash(self) -> None:
         """Migrate review_requests.capability (plaintext) → capability_hash.

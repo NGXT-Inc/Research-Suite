@@ -1,6 +1,12 @@
-# Future improvement: Control plane / data plane split for cloud, multi-user backend
+# Control plane / data plane split for cloud, multi-user backend
 
-**Status:** Proposal (not yet implemented) · **Drafted:** 2026-06-07
+**Status:** IMPLEMENTED (cloud backend migration Phases 0–9) · **Drafted:** 2026-06-07 · **Landed:** 2026-06-13
+
+> This doc was the original proposal. The split is now built end-to-end — see
+> **`docs/CLOUD_BACKEND_MIGRATION_PLAN.md`** for the phased record of what
+> shipped, and **`docs/CONTROL_PLANE_OPERATIONS.md`** for operating the control
+> plane (modes, env, cleanup jobs, version floor, deploy). The module-by-module
+> assignment below held; the migration plan is the authoritative record.
 
 ## Why this doc exists
 

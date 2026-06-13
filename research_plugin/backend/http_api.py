@@ -19,14 +19,32 @@ from fastapi.responses import JSONResponse, Response
 
 from . import __version__
 from .app import ResearchPluginApp
+from .version import CLIENT_VERSION_HEADER, MIN_PROXY_VERSION, is_below_floor, meta
 from .contracts import PROJECT_SCOPED_TOOL_NAMES
 from .project_router import ProjectRouter
 from .services.figure_view import build_experiment_figure
 from .services.graph_lint import MAX_GRAPH_NODES, graph_problems
 from .services.identity import LOCAL_PRINCIPAL, AuthError, AuthService
 from .services.permissions import GATED_ROLES
-from .utils import NotFoundError, ResearchPluginError, ValidationError
+from .utils import (
+    ContentUnavailableError,
+    NotFoundError,
+    ResearchPluginError,
+    ValidationError,
+)
 from .state import monotonic_ms
+
+
+def _control_mode() -> bool:
+    """True when running as the cloud control plane (no local checkout).
+
+    Degraded-state shaping (cloud plan Phase 9) keys off this: the control
+    plane has no disk to read result-role files or un-submitted figures from,
+    so those reads return a documented "unavailable" shape instead of a 500.
+    """
+    from .config import resolve_auth_required
+
+    return resolve_auth_required()
 
 
 JsonBody = dict[str, Any] | None
@@ -210,6 +228,25 @@ class ResearchHttpApi:
                 "source": "submitted",
                 "version_id": version_id,
             }
+        # Non-gated roles (e.g. result) read the live file — a local-mode
+        # convenience. In control mode there is no checkout, and result files
+        # stay metadata-only (fixed decision 6): return a clean, documented
+        # degraded shape rather than a 500/404 so the UI can render an explicit
+        # "content unavailable in this mode" state (open decision F).
+        if _control_mode():
+            return {
+                "resource": resource,
+                "path": resource.get("path"),
+                "content": None,
+                "text": None,
+                "available": False,
+                "source": "unavailable",
+                "reason": "content_unavailable_in_this_mode",
+                "detail": (
+                    "this file's bytes live only on the offline data-plane daemon; "
+                    "result-role files are metadata-only in the cloud"
+                ),
+            }
         path = self._resource_path(resource=resource)
         text = path.read_text(errors="replace")
         return {
@@ -219,6 +256,7 @@ class ResearchHttpApi:
             "text": text,
             "size_bytes": path.stat().st_size,
             "source": "live",
+            "available": True,
         }
 
     def _latest_gated_version_id(self, *, resource: dict[str, Any]) -> str | None:
@@ -275,6 +313,13 @@ class ResearchHttpApi:
                     "Content-Type": mime,
                     "Content-Disposition": f'inline; filename="{name}"',
                 }
+            # Not a submitted figure: in control mode there is no checkout to
+            # read the live link from. Surface the documented degraded shape.
+            if _control_mode():
+                raise ContentUnavailableError(
+                    "figure bytes are unavailable in this mode",
+                    details={"rel": rel, "reason": "content_unavailable_in_this_mode"},
+                )
             path = self._resource_path(resource=resource)
             path = (path.parent / rel).resolve()
             try:
@@ -283,6 +328,11 @@ class ResearchHttpApi:
                 raise ValidationError("relative file path escapes repo root") from exc
             if not path.is_file():
                 raise NotFoundError(f"file not found next to resource: {rel}")
+        elif _control_mode():
+            raise ContentUnavailableError(
+                "file bytes are unavailable in this mode",
+                details={"reason": "content_unavailable_in_this_mode"},
+            )
         else:
             path = self._resource_path(resource=resource)
         mime = mimetypes.guess_type(path.name)[0] or "application/octet-stream"
@@ -751,6 +801,7 @@ def create_fastapi_app(
     allowed_origins: list[str] | None = None,
     task_queue: Any | None = None,
     sync_targets_source: Any | None = None,
+    cleanup: Any | None = None,
 ) -> FastAPI:
     # Auth seam (cloud plan Phase 7). ``auth=None`` is local mode: auth OFF, the
     # implicit LOCAL_PRINCIPAL on every request, CORS wide open, loopback bind
@@ -837,9 +888,34 @@ def create_fastapi_app(
             return await call_next(request)
         # /health is unauthenticated liveness (load balancers probe it before a
         # token exists); it returns a slim, path-free shape in control mode, so
-        # no host detail leaks despite being open.
-        if request.url.path == "/health":
+        # no host detail leaks despite being open. /api/meta is the version
+        # handshake itself — a client calls it precisely to learn the floor it
+        # must clear, so it is never floor-gated (and stays unauthenticated so
+        # an upgrade can be discovered before a token is even minted).
+        if request.url.path in ("/health", "/api/meta"):
             return await call_next(request)
+        # Version/compat floor (cloud plan Phase 9). A below-floor client is
+        # rejected with an actionable upgrade error BEFORE auth, so an outdated
+        # daemon/proxy gets a clear "upgrade" message instead of a confusing
+        # partial failure deeper in. A missing header is TOLERATED (pre-Phase-9
+        # clients predate the handshake — see backend.version).
+        client_version = request.headers.get(CLIENT_VERSION_HEADER)
+        if client_version and is_below_floor(
+            client_version=client_version, floor=MIN_PROXY_VERSION
+        ):
+            return JSONResponse(
+                {
+                    "detail": (
+                        f"client version {client_version} is below the minimum "
+                        f"supported {MIN_PROXY_VERSION}; upgrade the research-plugin "
+                        "client (pip install -U research-plugin) and reconnect"
+                    ),
+                    "error_code": "client_too_old",
+                    "min_version": MIN_PROXY_VERSION,
+                    "client_version": client_version,
+                },
+                status_code=426,
+            )
         header = request.headers.get("authorization") or ""
         token = header[7:].strip() if header[:7].lower() == "bearer " else None
         try:
@@ -856,23 +932,46 @@ def create_fastapi_app(
     async def log_http_activity(request: Request, call_next):
         started = monotonic_ms()
         status = 500
+        # Per-request id for the structured cloud log stream (cloud plan
+        # Phase 9). Echoed back on the response so a client/log line can be
+        # correlated. Cheap stdlib uuid; no new dependency.
+        import uuid
+
+        request_id = uuid.uuid4().hex[:16]
         try:
             response = await call_next(request)
             status = response.status_code
+            response.headers["X-RP-Request-Id"] = request_id
             return response
         finally:
             path = str(request.url.path) + (f"?{request.url.query}" if request.url.query else "")
+            duration_ms = monotonic_ms() - started
             if api is not None:
                 api.app.activity.http_request(
                     method=request.method,
                     path=path,
                     status=status,
-                    duration_ms=monotonic_ms() - started,
+                    duration_ms=duration_ms,
+                )
+                # Structured cloud log line (control mode only; dormant locally).
+                # tenant_id comes from the resolved principal when present.
+                principal = getattr(request.state, "principal", None)
+                api.app.structured_logger.log(
+                    kind="http",
+                    request_id=request_id,
+                    tenant_id=getattr(principal, "tenant_id", "") or "",
+                    path=str(request.url.path),
+                    status=status,
+                    duration_ms=duration_ms,
+                    method=request.method,
                 )
 
     @http.exception_handler(ResearchPluginError)
     async def research_error_handler(_request: Request, exc: ResearchPluginError) -> JSONResponse:
-        status = 404 if isinstance(exc, NotFoundError) else 400
+        # 404 for missing records AND for content-unavailable (the bytes live on
+        # an offline daemon / are metadata-only): the error_code lets the UI
+        # render an explicit degraded state rather than a generic error.
+        status = 404 if isinstance(exc, (NotFoundError, ContentUnavailableError)) else 400
         return JSONResponse({"detail": exc.message, "error_code": exc.error_code, **exc.details}, status_code=status)
 
     @http.exception_handler(RequestValidationError)
@@ -891,6 +990,14 @@ def create_fastapi_app(
             return {"ok": True, "version": __version__, **router.health()}
         assert api is not None
         return api.health()
+
+    @http.get("/api/meta")
+    def server_meta() -> dict[str, Any]:
+        # Version/compat handshake (cloud plan Phase 9): the server version plus
+        # the minimum daemon/proxy versions it will serve. Identical in every
+        # mode (the floors are code constants); a client reads it to decide
+        # whether it must upgrade before its requests start getting 426'd.
+        return meta()
 
     @http.get("/api/activity")
     def activity(limit: int = Query(100, ge=1), source: str | None = None) -> dict[str, Any]:
@@ -1230,6 +1337,28 @@ def create_fastapi_app(
                 error=payload.get("error"),
             )
             return {"acked": True}
+
+    # ---- cloud cleanup sweep trigger (cloud plan Phase 9) ----
+    # A scheduling SEAM, not a scheduler: a managed cron / sidecar tick POSTs
+    # here to run one idempotent cleanup pass (orphan VMs, blob TTL GC, lease
+    # expiry, stale-provision reap). Control-mode only (cleanup injected) and
+    # principal-gated by the middleware above. No body; returns the per-sweep
+    # counts so the caller can log/alert.
+    if cleanup is not None:
+        @http.post("/api/admin/cleanup")
+        def admin_cleanup() -> dict[str, Any]:
+            return {"cleaned": cleanup.run_all().as_dict()}
+
+        # RED-ish per-tenant counters (cloud plan Phase 9). Control-mode admin
+        # read; principal-gated by the middleware. A tenant inspecting its own
+        # usage; an operator inspecting any. Reuses the events table + the
+        # generation ledger — no new audit store.
+        @http.get("/api/admin/tenants/{tenant_id}/counters")
+        def admin_tenant_counters(tenant_id: str) -> dict[str, Any]:
+            from .observability import TenantCounters
+
+            assert api is not None
+            return TenantCounters(store=api.app.store).for_tenant(tenant_id=tenant_id)
 
     if sync_targets_source is not None:
         @http.get("/api/daemon/sync-targets")

@@ -521,6 +521,74 @@ class LambdaTranscriptTest(unittest.TestCase):
         )
 
 
+class LambdaSecretsTest(unittest.TestCase):
+    """HF_TOKEN out of plaintext user_data; delivered post-boot (plan Phase 9)."""
+
+    def _backend(self, runner: FakeSshRunner) -> LambdaLabsSandboxBackend:
+        config = LambdaSandboxConfig(cloud=LambdaCloudConfig(api_key="test-key"))
+        return LambdaLabsSandboxBackend(
+            config=config, client=FakeLambdaSandboxClient(), ssh_runner=runner  # type: ignore[arg-type]
+        )
+
+    def test_user_data_never_embeds_the_token_plaintext(self) -> None:
+        with patch.dict(os.environ, {"HF_TOKEN": "hf_supersecret_value"}, clear=False):
+            user_data = build_user_data(
+                public_key="ssh-ed25519 AAAA user@host",
+                experiment_id="exp1",
+                workdir="/workspace/exp1",
+                sessions_dir="/workspace/.research_plugin_sessions/exp1",
+                sandbox_data_dir="/workspace/data",
+                tokens={"HF_TOKEN": "hf_supersecret_value"},
+            )
+        # The cleartext token must NOT land in the provider's user_data blob.
+        self.assertNotIn("hf_supersecret_value", user_data)
+        self.assertNotIn("export HF_TOKEN=", user_data)
+
+    def test_rec_script_sources_post_boot_secrets_file(self) -> None:
+        self.assertIn("/opt/rp/secrets.env", REC_SCRIPT)
+
+    def test_write_secrets_delivers_over_mgmt_channel_without_token_in_argv(self) -> None:
+        runner = FakeSshRunner(returncode=0)
+        backend = self._backend(runner)
+        ok = backend.write_secrets(
+            sandbox_id="inst_1",
+            secrets={"HF_TOKEN": "hf_supersecret_value"},
+            ssh_host="198.51.100.2",
+            ssh_port=22,
+            key_path="/keys/mgmt",
+        )
+        self.assertTrue(ok)
+        command = runner.commands[0]
+        # Management principal + management key.
+        self.assertEqual(command[-2], f"{MGMT_SSH_USER}@198.51.100.2")
+        self.assertIn("/keys/mgmt", command)
+        # The token is base64'd into the remote command, never a plaintext argv
+        # element (so it can't leak via `ps`).
+        self.assertNotIn("hf_supersecret_value", " ".join(command))
+        self.assertIn("/opt/rp/secrets.env", command[-1])
+
+    def test_write_secrets_noop_without_endpoint_or_secrets(self) -> None:
+        runner = FakeSshRunner(returncode=0)
+        backend = self._backend(runner)
+        self.assertFalse(
+            backend.write_secrets(sandbox_id="i", secrets={}, ssh_host="h", key_path="k")
+        )
+        self.assertFalse(
+            backend.write_secrets(
+                sandbox_id="i", secrets={"HF_TOKEN": "x"}, ssh_host="", key_path="k"
+            )
+        )
+        self.assertEqual(runner.commands, [])
+
+    def test_sandbox_secrets_reads_hf_token_from_env(self) -> None:
+        config = LambdaSandboxConfig(cloud=LambdaCloudConfig(api_key="test-key"))
+        backend = LambdaLabsSandboxBackend(
+            config=config, client=FakeLambdaSandboxClient()
+        )
+        with patch.dict(os.environ, {"HF_TOKEN": "hf_x"}, clear=False):
+            self.assertEqual(backend.sandbox_secrets().get("HF_TOKEN"), "hf_x")
+
+
 class LambdaMetricsTest(unittest.TestCase):
     SAMPLE_OUTPUT = (
         "RPM cpu_cores_used=3.4210\n"
@@ -628,7 +696,11 @@ class LambdaEnvironmentTest(unittest.TestCase):
 
         self.assertEqual(env, {"available_tokens": [], "notes": []})
 
-    def test_acquire_injects_hf_tokens_into_vm_env(self) -> None:
+    def test_acquire_never_embeds_tokens_in_user_data(self) -> None:
+        # Inverted (plan Phase 9, risk 16): the token is NO LONGER baked into
+        # user_data — cleartext there lands in provider metadata and on disk.
+        # It is delivered post-boot via write_secrets (LambdaSecretsTest), and
+        # sandbox_secrets() is the source the control side reads.
         backend, client = self._backend()
         with patch.dict(
             os.environ,
@@ -638,8 +710,18 @@ class LambdaEnvironmentTest(unittest.TestCase):
             self._acquire(backend)
 
         user_data = client.launches[0]["user_data"]
-        self.assertIn("export HF_TOKEN=hf_secret_value", user_data)
-        self.assertIn("export HUGGING_FACE_HUB_TOKEN=hf_hub_value", user_data)
+        self.assertNotIn("hf_secret_value", user_data)
+        self.assertNotIn("hf_hub_value", user_data)
+        self.assertNotIn("export HF_TOKEN", user_data)
+        # The secrets ARE the ones write_secrets would deliver post-boot.
+        with patch.dict(
+            os.environ,
+            {"HF_TOKEN": "hf_secret_value", "HUGGING_FACE_HUB_TOKEN": "hf_hub_value"},
+            clear=True,
+        ):
+            secrets = backend.sandbox_secrets()
+        self.assertEqual(secrets["HF_TOKEN"], "hf_secret_value")
+        self.assertEqual(secrets["HUGGING_FACE_HUB_TOKEN"], "hf_hub_value")
 
     def test_acquire_without_tokens_writes_no_exports(self) -> None:
         backend, client = self._backend()

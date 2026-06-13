@@ -5,4 +5,4 @@ backend, and the SSH rsync poller. Fronted to Codex by the stdio MCP proxy
 in `mcp_server`.
 """
 
-__version__ = "0.0007"
+__version__ = "0.0008"
