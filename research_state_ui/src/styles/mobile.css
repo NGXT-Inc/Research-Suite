@@ -7,6 +7,9 @@
 
 html[data-surface="mobile"] body {
   overscroll-behavior-y: contain;
+  /* height of the fixed bottom nav incl. the iOS home indicator — sheets rest
+     on top of it so the nav (and the More toggle) stays tappable while open. */
+  --mnav-h: calc(56px + env(safe-area-inset-bottom, 0px));
 }
 
 /* ───────────────────────── shell ─────────────────────────────────── */
@@ -77,7 +80,9 @@ html[data-surface="mobile"] .mnav {
   left: 0;
   right: 0;
   bottom: 0;
-  z-index: 50;
+  /* above the sheet + backdrop so the bar stays usable — "More" closes the
+     sheet from the same place it opened it. */
+  z-index: 65;
   display: grid;
   grid-template-columns: repeat(4, 1fr);
   background: color-mix(in srgb, var(--bg-elev) 92%, transparent);
@@ -134,16 +139,18 @@ html[data-surface="mobile"] .msheet {
   position: fixed;
   left: 0;
   right: 0;
-  bottom: 0;
+  /* rest on top of the nav (not over it) so its footer isn't hidden and the
+     nav's More toggle stays reachable. */
+  bottom: var(--mnav-h);
   z-index: 61;
-  max-height: 82dvh;
+  max-height: 78dvh;
   overflow-y: auto;
   background: var(--bg-elev);
   border-top-left-radius: 14px;
   border-top-right-radius: 14px;
   border-top: 1px solid var(--line);
   box-shadow: var(--shadow-md);
-  padding: 10px 16px calc(16px + env(safe-area-inset-bottom, 0px));
+  padding: 10px 16px 16px;
 }
 html[data-surface="mobile"] .msheet-grip {
   width: 36px;
