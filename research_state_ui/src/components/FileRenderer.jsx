@@ -1,11 +1,13 @@
 import CodeBlock from './CodeBlock';
 import MarkdownView from './MarkdownView';
+import SvgView from './SvgView';
 
 /**
  * Dispatch a text file to the right renderer based on its extension.
  *
  * - `.md` / `.markdown` → MarkdownView (react-markdown + remark-gfm + Prism
  *   for fenced code blocks)
+ * - `.svg` → SvgView (rendered as a sandboxed image, with a source toggle)
  * - Recognized code extensions → CodeBlock (Prism syntax highlighting with
  *   line numbers)
  * - Everything else → plain monospace <pre>
@@ -18,6 +20,12 @@ const EXT_TO_LANG = {
   py: 'python',
   ipynb: 'json',
   json: 'json',
+  // Newline-delimited / commented JSON variants reuse the json grammar — each
+  // line's keys/strings/numbers still highlight correctly.
+  jsonl: 'json',
+  ndjson: 'json',
+  jsonc: 'json',
+  geojson: 'json',
   yaml: 'yaml',
   yml: 'yaml',
   toml: 'toml',
@@ -54,10 +62,16 @@ function extOf(path) {
   return name.slice(idx + 1).toLowerCase();
 }
 
-export default function FileRenderer({ text, path }) {
+export default function FileRenderer({ text, path, resolveImageSrc = null }) {
   const ext = extOf(path);
   if (ext === 'md' || ext === 'markdown' || ext === 'mdx') {
-    return <MarkdownView text={text} />;
+    // resolveImageSrc maps a relative figure link (e.g. `figures/loss.svg`) to
+    // a fetchable URL so inline images render in the generic resource view, not
+    // just the report spotlight. Harmless for files without images.
+    return <MarkdownView text={text} resolveImageSrc={resolveImageSrc} />;
+  }
+  if (ext === 'svg') {
+    return <SvgView text={text || ''} />;
   }
   const lang = EXT_TO_LANG[ext];
   if (lang) {

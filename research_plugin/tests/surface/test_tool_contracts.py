@@ -37,6 +37,14 @@ class ToolContractRegistryTest(unittest.TestCase):
         # app; it must be indistinguishable from a live app's listing.
         self.assertEqual(static_tool_catalog(), self.app.list_tools())
 
+    def test_sandbox_tool_descriptions_carry_lifecycle_guidance(self) -> None:
+        tools = {tool["name"]: tool for tool in self.app.list_tools()}
+        self.assertIn("MLflow/TensorBoard", tools["sandbox.request"]["description"])
+        self.assertIn("expiry", tools["sandbox.get"]["description"])
+        self.assertIn("poll provisioning", tools["sandbox.get"]["description"])
+        self.assertIn("final pull", tools["sandbox.release"]["description"])
+        self.assertIn("metrics snapshot", tools["sandbox.release"]["description"])
+
 
 class StaticCatalogNoSideEffectTest(unittest.TestCase):
     def test_router_tool_listing_creates_no_template_repo(self) -> None:

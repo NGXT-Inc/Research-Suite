@@ -14,18 +14,16 @@ export default function SourceBadge({ source, versionId }) {
 
   const shortId = versionId ? versionId.slice(-6) : '';
 
+  // The badge surfaces provenance (submitted snapshot vs live file) — useful to
+  // a human. The old re-association instructions were agent guidance, not UI
+  // copy, so they're gone.
   return (
-    <>
-      <span className={`src-badge src-badge--${source}`}>
-        <span className="src-badge-dot" aria-hidden="true" />
-        {label}
-        {source === 'submitted' && versionId && (
-          <span className="src-badge-version" title={versionId}>v{shortId}</span>
-        )}
-      </span>
-      {source === 'submitted' && (
-        <span className="src-badge-note">pinned snapshot the gates lint — edit &amp; re-associate to update</span>
+    <span className={`src-badge src-badge--${source}`}>
+      <span className="src-badge-dot" aria-hidden="true" />
+      {label}
+      {source === 'submitted' && versionId && (
+        <span className="src-badge-version" title={versionId}>v{shortId}</span>
       )}
-    </>
+    </span>
   );
 }

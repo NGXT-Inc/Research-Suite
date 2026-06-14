@@ -523,7 +523,7 @@ TOOL_CONTRACTS: dict[str, ToolContract] = {
         description=(
             "Associate a resource to a claim, experiment, review, or attempt. "
             "Gated-role artifacts (plan, report, graph, proposals, reflection) "
-            "are size-capped at associate time (report 10KB, others 16KB) — "
+            "are size-capped at associate time (16KB each) — "
             "keep them lean and reference raw data instead of inlining it."
         ),
         plane="data",
@@ -581,10 +581,12 @@ TOOL_CONTRACTS: dict[str, ToolContract] = {
         input_model=SandboxRequestInput,
         description=(
             "Procure (reuse or create) the experiment's sandbox and return SSH "
-            "details. A fresh sandbox starts with the experiment's local folder "
-            "(experiments/<name>/) pushed to it, so put anything the "
-            "run needs in that folder first. On Lambda Labs, omit instance_type "
-            "to receive a live menu of available machines to pick from."
+            "details plus runtime guidance for the synced folder, expiry, and "
+            "MLflow/TensorBoard observability. A fresh sandbox starts with the "
+            "experiment's local folder (experiments/<name>/) pushed to it, so "
+            "put anything the run needs in that folder first. On Lambda Labs, "
+            "omit instance_type to receive a live menu of available machines to "
+            "pick from."
         ),
         plane="data",
     ),
@@ -597,7 +599,11 @@ TOOL_CONTRACTS: dict[str, ToolContract] = {
     ),
     "sandbox.get": ToolContract(
         input_model=SandboxGetInput,
-        description="Get the experiment's sandbox status and SSH details.",
+        description=(
+            "Get the experiment's sandbox status, SSH details, expiry, and "
+            "polling/runtime guidance. Use it to poll provisioning and inspect "
+            "terminated or expired sandboxes."
+        ),
         plane="aggregate",
     ),
     "sandbox.sync": ToolContract(
@@ -615,7 +621,11 @@ TOOL_CONTRACTS: dict[str, ToolContract] = {
     ),
     "sandbox.release": ToolContract(
         input_model=SandboxReleaseInput,
-        description="Terminate the experiment's sandbox.",
+        description=(
+            "Terminate the experiment's sandbox after a best-effort final pull "
+            "and metrics snapshot. Prefer sandbox.sync before release for a "
+            "deliberate handoff."
+        ),
     ),
     "sandbox.terminal": ToolContract(
         input_model=SandboxTerminalInput,

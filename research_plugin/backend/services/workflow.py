@@ -392,7 +392,7 @@ class WorkflowService:
             return self._next(
                 gate=gate,
                 action=f"launch_{action_name}er",
-                allowed=["review.status"],
+                allowed=["review.status", "review.request"],
                 review_gate=self._review_gate(
                     role=role,
                     skill=skill,
@@ -731,7 +731,7 @@ class WorkflowService:
                 "table of metrics (paper/target value vs achieved, per task/seed "
                 "where relevant); Deviations from plan ('none' if faithful); "
                 "Conclusion — apply the plan's pre-registered decision rule "
-                "explicitly. Keep it under 10 KB: link raw metrics files instead "
+                "explicitly. Keep it under 16 KB: link raw metrics files instead "
                 "of inlining data. Reference figures with relative markdown image "
                 "links (e.g. ![loss](figures/loss.png)); every linked image must "
                 "exist after sandbox.sync or submit_results is blocked. Then "

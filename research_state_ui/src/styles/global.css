@@ -1799,23 +1799,28 @@ html[data-theme="dark"] .ft-fi--shell   { color: #a3a19a; }
   margin: 8px 0;
 }
 
+/* Inline + plain code tints are derived from --text so they keep contrast in
+   both themes: on the dark surface --bg-soft sits a hair off --bg-elev and the
+   chip vanishes, whereas a translucent slice of --text always reads as a chip
+   against whatever surface is behind it. */
 .md-inline-code {
   font-family: var(--font-mono);
-  font-size: 0.92em;
-  background: var(--bg-soft);
-  padding: 1px 5px;
-  border-radius: 3px;
+  font-size: 0.9em;
+  background: color-mix(in srgb, var(--text) 10%, transparent);
+  padding: 1.5px 6px;
+  border-radius: 4px;
   color: var(--text);
-  border: 1px solid var(--line-soft);
+  border: 1px solid color-mix(in srgb, var(--text) 20%, transparent);
 }
 .md-code-plain {
-  background: var(--bg-soft);
-  border: 1px solid var(--line);
+  background: color-mix(in srgb, var(--text) 5%, transparent);
+  border: 1px solid color-mix(in srgb, var(--text) 13%, transparent);
   border-radius: var(--radius-md);
   padding: 10px 14px;
   font-family: var(--font-mono);
   font-size: var(--text-sm);
   line-height: 1.5;
+  color: var(--text);
   overflow: auto;
   margin: 10px 0;
   white-space: pre;
@@ -1824,6 +1829,29 @@ html[data-theme="dark"] .ft-fi--shell   { color: #a3a19a; }
 
 /* Markdown's code blocks reuse .code-block; just add vertical rhythm. */
 .markdown-body .code-block { margin: 10px 0; }
+
+/* =====================================================================
+   SVG + raster image previews
+   Both sit on a neutral light canvas: figures routinely draw dark strokes on
+   a transparent ground, which would disappear on the dark app surface. The
+   canvas scrolls so oversized art doesn't blow out the column.
+   ===================================================================== */
+.svg-view-bar { display: flex; justify-content: flex-end; margin-bottom: 6px; }
+.svg-view-canvas,
+.image-view {
+  background: #fff;
+  border: 1px solid var(--line);
+  border-radius: var(--radius-md);
+  padding: 10px;
+  overflow: auto;
+}
+.svg-view-img,
+.image-view-img {
+  display: block;
+  max-width: 100%;
+  height: auto;
+  margin: 0 auto;
+}
 
 .md-table-wrap { overflow-x: auto; margin: 10px 0; }
 .markdown-body table {
@@ -3681,8 +3709,41 @@ button.review-stepper-version:hover {
 .fig-chip.fig-st--failed  { color: var(--refutes);   border-color: rgba(var(--refutes-rgb), .35);   background: rgba(var(--refutes-rgb), .07); }
 .fig-chip.fig-st--faded   { color: var(--faint); }
 
-.fig-body { display: grid; grid-template-columns: 1fr; }
-.fig-body--split { grid-template-columns: 1fr 320px; }
+.fig-body { display: grid; grid-template-columns: 1fr; position: relative; }
+/* Wider detail column than the old 320px: the panel now renders real file
+   content (markdown / code / pdf), so it earns the extra room. The width is a
+   drag-controlled custom property (--fig-panel-w, set inline from usePanelWidth)
+   with a sensible default; minmax(0,1fr) keeps the canvas from collapsing as
+   the panel grows. */
+.fig-body--split { grid-template-columns: minmax(0, 1fr) var(--fig-panel-w, clamp(340px, 34%, 460px)); }
+
+/* Drag handle straddling the canvas/panel seam. A wide invisible hit area with
+   a hairline that lights up on hover/drag; its position rides the same
+   --fig-panel-w the grid does, so it always sits on the boundary. */
+.fig-resizer {
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  right: var(--fig-panel-w, 380px);
+  width: 11px;
+  transform: translateX(50%);
+  cursor: col-resize;
+  z-index: 5;
+  touch-action: none;
+}
+.fig-resizer::after {
+  content: '';
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  left: 50%;
+  width: 2px;
+  transform: translateX(-50%);
+  background: transparent;
+  transition: background var(--motion-fast);
+}
+.fig-resizer:hover::after,
+.fig-resizer:active::after { background: var(--active); }
 .fig-canvas { height: 400px; background: var(--bg); position: relative; }
 .fig-canvas-hint {
   position: absolute;
@@ -3801,9 +3862,22 @@ button.review-stepper-version:hover {
   max-height: 200px; overflow: auto; white-space: pre-wrap; word-break: break-word;
 }
 
+/* Embedded ResourceContentView inside the node detail panel. The shared
+   renderers are tuned for the full-width Resources page, so scope them down to
+   the narrow panel: tighter type, and a PDF sized to the panel rather than the
+   page-height 78vh iframe. Content still scrolls within the panel. */
+.fig-panel-render { margin: 8px 0; }
+.fig-panel-render .markdown-body { font-size: var(--text-sm); }
+.fig-panel-render .code-block,
+.fig-panel-render .content-preview { font-size: var(--text-xs); }
+.fig-panel-render .pdf-view-frame { height: 320px; min-height: 0; }
+.exp-figure--expanded .fig-panel-render .pdf-view-frame { height: 70vh; min-height: 360px; }
+
 @media (max-width: 900px) {
   .fig-body--split { grid-template-columns: 1fr; }
   .fig-panel { border-left: none; border-top: 1px solid var(--line-soft); }
+  /* Stacked, not side-by-side: a horizontal drag handle makes no sense. */
+  .fig-resizer { display: none; }
 }
 
 /* ───────────────────────  LOGIC GRAPH  ─────────────────────────

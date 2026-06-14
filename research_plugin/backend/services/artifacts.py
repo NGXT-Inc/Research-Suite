@@ -37,8 +37,9 @@ REQUIRED_REPORT_SECTIONS: tuple[tuple[str, str], ...] = (
 )
 
 # Brevity is structural: the report is the executive layer; raw numbers, logs,
-# and large tables belong in linked result resources. 10 KB ≈ 1500 words.
-MAX_REPORT_BYTES = 10_000
+# and large tables belong in linked result resources. 16 KB gives enough room
+# for curated metrics and figure captions without turning the report into a dump.
+MAX_REPORT_BYTES = 16_000
 
 _HEADING_RE = re.compile(r"^(#{1,6})[ \t]+(.*?)[ \t]*#*[ \t]*$", re.MULTILINE)
 _HTML_COMMENT_RE = re.compile(r"<!--.*?-->", re.DOTALL)

@@ -16,7 +16,7 @@
     - Conclusion
 
   HARD LIMITS, also lint-enforced at submit_results:
-    - The report must stay under 10 KB. This is the executive layer: raw
+    - The report must stay under 16 KB. This is the executive layer: raw
       numbers, logs, and large tables live in linked result resources
       (results.json, metrics.csv), not here.
     - Every relative image link must resolve to a synced file. Save figures

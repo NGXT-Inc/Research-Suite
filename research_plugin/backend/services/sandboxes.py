@@ -438,7 +438,8 @@ class SandboxService:
         # release still proceeds — freeing billing always beats data recovery —
         # but the result flags it so the UI can show a "daemon unreachable" state.
         daemon_unreachable = False
-        if row.get("sandbox_id") and row.get("status") in ACTIVE_SANDBOX_STATUSES:
+        was_active = bool(row.get("sandbox_id") and row.get("status") in ACTIVE_SANDBOX_STATUSES)
+        if was_active:
             try:
                 self._final_pull_row(row=row)
             except Exception:  # noqa: BLE001 — release should still terminate
@@ -469,6 +470,24 @@ class SandboxService:
         )
         view = self._row_view(row=self.registry.load_row(experiment_id=experiment_id))
         view["daemon_unreachable"] = daemon_unreachable
+        if daemon_unreachable:
+            view["hint"] = (
+                "Sandbox terminated. The final pull failed, so local files may "
+                "be stale. Inspect the local experiment folder before "
+                "registering or associating resources, and rerun the experiment "
+                "if required outputs are missing."
+            )
+        elif was_active:
+            view["hint"] = (
+                "Sandbox terminated. A best-effort final pull and metrics "
+                "snapshot were attempted before termination. For deliberate "
+                "handoff, prefer sandbox.sync before release and "
+                "register/associate local resources before submitting results."
+            )
+        else:
+            view["hint"] = (
+                "Sandbox terminated. No running sandbox needed a final pull."
+            )
         return view
 
     def terminal(

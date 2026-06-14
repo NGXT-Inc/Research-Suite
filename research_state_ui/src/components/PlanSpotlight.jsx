@@ -2,7 +2,7 @@ import { useEffect, useState } from 'react';
 import { api } from '../api';
 import PlanBody from './PlanBody';
 import ReviewEvolutionStepper from './ReviewEvolutionStepper';
-import SourceBadge from './SourceBadge';
+import SourceMeta from './SourceMeta';
 import ContentUnavailable from './ContentUnavailable';
 import { formatBytes } from '../utils/format';
 
@@ -71,6 +71,7 @@ export default function PlanSpotlight({
           <span className="mono spotlight-bar-path">{planResource.path}</span>
           <span className="spotlight-bar-sep">·</span>
           <span className="spotlight-bar-meta">{formatBytes(size)}</span>
+          <SourceMeta source={content?.source} versionId={content?.version_id} />
           <button
             type="button"
             className="btn btn--sm btn--ghost"
@@ -93,10 +94,7 @@ export default function PlanSpotlight({
             ) : content.is_binary ? (
               <div className="empty">Binary plan file</div>
             ) : (
-              <>
-                <SourceBadge source={content.source} versionId={content.version_id} />
-                <PlanBody text={content.content ?? ''} path={planResource.path} />
-              </>
+              <PlanBody text={content.content ?? ''} path={planResource.path} />
             )
           ) : null}
         </div>

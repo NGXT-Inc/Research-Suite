@@ -416,6 +416,24 @@ class WorkflowGateTest(unittest.TestCase):
         self.assertEqual(workflow["next_action"], "fix_plan_resource")
         self.assertTrue(any("missing required sections" in p for p in workflow["missing_evidence"]))
 
+    def test_pending_review_allows_fresh_request_for_lost_capability(self) -> None:
+        exp = self.call("experiment.create", name="review-pending", project_id=self.project_id, intent="Review pending.")
+        self._write_and_associate(exp_id=exp["id"], path="plan.md", role="plan", body=VALID_PLAN)
+        self.call("experiment.transition", project_id=self.project_id, experiment_id=exp["id"], transition="submit_design")
+        self.call(
+            "review.request",
+            project_id=self.project_id,
+            target_type="experiment",
+            target_id=exp["id"],
+            role="design_reviewer",
+        )
+
+        wf = self.call("workflow.status_and_next", project_id=self.project_id, experiment_id=exp["id"])
+        workflow = wf.get("workflow") or wf
+        self.assertEqual(workflow["review_gate"]["status"], "requested")
+        self.assertIn("review.status", workflow["allowed_actions"])
+        self.assertIn("review.request", workflow["allowed_actions"])
+
     # ---- review rejection routing (return_to) ----
 
     def test_experiment_review_rejection_requires_return_to(self) -> None:

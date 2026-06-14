@@ -27,7 +27,7 @@ RESOURCE_ROLES = {
 # proposals/reflection previously had no cap at all.
 GATED_ROLE_BYTE_CAPS: dict[str, int] = {
     "plan": 16_000,
-    "report": 10_000,
+    "report": 16_000,
     "graph": 16_000,
     "proposals": 16_000,
     "reflection": 16_000,

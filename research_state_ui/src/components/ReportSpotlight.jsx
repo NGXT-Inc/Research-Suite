@@ -2,7 +2,7 @@ import { useEffect, useState } from 'react';
 import { api } from '../api';
 import MarkdownView from './MarkdownView';
 import FileRenderer from './FileRenderer';
-import SourceBadge from './SourceBadge';
+import SourceMeta from './SourceMeta';
 import ContentUnavailable from './ContentUnavailable';
 import { formatBytes, isMarkdown } from '../utils/format';
 
@@ -65,6 +65,7 @@ export default function ReportSpotlight({
           <span className="mono spotlight-bar-path">{reportResource.path}</span>
           <span className="spotlight-bar-sep">·</span>
           <span className="spotlight-bar-meta">{formatBytes(size)}</span>
+          <SourceMeta source={content?.source} versionId={content?.version_id} />
           <button
             type="button"
             className="btn btn--sm btn--ghost"
@@ -87,18 +88,12 @@ export default function ReportSpotlight({
             ) : content.is_binary ? (
               <div className="empty">Binary report file</div>
             ) : isMarkdown(reportResource.path) ? (
-              <>
-                <SourceBadge source={content.source} versionId={content.version_id} />
-                <MarkdownView
-                  text={content.content ?? ''}
-                  resolveImageSrc={(src) => api.resourceFileUrl(projectId, reportResource.id, src)}
-                />
-              </>
+              <MarkdownView
+                text={content.content ?? ''}
+                resolveImageSrc={(src) => api.resourceFileUrl(projectId, reportResource.id, src)}
+              />
             ) : (
-              <>
-                <SourceBadge source={content.source} versionId={content.version_id} />
-                <FileRenderer text={content.content ?? ''} path={reportResource.path} />
-              </>
+              <FileRenderer text={content.content ?? ''} path={reportResource.path} />
             )
           ) : null}
         </div>

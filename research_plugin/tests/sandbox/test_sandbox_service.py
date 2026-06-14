@@ -85,6 +85,8 @@ class SandboxServiceTest(unittest.TestCase):
         self.assertIn("experiment folder", result["hint"])
         self.assertIn("OUTSIDE the experiment folder", result["hint"])
         self.assertIn("the sandbox owns the folder", result["hint"])
+        self.assertIn("expires at", result["hint"])
+        self.assertIn("ready_to_run", result["hint"])
         # Full ssh line is still available as a cwd-independent fallback.
         self.assertTrue(result["ssh"]["raw_command"].startswith("ssh -i "))
         self.assertIn("@sandbox.modal.test", result["ssh"]["raw_command"])
@@ -376,6 +378,8 @@ class SandboxServiceTest(unittest.TestCase):
         self.assertIn("$RP_TB_LOGDIR", result["hint"])
         self.assertIn("params, metrics, and artifacts", result["hint"])
         self.assertIn("mlflow.autolog", result["hint"])
+        self.assertIn("figures/*.png", result["hint"])
+        self.assertIn("report.md", result["hint"])
         self.assertIn("mirrored back to the local repo", result["hint"])
 
     def test_ui_view_exposes_dashboards(self) -> None:
@@ -856,6 +860,10 @@ class SandboxServiceTest(unittest.TestCase):
         created = self.call("sandbox.request", project_id=self.project_id, experiment_id=exp_id)
         released = self.call("sandbox.release", project_id=self.project_id, experiment_id=exp_id)
         self.assertEqual(released["status"], "terminated")
+        self.assertIn("final pull", released["hint"])
+        self.assertIn("metrics snapshot", released["hint"])
+        self.assertIn("sandbox.sync", released["hint"])
+        self.assertNotIn("parachute", released["hint"].lower())
         self.assertIn(created["sandbox_id"], self.backend.terminated)
 
     # ---- list ----

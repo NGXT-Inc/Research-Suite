@@ -18,7 +18,7 @@ import json
 
 GRAPH_SCHEMA_VERSION = 1
 
-# The node budget is structural, like the report's 10 KB ceiling: a 40-node
+# The node budget is structural, like the report's 16 KB ceiling: a 40-node
 # graph is a log; a 16-node graph is a story. How to retell the story within
 # the budget is the agent's call — the lint only states the overrun.
 MAX_GRAPH_NODES = 16

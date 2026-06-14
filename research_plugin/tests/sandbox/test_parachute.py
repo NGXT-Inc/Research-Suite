@@ -326,7 +326,10 @@ class ParachuteFlowTest(unittest.TestCase):
             "results.json": b"{}\n"
         }
         self.app.sandboxes._final_pull_row = _raise_pull_failure  # type: ignore[method-assign]
-        self.call("sandbox.release", project_id=self.project_id, experiment_id=exp2)
+        released = self.call(
+            "sandbox.release", project_id=self.project_id, experiment_id=exp2
+        )
+        self.assertNotIn("parachute", released["hint"].lower())
         self.assertEqual(len(self.backend.parachute_calls), 1)
         row = self.app.sandboxes.registry.load_row(experiment_id=exp2)
         self.assertEqual(row["parachute_state"], "uploaded")

@@ -85,6 +85,17 @@ def _folder_contract_note(
     )
 
 
+def _expiry_note(expires_at: Any) -> str:
+    if not expires_at:
+        return ""
+    return (
+        f"Sandbox lifetime expires at {expires_at}. Before that deadline, call "
+        "sandbox.sync and register/associate needed outputs. If it expires, "
+        "the reaper attempts a final pull and metrics snapshot, terminates the "
+        "sandbox, and the experiment can request a new sandbox from ready_to_run. "
+    )
+
+
 def _is_live(*, status: str, ssh: dict[str, Any]) -> bool:
     return bool(ssh.get("host") and ssh.get("port") and status in ACTIVE_SANDBOX_STATUSES)
 
@@ -216,6 +227,7 @@ def merge_agent_view(
             f"({local_dir}) is pushed to {remote_dir} on the VM, so anything "
             "the run needs (scripts, configs, notes) should already be in "
             "that folder. "
+            f"{_expiry_note(view.get('expires_at'))}"
             f"{credential_note}"
         )
     elif status == "failed":
@@ -234,7 +246,10 @@ def merge_agent_view(
             "env vars directly; for plain PyTorch, add mlflow.autolog() "
             "when useful. The user sees dashboard tabs in the UI once "
             "the servers are reachable; you do not need to fetch or "
-            "share the URLs. "
+            "share the URLs. Also save selected plot images or compact result "
+            "tables under $RP_EXPERIMENT_DIR (e.g. figures/*.png, "
+            "results/*.json/csv) so they sync and can be referenced from "
+            "report.md. "
         )
         view["hint"] = (
             f"Run commands with: {command} '<your shell command>' (from the repo root). "
@@ -255,6 +270,7 @@ def merge_agent_view(
             )
             + "Before registering result resources, call sandbox.sync and use "
             "files under the local experiment folder. "
+            f"{_expiry_note(view.get('expires_at'))}"
             f"{credential_note}"
             f"{dashboard_note}"
             "The dispatcher multiplexes one SSH connection and auto-retries "

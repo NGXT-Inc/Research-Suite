@@ -16,6 +16,7 @@ workflow state.
 
 - Claim: what we think.
 - Experiment: what we try.
+- Synthesis: project-level reflection across experiments.
 - Resource: one regular file in the local repo.
 - Review: read-only design, experiment, human, or automated judgment submitted
   to MCP.
@@ -24,6 +25,18 @@ You may freely work on local repo files. Do not treat those edits as
 research-state mutations. A file becomes a research resource only after MCP
 accepts a resource registration or sync and associates it with a claim,
 experiment, review, or attempt.
+
+## Project reflection
+
+The project also has a level above experiments: a living project logic graph,
+maintained through reflection waves. When `workflow.status_and_next` includes
+`project_reflection`, treat it as project-level work and use the
+`project-reflection` skill for the synthesis workflow.
+
+Reflection nudges are advisory unless MCP reports an active reflection gate:
+creating the next claim or experiment may still be allowed, but consider whether
+finished experiments should first be distilled into the project graph and
+next-experiment proposals.
 
 ## The experiment folder
 
@@ -36,7 +49,7 @@ lives the folder is mirrored back to the local repo. Work you keep in the
 folder from planning onward (the plan, the code you wrote for the run, the
 notes the run needs) is therefore already on the VM when it boots. Shared
 repo material (papers/, notes/) is NOT pushed — copy the specific files a run
-needs into the experiment folder.
+needs manually.
 
 ## Workflow
 
@@ -53,16 +66,18 @@ needs into the experiment folder.
    exact `project_id` returned by MCP when a schema requires it.
 7. Edit local files only for implementation, notes, plans, configs, and results.
 8. Run lightweight commands locally when safe.
-9. For expensive local work, data inspection, data engineering, or GPU work,
+9. For quantitative ML work, follow Quantitative observability whether running
+   locally or in a sandbox.
+10. For expensive local work, data inspection, data engineering, or GPU work,
    request a sandbox with `sandbox.request` and run commands on it yourself over
    SSH (see Execution environment). Prefer CPU-only sandboxes for data profiling
    and preprocessing unless the specific command needs GPU acceleration.
-10. After execution in a sandbox, call `sandbox.sync(experiment_id)`
+11. After execution in a sandbox, call `sandbox.sync(experiment_id)`
     before registering or associating result resources.
-11. Launch a separate read-only reviewer agent when MCP requires design review or
+12. Launch a separate read-only reviewer agent when MCP requires design review or
    experiment review.
-12. Make sure the reviewer submits directly to MCP using its review capability.
-13. Propose conclusions or claim updates only after required resources and reviews exist.
+13. Make sure the reviewer submits directly to MCP using its review capability.
+14. Propose conclusions or claim updates only after required resources and reviews exist.
 
 If conversation memory is unclear, call `project.current` again. If `exists` is
 true, ask MCP for `workflow.status_and_next(experiment_id?)`; if `exists` is
@@ -70,114 +85,71 @@ false, ask the user what project to create before calling `project.create`
 unless they already supplied the project name and purpose.
 Do not reconstruct workflow state from memory.
 
+## Quantitative observability
+
+For quantitative ML work — training, evaluation, sweeps, ablations, or any run
+where metrics drive the conclusion — use MLflow for params/metrics/artifacts and
+TensorBoard for scalar curves/events. In a sandbox, `sandbox.request` /
+`sandbox.get` reports the prepared MLflow/TensorBoard environment. For local
+runs, you are responsible for creating it, for example from the repo root:
+
+```sh
+export RP_EXPERIMENT_DIR="$PWD/experiments/<name>"
+export MLFLOW_TRACKING_URI="file://$RP_EXPERIMENT_DIR/tracking/mlflow"
+export RP_TB_LOGDIR="$RP_EXPERIMENT_DIR/tracking/tensorboard"
+mkdir -p \
+  "$RP_EXPERIMENT_DIR"/tracking/mlflow \
+  "$RP_TB_LOGDIR" \
+  "$RP_EXPERIMENT_DIR"/results \
+  "$RP_EXPERIMENT_DIR"/figures
+```
+
+Do not make tracking stores the only submitted result. Save compact evidence
+under the experiment folder, especially `results/*.json`, `results/*.csv`, and
+`figures/*.png`, so `report.md` can cite files that can be registered and
+reviewed.
+
 ## Execution environment
 
 Expensive or GPU work runs in a **cloud sandbox** that you drive directly over
-SSH. You run ordinary shell commands. The default provider is **Lambda Labs**
-(GPU VMs); Modal is also supported.
+SSH. Once the experiment is `ready_to_run` (or already `running`), call
+`sandbox.request(experiment_id, instance_type?, region?, gpu?, cpu?, memory?,
+time_limit?)` and follow the returned `hint`; `sandbox.request`/`sandbox.get`
+are the source of truth for provider selection, polling, expiry, credentials,
+dashboard env vars, and the synced-folder contract.
 
-1. Once the experiment is `ready_to_run` (or `running`), call
-   `sandbox.request(experiment_id, instance_type?, region?, gpu?, cpu?, memory?, time_limit?)`.
-   - **Pick the hardware first (Lambda Labs).** Lambda sells fixed machine types
-     that bundle GPU + CPU + RAM, so you choose an `instance_type`. If you call
-     `sandbox.request` with no `instance_type` and there is no live sandbox yet,
-     the response is `status: "needs_selection"` with an `options` menu of the
-     machines available *right now* (cheapest first), each showing `instance_type`,
-     `gpu`, `gpu_count`, `vcpus`, `memory_gib`, `price_usd_per_hour`, and
-     `regions`. Re-call `sandbox.request(experiment_id, instance_type="<choice>")`
-     to provision it; omit `region` to auto-pick one with capacity. You can also
-     call `sandbox.options` anytime to browse availability without provisioning.
-     Prefer the smallest/cheapest viable machine for data engineering and CPU
-     work; pick a GPU SKU only when a command needs acceleration.
-   - **Modal** instead composes the machine from the request: pass `gpu`
-     (e.g. `"A100"`/`"H100"`, or omit for CPU-only), `cpu` (Modal CPU cores, 1
-     core = 2 vCPUs), and `memory` (MiB). On Modal, `instance_type`/`region` are
-     ignored.
-   - `time_limit` is the sandbox's max lifetime in seconds (both providers).
-   - The registry keeps **one sandbox per experiment** and reuses the live one,
-     so it is safe to call `sandbox.request` again (even without `instance_type`)
-     to get the current details — reuse skips the selection menu.
-   - **Provisioning is best-effort-synchronous.** `request` returns SSH inline
-     when the sandbox comes up quickly. If it can't finish in time (a large
-     first sync or a cold GPU), it returns `status: "provisioning"` instead.
-     When that happens, **poll `sandbox.get` every 30-60 seconds**
-     (`poll_after_seconds`) until `status` is `"running"` (then use
-     `ssh.command`) or `"failed"` (read `error`, fix the cause, and call
-     `sandbox.request` again). A fresh Lambda Labs VM commonly takes **5-15
-     minutes** to boot and bootstrap. Do **not** spam `sandbox.request` to
-     poll, and do not treat `provisioning` as an error - the sandbox is
-     still coming up.
-2. When `status` is `"running"` the response includes `ssh.command` - a short
-   dispatcher invocation like
-   `.research_plugin/sbx <experiment_id>` that wraps all the SSH boilerplate
-   (key, port, host, options). Run your experiment by appending a command, e.g.
-   `.research_plugin/sbx <experiment_id> 'cd <workdir> && python train.py'`.
-   Prefer this over retyping a full `ssh` line every call - it is short and is
-   regenerated each request, so it always points at the live sandbox. Run it
-   from the repo root; if you are elsewhere, use `ssh.raw_command` (the fully
-   qualified `ssh` line) instead. Output streams back to you and is recorded to
-   the experiment's terminal transcript for the user. Commands run under a
-   tmux supervisor on the sandbox, so they keep running if SSH drops or your
-   command call times out - a timeout means you stopped watching, not that the
-   command stopped. Long foreground runs are safe; check the transcript
-   (`sandbox.terminal`) for the command's `(exit N)` marker before re-running
-   anything long.
-3. The sandbox starts with your local experiment folder
-   (`experiments/<name>/`) pushed to `$RP_EXPERIMENT_DIR`
-   (`/workspace/<name>`). The push obeys the sync limits: files over
-   100 MB and caches/checkpoints/archives (.git, venvs, `*.pt`, `*.ckpt`,
-   `*.safetensors`, tarballs, ...) are skipped, except under
-   `artifacts_to_keep/` (5 GB per-file cap). The request/get response reports
-   how many files were pushed — 0 means the local folder had nothing eligible,
-   so the remote folder starts empty.
-4. While the sandbox is live, **the sandbox owns the experiment folder**. It is
-   mirrored back to the local repo every few seconds and on `sandbox.sync`, as
-   an exact replica: deletions and renames on the VM propagate locally, and
-   local edits are overwritten. So make ALL experiment-file edits on the VM
-   over SSH — including report.md and graph.json, whose local copies (and the
-   user's live UI) update through the mirror.
-5. The experiment folder is the **only** synced location. Keep datasets,
-   caches, temporary checkpoints, and anything else you do not want carried
-   into the repo OUTSIDE the folder — `$RP_DATASET_DIR` (`/workspace/data`) is
-   the conventional home. Nothing outside the folder is ever synced, and it
-   dies with the VM; anything reusable (preprocessing/analysis scripts,
-   configs, small manifests, compact outputs) belongs inside the folder. Put
-   deliberate large final artifacts under `$RP_EXPERIMENT_DIR/artifacts_to_keep`.
-   Prefer to write a Markdown data note in the experiment folder (for example
-   `data.md`) describing datasets used, source identifiers, split/filter
-   choices, important columns, row counts, caveats, and where large ephemeral
-   files were placed outside the folder — future sandboxes get the folder
-   pushed again, so the note carries the data context forward.
-6. If the sandbox response includes `environment.available_tokens` with
-   `HF_TOKEN`, Hugging Face credentials are already available inside SSH
-   commands. Use them through Hugging Face tooling or environment variables; do
-   not print the token, write it into files, or sync it as a resource.
-   **Training observability.** Every sandbox runs an MLflow tracking server and
-   a TensorBoard side-by-side (their state lives outside the experiment folder
-   and is preserved by the daemon — you never manage it). Inside SSH commands,
-   `MLFLOW_TRACKING_URI=http://localhost:5000` is already exported and
-   `$RP_TB_LOGDIR` points at the TensorBoard logdir. Log run params, metrics,
-   and artifacts to MLflow, and write TensorBoard events to `$RP_TB_LOGDIR`.
-   Framework integrations such as Hugging Face `Trainer` and PyTorch Lightning
-   `MLFlowLogger` can use these env vars directly; for plain PyTorch, add
-   `mlflow.autolog()` when useful. The user sees the dashboards live in their
-   UI; you do not need to fetch, share, or open the URLs yourself.
-7. Before registering or associating result resources, call
-   `sandbox.sync(experiment_id)`. This mirrors `$RP_EXPERIMENT_DIR` back to the
-   local experiment folder with SSH rsync. Resource tools only see local files,
-   so remote result paths are not valid resources until this sync completes.
-   The backend also syncs automatically every few seconds, so the user is
-   already seeing your latest files — the explicit call is the durable handoff
-   before workflow mutations.
-8. Use `sandbox.terminal(experiment_id)` to re-read the transcript,
-   `sandbox.get` to check status, and `sandbox.release` to shut the sandbox down
-   when finished (it also expires automatically at `time_limit`). Call
-   `sandbox.sync` before `sandbox.release` whenever you need files from the
-   sandbox.
+Use the smallest viable machine. On Lambda Labs, omit `instance_type` first
+when you need the live machine menu; on Modal, request `gpu`/`cpu`/`memory`
+directly. If the response is `needs_selection` or `provisioning`, follow it and
+poll `sandbox.get` after `poll_after_seconds`; do not use repeated
+`sandbox.request` calls as a poll loop.
 
-Do not embed secrets in commands. Treat the sandbox as ephemeral: durable
-outputs must be written inside `$RP_EXPERIMENT_DIR`, synced with
-`sandbox.sync`, and then registered/associated as resources.
+When `status` is `running`, run commands with the returned `ssh.command`
+dispatcher from the repo root, or `ssh.raw_command` if you cannot run from the
+repo root. Use `sandbox.terminal(experiment_id)` to inspect transcript output
+and command exit markers before re-running anything long.
+
+While the sandbox is live, make experiment-folder edits on the VM under
+`$RP_EXPERIMENT_DIR`; the sandbox mirrors that folder back locally, so local
+edits inside the same folder can be overwritten. Keep datasets, caches,
+temporary checkpoints, and other disposable bulk files outside the synced
+folder, usually under `$RP_DATASET_DIR`. Keep durable scripts, configs, notes,
+compact outputs, report figures/tables, and deliberate final artifacts inside
+`$RP_EXPERIMENT_DIR` so they can be synced and registered.
+
+Use the observability environment reported by `sandbox.request`/`sandbox.get`;
+the sandbox prepares MLflow/TensorBoard, but you still need to log the run and
+save compact evidence under `$RP_EXPERIMENT_DIR`.
+
+Before registering or associating result resources, call
+`sandbox.sync(experiment_id)`. Resource tools only see local repo files, so
+remote sandbox paths are not valid resources until sync completes. Prefer
+`sandbox.sync` before `sandbox.release`; expiry and release attempt a final
+pull, but do not rely on that for deliberate handoff.
+
+Do not embed secrets in commands or synced files. Treat the sandbox as
+ephemeral: durable outputs must be written inside `$RP_EXPERIMENT_DIR`, synced,
+and then registered/associated as resources.
 
 ## Experiment creation
 
@@ -230,7 +202,7 @@ The plan has a small **required spine** — `experiment.transition(submit_design
 is blocked until each of these headings has real content:
 
 - **Summary** — 2–3 plain sentences: what and why (the readable face).
-- **Objective & hypothesis** — which claim, expected direction, and why it matters.
+- **Objective & hypothesis** — which claims, expected direction, and why it matters.
 - **Evaluation** — how you will judge success: metric(s), baseline, decision
   rule, success threshold, and what would invalidate the result. This is the
   contract the experiment reviewer later grades the conclusion against.
@@ -263,7 +235,7 @@ has BOTH a `result` resource and a `report` resource whose SUBMITTED content
 - **Results must contain a markdown table** of metrics: target/paper value vs
   achieved, per task/seed where relevant — the exact metrics the plan's
   Evaluation section named.
-- **Under 10 KB.** The report is the executive layer: link raw metrics files
+- **Under 16 KB.** The report is the executive layer: link raw metrics files
   (`results.json`, logs) as separate result resources instead of inlining.
 - **Every relative image link has submitted figure content.** Save figures
   next to the report (`figures/*.png`), `sandbox.sync` so they exist locally,
@@ -343,66 +315,19 @@ When the agent creates or changes files during an experiment:
 
 ## Review discipline
 
-When MCP says the next action is `launch_design_reviewer` or
-`launch_experiment_reviewer`, inspect `workflow.review_gate`:
+When `workflow.status_and_next` says to launch or wait for a reviewer, follow
+`workflow.review_gate`. If no request exists, call `review.request` and launch
+a separate reviewer with the returned `reviewer_handoff` and
+`reviewer_capability`. If a request is pending but you no longer have its
+one-time capability, call `review.request` again and use the fresh response.
 
-- `status: none`: call `review.request`, then launch a new, independent reviewer agent using
-  the returned `reviewer_capability` and `reviewer_handoff`.
-- `status: requested`: a review request exists but no reviewer has started. Use
-  the `reviewer_capability` from the last `review.request` response to launch
-  the reviewer. If that capability is not available in context, call
-  `review.request` again and use the fresh capability.
-- `status: started`: the reviewer is active. Do not launch another reviewer;
-  wait and check `review.status`.
+Reviewer agents must be separate and read-only. They start and submit through
+MCP using the provided capability; they must not mutate claims, experiments,
+resources, sandboxes, or workflow state.
 
-Spawn an independent reviewer named by `reviewer_handoff.skill` or
-`workflow.review_gate.skill`. For design reviews, this is `experiment-design-review`. For
-full experiment reviews, this is `experiment-attempt-review`. For project synthesis
-reviews, this is `project-reflection-review`. Use your client's
-subagent or skill-spawn mechanism — the name is identical in both. In Claude
-Code, call the Agent tool with `subagent_type` set to this name (or
-`research-plugin:<name>` if your client namespaces plugin subagents). In Codex,
-invoke the skill of the same name.
-
-Give the reviewer the target claim, experiment id, relevant resource paths, the
-review request id, and the reviewer capability. Reviewer agents must be separate
-and read-only.
-
-Reviewer agents are read-only. They may inspect context and submit their own
-review to MCP. They must not mutate claims, experiments, resources, sandboxes,
-or workflow state.
-
-If a review fails or needs changes, ask MCP for `workflow.status_and_next`.
-The reviewer's `return_to` decides where the experiment lands, with revision
-context attached either way:
-
-- Design-review rejections always return to `planned` — revise the plan and
-  resubmit for design review (the attempt counter advances).
-- Experiment-review rejections return to `planned` when the plan itself was
-  flawed, or to `running` when the plan stands but execution or the conclusion
-  was flawed. Back in `running`, the approved plan and current attempt remain
-  valid: address the revision context, re-run what is needed, sync results,
-  and `submit_results` again — do not redo the plan or design review.
-
-## Project reflection
-
-The project also has a level above experiments: a **project logic graph** —
-one living JSON file, the current logic state of the whole project under the
-same 16-node budget — maintained through gated **reflection waves**
-(`synthesis.create / get / list / transition`). A wave fans out five
-differentiated reflection subagents, reconciles their reflections into the
-project graph plus a what's-next proposals file, and passes a synthesis
-review before publishing. When `workflow.status_and_next` carries a
-`project_reflection` block — either an open wave's guidance or a soft
-"Consider running a project reflection" staleness hint — see the
-`project-reflection` skill. When the project is idle (no active
-experiments) and at least one experiment has finished since the last
-published synthesis, the project-level call goes further and suggests the
-reflection as the next action (`current_gate: reflection_suggested`) — the
-natural moment to distill what was learned before starting the next
-experiment. The nudge is advisory either way: creating the next
-claim/experiment stays allowed, and whether new developments change the
-project's logic state is your call.
+After any review submits, call `workflow.status_and_next` again. MCP's
+`revision_context`, experiment state, and allowed actions determine the next
+step.
 
 ## Completion
 

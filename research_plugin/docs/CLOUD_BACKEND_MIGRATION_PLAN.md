@@ -53,7 +53,7 @@ evolution), relay byte transport (fallback only), broad RBAC.
 Two corrections discovered during inventory, now part of the plan's premises:
 
 - The "<16 KB by existing lints" premise of decision 6 is **false today** for plan/reflection/proposals
-  (no byte caps in code — only report 10 KB at `artifacts.py:41` and graph 16 KB at `graph_lint.py:24-27`).
+  (no byte caps in code — only report 16 KB at `artifacts.py:41` and graph 16 KB at `graph_lint.py:24-27`).
   Caps for all five gated roles are added *before* any inline-upload contract exists (Phase 1).
 - There are **34** MCP tools in `TOOL_CONTRACTS`, and the routing table and partition tests are derived
   from that count, not hand-maintained lists.
@@ -191,7 +191,7 @@ free; ledger exists.
 - `BlobStore` protocol + `LocalDirBlobStore` + `FakeBlobStore` (tests/fakes.py) + contract-pattern suite.
 - `GATED_ROLES = {plan, report, graph, proposals, reflection}` next to `RESOURCE_ROLES`.
 - `resources.associate` (`resources.py:196-237`): for gated roles, read bytes, enforce per-role size caps
-  (16 KB; report 10 KB), `blob.put`, and pin the association to the minted `version_id`. **Live-file gate
+  (16 KB each), `blob.put`, and pin the association to the minted `version_id`. **Live-file gate
   semantics unchanged this phase** — storage is additive, so this ships with near-zero risk and the caps
   land before any inline contract exists.
 - `role=result` and other roles: metadata-only, unchanged.

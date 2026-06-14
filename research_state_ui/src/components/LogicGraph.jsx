@@ -4,8 +4,10 @@ import { ReactFlow, Background, Controls, Handle, Position, MarkerType } from '@
 import '@xyflow/react/dist/style.css';
 import { api } from '../api';
 import { MeasureSync } from './ExperimentFigure';
+import DetailPanelShell from './DetailPanelShell';
 import { layoutFigure, FIG_NODE_W } from '../utils/figureLayout';
 import { TERMINAL_STATUSES } from '../utils/experiment';
+import { usePanelWidth } from '../store/usePanelWidth';
 
 // Node `kind` is the agent's own vocabulary — there is no fixed taxonomy, so
 // each kind gets an accent color by order of first appearance, used as the
@@ -154,12 +156,7 @@ function NodeRef({ refString, resolution }) {
 function LogicPanel({ node, refIndex, onClose }) {
   const refs = Array.isArray(node.refs) ? node.refs.filter(r => typeof r === 'string' && r) : [];
   return (
-    <aside className="fig-panel">
-      <div className="fig-panel-head">
-        <span className="fig-panel-type">{node.kind || 'node'}</span>
-        <button type="button" className="fig-panel-close" onClick={onClose} aria-label="Close">×</button>
-      </div>
-      <div className="fig-panel-title">{node.label}</div>
+    <DetailPanelShell typeLabel={node.kind || 'node'} title={node.label} onClose={onClose}>
       {node.status ? <div className="fig-panel-meta">status: {String(node.status)}</div> : null}
       {node.detail ? <div className="fig-panel-notes">{node.detail}</div> : null}
       {refs.length > 0 && (
@@ -167,7 +164,7 @@ function LogicPanel({ node, refIndex, onClose }) {
           {refs.map(r => <NodeRef key={r} refString={r} resolution={refIndex?.[r]} />)}
         </div>
       )}
-    </aside>
+    </DetailPanelShell>
   );
 }
 
@@ -204,6 +201,7 @@ export default function LogicGraph({
   const [payloadJson, setPayloadJson] = useState(null);
   const [selectedId, setSelectedId] = useState(null);
   const rfRef = useRef(null);
+  const { width: panelWidth, startResize } = usePanelWidth();
 
   const fetchGraph = useCallback(async () => {
     try {
@@ -313,7 +311,10 @@ export default function LogicGraph({
         </div>
       )}
       {hasStory && (
-      <div className={`fig-body${selected ? ' fig-body--split' : ''}`}>
+      <div
+        className={`fig-body${selected ? ' fig-body--split' : ''}`}
+        style={{ '--fig-panel-w': `${panelWidth}px` }}
+      >
         <div className="fig-canvas">
           <ReactFlow
             nodes={nodes}
@@ -343,6 +344,15 @@ export default function LogicGraph({
           </ReactFlow>
           <div className="fig-canvas-hint">drag to pan · pinch to zoom</div>
         </div>
+        {selected && (
+          <div
+            className="fig-resizer"
+            onPointerDown={startResize}
+            role="separator"
+            aria-orientation="vertical"
+            aria-label="Drag to resize panel"
+          />
+        )}
         {selected && (
           <LogicPanel
             node={selected}

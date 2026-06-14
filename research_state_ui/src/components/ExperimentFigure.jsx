@@ -4,8 +4,11 @@ import { ReactFlow, Background, Controls, Handle, Position, MarkerType, useStore
 import '@xyflow/react/dist/style.css';
 import { api } from '../api';
 import StatusPill from './StatusPill';
+import DetailPanelShell from './DetailPanelShell';
+import ResourceContentView from './ResourceContentView';
 import { layoutFigure, FIG_NODE_W } from '../utils/figureLayout';
 import { TERMINAL_STATUSES } from '../utils/experiment';
+import { usePanelWidth } from '../store/usePanelWidth';
 
 const TYPE_GLYPH = {
   attempt: '◇',
@@ -121,35 +124,32 @@ function toFlow(figure) {
 function FigurePanel({ projectId, node, onClose }) {
   const ref = node.ref || {};
   const meta = node.meta || {};
-  const [preview, setPreview] = useState(null);
-
-  useEffect(() => {
-    setPreview(null);
-    if (ref.kind !== 'resource' || !ref.id) return undefined;
-    let cancelled = false;
-    api.getResourceContent(projectId, ref.id)
-      .then(data => { if (!cancelled) setPreview(data); })
-      .catch(() => {});
-    return () => { cancelled = true; };
-  }, [projectId, ref.kind, ref.id]);
 
   return (
-    <aside className="fig-panel">
-      <div className="fig-panel-head">
-        <span className="fig-panel-type">{node.type}</span>
-        <button type="button" className="fig-panel-close" onClick={onClose} aria-label="Close">×</button>
-      </div>
-      <div className="fig-panel-title">{node.label}</div>
+    <DetailPanelShell typeLabel={node.type} title={node.label} onClose={onClose}>
       {node.status && node.status !== 'none' && (
         <div style={{ margin: '6px 0' }}><StatusPill value={String(node.status)} /></div>
       )}
 
-      {ref.kind === 'resource' && (
+      {ref.kind === 'resource' && ref.id && (
         <>
           {meta.path && <div className="fig-panel-meta">{meta.path}</div>}
-          {preview?.content && (
-            <pre className="fig-panel-preview">{preview.content.slice(0, 1500)}</pre>
-          )}
+          {/* Native rendering (markdown / json / code / pdf / binary) through
+              the same dispatcher the Resources page uses — not a raw text
+              slice. ResourceContentView owns the fetch, loading/error states,
+              and per-type renderer selection. hideSource + dedupeTitle keep the
+              panel header to just name + path: no agent-facing provenance note,
+              and no leading H1 echoing the title already shown above. */}
+          <div className="fig-panel-render">
+            <ResourceContentView
+              projectId={projectId}
+              resourceId={ref.id}
+              size={meta.size_bytes}
+              path={meta.path}
+              hideSource
+              dedupeTitle={node.label}
+            />
+          </div>
           <Link className="btn btn--sm" to={`/resources/${ref.id}`}>Open in resources →</Link>
         </>
       )}
@@ -184,7 +184,7 @@ function FigurePanel({ projectId, node, onClose }) {
       {node.type === 'conclusion' && node.sublabel && (
         <div className="fig-panel-notes">{node.sublabel}</div>
       )}
-    </aside>
+    </DetailPanelShell>
   );
 }
 
@@ -211,6 +211,7 @@ export default function ExperimentFigure({
   const [figureJson, setFigureJson] = useState(null);
   const [selectedId, setSelectedId] = useState(null);
   const rfRef = useRef(null);
+  const { width: panelWidth, startResize } = usePanelWidth();
 
   const fetchFigure = useCallback(async () => {
     try {
@@ -289,7 +290,10 @@ export default function ExperimentFigure({
           )}
         </div>
       </div>
-      <div className={`fig-body${selected ? ' fig-body--split' : ''}`}>
+      <div
+        className={`fig-body${selected ? ' fig-body--split' : ''}`}
+        style={{ '--fig-panel-w': `${panelWidth}px` }}
+      >
         {/* Inline, the page owns the wheel: plain scrolling over the canvas
             scrolls the page (preventScrolling=false, zoomOnScroll=false) and
             zooming is reserved for unambiguous gestures — pinch / ctrl+wheel,
@@ -326,6 +330,15 @@ export default function ExperimentFigure({
           </ReactFlow>
           <div className="fig-canvas-hint">drag to pan · pinch to zoom</div>
         </div>
+        {selected && (
+          <div
+            className="fig-resizer"
+            onPointerDown={startResize}
+            role="separator"
+            aria-orientation="vertical"
+            aria-label="Drag to resize panel"
+          />
+        )}
         {selected && (
           <FigurePanel
             projectId={projectId}

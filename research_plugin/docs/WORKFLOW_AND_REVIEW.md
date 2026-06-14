@@ -43,7 +43,7 @@ MVP gates:
 4. Results report gate: before `submit_results`, the current attempt must carry
    a short markdown report (role `report`) with Summary, Results (containing a
    metrics table: target vs achieved), Deviations from plan, and Conclusion
-   applying the plan's pre-registered decision rule; under 10 KB; every
+   applying the plan's pre-registered decision rule; under 16 KB; every
    relative figure link must resolve to a synced file. See
    `skills/research-workflow/report-template.md`.
 5. Logic graph gate: before `submit_results`, the current attempt must also
