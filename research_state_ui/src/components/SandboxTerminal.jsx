@@ -32,8 +32,14 @@ const TERMINAL_POLL_MS = 1500;
 // Client-side scrollback cap: keep memory bounded on day-long sandboxes.
 const MAX_ACCUMULATED_CHARS = 2_000_000;
 
-export default function SandboxTerminal({ projectId, experimentId, readOnly = false }) {
+export default function SandboxTerminal({ projectId, experimentId, readOnly = false, collapsible = false }) {
   const [sandbox, setSandbox] = useState(null);
+  // When `collapsible`, the panel defaults to its liveness: expanded while a
+  // sandbox is live/provisioning, collapsed to just the header once the run has
+  // ended (archived noise shouldn't sit open). `userCollapsed` stays null until
+  // the user clicks, after which their choice wins over the liveness default —
+  // this is an artifact-local rule, not page-level stage adaptation.
+  const [userCollapsed, setUserCollapsed] = useState(null);
   const [transcript, setTranscript] = useState(null);
   const [termMeta, setTermMeta] = useState(null);
   const [metrics, setMetrics] = useState(null);
@@ -161,67 +167,84 @@ export default function SandboxTerminal({ projectId, experimentId, readOnly = fa
   const isProvisioning = status === PROVISIONING;
   const isFailed = status === FAILED;
   const hasPanel = status !== 'none';
+  const collapsed = collapsible && (userCollapsed == null ? !(isLive || isProvisioning) : userCollapsed);
 
   return (
-    <section className="sbx" id="execution">
+    <section className={`sbx${collapsed ? ' sbx--collapsed' : ''}`} id="execution">
       <header className="sbx-head">
         <div className="cluster" style={{ gap: 8 }}>
           <span className="sbx-title">Sandbox terminal</span>
           {hasPanel && <StatusPill value={status} />}
           {isLive && <span className="log-tail-live-dot" title="live" />}
         </div>
-        {/* readOnly hides the release path here so it flows only through the
-            guarded slide-to-confirm on the Sandboxes screen (mobile) — see
-            docs/MOBILE_UX_REVIEW.md §1.2. */}
-        {!readOnly && (isLive || isProvisioning) && (
-          <button className="btn btn--sm btn--ghost" onClick={onRelease} disabled={releasing}>
-            {releasing ? 'Releasing…' : isProvisioning ? 'Cancel' : 'Release sandbox'}
-          </button>
-        )}
+        <div className="cluster" style={{ gap: 8 }}>
+          {/* readOnly hides the release path here so it flows only through the
+              guarded slide-to-confirm on the Sandboxes screen (mobile) — see
+              docs/MOBILE_UX_REVIEW.md §1.2. */}
+          {!readOnly && (isLive || isProvisioning) && (
+            <button className="btn btn--sm btn--ghost" onClick={onRelease} disabled={releasing}>
+              {releasing ? 'Releasing…' : isProvisioning ? 'Cancel' : 'Release sandbox'}
+            </button>
+          )}
+          {collapsible && (
+            <button
+              type="button"
+              className="btn btn--sm btn--ghost"
+              aria-expanded={!collapsed}
+              onClick={() => setUserCollapsed(!collapsed)}
+            >
+              <span className="toggle-verb">{collapsed ? 'Show' : 'Hide'}</span>
+            </button>
+          )}
+        </div>
       </header>
 
-      {error && <div className="error-message">{error}</div>}
-
-      {!hasPanel ? (
-        <div className="sbx-empty">
-          No sandbox for this experiment yet. The agent provisions one with{' '}
-          <span className="mono">sandbox.request</span> and then runs commands over SSH.
-        </div>
-      ) : isProvisioning ? (
-        <div className="sbx-provisioning">
-          <span className="log-tail-live-dot" title="provisioning" />
-          <div>
-            <div className="sbx-provisioning-title">
-              Provisioning{sandbox.phase ? ` · ${sandbox.phase}` : ''}
-            </div>
-            <div className="sbx-provisioning-detail">
-              {sandbox.detail || 'Setting up the sandbox (sync → create → SSH)…'}
-            </div>
-          </div>
-        </div>
-      ) : isFailed ? (
-        <div className="sbx-failed">
-          <div className="sbx-failed-title">Provisioning failed</div>
-          <div className="sbx-failed-detail mono">{sandbox.error || 'unknown error'}</div>
-          <div className="sbx-failed-hint">
-            The agent can call <span className="mono">sandbox.request</span> to retry.
-          </div>
-        </div>
-      ) : (
+      {!collapsed && (
         <>
-          <SandboxMeta sandbox={sandbox} />
-          <SandboxUsage metrics={metrics} sandbox={sandbox} />
-          <SandboxPanelTabs
-            sandbox={sandbox}
-            transcript={transcript}
-            termMeta={termMeta}
-            isLive={isLive}
-            showRaw={showRaw}
-            setShowRaw={setShowRaw}
-            activeTab={activeTab}
-            setActiveTab={setActiveTab}
-            readOnly={readOnly}
-          />
+          {error && <div className="error-message">{error}</div>}
+
+          {!hasPanel ? (
+            <div className="sbx-empty">
+              No sandbox for this experiment yet. The agent provisions one with{' '}
+              <span className="mono">sandbox.request</span> and then runs commands over SSH.
+            </div>
+          ) : isProvisioning ? (
+            <div className="sbx-provisioning">
+              <span className="log-tail-live-dot" title="provisioning" />
+              <div>
+                <div className="sbx-provisioning-title">
+                  Provisioning{sandbox.phase ? ` · ${sandbox.phase}` : ''}
+                </div>
+                <div className="sbx-provisioning-detail">
+                  {sandbox.detail || 'Setting up the sandbox (sync → create → SSH)…'}
+                </div>
+              </div>
+            </div>
+          ) : isFailed ? (
+            <div className="sbx-failed">
+              <div className="sbx-failed-title">Provisioning failed</div>
+              <div className="sbx-failed-detail mono">{sandbox.error || 'unknown error'}</div>
+              <div className="sbx-failed-hint">
+                The agent can call <span className="mono">sandbox.request</span> to retry.
+              </div>
+            </div>
+          ) : (
+            <>
+              <SandboxMeta sandbox={sandbox} />
+              <SandboxUsage metrics={metrics} sandbox={sandbox} />
+              <SandboxPanelTabs
+                sandbox={sandbox}
+                transcript={transcript}
+                termMeta={termMeta}
+                isLive={isLive}
+                showRaw={showRaw}
+                setShowRaw={setShowRaw}
+                activeTab={activeTab}
+                setActiveTab={setActiveTab}
+                readOnly={readOnly}
+              />
+            </>
+          )}
         </>
       )}
     </section>

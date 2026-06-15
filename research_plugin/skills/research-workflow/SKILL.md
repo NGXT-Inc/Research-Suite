@@ -26,6 +26,30 @@ research-state mutations. A file becomes a research resource only after MCP
 accepts a resource registration or sync and associates it with a claim,
 experiment, review, or attempt.
 
+## Research process
+
+Experiment workflow:
+
+Plan -> Design Review -> Run Experiment -> Submit Results -> Experiment Review
+-> Complete / Update Knowledge
+
+Review loops:
+
+- Design review can send work back to Plan.
+- Experiment review can send work back to Run Experiment.
+- Experiment review can send work back to Plan if the design itself was flawed.
+
+Project reflection workflow:
+
+Finished Experiments -> Reflection Wave -> Multiple Lens Reflections ->
+Project Synthesis -> Synthesis Review -> Publish Project Logic + Next Proposals
+
+Review loops:
+
+- Synthesis review can send work back to Project Synthesis.
+- Synthesis review can send work back to Reflection Wave if the reflections
+  need to be redone.
+
 ## Project reflection
 
 The project also has a level above experiments: a living project logic graph,

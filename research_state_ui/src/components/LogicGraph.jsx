@@ -192,7 +192,7 @@ export default function LogicGraph({
   // the experiment phrasing for project phrasing.
   fetcher = null,
   live = null,
-  storyHint = "the experiment's story, told by the agent · click a node for detail",
+  storyHint = "written by the agent",
   problemsGate = 'submit_results',
 }) {
   // Same identity trick as ExperimentFigure: keep the payload as a JSON
@@ -272,10 +272,7 @@ export default function LogicGraph({
       <div className="fig-head">
         <div className="fig-title">
           {titleTabs || (graph?.title || 'Logic graph')}
-          <span className="fig-title-hint">
-            {titleTabs && graph?.title ? `${graph.title} · ` : ''}
-            {storyHint}
-          </span>
+          <span className="fig-title-hint">{storyHint}</span>
         </div>
         <div className="fig-head-right">
           <span className="lgr-badge">{(graph?.nodes || []).length} / {maxNodes} nodes</span>

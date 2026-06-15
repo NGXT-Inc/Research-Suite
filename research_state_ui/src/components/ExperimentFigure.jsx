@@ -268,7 +268,7 @@ export default function ExperimentFigure({
       <div className="fig-head">
         <div className="fig-title">
           {titleTabs || 'Figure'}
-          <span className="fig-title-hint">derived from experiment state · click a node for detail</span>
+          <span className="fig-title-hint">derived from experiment state</span>
         </div>
         <div className="fig-head-right">
           <div className="fig-legend">

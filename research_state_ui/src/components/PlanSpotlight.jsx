@@ -2,9 +2,7 @@ import { useEffect, useState } from 'react';
 import { api } from '../api';
 import PlanBody from './PlanBody';
 import ReviewEvolutionStepper from './ReviewEvolutionStepper';
-import SourceMeta from './SourceMeta';
 import ContentUnavailable from './ContentUnavailable';
-import { formatBytes } from '../utils/format';
 
 /**
  * PlanSpotlight — the design artifact.
@@ -27,6 +25,7 @@ export default function PlanSpotlight({
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState(null);
   const [showBody, setShowBody] = useState(defaultOpen);
+  const [showReview, setShowReview] = useState(false);
 
   useEffect(() => {
     if (!planResource) return undefined;
@@ -58,7 +57,7 @@ export default function PlanSpotlight({
   else if (experimentStatus === 'design_review') planStatus = 'under review';
   else if (designReviews.length > 0) planStatus = 'revising';
 
-  const size = planResource.size_bytes ?? content?.size_bytes;
+  const reviewAvailable = designReviews.length > 0 || experimentStatus === 'design_review';
 
   return (
     <section id="design" className="spotlight">
@@ -69,18 +68,34 @@ export default function PlanSpotlight({
         </div>
         <div className="spotlight-head-right">
           <span className="mono spotlight-bar-path">{planResource.path}</span>
-          <span className="spotlight-bar-sep">·</span>
-          <span className="spotlight-bar-meta">{formatBytes(size)}</span>
-          <SourceMeta source={content?.source} versionId={content?.version_id} />
+          {reviewAvailable && (
+            <button
+              type="button"
+              className="btn btn--sm"
+              onClick={() => setShowReview(v => !v)}
+            >
+              <span className="toggle-verb">{showReview ? 'Hide' : 'Show'}</span>{' review'}
+            </button>
+          )}
           <button
             type="button"
-            className="btn btn--sm btn--ghost"
+            className="btn btn--sm"
             onClick={() => setShowBody(v => !v)}
           >
-            {showBody ? 'Hide plan' : 'Show plan'}
+            <span className="toggle-verb">{showBody ? 'Hide' : 'Show'}</span>{' plan'}
           </button>
         </div>
       </header>
+
+      {showReview && reviewAvailable && (
+        <div className="spotlight-review">
+          <ReviewEvolutionStepper
+            reviews={designReviews}
+            currentAttempt={attemptIndex}
+            experimentStatus={experimentStatus}
+          />
+        </div>
+      )}
 
       {showBody && (
         <div className="spotlight-body">
@@ -97,17 +112,6 @@ export default function PlanSpotlight({
               <PlanBody text={content.content ?? ''} path={planResource.path} />
             )
           ) : null}
-        </div>
-      )}
-
-      {(designReviews.length > 0 || experimentStatus === 'design_review') && (
-        <div className="plan-history">
-          <div className="plan-history-head">Review history</div>
-          <ReviewEvolutionStepper
-            reviews={designReviews}
-            currentAttempt={attemptIndex}
-            experimentStatus={experimentStatus}
-          />
         </div>
       )}
     </section>

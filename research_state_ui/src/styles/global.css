@@ -1758,8 +1758,8 @@ html[data-theme="dark"] .ft-fi--shell   { color: #a3a19a; }
   margin: 22px 0 10px;
   letter-spacing: -0.005em;
 }
-.markdown-body h1 { font-size: 22px; padding-bottom: 6px; border-bottom: 1px solid var(--line-soft); }
-.markdown-body h2 { font-size: 18px; padding-bottom: 4px; border-bottom: 1px solid var(--line-soft); }
+.markdown-body h1 { font-size: 22px; }
+.markdown-body h2 { font-size: 18px; }
 .markdown-body h3 { font-size: 15.5px; }
 .markdown-body h4 { font-size: 14px; color: var(--muted); }
 .markdown-body h5 { font-size: 13px; color: var(--muted); text-transform: uppercase; letter-spacing: 0.05em; }
@@ -1914,6 +1914,9 @@ html[data-theme="dark"] .ft-fi--shell   { color: #a3a19a; }
 .review-card--fail { border-color: rgba(var(--refutes-rgb), 0.3); background: rgba(var(--refutes-rgb), 0.03); }
 .review-card--needs_changes { border-color: rgba(var(--qualifies-rgb), 0.3); background: rgba(var(--qualifies-rgb), 0.03); }
 .review-card--pass { border-color: rgba(var(--supports-rgb), 0.3); background: rgba(var(--supports-rgb), 0.03); }
+/* Bare: no box. Used inside disclosures/steppers so the review reads as plain
+   content, like the report and plan bodies. Overrides the verdict fills above. */
+.review-card--bare { border: none; background: none; padding: 0; margin: 0; }
 .review-card-head {
   display: flex;
   align-items: center;
@@ -2359,6 +2362,24 @@ html[data-theme="dark"] .ft-fi--shell   { color: #a3a19a; }
   margin-bottom: 8px;
 }
 
+/* Review disclosure: the reasoning behind the artifact's verdict badge,
+   revealed by "Show review". No title of its own (the badge + toggle already
+   name it). A single dashed rule below divides the review from the body that
+   follows — dashed reads as an aside, not a structural section break. */
+.spotlight-review {
+  margin: 14px 0;
+  padding-bottom: 14px;
+  border-bottom: 1px dashed var(--line);
+}
+
+/* Show/Hide toggle: reserve a fixed box for the verb so flipping the word
+   ("Show"↔"Hide") doesn't change the button width and reflow the header. */
+.toggle-verb {
+  display: inline-block;
+  min-width: 2.7em;
+  text-align: left;
+}
+
 /* Structured (PRD-style) plan rendering: Summary as the face, the spine
    expanded, recommended sections + attempt log collapsed. */
 .plan-structured {
@@ -2541,11 +2562,7 @@ button.review-stepper-version:hover {
   border: 1px solid rgba(var(--supports-rgb), 0.35);
 }
 .review-stepper-expanded {
-  margin-top: 12px;
-  padding: 12px 14px;
-  background: var(--bg-soft);
-  border-radius: var(--radius-md);
-  border: 1px solid var(--line-soft);
+  margin-top: 10px;
 }
 .review-stepper-expanded .review-card { margin-bottom: 0; }
 
@@ -3006,6 +3023,8 @@ button.review-stepper-version:hover {
   align-items: center;
   margin-bottom: 12px;
 }
+/* Collapsed (run ended): the header is the whole panel — drop the body gap. */
+.sbx--collapsed .sbx-head { margin-bottom: 0; }
 .sbx-title { font-weight: 600; font-size: var(--text-md); }
 .sbx-empty {
   background: var(--bg-soft);

@@ -9,20 +9,26 @@ function shortDateTime(iso) {
   } catch { return iso; }
 }
 
-export default function ReviewCard({ review }) {
+export default function ReviewCard({ review, bare = false }) {
   if (!review) return null;
   const verdict = (review.verdict || 'pending').toLowerCase();
+  // `bare` drops the card chrome (border, fill, padding) so the review reads as
+  // plain content inside a disclosure — the standalone Reviews pages keep the
+  // boxed card.
   const cls = ['review-card', `review-card--${verdict}`];
+  if (bare) cls.push('review-card--bare');
   const findings = Array.isArray(review.findings) ? review.findings : [];
   return (
     <div className={cls.join(' ')}>
       <div className="review-card-head">
         <div className="cluster">
-          <StatusPill value={verdict} />
+          {/* In bare (disclosure) mode the verdict already lives in the
+              artifact's status badge — show only a quiet who·when provenance. */}
+          {!bare && <StatusPill value={verdict} />}
           <span className="muted" style={{ fontSize: 'var(--text-xs)' }}>
             {review.role}
           </span>
-          {review.attempt_index != null && (
+          {!bare && review.attempt_index != null && (
             <span className="faint" style={{ fontSize: 'var(--text-xs)' }}>
               · attempt {review.attempt_index}
             </span>
@@ -30,7 +36,7 @@ export default function ReviewCard({ review }) {
         </div>
         <div className="review-card-meta">
           {shortDateTime(review.created_at)}
-          {review.id && <> · <ObjId id={review.id} /></>}
+          {!bare && review.id && <> · <ObjId id={review.id} /></>}
         </div>
       </div>
       {review.notes && <div className="review-card-notes">{review.notes}</div>}

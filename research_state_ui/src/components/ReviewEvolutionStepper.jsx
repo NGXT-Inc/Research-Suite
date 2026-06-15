@@ -17,19 +17,15 @@ export default function ReviewEvolutionStepper({
 }) {
   const [expandedIdx, setExpandedIdx] = useState(null);
 
+  // A single review on the first attempt has no progression to tell — the
+  // verdict is already the plan's status badge, so render just the reasoning.
+  if (reviews.length <= 1 && currentAttempt <= 1) {
+    return reviews[0] ? <ReviewCard review={reviews[0]} bare /> : null;
+  }
+
   const segments = [];
   for (let v = 1; v <= currentAttempt; v++) {
     segments.push({ version: v, review: reviews[v - 1] || null });
-  }
-
-  const lastReview = reviews[reviews.length - 1];
-  let terminus = null;
-  if (lastReview?.verdict === 'pass') {
-    terminus = 'accepted';
-  } else if (experimentStatus === 'design_review' && reviews.length < currentAttempt) {
-    terminus = 'awaiting';
-  } else if (experimentStatus === 'planned' && reviews.length === currentAttempt && lastReview && lastReview.verdict !== 'pass') {
-    terminus = 'revising';
   }
 
   return (
@@ -37,7 +33,6 @@ export default function ReviewEvolutionStepper({
       <div className="review-stepper">
         {segments.map((seg, i) => {
           const last = i === segments.length - 1;
-          const showTerminus = last ? terminus : null;
           return (
             <span key={seg.version} className="review-stepper-seg">
               <span className="review-stepper-version">v{seg.version}</span>
@@ -61,30 +56,13 @@ export default function ReviewEvolutionStepper({
                   <span className="review-stepper-await">awaiting review</span>
                 </>
               ) : null}
-              {showTerminus === 'accepted' && (
-                <>
-                  <span className="review-stepper-arrow">→</span>
-                  <span className="review-stepper-terminus review-stepper-terminus--accepted">✓ accepted</span>
-                </>
-              )}
-              {showTerminus === 'revising' && (
-                <>
-                  <span className="review-stepper-arrow">→</span>
-                  <span className="review-stepper-await">revising</span>
-                </>
-              )}
             </span>
           );
         })}
       </div>
       {expandedIdx != null && segments[expandedIdx]?.review && (
         <div className="review-stepper-expanded">
-          <ReviewCard review={segments[expandedIdx].review} />
-          <div style={{ marginTop: 6 }}>
-            <button className="btn btn--sm btn--ghost" onClick={() => setExpandedIdx(null)}>
-              Collapse review
-            </button>
-          </div>
+          <ReviewCard review={segments[expandedIdx].review} bare />
         </div>
       )}
     </div>

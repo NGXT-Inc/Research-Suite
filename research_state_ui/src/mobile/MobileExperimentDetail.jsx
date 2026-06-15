@@ -218,6 +218,7 @@ export default function MobileExperimentDetail() {
             outcomeResources={outcomeRes}
             experimentReviews={experimentReviews}
             experimentStatus={experiment.status}
+            hideReviews={!!reportRes}
           />
           <MobileMetricsPanel projectId={projectId} experimentId={experimentId} />
         </>

@@ -2,9 +2,9 @@ import { useEffect, useState } from 'react';
 import { api } from '../api';
 import MarkdownView from './MarkdownView';
 import FileRenderer from './FileRenderer';
-import SourceMeta from './SourceMeta';
+import ExperimentReviewStepper from './ExperimentReviewStepper';
 import ContentUnavailable from './ContentUnavailable';
-import { formatBytes, isMarkdown } from '../utils/format';
+import { isMarkdown } from '../utils/format';
 
 /**
  * ReportSpotlight — the results artifact.
@@ -30,6 +30,7 @@ export default function ReportSpotlight({
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState(null);
   const [showBody, setShowBody] = useState(true);
+  const [showReview, setShowReview] = useState(false);
 
   useEffect(() => {
     if (!reportResource) return undefined;
@@ -52,7 +53,8 @@ export default function ReportSpotlight({
   else if (experimentStatus === 'experiment_review') reportStatus = 'under review';
   else if ((experimentReviews || []).length > 0) reportStatus = 'revising';
 
-  const size = reportResource.size_bytes ?? content?.size_bytes;
+  const reviews = experimentReviews || [];
+  const reviewAvailable = reviews.length > 0 || experimentStatus === 'experiment_review';
 
   return (
     <section id="report" className="spotlight">
@@ -63,18 +65,34 @@ export default function ReportSpotlight({
         </div>
         <div className="spotlight-head-right">
           <span className="mono spotlight-bar-path">{reportResource.path}</span>
-          <span className="spotlight-bar-sep">·</span>
-          <span className="spotlight-bar-meta">{formatBytes(size)}</span>
-          <SourceMeta source={content?.source} versionId={content?.version_id} />
+          {reviewAvailable && (
+            <button
+              type="button"
+              className="btn btn--sm"
+              onClick={() => setShowReview(v => !v)}
+            >
+              <span className="toggle-verb">{showReview ? 'Hide' : 'Show'}</span>{' review'}
+            </button>
+          )}
           <button
             type="button"
-            className="btn btn--sm btn--ghost"
+            className="btn btn--sm"
             onClick={() => setShowBody(v => !v)}
           >
-            {showBody ? 'Hide report' : 'Show report'}
+            <span className="toggle-verb">{showBody ? 'Hide' : 'Show'}</span>{' report'}
           </button>
         </div>
       </header>
+
+      {showReview && reviewAvailable && (
+        <div className="spotlight-review">
+          {reviews.length > 0 ? (
+            <ExperimentReviewStepper reviews={reviews} />
+          ) : (
+            <div className="empty" style={{ fontSize: 'var(--text-sm)' }}>Awaiting reviewer.</div>
+          )}
+        </div>
+      )}
 
       {showBody && (
         <div className="spotlight-body">

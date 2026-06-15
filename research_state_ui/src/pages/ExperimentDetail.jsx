@@ -201,7 +201,7 @@ export default function ExperimentDetail() {
         {experiment.intent && <p className="exp-intent">{experiment.intent}</p>}
       </header>
 
-      {/* ─────────────  GRAPHS (one slot: figure ⇄ logic graph)  ────── */}
+      {/* ─────────────  MAP (pinned overview: figure ⇄ logic graph)  ── */}
       <ExperimentGraphs
         projectId={projectId}
         experimentId={experimentId}
@@ -209,10 +209,11 @@ export default function ExperimentDetail() {
         attemptIndex={currentAttempt}
       />
 
-      {/* ─────────────  REPORT + PLAN SPOTLIGHTS  ───────────────────── */}
-      {/* Once a results report exists it becomes the face of the experiment:
-          it renders first and the plan starts collapsed (still one click
-          away). Before results, the plan keeps the hero position. */}
+      {/* ═════════════  RESULTS  ════════════════════════════════════════
+          Newest-first: the executed experiment's output leads the page. The
+          report (with its experiment review behind a "Show review" disclosure)
+          comes first, then durable metrics and result files. Each piece is
+          simply absent until it exists — the order itself never changes. */}
       {reportRes && (
         <ReportSpotlight
           projectId={projectId}
@@ -221,6 +222,111 @@ export default function ExperimentDetail() {
           experimentStatus={experiment.status}
         />
       )}
+
+      {!reportRes && experiment.status === 'running' && (
+        <div id="report" className="spotlight-followup">
+          <button
+            type="button"
+            className="btn btn--sm btn--primary"
+            onClick={() => setShowAddReport(v => !v)}
+          >
+            {showAddReport ? 'Cancel' : '+ Add results report'}
+          </button>
+          {showAddReport && (
+            <div style={{ marginTop: 10 }}>
+              <AddResourceToExperiment
+                projectId={projectId}
+                experimentId={experimentId}
+                attemptIndex={currentAttempt}
+                currentResources={currentRes}
+                allResources={allProjectResources}
+                defaultRole="report"
+                onCancel={() => setShowAddReport(false)}
+                onDone={async () => { setShowAddReport(false); await refresh(); }}
+              />
+            </div>
+          )}
+        </div>
+      )}
+
+      {/* Durable archived metrics — final MLflow numbers that survive sandbox
+          teardown (renders nothing until something has been recorded). */}
+      <ResultsMetricsPanel projectId={projectId} experimentId={experimentId} />
+
+      {/* Result files. The experiment review is suppressed here when a report
+          hosts it in its "Show review" disclosure (no double-render). */}
+      <OutcomesSection
+        projectId={projectId}
+        outcomeResources={outcomeRes}
+        experimentReviews={experimentReviews}
+        experimentStatus={experiment.status}
+        hideReviews={!!reportRes}
+      />
+
+      {!['complete', 'failed', 'abandoned'].includes(experiment.status) && experiment.status !== 'planned' && (
+        <div className="spotlight-followup">
+          <button
+            type="button"
+            className="btn btn--sm btn--ghost"
+            onClick={() => setShowAddOutcome(v => !v)}
+          >
+            {showAddOutcome ? 'Cancel' : '+ Add result resource'}
+          </button>
+          {showAddOutcome && (
+            <div style={{ marginTop: 10 }}>
+              <AddResourceToExperiment
+                projectId={projectId}
+                experimentId={experimentId}
+                attemptIndex={currentAttempt}
+                currentResources={currentRes}
+                allResources={allProjectResources}
+                defaultRole="result"
+                onCancel={() => setShowAddOutcome(false)}
+                onDone={async () => { setShowAddOutcome(false); await refresh(); }}
+              />
+            </div>
+          )}
+        </div>
+      )}
+
+      {/* ═════════════  EXECUTION  ══════════════════════════════════════
+          The sandbox: expanded while a run is live/provisioning, collapsed to
+          its header once the run has ended (collapsible). */}
+      <SandboxTerminal
+        projectId={projectId}
+        experimentId={experimentId}
+        collapsible
+      />
+
+      {!['complete', 'failed', 'abandoned'].includes(experiment.status) && (
+        <div className="spotlight-followup">
+          <button
+            type="button"
+            className="btn btn--sm btn--ghost"
+            onClick={() => setShowAddInput(v => !v)}
+          >
+            {showAddInput ? 'Cancel' : '+ Add code / config / input'}
+          </button>
+          {showAddInput && (
+            <div style={{ marginTop: 10 }}>
+              <AddResourceToExperiment
+                projectId={projectId}
+                experimentId={experimentId}
+                attemptIndex={currentAttempt}
+                currentResources={currentRes}
+                allResources={allProjectResources}
+                defaultRole="code"
+                onCancel={() => setShowAddInput(false)}
+                onDone={async () => { setShowAddInput(false); await refresh(); }}
+              />
+            </div>
+          )}
+        </div>
+      )}
+
+      {/* ═════════════  DESIGN  ═════════════════════════════════════════
+          The framing document, oldest so it anchors the bottom. Its design
+          review lives behind a "Show review" disclosure on the header. */}
       <PlanSpotlight
         projectId={projectId}
         planResource={planRes}
@@ -250,102 +356,6 @@ export default function ExperimentDetail() {
                 defaultRole="plan"
                 onCancel={() => setShowAddPlan(false)}
                 onDone={async () => { setShowAddPlan(false); await refresh(); }}
-              />
-            </div>
-          )}
-        </div>
-      )}
-
-      {/* ─────────────  SANDBOX TERMINAL  ───────────────────────────── */}
-      <SandboxTerminal
-        projectId={projectId}
-        experimentId={experimentId}
-      />
-
-      {!['complete', 'failed', 'abandoned'].includes(experiment.status) && (
-        <div className="spotlight-followup">
-          <button
-            type="button"
-            className="btn btn--sm btn--ghost"
-            onClick={() => setShowAddInput(v => !v)}
-          >
-            {showAddInput ? 'Cancel' : '+ Add code / config / input'}
-          </button>
-          {showAddInput && (
-            <div style={{ marginTop: 10 }}>
-              <AddResourceToExperiment
-                projectId={projectId}
-                experimentId={experimentId}
-                attemptIndex={currentAttempt}
-                currentResources={currentRes}
-                allResources={allProjectResources}
-                defaultRole="code"
-                onCancel={() => setShowAddInput(false)}
-                onDone={async () => { setShowAddInput(false); await refresh(); }}
-              />
-            </div>
-          )}
-        </div>
-      )}
-
-      {/* ─────────────  OUTCOMES & REVIEW  ──────────────────────────── */}
-      <OutcomesSection
-        projectId={projectId}
-        outcomeResources={outcomeRes}
-        experimentReviews={experimentReviews}
-        experimentStatus={experiment.status}
-      />
-
-      {/* Durable archived metrics — final MLflow numbers that survive sandbox
-          teardown (renders nothing until something has been recorded). */}
-      <ResultsMetricsPanel projectId={projectId} experimentId={experimentId} />
-
-      {!reportRes && experiment.status === 'running' && (
-        <div id="report" className="spotlight-followup">
-          <button
-            type="button"
-            className="btn btn--sm btn--primary"
-            onClick={() => setShowAddReport(v => !v)}
-          >
-            {showAddReport ? 'Cancel' : '+ Add results report'}
-          </button>
-          {showAddReport && (
-            <div style={{ marginTop: 10 }}>
-              <AddResourceToExperiment
-                projectId={projectId}
-                experimentId={experimentId}
-                attemptIndex={currentAttempt}
-                currentResources={currentRes}
-                allResources={allProjectResources}
-                defaultRole="report"
-                onCancel={() => setShowAddReport(false)}
-                onDone={async () => { setShowAddReport(false); await refresh(); }}
-              />
-            </div>
-          )}
-        </div>
-      )}
-
-      {!['complete', 'failed', 'abandoned'].includes(experiment.status) && experiment.status !== 'planned' && (
-        <div className="spotlight-followup">
-          <button
-            type="button"
-            className="btn btn--sm btn--ghost"
-            onClick={() => setShowAddOutcome(v => !v)}
-          >
-            {showAddOutcome ? 'Cancel' : '+ Add result resource'}
-          </button>
-          {showAddOutcome && (
-            <div style={{ marginTop: 10 }}>
-              <AddResourceToExperiment
-                projectId={projectId}
-                experimentId={experimentId}
-                attemptIndex={currentAttempt}
-                currentResources={currentRes}
-                allResources={allProjectResources}
-                defaultRole="result"
-                onCancel={() => setShowAddOutcome(false)}
-                onDone={async () => { setShowAddOutcome(false); await refresh(); }}
               />
             </div>
           )}
