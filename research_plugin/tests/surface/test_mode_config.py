@@ -93,6 +93,9 @@ class ControlModeAuthTest(unittest.TestCase):
         )
         self.auth = AuthService(store=self.app.store)
         self.token = self.auth.mint_token(tenant_id="acme")
+        self.daemon_token = self.auth.mint_token(
+            tenant_id="acme", client_id="daemon", label="daemon"
+        )
         self.client = TestClient(
             create_fastapi_app(self.app, auth=self.auth),
             raise_server_exceptions=False,
@@ -156,6 +159,54 @@ class ControlModeAuthTest(unittest.TestCase):
         body = resp.json()
         self.assertEqual(body["error_code"], "data_plane_required")
         self.assertEqual(body["tool"], "resource.register_file")
+
+    def test_daemon_resource_endpoint_requires_daemon_token(self) -> None:
+        from backend.dataplane.http_channel import HttpTaskQueue
+
+        daemon_client = TestClient(
+            create_fastapi_app(self.app, auth=self.auth, task_queue=HttpTaskQueue()),
+            raise_server_exceptions=False,
+        )
+        headers = {"Authorization": f"Bearer {self.token}"}
+        project = self.client.post(
+            "/api/projects", json={"name": "Hosted Project"}, headers=headers
+        )
+        self.assertEqual(project.status_code, 201, project.text)
+        project_id = project.json()["id"]
+        payload = {
+            "project_id": project_id,
+            "path": "daemon/result.txt",
+            "kind": "result",
+            "mtime_ns": 1,
+            "ctime_ns": 1,
+            "size_bytes": 3,
+            "content_sha256": "0" * 64,
+            "content_type": "text/plain",
+        }
+
+        denied = daemon_client.post(
+            "/api/daemon/resources/observe", json=payload, headers=headers
+        )
+        self.assertEqual(denied.status_code, 400, denied.text)
+        self.assertEqual(denied.json()["error_code"], "permission_denied")
+
+        ok = daemon_client.post(
+            "/api/daemon/resources/observe",
+            json=payload,
+            headers={"Authorization": f"Bearer {self.daemon_token}"},
+        )
+        self.assertEqual(ok.status_code, 200, ok.text)
+        self.assertEqual(ok.json()["path"], "daemon/result.txt")
+
+    def test_control_mcp_catalog_hides_data_plane_tools(self) -> None:
+        resp = self.client.get(
+            "/mcp/tools", headers={"Authorization": f"Bearer {self.token}"}
+        )
+        self.assertEqual(resp.status_code, 200, resp.text)
+        names = {tool["name"] for tool in resp.json()["tools"]}
+        self.assertNotIn("resource.register_file", names)
+        self.assertNotIn("sandbox.request", names)
+        self.assertIn("claim.create", names)
 
     def test_data_plane_mcp_tool_is_rejected_in_control_mode(self) -> None:
         resp = self.client.post(

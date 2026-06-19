@@ -47,6 +47,7 @@ from backend.execution.backends.fake import FakeSandboxBackend
 from backend.http_server import _bind_socket
 from backend.state import StateStore
 from backend.state.blobs import LocalDirBlobStore
+from backend.utils import ValidationError
 from mcp_server.proxy import HttpProxyMcpServer, ProxyConfig
 from tests.fakes import FakeRsyncSyncer
 
@@ -70,6 +71,128 @@ VALID_GRAPH = (
     '{"id": "out", "kind": "outcome", "label": "Met at 0.72"}],'
     ' "edges": [{"from": "obj", "to": "out", "label": "confirmed by"}]}\n'
 )
+
+
+class _NoopLoop:
+    def stop(self) -> None:
+        return None
+
+
+class DaemonResourceForwardingTest(unittest.TestCase):
+    def setUp(self) -> None:
+        self.tmp = tempfile.TemporaryDirectory()
+        root = Path(self.tmp.name)
+        self.repo = root / "checkout"
+        self.repo.mkdir()
+        self.links = ProjectLinks(db_path=root / "links.sqlite")
+        self.links.link(repo_root=str(self.repo), project_id="proj_1")
+
+    def tearDown(self) -> None:
+        self.tmp.cleanup()
+
+    def _server(self, control):
+        return DaemonServer(
+            worker=object(),
+            control=control,
+            task_loop=_NoopLoop(),
+            view=object(),
+            project_links=self.links,
+            loopback_secret="secret",
+        )
+
+    def test_daemon_catalog_only_advertises_implemented_data_tools(self) -> None:
+        class _Control:
+            def list_tools(self):
+                return []
+
+        names = {tool["name"] for tool in self._server(_Control()).list_tools()}
+        self.assertIn("resource.register_file", names)
+        self.assertIn("resource.associate", names)
+        self.assertIn("sandbox.get", names)
+        self.assertNotIn("sandbox.request", names)
+        self.assertNotIn("sandbox.sync", names)
+        self.assertNotIn("feed.post", names)
+
+    def test_invalid_association_intent_does_not_submit_local_bytes(self) -> None:
+        (self.repo / "report.md").write_text(VALID_REPORT, encoding="utf-8")
+
+        class _Control:
+            observations = 0
+            associations = 0
+
+            def list_tools(self):
+                return []
+
+            def validate_resource_association(self, payload):
+                raise ValidationError("legacy role rejected")
+
+            def submit_resource_observation(self, payload):
+                self.observations += 1
+                return {}
+
+            def submit_resource_association(self, payload):
+                self.associations += 1
+                return {}
+
+        control = _Control()
+        with self.assertRaises(ValidationError):
+            self._server(control).call_tool(
+                name="resource.associate",
+                arguments={
+                    "resource_id": "res_1",
+                    "target_type": "experiment",
+                    "target_id": "exp_1",
+                    "role": "synthesis_doc",
+                },
+                context={"repo_root": str(self.repo)},
+            )
+        self.assertEqual(control.observations, 0)
+        self.assertEqual(control.associations, 0)
+
+    def test_absolute_markdown_figure_link_rejected_before_byte_submit(self) -> None:
+        (self.repo / "report.md").write_text(
+            VALID_REPORT + "\n![loss](/Users/me/private/loss.png)\n",
+            encoding="utf-8",
+        )
+
+        class _Control:
+            associations = 0
+
+            def list_tools(self):
+                return []
+
+            def validate_resource_association(self, payload):
+                return {
+                    "ok": True,
+                    "resource": {
+                        "id": "res_1",
+                        "path": "report.md",
+                        "kind": "report",
+                        "title": "",
+                        "created_by": "codex",
+                    },
+                }
+
+            def submit_resource_observation(self, payload):
+                return {"id": "res_1", "path": payload["path"]}
+
+            def submit_resource_association(self, payload):
+                self.associations += 1
+                return {}
+
+        control = _Control()
+        with self.assertRaises(ValidationError):
+            self._server(control).call_tool(
+                name="resource.associate",
+                arguments={
+                    "resource_id": "res_1",
+                    "target_type": "experiment",
+                    "target_id": "exp_1",
+                    "role": "report",
+                },
+                context={"repo_root": str(self.repo)},
+            )
+        self.assertEqual(control.associations, 0)
 
 
 class _HttpServerThread:

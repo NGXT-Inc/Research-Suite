@@ -38,11 +38,14 @@ from ..dataplane.http_channel import DaemonTaskLoop
 from ..dataplane.project_links import ProjectLinks
 from ..dataplane.remote_view import HttpControlPlaneView
 from ..execution import build_sandbox_backend
-from ..services.artifacts import markdown_image_links
+from ..services.artifacts import markdown_image_links, markdown_image_targets
 from ..services.permissions import GATED_ROLE_BYTE_CAPS
 from ..services.resources import ResourceService
 from ..utils import ValidationError
 from ..workspace import LocalWorkspace
+
+
+IMPLEMENTED_DATA_TOOL_NAMES = frozenset({"resource.register_file", "resource.associate"})
 
 
 def _ensure_loopback_secret(*, root: Path) -> str:
@@ -118,7 +121,7 @@ class DaemonServer:
 
     def list_tools(self) -> list[dict[str, Any]]:
         """The local MCP catalog: data-plane tools plus aggregate enrichers."""
-        allowed = DATA_PLANE_TOOL_NAMES | AGGREGATE_TOOL_NAMES
+        allowed = IMPLEMENTED_DATA_TOOL_NAMES | AGGREGATE_TOOL_NAMES
         return [tool for tool in static_tool_catalog() if tool.get("name") in allowed]
 
     def call_tool(
@@ -160,15 +163,10 @@ class DaemonServer:
             # No enrichment yet is a neutral result; the cloud row remains the
             # primary answer after proxy merge.
             return {}
-        return {
-            "ok": False,
-            "error_code": "data_plane_forwarding_unavailable",
-            "error": (
-                f"{name} reached the local data-plane daemon, but the daemon "
-                "does not yet forward this record mutation to the control plane"
-            ),
-            "tool": name,
-        }
+        raise ValidationError(
+            f"{name} is not implemented by this data-plane daemon",
+            details={"tool": name, "error_code": "data_plane_tool_unimplemented"},
+        )
 
     def _register_resource_files(
         self, *, arguments: dict[str, Any], context: dict[str, Any]
@@ -215,9 +213,15 @@ class DaemonServer:
         project_id = self._project_id(arguments=arguments, repo_root=repo_root)
         resource_id = self._required_arg(arguments, "resource_id")
         role = self._required_arg(arguments, "role")
-        resource = self.control.call(
-            "resource.resolve", {"project_id": project_id, "resource_id": resource_id}
-        )
+        intent = {
+            "project_id": project_id,
+            "resource_id": resource_id,
+            "target_type": self._required_arg(arguments, "target_type"),
+            "target_id": self._required_arg(arguments, "target_id"),
+            "role": role,
+        }
+        validation = self.control.validate_resource_association(intent)
+        resource = validation.get("resource") or {}
         path = str(resource.get("path") or "")
         if not path:
             raise ValidationError(f"resource has no path: {resource_id}")
@@ -230,11 +234,7 @@ class DaemonServer:
             created_by=str(resource.get("created_by") or "codex"),
         )
         payload: dict[str, Any] = {
-            "project_id": project_id,
-            "resource_id": resource_id,
-            "target_type": self._required_arg(arguments, "target_type"),
-            "target_id": self._required_arg(arguments, "target_id"),
-            "role": role,
+            **intent,
         }
         if role in GATED_ROLE_BYTE_CAPS:
             rel_path, file_path = self._resolve_repo_file(repo_root=repo_root, path=path)
@@ -248,6 +248,11 @@ class DaemonServer:
                     details={"path": rel_path, "role": role, "size_bytes": size, "max_bytes": cap},
                 )
             data = file_path.read_bytes()
+            markdown_text = data.decode("utf-8", errors="replace")
+            if role in {"report", "reflection_doc", "synthesis_doc"}:
+                self._reject_absolute_markdown_image_targets(
+                    markdown_rel_path=rel_path, markdown_text=markdown_text
+                )
             payload["blob"] = {
                 "data_b64": base64.b64encode(data).decode("ascii"),
                 "content_type": mimetypes.guess_type(rel_path)[0] or "application/octet-stream",
@@ -256,7 +261,7 @@ class DaemonServer:
                 payload["figures"] = self._submitted_figures(
                     repo_root=repo_root,
                     markdown_rel_path=rel_path,
-                    markdown_text=data.decode("utf-8", errors="replace"),
+                    markdown_text=markdown_text,
                 )
         return self.control.submit_resource_association(payload)
 
@@ -316,6 +321,16 @@ class DaemonServer:
                 }
             )
         return figures
+
+    def _reject_absolute_markdown_image_targets(
+        self, *, markdown_rel_path: str, markdown_text: str
+    ) -> None:
+        for target in markdown_image_targets(markdown_text):
+            if target.startswith("/") or os.path.isabs(target):
+                raise ValidationError(
+                    f"markdown image link must be repo-relative: {target}",
+                    details={"link": target, "resource": markdown_rel_path},
+                )
 
     def _repo_root_from_context(self, *, context: dict[str, Any]) -> Path:
         repo_root = str(context.get("repo_root") or "")

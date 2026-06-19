@@ -113,6 +113,9 @@ class HttpControlPlaneClient:
     def submit_resource_observation(self, payload: dict[str, Any]) -> dict[str, Any]:
         return self._post(path="/api/daemon/resources/observe", payload=payload)
 
+    def validate_resource_association(self, payload: dict[str, Any]) -> dict[str, Any]:
+        return self._post(path="/api/daemon/resources/validate-association", payload=payload)
+
     def submit_resource_association(self, payload: dict[str, Any]) -> dict[str, Any]:
         return self._post(path="/api/daemon/resources/associate", payload=payload)
 

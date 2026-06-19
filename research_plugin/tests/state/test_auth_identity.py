@@ -45,6 +45,12 @@ class AuthIdentityTest(unittest.TestCase):
         self.assertEqual(principal.tenant_id, "acme")
         self.assertEqual(principal.client_id, "control")
 
+    def test_daemon_token_resolves_with_daemon_client_id(self) -> None:
+        token = self.auth.mint_token(tenant_id="acme", client_id="daemon", label="daemon")
+        principal = self.auth.resolve(token=token)
+        self.assertEqual(principal.tenant_id, "acme")
+        self.assertEqual(principal.client_id, "daemon")
+
     def test_plaintext_token_is_never_stored(self) -> None:
         token = self.auth.mint_token(tenant_id="acme")
         conn = self.store.connect()

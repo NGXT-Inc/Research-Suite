@@ -339,6 +339,47 @@ class ResourceService:
                 role=role,
             )
 
+    def validate_association_intent(
+        self,
+        *,
+        resource_id: str,
+        target_type: str,
+        target_id: str,
+        role: str,
+        project_id: str | None = None,
+    ) -> dict[str, Any]:
+        self.permissions.validate_resource_association(target_type=target_type, role=role)
+        storage_target_type = self.permissions.storage_resource_target_type(
+            target_type=target_type
+        )
+        with self.store.transaction() as conn:
+            project_id = self.store.require_project_id(conn=conn, project_id=project_id)
+            resource = conn.execute(
+                "SELECT * FROM resources WHERE id = ? AND deleted = 0", (resource_id,)
+            ).fetchone()
+            if resource is None:
+                raise NotFoundError(f"resource not found: {resource_id}")
+            if resource["project_id"] != project_id:
+                raise NotFoundError(f"resource not found in project {project_id}: {resource_id}")
+            target_project_id = self._ensure_target_exists(
+                conn=conn,
+                target_type=storage_target_type,
+                target_id=target_id,
+            )
+            if target_project_id is not None and target_project_id != project_id:
+                raise NotFoundError(f"{target_type} not found in project {project_id}: {target_id}")
+            attempt_index = self._association_attempt_index(
+                conn=conn,
+                target_type=storage_target_type,
+                target_id=target_id,
+            )
+            return {
+                "ok": True,
+                "resource": self._hydrate_resource(row=resource, conn=conn),
+                "storage_target_type": storage_target_type,
+                "attempt_index": attempt_index,
+            }
+
     def list_resources(
         self,
         *,

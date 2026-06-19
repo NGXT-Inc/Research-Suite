@@ -382,6 +382,7 @@ CREATE TABLE IF NOT EXISTS tenants (
 CREATE TABLE IF NOT EXISTS api_tokens (
   token_hash TEXT PRIMARY KEY,
   tenant_id TEXT NOT NULL,
+  client_id TEXT NOT NULL DEFAULT 'control',
   label TEXT NOT NULL DEFAULT '',
   created_at TEXT NOT NULL,
   expires_at TEXT,
@@ -745,6 +746,14 @@ class StateStore(BaseStateStore):
             conn=conn,
             table="review_sessions",
             columns={"tenant_id": "TEXT NOT NULL DEFAULT ''"},
+        )
+        # Daemon-scoped control-plane tokens (server-side split): hosted UI
+        # tokens resolve as client_id='control'; daemon-only resource/task
+        # endpoints require client_id='daemon'.
+        self._ensure_columns(
+            conn=conn,
+            table="api_tokens",
+            columns={"client_id": "TEXT NOT NULL DEFAULT 'control'"},
         )
         # Async provisioning (June 2026): sandboxes gained a provisioning/failed
         # lifecycle with progress + error fields. Older DBs predate these columns.

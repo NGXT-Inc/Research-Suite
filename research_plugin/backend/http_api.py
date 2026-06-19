@@ -34,6 +34,7 @@ from .utils import (
     ContentUnavailableError,
     DataPlaneRequiredError,
     NotFoundError,
+    PermissionDeniedError,
     ResearchPluginError,
     ValidationError,
     WorkflowError,
@@ -1033,6 +1034,16 @@ def create_fastapi_app(
             },
         )
 
+    def require_daemon_principal(request: Request) -> None:
+        if not auth_required:
+            return
+        principal = getattr(request.state, "principal", None)
+        if getattr(principal, "client_id", "") != "daemon":
+            raise PermissionDeniedError(
+                "daemon-scoped bearer token required",
+                details={"required_client_id": "daemon"},
+            )
+
     http = FastAPI(title="Research Plugin API", version=__version__)
     # CORS (cloud plan Phase 7): local mode keeps the wide-open `*` policy
     # (loopback-only, auth off) — unchanged. Control mode uses an explicit
@@ -1497,9 +1508,13 @@ def create_fastapi_app(
     @http.get("/mcp/tools")
     def mcp_tools_list() -> dict[str, Any]:
         if router is not None:
-            return {"tools": router.list_tools()}
-        assert api is not None
-        return {"tools": api.app.list_tools()}
+            tools = router.list_tools()
+        else:
+            assert api is not None
+            tools = api.app.list_tools()
+        if auth_required:
+            tools = [tool for tool in tools if tool.get("plane") != "data"]
+        return {"tools": tools}
 
     @http.post("/mcp/call")
     def mcp_call(body: JsonBody = Body(default=None)) -> dict[str, Any]:
@@ -1529,15 +1544,20 @@ def create_fastapi_app(
     if task_queue is not None:
         @http.get("/api/daemon/tasks")
         def daemon_poll_tasks(
+            request: Request,
             client_id: str = Query(""),  # noqa: ARG001 — v1 single daemon per tenant
             wait: int = Query(25, ge=0, le=60),
         ) -> dict[str, Any]:
+            require_daemon_principal(request)
             # Long-poll for the next data-plane task; {"task": null} on timeout.
             task = task_queue.poll(wait_seconds=float(wait))
             return {"task": task}
 
         @http.post("/api/daemon/tasks/{task_id}/ack")
-        def daemon_ack_task(task_id: str, body: JsonBody = Body(default=None)) -> dict[str, Any]:
+        def daemon_ack_task(
+            task_id: str, request: Request, body: JsonBody = Body(default=None)
+        ) -> dict[str, Any]:
+            require_daemon_principal(request)
             payload = body or {}
             task_queue.ack(
                 task_id=task_id,
@@ -1547,8 +1567,26 @@ def create_fastapi_app(
             )
             return {"acked": True}
 
+        @http.post("/api/daemon/resources/validate-association")
+        def daemon_validate_resource_association(
+            request: Request, body: JsonBody = Body(default=None)
+        ) -> dict[str, Any]:
+            require_daemon_principal(request)
+            payload = body or {}
+            project_id = _required_text(payload, "project_id")
+            return api_for_project(project_id).app.resources.validate_association_intent(
+                project_id=project_id,
+                resource_id=_required_text(payload, "resource_id"),
+                target_type=_required_text(payload, "target_type"),
+                target_id=_required_text(payload, "target_id"),
+                role=_required_text(payload, "role"),
+            )
+
         @http.post("/api/daemon/resources/observe")
-        def daemon_observe_resource(body: JsonBody = Body(default=None)) -> dict[str, Any]:
+        def daemon_observe_resource(
+            request: Request, body: JsonBody = Body(default=None)
+        ) -> dict[str, Any]:
+            require_daemon_principal(request)
             payload = body or {}
             project_id = _required_text(payload, "project_id")
             return api_for_project(project_id).app.resources.record_observation(
@@ -1565,7 +1603,10 @@ def create_fastapi_app(
             )
 
         @http.post("/api/daemon/resources/associate")
-        def daemon_associate_resource(body: JsonBody = Body(default=None)) -> dict[str, Any]:
+        def daemon_associate_resource(
+            request: Request, body: JsonBody = Body(default=None)
+        ) -> dict[str, Any]:
+            require_daemon_principal(request)
             payload = body or {}
             project_id = _required_text(payload, "project_id")
             blob = payload.get("blob")
@@ -1619,7 +1660,10 @@ def create_fastapi_app(
 
     if sync_targets_source is not None:
         @http.get("/api/daemon/sync-targets")
-        def daemon_sync_targets(client_id: str = Query("")) -> dict[str, Any]:  # noqa: ARG001
+        def daemon_sync_targets(
+            request: Request, client_id: str = Query("")  # noqa: ARG001
+        ) -> dict[str, Any]:
+            require_daemon_principal(request)
             # "My running sandboxes + a lease-backed session for each" — the
             # exact InProcessControlPlaneView call, now an HTTP poll. The
             # session carries SSH endpoint + remote dirs + lease; no

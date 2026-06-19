@@ -109,14 +109,18 @@ def markdown_image_links(markdown_text: str) -> list[str]:
     External, absolute, and data: URLs are skipped; only repo-relative image
     links need submitted bytes alongside the markdown artifact.
     """
-    stripped = _HTML_COMMENT_RE.sub("", markdown_text)
     links: list[str] = []
-    for match in _IMAGE_LINK_RE.finditer(stripped):
-        target = match.group(1)
+    for target in markdown_image_targets(markdown_text):
         if target.startswith(("http://", "https://", "data:", "/")):
             continue
         links.append(target)
     return links
+
+
+def markdown_image_targets(markdown_text: str) -> list[str]:
+    """All markdown image targets, including external and absolute links."""
+    stripped = _HTML_COMMENT_RE.sub("", markdown_text)
+    return [match.group(1) for match in _IMAGE_LINK_RE.finditer(stripped)]
 
 
 def report_figure_links(report_text: str) -> list[str]:

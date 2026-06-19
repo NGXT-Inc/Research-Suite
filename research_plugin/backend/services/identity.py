@@ -82,10 +82,9 @@ class AuthService:
 
     def __init__(self, *, store: BaseStateStore, client_id: str = "control") -> None:
         self.store = store
-        # The client id stamped on a resolved principal. The token authenticates
-        # a tenant; the calling client id is a control-plane concern (one daemon
-        # per tenant in v1). Phase 8 threads the real per-daemon id over the
-        # wire; until then a stable default is enough for tenancy enforcement.
+        # Default client id for newly minted tokens when the caller does not
+        # specify one. Resolved principals read client_id from the token row so
+        # daemon-only endpoints can distinguish daemon and hosted UI tokens.
         self.client_id = client_id
 
     # ---------- mint / revoke (out-of-band provisioning, plan Phase 7) ----------
@@ -106,6 +105,7 @@ class AuthService:
         self,
         *,
         tenant_id: str,
+        client_id: str | None = None,
         label: str = "",
         expires_at: str | None = None,
     ) -> str:
@@ -116,13 +116,14 @@ class AuthService:
         """
         self.ensure_tenant(tenant_id=tenant_id)
         token = f"rpt_{secrets.token_urlsafe(32)}"
+        resolved_client_id = (client_id or self.client_id).strip() or self.client_id
         with self.store.transaction() as conn:
             conn.execute(
                 """
-                INSERT INTO api_tokens (token_hash, tenant_id, label, created_at, expires_at)
-                VALUES (?, ?, ?, ?, ?)
+                INSERT INTO api_tokens (token_hash, tenant_id, client_id, label, created_at, expires_at)
+                VALUES (?, ?, ?, ?, ?, ?)
                 """,
-                (hash_token(token), tenant_id, label, now_iso(), expires_at),
+                (hash_token(token), tenant_id, resolved_client_id, label, now_iso(), expires_at),
             )
         return token
 
@@ -149,7 +150,7 @@ class AuthService:
         try:
             row = conn.execute(
                 """
-                SELECT token_hash, tenant_id, expires_at, revoked_at
+                SELECT token_hash, tenant_id, client_id, expires_at, revoked_at
                 FROM api_tokens WHERE token_hash = ?
                 """,
                 (token_hash,),
@@ -167,7 +168,10 @@ class AuthService:
             raise AuthError("revoked bearer token")
         if _is_expired(row["expires_at"]):
             raise AuthError("expired bearer token")
-        return Principal(tenant_id=str(row["tenant_id"]), client_id=self.client_id)
+        return Principal(
+            tenant_id=str(row["tenant_id"]),
+            client_id=str(row["client_id"] or self.client_id),
+        )
 
 
 def _is_expired(expires_at: object) -> bool:

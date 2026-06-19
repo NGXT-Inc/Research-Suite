@@ -32,9 +32,13 @@ from fastapi import FastAPI, Header, Query, Request
 from fastapi.responses import JSONResponse
 
 from . import __version__
-from .contracts import AGGREGATE_TOOL_NAMES, DATA_PLANE_TOOL_NAMES, static_tool_catalog
+from .contracts import AGGREGATE_TOOL_NAMES, static_tool_catalog
 from .control_client import ControlPlaneUnreachableError
 from .utils import ResearchPluginError, ValidationError
+
+IMPLEMENTED_LOOPBACK_DATA_TOOL_NAMES = frozenset(
+    {"resource.register_file", "resource.associate"}
+)
 
 
 def create_daemon_loopback_app(*, daemon: Any) -> FastAPI:
@@ -112,7 +116,7 @@ def create_daemon_loopback_app(*, daemon: Any) -> FastAPI:
         if hasattr(daemon, "list_tools"):
             tools = daemon.list_tools()
         else:
-            allowed = DATA_PLANE_TOOL_NAMES | AGGREGATE_TOOL_NAMES
+            allowed = IMPLEMENTED_LOOPBACK_DATA_TOOL_NAMES | AGGREGATE_TOOL_NAMES
             tools = [
                 tool for tool in static_tool_catalog() if tool.get("name") in allowed
             ]
