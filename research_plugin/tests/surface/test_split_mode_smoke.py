@@ -127,6 +127,9 @@ class DaemonResourceForwardingTest(unittest.TestCase):
             def list_tools(self):
                 return []
 
+            def validate_feed_post(self, payload):
+                return {"ok": True, **payload}
+
             def submit_feed_post(self, payload):
                 self.payload = payload
                 return {"post": {"id": "post_1", "has_image": True}}
@@ -150,6 +153,34 @@ class DaemonResourceForwardingTest(unittest.TestCase):
             base64.b64decode(control.payload["image"]["data_b64"]), _PNG
         )
         self.assertNotIn(str(self.repo), str(control.payload))
+
+    def test_feed_post_preflights_before_reading_image(self) -> None:
+        class _Control:
+            submitted = False
+
+            def list_tools(self):
+                return []
+
+            def validate_feed_post(self, payload):
+                raise ValidationError("handle is not registered")
+
+            def submit_feed_post(self, payload):
+                self.submitted = True
+                return {}
+
+        control = _Control()
+        with self.assertRaises(ValidationError):
+            self._server(control).call_tool(
+                name="feed.post",
+                arguments={
+                    "project_id": "proj_1",
+                    "handle": "Ghost",
+                    "text": "plot",
+                    "image_path": "missing.png",
+                },
+                context={"repo_root": str(self.repo)},
+            )
+        self.assertFalse(control.submitted)
 
     def test_invalid_association_intent_does_not_submit_local_bytes(self) -> None:
         (self.repo / "report.md").write_text(VALID_REPORT, encoding="utf-8")

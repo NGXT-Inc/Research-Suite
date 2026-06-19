@@ -119,6 +119,9 @@ class HttpControlPlaneClient:
     def submit_resource_association(self, payload: dict[str, Any]) -> dict[str, Any]:
         return self._post(path="/api/daemon/resources/associate", payload=payload)
 
+    def validate_feed_post(self, payload: dict[str, Any]) -> dict[str, Any]:
+        return self._post(path="/api/daemon/feed/validate-post", payload=payload)
+
     def request_sandbox(self, payload: dict[str, Any]) -> dict[str, Any]:
         return self._post(path="/api/daemon/sandboxes/request", payload=payload)
 

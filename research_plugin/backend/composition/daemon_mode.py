@@ -225,6 +225,13 @@ class DaemonServer:
         for key in ("url", "ref"):
             if arguments.get(key) is not None:
                 payload[key] = arguments.get(key)
+        self.control.validate_feed_post(
+            {
+                key: payload[key]
+                for key in ("project_id", "handle", "text", "ref")
+                if key in payload
+            }
+        )
         image_path = str(arguments.get("image_path") or "")
         if image_path:
             payload["image"] = self._feed_image_payload(

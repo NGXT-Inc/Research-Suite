@@ -354,6 +354,81 @@ class ControlModeAuthTest(unittest.TestCase):
         self.assertEqual(resp.status_code, 400, resp.text)
         self.assertNotIn("base64", resp.json()["detail"].lower())
 
+    def test_daemon_feed_rejects_oversized_encoded_image_before_decode(self) -> None:
+        from unittest.mock import patch
+
+        from backend.dataplane.http_channel import HttpTaskQueue
+
+        daemon_client = TestClient(
+            create_fastapi_app(self.app, auth=self.auth, task_queue=HttpTaskQueue()),
+            raise_server_exceptions=False,
+        )
+        project = self.client.post(
+            "/api/projects",
+            json={"name": "Feed Size Guard"},
+            headers={"Authorization": f"Bearer {self.token}"},
+        )
+        self.assertEqual(project.status_code, 201, project.text)
+        project_id = project.json()["id"]
+        self.app.feed.register(project_id=project_id, handle="Nova-7")
+
+        with patch("backend.http_api.MAX_IMAGE_BYTES", 3):
+            resp = daemon_client.post(
+                "/api/daemon/feed/post",
+                json={
+                    "project_id": project_id,
+                    "handle": "Nova-7",
+                    "text": "too large",
+                    "image": {"path": "plot.png", "data_b64": "AAAAAAAA"},
+                },
+                headers={"Authorization": f"Bearer {self.daemon_token}"},
+            )
+        self.assertEqual(resp.status_code, 400, resp.text)
+        self.assertIn("byte limit", resp.json()["detail"])
+
+    def test_feed_http_reads_are_tenant_scoped(self) -> None:
+        project = self.client.post(
+            "/api/projects",
+            json={"name": "Feed Read Tenant"},
+            headers={"Authorization": f"Bearer {self.token}"},
+        )
+        self.assertEqual(project.status_code, 201, project.text)
+        project_id = project.json()["id"]
+        self.app.feed.register(project_id=project_id, handle="Nova-7")
+        post = self.app.feed.post_observed(
+            project_id=project_id,
+            handle="Nova-7",
+            text="private plot",
+            image_path="plot.png",
+            image_bytes=_PNG,
+        )["post"]
+
+        denied_list = self.client.get(
+            f"/api/projects/{project_id}/feed",
+            headers={"Authorization": f"Bearer {self.other_token}"},
+        )
+        self.assertEqual(denied_list.status_code, 404, denied_list.text)
+
+        denied_image = self.client.get(
+            f"/api/projects/{project_id}/feed/{post['id']}/image",
+            headers={"Authorization": f"Bearer {self.other_token}"},
+        )
+        self.assertEqual(denied_image.status_code, 404, denied_image.text)
+
+        ok_list = self.client.get(
+            f"/api/projects/{project_id}/feed",
+            headers={"Authorization": f"Bearer {self.token}"},
+        )
+        self.assertEqual(ok_list.status_code, 200, ok_list.text)
+        self.assertEqual(ok_list.json()["posts"][0]["id"], post["id"])
+
+        ok_image = self.client.get(
+            f"/api/projects/{project_id}/feed/{post['id']}/image",
+            headers={"Authorization": f"Bearer {self.token}"},
+        )
+        self.assertEqual(ok_image.status_code, 200, ok_image.text)
+        self.assertEqual(ok_image.content, _PNG)
+
     def test_daemon_tasks_are_tenant_scoped(self) -> None:
         from backend.dataplane.http_channel import HttpTaskQueue
 

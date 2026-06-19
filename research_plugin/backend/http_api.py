@@ -26,6 +26,7 @@ from .contracts import DATA_PLANE_TOOL_NAMES, PROJECT_SCOPED_TOOL_NAMES
 from .feed_http import register_feed_routes
 from .project_router import ProjectRouter
 from .services.figure_view import build_experiment_figure
+from .services.feed import MAX_IMAGE_BYTES
 from .services.graph_lint import MAX_GRAPH_NODES, graph_problems
 from .services.identity import LOCAL_PRINCIPAL, AuthError, AuthService
 from .services.permissions import GATED_ROLES, PROJECT_GRAPH_ROLES
@@ -64,13 +65,26 @@ def _required_text(payload: dict[str, Any], key: str) -> str:
     return str(value)
 
 
-def _decode_b64_field(value: Any, *, label: str) -> bytes:
+def _decode_b64_field(
+    value: Any, *, label: str, max_decoded_bytes: int | None = None
+) -> bytes:
     if not isinstance(value, str) or not value:
         raise ValidationError(f"{label} must be non-empty base64")
+    if max_decoded_bytes is not None:
+        max_encoded_chars = ((max_decoded_bytes + 2) // 3) * 4
+        if len(value) > max_encoded_chars:
+            raise ValidationError(
+                f"{label} decodes above the {max_decoded_bytes} byte limit"
+            )
     try:
-        return base64.b64decode(value.encode("ascii"), validate=True)
+        data = base64.b64decode(value.encode("ascii"), validate=True)
     except (binascii.Error, UnicodeEncodeError) as exc:
         raise ValidationError(f"{label} must be valid base64") from exc
+    if max_decoded_bytes is not None and len(data) > max_decoded_bytes:
+        raise ValidationError(
+            f"{label} decodes to {len(data)} bytes; limit is {max_decoded_bytes}"
+        )
+    return data
 
 
 def _latest_graph_resource(
@@ -1547,7 +1561,18 @@ def create_fastapi_app(
     # Social feed (Feed_PRD.md) — a self-contained module: its routes register
     # themselves here, reading only off app.feed. Removing the feed is deleting
     # the feed package plus this one line.
-    register_feed_routes(http, app_for=lambda pid: api_for_project(pid).app)
+    def app_for_feed(project_id: str, request: Request) -> ResearchPluginApp:
+        target = api_for_project(project_id)
+        if auth_required:
+            with target.app.store.transaction() as conn:
+                target.app.store.require_project_id(
+                    conn=conn,
+                    project_id=project_id,
+                    tenant_id=getattr(request.state.principal, "tenant_id", "") or "",
+                )
+        return target.app
+
+    register_feed_routes(http, app_for=app_for_feed)
 
     # MCP-shaped endpoints — drive the same ResearchPluginApp.call_tool path that
     # the stdio MCP server uses. The stdio MCP proxy forwards Codex tool calls
@@ -1696,6 +1721,20 @@ def create_fastapi_app(
                 figures=figures,
             )
 
+        @http.post("/api/daemon/feed/validate-post")
+        def daemon_validate_feed_post(
+            request: Request, body: JsonBody = Body(default=None)
+        ) -> dict[str, Any]:
+            payload = body or {}
+            project_id = _required_text(payload, "project_id")
+            target = require_daemon_project(request, project_id)
+            return target.app.feed.validate_post_intent(
+                project_id=project_id,
+                handle=_required_text(payload, "handle"),
+                text=_required_text(payload, "text"),
+                ref=payload.get("ref"),
+            )
+
         @http.post("/api/daemon/sandboxes/request")
         def daemon_request_sandbox(
             request: Request, body: JsonBody = Body(default=None)
@@ -1754,7 +1793,9 @@ def create_fastapi_app(
                     raise ValidationError("image must be an object")
                 image_path = str(image.get("path") or "feed-image")
                 image_bytes = _decode_b64_field(
-                    image.get("data_b64"), label="image.data_b64"
+                    image.get("data_b64"),
+                    label="image.data_b64",
+                    max_decoded_bytes=MAX_IMAGE_BYTES,
                 )
             return target.app.feed.post_observed(
                 project_id=project_id,
