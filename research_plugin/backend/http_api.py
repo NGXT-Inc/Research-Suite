@@ -117,11 +117,37 @@ def _latest_graph_resource(
 class ResearchHttpApi:
     """HTTP view helpers over ResearchPluginApp. Domain logic stays in services."""
 
-    def __init__(self, *, app: ResearchPluginApp) -> None:
+    _LOCAL_DATA_PLANE_RESPONSE_KEYS = frozenset(
+        {"repo_root", "local_sync_dir", "local_experiment_dir"}
+    )
+
+    def __init__(
+        self, *, app: ResearchPluginApp, expose_local_data_plane: bool = True
+    ) -> None:
         self.app = app
+        self.expose_local_data_plane = expose_local_data_plane
 
     def call_tool(self, *, name: str, arguments: dict[str, Any] | None = None) -> dict[str, Any]:
-        return self.app.call_tool(name=name, arguments=arguments, activity_source="http")
+        return self._present(
+            self.app.call_tool(name=name, arguments=arguments, activity_source="http")
+        )
+
+    def _present(self, value: Any) -> Any:
+        if self.expose_local_data_plane:
+            return value
+        return self._strip_local_data_plane(value)
+
+    @classmethod
+    def _strip_local_data_plane(cls, value: Any) -> Any:
+        if isinstance(value, dict):
+            return {
+                key: cls._strip_local_data_plane(item)
+                for key, item in value.items()
+                if key not in cls._LOCAL_DATA_PLANE_RESPONSE_KEYS
+            }
+        if isinstance(value, list):
+            return [cls._strip_local_data_plane(item) for item in value]
+        return value
 
     def health(self) -> dict[str, Any]:
         return {
@@ -206,7 +232,7 @@ class ResearchHttpApi:
         active_processes = active_work["active_processes"]
         active_experiment = active_experiments[0] if active_experiments else None
         workflow = active_experiment.get("workflow") if active_experiment else status["workflow"]
-        return {
+        return self._present({
             "project": status["project"],
             "claims": claims,
             "experiments": experiments,
@@ -226,7 +252,7 @@ class ResearchHttpApi:
             },
             "workflow": workflow,
             "active_experiment": active_experiment,
-        }
+        })
 
     def experiments_view(self, project_id: str) -> dict[str, Any]:
         # Full per-experiment state for the UI; the experiment.list tool stays slim.
@@ -583,15 +609,15 @@ class ResearchHttpApi:
         row = self.app.sandboxes.get_row(experiment_id=experiment_id, project_id=project_id)
         if row is None:
             return {"experiment_id": experiment_id, "status": "none", "sandbox": None}
-        return self.app.sandboxes.row_view(row=row)
+        return self._present(self.app.sandboxes.row_view(row=row))
 
     def sandbox_list_view(self, *, project_id: str) -> dict[str, Any]:
-        return {
+        return self._present({
             "sandboxes": [
                 self.app.sandboxes.row_view(row=row)
                 for row in self.app.sandboxes.rows(project_id=project_id)
             ]
-        }
+        })
 
     def sandbox_metrics_view(self, *, project_id: str, experiment_id: str) -> dict[str, Any]:
         return self.app.sandboxes.sample_metrics(experiment_id=experiment_id, project_id=project_id)
@@ -620,13 +646,15 @@ class ResearchHttpApi:
             if sandbox_row is not None
             else None
         )
-        return build_experiment_figure(
-            experiment=experiment,
-            review_attempts=review_attempts,
-            open_review_requests=self.app.reviews.open_requests_for_target(
-                project_id=project_id, experiment_id=experiment_id
+        return self._present(
+            build_experiment_figure(
+                experiment=experiment,
+                review_attempts=review_attempts,
+                open_review_requests=self.app.reviews.open_requests_for_target(
+                    project_id=project_id, experiment_id=experiment_id
+                ),
+                sandbox=sandbox,
             ),
-            sandbox=sandbox,
         )
 
     def experiment_logic_graph(self, *, project_id: str, experiment_id: str) -> dict[str, Any]:
@@ -987,12 +1015,19 @@ def create_fastapi_app(
     # (control mode). Every existing caller passes neither, so nothing changes.
     if (app is None) == (router is None):
         raise ValueError("provide exactly one of app or router")
-    api = ResearchHttpApi(app=app) if app is not None else None
     auth_required = auth is not None
+    api = (
+        ResearchHttpApi(app=app, expose_local_data_plane=not auth_required)
+        if app is not None
+        else None
+    )
 
     def api_for_project(project_id: str) -> ResearchHttpApi:
         if router is not None:
-            return ResearchHttpApi(app=router.app_for_project(project_id))
+            return ResearchHttpApi(
+                app=router.app_for_project(project_id),
+                expose_local_data_plane=not auth_required,
+            )
         assert api is not None
         return api
 
@@ -1001,7 +1036,11 @@ def create_fastapi_app(
             return api
         assert router is not None
         app = router.any_app()
-        return ResearchHttpApi(app=app) if app is not None else None
+        return (
+            ResearchHttpApi(app=app, expose_local_data_plane=not auth_required)
+            if app is not None
+            else None
+        )
 
     def route_call_tool(
         *,

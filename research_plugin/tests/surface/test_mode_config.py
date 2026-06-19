@@ -88,6 +88,8 @@ class LocalModeAuthParityTest(unittest.TestCase):
 class ControlModeAuthTest(unittest.TestCase):
     """With an AuthService injected: bearer auth required, /health slimmed."""
 
+    LOCAL_RESPONSE_KEYS = {"repo_root", "local_sync_dir", "local_experiment_dir"}
+
     def setUp(self) -> None:
         self.tmp = tempfile.TemporaryDirectory()
         self.repo = Path(self.tmp.name)
@@ -113,6 +115,16 @@ class ControlModeAuthTest(unittest.TestCase):
 
     def tearDown(self) -> None:
         self.tmp.cleanup()
+
+    def assertNoLocalDataPlaneFields(self, value) -> None:  # noqa: ANN001
+        if isinstance(value, dict):
+            leaked = self.LOCAL_RESPONSE_KEYS & set(value)
+            self.assertFalse(leaked, f"leaked local data-plane fields: {sorted(leaked)}")
+            for item in value.values():
+                self.assertNoLocalDataPlaneFields(item)
+        elif isinstance(value, list):
+            for item in value:
+                self.assertNoLocalDataPlaneFields(item)
 
     def test_missing_token_is_401(self) -> None:
         resp = self.client.get("/api/projects")
@@ -223,6 +235,50 @@ class ControlModeAuthTest(unittest.TestCase):
         self.assertFalse(body["daemon_unreachable"])
         self.assertFalse(called)
         self.assertIn("sb-hosted-release", self.app.execution_backend.terminated)
+
+    def test_hosted_http_sandbox_views_hide_local_data_plane_fields(self) -> None:
+        headers = {"Authorization": f"Bearer {self.token}"}
+        project = self.client.post(
+            "/api/projects", json={"name": "Hosted View"}, headers=headers
+        )
+        self.assertEqual(project.status_code, 201, project.text)
+        project_id = project.json()["id"]
+        exp = self.client.post(
+            f"/api/projects/{project_id}/experiments",
+            json={"name": "exp-view", "intent": "run"},
+            headers=headers,
+        )
+        self.assertEqual(exp.status_code, 201, exp.text)
+        exp_id = exp.json()["id"]
+        self.app.sandboxes.registry.upsert(
+            experiment_id=exp_id,
+            project_id=project_id,
+            sandbox_id="sb-hosted-view",
+            status="running",
+            ssh_host="h",
+            ssh_port=22,
+            ssh_user="root",
+            sync_dir="/workspace/exp-view",
+            workdir="/workspace/exp-view",
+            expires_at="2999-01-01T00:00:00Z",
+        )
+
+        sandbox = self.client.get(
+            f"/api/projects/{project_id}/experiments/{exp_id}/sandbox",
+            headers=headers,
+        )
+        self.assertEqual(sandbox.status_code, 200, sandbox.text)
+        sandboxes = self.client.get(
+            f"/api/projects/{project_id}/sandboxes",
+            headers=headers,
+        )
+        self.assertEqual(sandboxes.status_code, 200, sandboxes.text)
+        home = self.client.get(f"/api/projects/{project_id}/home", headers=headers)
+        self.assertEqual(home.status_code, 200, home.text)
+
+        self.assertNoLocalDataPlaneFields(sandbox.json())
+        self.assertNoLocalDataPlaneFields(sandboxes.json())
+        self.assertNoLocalDataPlaneFields(home.json())
 
     def test_daemon_resource_endpoint_requires_daemon_token(self) -> None:
         from backend.dataplane.http_channel import HttpTaskQueue
