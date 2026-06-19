@@ -119,8 +119,8 @@ class ProjectService:
         finally:
             conn.close()
 
-    def current(self) -> dict[str, Any]:
-        projects = self.list_projects()["projects"]
+    def current(self, *, tenant_id: str | None = None) -> dict[str, Any]:
+        projects = self.list_projects(tenant_id=tenant_id)["projects"]
         if not projects:
             return {
                 "exists": False,

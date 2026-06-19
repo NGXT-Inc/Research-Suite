@@ -330,14 +330,14 @@ class ResearchPluginApp:
                 )
         return output
 
-    def current_project(self) -> dict[str, Any]:
+    def current_project(self, *, tenant_id: str | None = None) -> dict[str, Any]:
         """Project identity plus the small orientation block every agent sees.
 
         The base shape stays compatible (`exists`, `project`, `hint`). When a
         project exists, `at_a_glance` points to the latest reflection artifacts
         and names what project work is newer than that reflection.
         """
-        current = self.projects.current()
+        current = self.projects.current(tenant_id=tenant_id)
         if not current.get("exists"):
             return current
         project = current.get("project") or {}

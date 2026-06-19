@@ -206,6 +206,43 @@ class ControlModeAuthTest(unittest.TestCase):
         self.assertEqual(allowed.status_code, 200, allowed.text)
         self.assertEqual(allowed.json()["id"], other["id"])
 
+    def test_hosted_mcp_project_list_and_current_are_tenant_scoped(self) -> None:
+        acme = self.client.post(
+            "/api/projects",
+            json={"name": "Acme MCP"},
+            headers={"Authorization": f"Bearer {self.token}"},
+        )
+        self.assertEqual(acme.status_code, 201, acme.text)
+        other = self.app.projects.create(name="Other MCP", tenant_id="other")
+
+        listed = self.client.post(
+            "/mcp/call",
+            json={"name": "project.list", "arguments": {}},
+            headers={"Authorization": f"Bearer {self.token}"},
+        )
+        self.assertEqual(listed.status_code, 200, listed.text)
+        self.assertEqual(
+            [project["id"] for project in listed.json()["result"]["projects"]],
+            [acme.json()["id"]],
+        )
+
+        current = self.client.post(
+            "/mcp/call",
+            json={"name": "project.current", "arguments": {}},
+            headers={"Authorization": f"Bearer {self.token}"},
+        )
+        self.assertEqual(current.status_code, 200, current.text)
+        self.assertTrue(current.json()["result"]["exists"])
+        self.assertEqual(current.json()["result"]["project"]["id"], acme.json()["id"])
+
+        other_current = self.client.post(
+            "/mcp/call",
+            json={"name": "project.current", "arguments": {}},
+            headers={"Authorization": f"Bearer {self.other_token}"},
+        )
+        self.assertEqual(other_current.status_code, 200, other_current.text)
+        self.assertEqual(other_current.json()["result"]["project"]["id"], other["id"])
+
     def test_hosted_debug_tool_calls_are_tenant_scoped_and_redacted(self) -> None:
         acme = self.client.post(
             "/api/projects",
@@ -273,6 +310,66 @@ class ControlModeAuthTest(unittest.TestCase):
         remaining = self.app.tool_calls.stats()
         self.assertEqual(remaining["totals"]["calls"], 1)
         self.assertEqual(remaining["calls"][0]["project_id"], other["id"])
+
+    def test_hosted_mcp_review_start_is_tenant_scoped(self) -> None:
+        project = self.client.post(
+            "/api/projects",
+            json={"name": "Acme Review"},
+            headers={"Authorization": f"Bearer {self.token}"},
+        )
+        self.assertEqual(project.status_code, 201, project.text)
+        project_id = project.json()["id"]
+        exp = self.app.call_tool(
+            "experiment.create",
+            {
+                "project_id": project_id,
+                "name": "review-exp",
+                "intent": "Tenant-bound review start.",
+            },
+        )
+        with self.app.store.transaction() as conn:
+            conn.execute(
+                "UPDATE experiments SET status = 'design_review' WHERE id = ?",
+                (exp["id"],),
+            )
+        req = self.app.reviews.request(
+            project_id=project_id,
+            target_type="experiment",
+            target_id=exp["id"],
+            role="design_reviewer",
+        )
+        payload = {
+            "name": "review.start",
+            "arguments": {
+                "review_request_id": req["review_request_id"],
+                "reviewer_capability": req["reviewer_capability"],
+                "declared_agent": "reviewer",
+            },
+        }
+
+        denied = self.client.post(
+            "/mcp/call",
+            json=payload,
+            headers={"Authorization": f"Bearer {self.other_token}"},
+        )
+        self.assertEqual(denied.status_code, 404, denied.text)
+
+        ok = self.client.post(
+            "/mcp/call",
+            json=payload,
+            headers={"Authorization": f"Bearer {self.token}"},
+        )
+        self.assertEqual(ok.status_code, 200, ok.text)
+        session_id = ok.json()["result"]["review_session_id"]
+        conn = self.app.store.connect()
+        try:
+            row = conn.execute(
+                "SELECT tenant_id FROM review_sessions WHERE id = ?",
+                (session_id,),
+            ).fetchone()
+        finally:
+            conn.close()
+        self.assertEqual(row["tenant_id"], "acme")
 
     def test_cors_allows_spa_request_headers(self) -> None:
         resp = self.client.options(
