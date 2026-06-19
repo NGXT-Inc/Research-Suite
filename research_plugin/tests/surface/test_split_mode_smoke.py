@@ -36,6 +36,8 @@ import time
 import unittest
 from pathlib import Path
 
+from fastapi.testclient import TestClient
+
 from backend.app import ResearchPluginApp
 from backend.composition.daemon_mode import DaemonServer, build_daemon_executor
 from backend.control_client import HttpControlPlaneClient
@@ -45,6 +47,7 @@ from backend.dataplane.http_channel import DaemonTaskLoop, HttpTaskChannel, Http
 from backend.dataplane.project_links import ProjectLinks
 from backend.dataplane.remote_view import HttpControlPlaneView
 from backend.execution.backends.fake import FakeSandboxBackend
+from backend.services.identity import AuthService
 from backend.http_server import _bind_socket
 from backend.state import StateStore
 from backend.state.blobs import LocalDirBlobStore
@@ -284,6 +287,88 @@ class _HttpServerThread:
         self._uv.should_exit = True
         self._thread.join(timeout=5.0)
         self._sock.close()
+
+
+class AuthenticatedSplitProxyTest(unittest.TestCase):
+    def setUp(self) -> None:
+        self.tmp = tempfile.TemporaryDirectory()
+        root = Path(self.tmp.name)
+        self.repo = root / "checkout"
+        self.repo.mkdir(parents=True)
+        self.cloud_app = ResearchPluginApp(
+            repo_root=root / "cloud-staging",
+            db_path=root / "cloud" / "state.sqlite",
+            execution_backend=FakeSandboxBackend(),
+            rsync_syncer=FakeRsyncSyncer(),
+        )
+        self.auth = AuthService(store=self.cloud_app.store)
+        self.token = self.auth.mint_token(tenant_id="acme")
+
+        from backend.http_api import create_fastapi_app
+
+        cloud_fastapi = create_fastapi_app(app=self.cloud_app, auth=self.auth)
+        self.cloud_client = TestClient(cloud_fastapi, raise_server_exceptions=False)
+        self.cloud = _HttpServerThread(fastapi_app=cloud_fastapi)
+        self.proxy = HttpProxyMcpServer(
+            config=ProxyConfig(
+                repo_root=self.repo,
+                daemon_url=None,
+                control_url=self.cloud.url,
+                token=self.token,
+            )
+        )
+
+    def tearDown(self) -> None:
+        self.cloud.stop()
+        self.cloud_app.shutdown()
+        self.tmp.cleanup()
+
+    def _call(self, tool: str, **arguments) -> dict:
+        response = self.proxy.handle(
+            {
+                "jsonrpc": "2.0",
+                "id": 1,
+                "method": "tools/call",
+                "params": {"name": tool, "arguments": arguments},
+            }
+        )
+        self.assertNotIn("error", response, response)
+        result = response["result"]
+        self.assertFalse(result.get("isError"), result.get("structuredContent"))
+        return result["structuredContent"]
+
+    def test_authenticated_proxy_sends_project_id_not_repo_context(self) -> None:
+        project = self._call("project.create", name="Auth Split")
+        captured: list[dict] = []
+        original = self.proxy._http_post
+
+        def _recording_post(**kwargs):  # noqa: ANN003
+            if kwargs.get("is_cloud") and str(kwargs.get("url", "")).endswith("/mcp/call"):
+                captured.append(dict(kwargs.get("payload") or {}))
+            return original(**kwargs)
+
+        self.proxy._http_post = _recording_post
+        try:
+            listed = self._call("claim.list", project_id=project["id"])
+        finally:
+            self.proxy._http_post = original
+
+        self.assertEqual(listed["claims"], [])
+        self.assertTrue(captured)
+        self.assertEqual(captured[-1]["arguments"]["project_id"], project["id"])
+        self.assertNotIn("context", captured[-1])
+
+        bad = self.cloud_client.post(
+            "/mcp/call",
+            json={
+                "name": "claim.list",
+                "arguments": {"project_id": project["id"]},
+                "context": {"repo_root": str(self.repo)},
+            },
+            headers={"Authorization": f"Bearer {self.token}"},
+        )
+        self.assertEqual(bad.status_code, 400, bad.text)
+        self.assertEqual(bad.json()["reason"], "repo_root_hidden_from_cloud")
 
 
 class SplitModeSmokeTest(unittest.TestCase):
