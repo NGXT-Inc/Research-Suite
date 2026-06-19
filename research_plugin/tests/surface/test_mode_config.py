@@ -174,6 +174,106 @@ class ControlModeAuthTest(unittest.TestCase):
         self.assertNotIn("repo_root", body)
         self.assertNotIn("store", body)
 
+    def test_hosted_project_list_and_paths_are_tenant_scoped(self) -> None:
+        acme = self.client.post(
+            "/api/projects",
+            json={"name": "Acme Visible"},
+            headers={"Authorization": f"Bearer {self.token}"},
+        )
+        self.assertEqual(acme.status_code, 201, acme.text)
+        other = self.app.projects.create(name="Other Hidden", tenant_id="other")
+
+        listed = self.client.get(
+            "/api/projects",
+            headers={"Authorization": f"Bearer {self.token}"},
+        )
+        self.assertEqual(listed.status_code, 200, listed.text)
+        self.assertEqual(
+            [project["id"] for project in listed.json()["projects"]],
+            [acme.json()["id"]],
+        )
+
+        denied = self.client.get(
+            f"/api/projects/{other['id']}",
+            headers={"Authorization": f"Bearer {self.token}"},
+        )
+        self.assertEqual(denied.status_code, 404, denied.text)
+
+        allowed = self.client.get(
+            f"/api/projects/{other['id']}",
+            headers={"Authorization": f"Bearer {self.other_token}"},
+        )
+        self.assertEqual(allowed.status_code, 200, allowed.text)
+        self.assertEqual(allowed.json()["id"], other["id"])
+
+    def test_hosted_debug_tool_calls_are_tenant_scoped_and_redacted(self) -> None:
+        acme = self.client.post(
+            "/api/projects",
+            json={"name": "Acme Debug"},
+            headers={"Authorization": f"Bearer {self.token}"},
+        )
+        self.assertEqual(acme.status_code, 201, acme.text)
+        acme_id = acme.json()["id"]
+        other = self.app.projects.create(name="Other Debug", tenant_id="other")
+        self.app.tool_calls.record(
+            tool="review.request",
+            source="http",
+            status="ok",
+            duration_ms=1,
+            arguments={
+                "project_id": acme_id,
+                "repo_root": str(self.repo),
+                "reviewer_capability": "rp_arg",
+                "nested": {"capability": "rp_nested"},
+            },
+            result={
+                "reviewer_capability": "rp_result",
+                "local_sync_dir": "/tmp/sync",
+                "nested": {"capability": "rp_result_nested"},
+            },
+        )
+        self.app.tool_calls.record(
+            tool="claim.list",
+            source="http",
+            status="ok",
+            duration_ms=1,
+            arguments={"project_id": other["id"]},
+            result={"claims": []},
+        )
+
+        headers = {"Authorization": f"Bearer {self.token}"}
+        stats = self.client.get("/api/debug/tool-calls", headers=headers)
+        self.assertEqual(stats.status_code, 200, stats.text)
+        self.assertEqual(stats.json()["totals"]["calls"], 1)
+        self.assertEqual(stats.json()["calls"][0]["project_id"], acme_id)
+        acme_call_id = stats.json()["calls"][0]["id"]
+        other_call_id = self.app.tool_calls.stats(project_id=other["id"])["calls"][0]["id"]
+
+        detail = self.client.get(
+            f"/api/debug/tool-calls/{acme_call_id}",
+            headers=headers,
+        )
+        self.assertEqual(detail.status_code, 200, detail.text)
+        body = detail.json()
+        self.assertNoLocalDataPlaneFields(body)
+        self.assertEqual(body["args"]["reviewer_capability"], "[redacted]")
+        self.assertEqual(body["args"]["nested"]["capability"], "[redacted]")
+        self.assertEqual(body["result"]["reviewer_capability"], "[redacted]")
+        self.assertEqual(body["result"]["nested"]["capability"], "[redacted]")
+
+        denied = self.client.get(
+            f"/api/debug/tool-calls/{other_call_id}",
+            headers=headers,
+        )
+        self.assertEqual(denied.status_code, 404, denied.text)
+
+        cleared = self.client.post("/api/debug/tool-calls/clear", headers=headers)
+        self.assertEqual(cleared.status_code, 200, cleared.text)
+        self.assertEqual(cleared.json()["cleared"], 1)
+        remaining = self.app.tool_calls.stats()
+        self.assertEqual(remaining["totals"]["calls"], 1)
+        self.assertEqual(remaining["calls"][0]["project_id"], other["id"])
+
     def test_cors_allows_spa_request_headers(self) -> None:
         resp = self.client.options(
             "/api/projects",

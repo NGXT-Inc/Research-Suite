@@ -77,14 +77,11 @@ class ToolCallStore:
         if not self.enabled:
             return
         try:
-            # Redact bearer secrets before they hit disk (cloud plan Phase 7):
-            # this store keeps FULL arguments, so a reviewer capability passed to
-            # review.start would otherwise sit in plaintext in tool_calls.sqlite.
-            # Top-level keys only — the sensitive args are top-level fields.
-            arguments = {
-                key: ("[redacted]" if key in SENSITIVE_KEYS else value)
-                for key, value in arguments.items()
-            }
+            # Redact bearer-like secrets before they hit disk (cloud plan Phase
+            # 7). This store keeps full I/O, so review.request results and
+            # review.start args would otherwise persist one-time capabilities.
+            arguments = _redact_sensitive(arguments)
+            result = _redact_sensitive(result)
             # Derive scope + entity target from the args so the UI can render a
             # project-scoped feed and an entity chip without re-parsing payloads.
             project_id = str(arguments.get("project_id") or "") if isinstance(arguments, dict) else ""
@@ -148,6 +145,7 @@ class ToolCallStore:
         status: str | None = None,
         tool: str | None = None,
         project_id: str | None = None,
+        project_ids: set[str] | list[str] | tuple[str, ...] | None = None,
         limit: int = 200,
         sort: str = "ts",
         order: str = "desc",
@@ -176,7 +174,12 @@ class ToolCallStore:
             return base
 
         where, params = self._build_where(
-            minutes=minutes, source=source, status=status, tool=tool, project_id=project_id
+            minutes=minutes,
+            source=source,
+            status=status,
+            tool=tool,
+            project_id=project_id,
+            project_ids=project_ids,
         )
         # Coverage describes ring eviction for THIS view's universe. The ring is
         # a single global capacity, so fullness is judged on the whole ring
@@ -184,12 +187,18 @@ class ToolCallStore:
         # check use the source+project-scoped rows (`scoped`) so a scoped view
         # does not report the all-source/all-project ring total.
         src_where, src_params = self._build_where(
-            minutes=None, source=source, status=None, tool=None, project_id=project_id
+            minutes=None,
+            source=source,
+            status=None,
+            tool=None,
+            project_id=project_id,
+            project_ids=project_ids,
         )
         with self._lock, self._db() as conn:
             rows = conn.execute(
                 f"SELECT id, ts, tool, source, status, duration_ms, sent_chars, "
-                f"received_chars, error_code, target_type, target_id FROM tool_calls{where}",
+                f"received_chars, error_code, project_id, target_type, target_id "
+                f"FROM tool_calls{where}",
                 params,
             ).fetchall()
             ring = conn.execute("SELECT COUNT(*) AS n FROM tool_calls").fetchone()
@@ -232,12 +241,30 @@ class ToolCallStore:
             "filter": {"minutes": minutes, "source": source, "status": status, "tool": tool},
         }
 
-    def get(self, *, call_id: int) -> dict[str, Any] | None:
+    def get(
+        self,
+        *,
+        call_id: int,
+        project_ids: set[str] | list[str] | tuple[str, ...] | None = None,
+    ) -> dict[str, Any] | None:
         """Return one call's full record, with args/result parsed back to JSON."""
         if not self.enabled or not self.db_path.exists():
             return None
+        if project_ids is not None:
+            allowed = {str(pid) for pid in project_ids if str(pid)}
+            if not allowed:
+                return None
+            placeholders = ", ".join("?" for _ in allowed)
+            query = (
+                "SELECT * FROM tool_calls WHERE id = ? "
+                f"AND project_id IN ({placeholders})"
+            )
+            params: tuple[Any, ...] = (call_id, *sorted(allowed))
+        else:
+            query = "SELECT * FROM tool_calls WHERE id = ?"
+            params = (call_id,)
         with self._lock, self._db() as conn:
-            row = conn.execute("SELECT * FROM tool_calls WHERE id = ?", (call_id,)).fetchone()
+            row = conn.execute(query, params).fetchone()
         if row is None:
             return None
         record = dict(row)
@@ -251,13 +278,29 @@ class ToolCallStore:
         record["result_truncated"] = bool(record.get("result_truncated"))
         return record
 
-    def clear(self) -> dict[str, Any]:
+    def clear(
+        self,
+        *,
+        project_ids: set[str] | list[str] | tuple[str, ...] | None = None,
+    ) -> dict[str, Any]:
         """Drop all recorded calls. Returns how many were removed."""
         if not self.enabled or not self.db_path.exists():
             return {"cleared": 0}
+        if project_ids is not None:
+            allowed = {str(pid) for pid in project_ids if str(pid)}
+            if not allowed:
+                return {"cleared": 0}
+            placeholders = ", ".join("?" for _ in allowed)
+            where = f" WHERE project_id IN ({placeholders})"
+            params: tuple[Any, ...] = tuple(sorted(allowed))
+        else:
+            where = ""
+            params = ()
         with self._lock, self._db() as conn:
-            before = conn.execute("SELECT COUNT(*) AS n FROM tool_calls").fetchone()["n"]
-            conn.execute("DELETE FROM tool_calls")
+            before = conn.execute(
+                f"SELECT COUNT(*) AS n FROM tool_calls{where}", params
+            ).fetchone()["n"]
+            conn.execute(f"DELETE FROM tool_calls{where}", params)
         return {"cleared": before}
 
     # ---------- internals ----------
@@ -370,6 +413,7 @@ class ToolCallStore:
         status: str | None,
         tool: str | None,
         project_id: str | None = None,
+        project_ids: set[str] | list[str] | tuple[str, ...] | None = None,
     ) -> tuple[str, list[Any]]:
         clauses: list[str] = []
         params: list[Any] = []
@@ -380,6 +424,13 @@ class ToolCallStore:
         if project_id:
             clauses.append("project_id = ?")
             params.append(project_id)
+        elif project_ids is not None:
+            allowed = sorted({str(pid) for pid in project_ids if str(pid)})
+            if allowed:
+                clauses.append(f"project_id IN ({', '.join('?' for _ in allowed)})")
+                params.extend(allowed)
+            else:
+                clauses.append("1 = 0")
         if source and source != "all":
             clauses.append("source = ?")
             params.append(source)
@@ -479,3 +530,16 @@ def _safe_load(text: str) -> Any:
         return json.loads(text)
     except (TypeError, ValueError):
         return text
+
+
+def _redact_sensitive(value: Any) -> Any:
+    if isinstance(value, dict):
+        return {
+            key: "[redacted]" if key in SENSITIVE_KEYS else _redact_sensitive(item)
+            for key, item in value.items()
+        }
+    if isinstance(value, list):
+        return [_redact_sensitive(item) for item in value]
+    if isinstance(value, tuple):
+        return tuple(_redact_sensitive(item) for item in value)
+    return value

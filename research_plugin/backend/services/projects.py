@@ -105,10 +105,16 @@ class ProjectService:
         finally:
             conn.close()
 
-    def list_projects(self) -> dict[str, Any]:
+    def list_projects(self, *, tenant_id: str | None = None) -> dict[str, Any]:
         conn = self.store.connect()
         try:
-            rows = conn.execute("SELECT * FROM projects ORDER BY created_at").fetchall()
+            if tenant_id is None:
+                rows = conn.execute("SELECT * FROM projects ORDER BY created_at").fetchall()
+            else:
+                rows = conn.execute(
+                    "SELECT * FROM projects WHERE tenant_id = ? ORDER BY created_at",
+                    (tenant_id,),
+                ).fetchall()
             return {"projects": [self._project_view(row=row) for row in rows]}
         finally:
             conn.close()

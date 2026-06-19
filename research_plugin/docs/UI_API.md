@@ -186,6 +186,12 @@ fields stay exact). `by_tool` is sorted by `received_chars` descending — the
 worst context offenders first. `coverage.capped` is true when the requested
 window may extend past calls already evicted from the ring.
 
+In hosted control mode the debug surface is tenant-scoped: list/detail/clear
+only see calls for projects owned by the authenticated principal. Capability-like
+fields (`reviewer_capability`, `capability`) are redacted before persistence,
+and hosted responses strip local data-plane fields such as `repo_root` and
+`local_sync_dir`.
+
 ## Projects
 
 ```http

@@ -85,6 +85,50 @@ class ToolCallStoreTest(unittest.TestCase):
         self.assertEqual(self.store.stats(source="http")["totals"]["calls"], 1)
         self.assertEqual(self.store.stats(status="error")["totals"]["calls"], 1)
 
+    def test_project_allow_list_filters_stats_get_and_clear(self) -> None:
+        self.store.record(
+            tool="claim.list", source="http", status="ok", duration_ms=1,
+            arguments={"project_id": "p1"}, result={"claims": []},
+        )
+        self.store.record(
+            tool="claim.list", source="http", status="ok", duration_ms=1,
+            arguments={"project_id": "p2"}, result={"claims": []},
+        )
+
+        stats = self.store.stats(project_ids={"p1"})
+        self.assertEqual(stats["totals"]["calls"], 1)
+        self.assertEqual(stats["calls"][0]["project_id"], "p1")
+        p2_call = self.store.stats(project_id="p2")["calls"][0]
+        self.assertIsNone(
+            self.store.get(call_id=p2_call["id"], project_ids={"p1"})
+        )
+
+        cleared = self.store.clear(project_ids={"p1"})
+        self.assertEqual(cleared["cleared"], 1)
+        remaining = self.store.stats()
+        self.assertEqual(remaining["totals"]["calls"], 1)
+        self.assertEqual(remaining["calls"][0]["project_id"], "p2")
+
+    def test_sensitive_keys_redacted_in_args_and_result(self) -> None:
+        self.store.record(
+            tool="review.request", source="mcp", status="ok", duration_ms=1,
+            arguments={
+                "project_id": "p",
+                "reviewer_capability": "rp_arg",
+                "nested": {"capability": "rp_nested"},
+            },
+            result={
+                "reviewer_capability": "rp_result",
+                "nested": {"capability": "rp_result_nested"},
+            },
+        )
+
+        detail = self.store.get(call_id=self.store.stats()["calls"][0]["id"])
+        self.assertEqual(detail["args"]["reviewer_capability"], "[redacted]")
+        self.assertEqual(detail["args"]["nested"]["capability"], "[redacted]")
+        self.assertEqual(detail["result"]["reviewer_capability"], "[redacted]")
+        self.assertEqual(detail["result"]["nested"]["capability"], "[redacted]")
+
     def test_sort_calls(self) -> None:
         self._seed()
         desc = self.store.stats(sort="received_chars", order="desc")["calls"]

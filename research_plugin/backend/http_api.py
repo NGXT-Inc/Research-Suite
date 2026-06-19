@@ -58,6 +58,13 @@ def _control_mode() -> bool:
 JsonBody = dict[str, Any] | None
 
 
+def _project_id_from_api_path(path: str) -> str | None:
+    parts = path.strip("/").split("/")
+    if len(parts) >= 3 and parts[0] == "api" and parts[1] == "projects":
+        return parts[2] or None
+    return None
+
+
 def _required_text(payload: dict[str, Any], key: str) -> str:
     value = payload.get(key)
     if value is None or str(value) == "":
@@ -191,6 +198,7 @@ class ResearchHttpApi:
         status: str | None,
         tool: str | None,
         project_id: str | None,
+        project_ids: set[str] | list[str] | tuple[str, ...] | None = None,
         limit: int,
         sort: str,
         order: str,
@@ -201,19 +209,29 @@ class ResearchHttpApi:
             status=status,
             tool=tool,
             project_id=project_id,
+            project_ids=project_ids,
             limit=limit,
             sort=sort,
             order=order,
         )
 
-    def tool_call_detail(self, call_id: int) -> dict[str, Any]:
-        record = self.app.tool_calls.get(call_id=call_id)
+    def tool_call_detail(
+        self,
+        call_id: int,
+        *,
+        project_ids: set[str] | list[str] | tuple[str, ...] | None = None,
+    ) -> dict[str, Any]:
+        record = self.app.tool_calls.get(call_id=call_id, project_ids=project_ids)
         if record is None:
             raise NotFoundError(f"tool call not found: {call_id}")
-        return record
+        return self._present(record)
 
-    def tool_calls_clear(self) -> dict[str, Any]:
-        return self.app.tool_calls.clear()
+    def tool_calls_clear(
+        self,
+        *,
+        project_ids: set[str] | list[str] | tuple[str, ...] | None = None,
+    ) -> dict[str, Any]:
+        return self.app.tool_calls.clear(project_ids=project_ids)
 
     def home(self, project_id: str) -> dict[str, Any]:
         # The UI needs the rich shape (project-wide claims/experiments); the
@@ -1170,6 +1188,45 @@ def create_fastapi_app(
                 )
         return target
 
+    def require_http_project(request: Request, project_id: str) -> ResearchHttpApi:
+        target = api_for_project(project_id)
+        if auth_required:
+            principal = getattr(request.state, "principal", LOCAL_PRINCIPAL)
+            with target.app.store.transaction() as conn:
+                target.app.store.require_project_id(
+                    conn=conn,
+                    project_id=project_id,
+                    tenant_id=getattr(principal, "tenant_id", "") or "",
+                )
+        return target
+
+    def visible_project_ids(principal: Any) -> set[str]:
+        if not auth_required:
+            return set()
+        target = default_api()
+        if target is None:
+            return set()
+        conn = target.app.store.connect()
+        try:
+            rows = conn.execute(
+                "SELECT id FROM projects WHERE tenant_id = ?",
+                (getattr(principal, "tenant_id", "") or "",),
+            ).fetchall()
+            return {str(row["id"]) for row in rows}
+        finally:
+            conn.close()
+
+    def scoped_debug_project_ids(request: Request, project_id: str | None) -> set[str] | None:
+        if not auth_required:
+            return None
+        principal = getattr(request.state, "principal", LOCAL_PRINCIPAL)
+        allowed = visible_project_ids(principal)
+        if project_id:
+            if project_id not in allowed:
+                raise NotFoundError(f"project not found: {project_id}")
+            return {project_id}
+        return allowed
+
     http = FastAPI(title="Research Plugin API", version=__version__)
     # CORS (cloud plan Phase 7): local mode keeps the wide-open `*` policy
     # (loopback-only, auth off) — unchanged. Control mode uses an explicit
@@ -1247,6 +1304,16 @@ def create_fastapi_app(
                 {"detail": str(exc), "error_code": "unauthorized"},
                 status_code=401,
             )
+        project_id = _project_id_from_api_path(request.url.path)
+        if project_id is not None:
+            try:
+                require_http_project(request=request, project_id=project_id)
+            except ResearchPluginError as exc:
+                status = 404 if isinstance(exc, NotFoundError) else 400
+                return JSONResponse(
+                    {"detail": exc.message, "error_code": exc.error_code, **exc.details},
+                    status_code=status,
+                )
         return await call_next(request)
 
     @http.middleware("http")
@@ -1340,6 +1407,7 @@ def create_fastapi_app(
     # mode keeps them open on loopback, unchanged.
     @http.get("/api/debug/tool-calls")
     def tool_call_stats(
+        request: Request,
         minutes: int | None = Query(None, ge=1),
         source: str | None = None,
         status: str | None = None,
@@ -1361,29 +1429,42 @@ def create_fastapi_app(
                 "filter": {"minutes": minutes, "source": source, "status": status, "tool": tool, "project_id": project_id},
             }
         return target.tool_call_stats(
-            minutes=minutes, source=source, status=status, tool=tool, project_id=project_id,
+            minutes=minutes,
+            source=source,
+            status=status,
+            tool=tool,
+            project_id=project_id,
+            project_ids=scoped_debug_project_ids(request, project_id),
             limit=limit, sort=sort, order=order,
         )
 
     @http.get("/api/debug/tool-calls/{call_id}")
-    def tool_call_detail(call_id: int) -> dict[str, Any]:
+    def tool_call_detail(call_id: int, request: Request) -> dict[str, Any]:
         target = default_api()
         if target is None:
             raise NotFoundError("no project instantiated yet")
-        return target.tool_call_detail(call_id=call_id)
+        return target.tool_call_detail(
+            call_id=call_id,
+            project_ids=scoped_debug_project_ids(request, None),
+        )
 
     @http.post("/api/debug/tool-calls/clear")
-    def tool_calls_clear() -> dict[str, Any]:
+    def tool_calls_clear(request: Request) -> dict[str, Any]:
         target = default_api()
         if target is None:
             return {"cleared": 0}
-        return target.tool_calls_clear()
+        return target.tool_calls_clear(project_ids=scoped_debug_project_ids(request, None))
 
     @http.get("/api/projects")
-    def list_projects() -> dict[str, Any]:
+    def list_projects(request: Request) -> dict[str, Any]:
         if router is not None:
             return router.list_projects()
         assert api is not None
+        if auth_required:
+            principal = getattr(request.state, "principal", LOCAL_PRINCIPAL)
+            return api.app.projects.list_projects(
+                tenant_id=getattr(principal, "tenant_id", "") or ""
+            )
         return api.call_tool(name="project.list", arguments={})
 
     @http.post("/api/projects", status_code=201)
