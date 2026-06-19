@@ -275,10 +275,55 @@ class ControlModeAuthTest(unittest.TestCase):
         self.assertEqual(sandboxes.status_code, 200, sandboxes.text)
         home = self.client.get(f"/api/projects/{project_id}/home", headers=headers)
         self.assertEqual(home.status_code, 200, home.text)
+        project_status = self.client.get(
+            f"/api/projects/{project_id}/status", headers=headers
+        )
+        self.assertEqual(project_status.status_code, 200, project_status.text)
+        experiment_status = self.client.get(
+            f"/api/projects/{project_id}/experiments/{exp_id}/status",
+            headers=headers,
+        )
+        self.assertEqual(experiment_status.status_code, 200, experiment_status.text)
+        release = self.client.post(
+            f"/api/projects/{project_id}/experiments/{exp_id}/sandbox/release",
+            headers=headers,
+        )
+        self.assertEqual(release.status_code, 200, release.text)
+        self.app.sandboxes.registry.upsert(
+            experiment_id=exp_id,
+            project_id=project_id,
+            sandbox_id="sb-hosted-view-2",
+            status="running",
+            ssh_host="h",
+            ssh_port=22,
+            ssh_user="root",
+            sync_dir="/workspace/exp-view",
+            workdir="/workspace/exp-view",
+            expires_at="2999-01-01T00:00:00Z",
+        )
+        mcp_release = self.client.post(
+            "/mcp/call",
+            json={
+                "name": "sandbox.release",
+                "arguments": {"project_id": project_id, "experiment_id": exp_id},
+            },
+            headers=headers,
+        )
+        self.assertEqual(mcp_release.status_code, 200, mcp_release.text)
+        activity = self.client.get(
+            f"/api/activity?project_id={project_id}", headers=headers
+        )
+        self.assertEqual(activity.status_code, 200, activity.text)
 
         self.assertNoLocalDataPlaneFields(sandbox.json())
         self.assertNoLocalDataPlaneFields(sandboxes.json())
         self.assertNoLocalDataPlaneFields(home.json())
+        self.assertNoLocalDataPlaneFields(project_status.json())
+        self.assertNoLocalDataPlaneFields(experiment_status.json())
+        self.assertNoLocalDataPlaneFields(release.json())
+        self.assertNoLocalDataPlaneFields(mcp_release.json())
+        self.assertNoLocalDataPlaneFields(activity.json())
+        self.assertNotIn("activity_log", activity.json())
 
     def test_daemon_resource_endpoint_requires_daemon_token(self) -> None:
         from backend.dataplane.http_channel import HttpTaskQueue

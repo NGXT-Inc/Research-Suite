@@ -174,12 +174,14 @@ class ResearchHttpApi:
                 return pid in (None, project_id)
 
             events = [ev for ev in events if _belongs(ev)]
-        return {
-            "activity_log": str(self.app.activity.log_path),
+        payload = {
             "filter": {key: value for key, value in (("source", source), ("project_id", project_id)) if value},
             "events": events,
             "summary": result["summary"],
         }
+        if self.expose_local_data_plane:
+            payload["activity_log"] = str(self.app.activity.log_path)
+        return payload
 
     def tool_call_stats(
         self,
@@ -1073,10 +1075,12 @@ def create_fastapi_app(
                     project_id=request.project_id,
                     tenant_id=getattr(principal, "tenant_id", "") or "",
                 )
-            return target.app.sandboxes.release(
-                experiment_id=request.experiment_id,
-                project_id=request.project_id,
-                skip_final_pull=True,
+            return target._present(
+                target.app.sandboxes.release(
+                    experiment_id=request.experiment_id,
+                    project_id=request.project_id,
+                    skip_final_pull=True,
+                )
             )
         if router is not None:
             return router.call_tool(
@@ -1412,7 +1416,12 @@ def create_fastapi_app(
     @http.get("/api/projects/{project_id}/status")
     def project_status(project_id: str, experiment_id: str | None = None) -> dict[str, Any]:
         # Full shape for the UI (see home()); the tool stays slim for the agent.
-        return api_for_project(project_id).app.workflow.status_and_next(project_id=project_id, experiment_id=experiment_id)
+        target = api_for_project(project_id)
+        return target._present(
+            target.app.workflow.status_and_next(
+                project_id=project_id, experiment_id=experiment_id
+            )
+        )
 
     @http.get("/api/projects/{project_id}/claims")
     def list_claims(project_id: str) -> dict[str, Any]:
@@ -1451,7 +1460,12 @@ def create_fastapi_app(
     @http.get("/api/projects/{project_id}/experiments/{experiment_id}/status")
     def experiment_status(project_id: str, experiment_id: str) -> dict[str, Any]:
         # Full shape for the UI (see home()); the tool stays slim for the agent.
-        return api_for_project(project_id).app.workflow.status_and_next(project_id=project_id, experiment_id=experiment_id)
+        target = api_for_project(project_id)
+        return target._present(
+            target.app.workflow.status_and_next(
+                project_id=project_id, experiment_id=experiment_id
+            )
+        )
 
     @http.get("/api/projects/{project_id}/experiments/{experiment_id}/figure")
     def experiment_figure(project_id: str, experiment_id: str) -> dict[str, Any]:
