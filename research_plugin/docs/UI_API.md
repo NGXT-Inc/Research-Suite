@@ -565,9 +565,11 @@ live). The regular sync excludes common heavy files and limits file size;
 large-artifact exception path. Everything outside the experiment folder (e.g.
 `/workspace/data` for datasets, caches, checkpoints) stays remote and is never
 synced. Sandbox telemetry (mlflow.db, TensorBoard events, transcript) is pulled
-separately into `.research_plugin/sessions/<experiment_id>/<sandbox_id>/`. The
-release endpoint runs a final best-effort sync, then terminates the sandbox and
-returns the updated row.
+separately into `.research_plugin/sessions/<experiment_id>/<sandbox_id>/`. Use
+the sync endpoint for the deliberate data-plane file handoff before release. In
+hosted control mode, the release endpoint terminates the sandbox without local
+final-pull rsync and returns `final_pull_skipped: true`; local/reaper paths may
+still attempt a best-effort final pull before termination.
 
 Lambda Labs is the **default** backend (`RESEARCH_PLUGIN_EXECUTION_BACKEND`
 unset or `lambda_labs`): sandbox procurement launches a Lambda Labs VM with SSH

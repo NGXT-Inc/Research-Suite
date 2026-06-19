@@ -414,8 +414,9 @@ rest; the cloud edge never receives a filesystem path; quota schema ready for en
 paths inert without `RESEARCH_PLUGIN_CONTROL_URL`.
 **Exit (split-mode beta):** the contract suite passes over both wirings with identical results; a real
 split smoke (control on a VM, daemon on a laptop) completes the full loop — create → plan submit → design
-review → sandbox request/push → sync under lease → results/report/figures → review → release with final
-pull; killing the daemon mid-run exercises the parachute end-to-end.
+review → sandbox request/push → sync under lease → results/report/figures → review → release; deliberate
+file handoff happens via `sandbox.sync`, while hosted release is control-plane termination without local
+final-pull rsync. Killing the daemon mid-run exercises the parachute/reaper final-pull path end-to-end.
 
 ### Phase 9 — Cloud productionization + GA
 

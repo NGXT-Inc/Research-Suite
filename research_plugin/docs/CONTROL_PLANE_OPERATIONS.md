@@ -94,9 +94,12 @@ interval; the sweeps are the broader periodic housekeeping.
 Result-role `/content` and figure `/file?rel=` return a documented
 `content_unavailable` shape in control mode (the bytes live only on an offline
 daemon, or are metadata-only — fixed decision 6) rather than a 500. `sandbox.sync`
-surfaces a `daemon_unreachable` reason on a task timeout; `sandbox.release` flags
-`daemon_unreachable` when the final pull failed (it still frees billing). The
-React SPA renders these states — that repoint is separate from the backend.
+surfaces a `daemon_unreachable` reason on a task timeout. Hosted browser/MCP
+`sandbox.release` is a lifecycle action only: it terminates without local
+final-pull rsync and returns `final_pull_skipped`. Reaper/local release paths may
+still attempt a best-effort final pull; failures flag `daemon_unreachable` while
+still freeing billing. The React SPA renders these states — that repoint is
+separate from the backend.
 
 ## Poll amplification
 

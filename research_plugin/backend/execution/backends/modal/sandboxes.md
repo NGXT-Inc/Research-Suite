@@ -121,8 +121,11 @@ missing package or port collision loses observability for the run, never SSH.
 
 ## Shutdown / status
 
-- `sandbox.release(project_id, experiment_id)` attempts a final rsync, then
-  terminates the Modal sandbox and marks the row `terminated`.
+- `sandbox.sync(project_id, experiment_id)` is the deliberate data-plane rsync
+  handoff. `sandbox.release(project_id, experiment_id)` terminates the Modal
+  sandbox and marks the row `terminated`; hosted browser/MCP release skips local
+  final-pull rsync and returns `final_pull_skipped`, while local/reaper release
+  paths may still attempt a best-effort final pull before termination.
 - `time_limit` is the Modal sandbox `timeout`; Modal reaps the container when it
   elapses. `sandbox.get` refreshes liveness and reconciles the row to
   `terminated` when Modal says the sandbox is gone.
@@ -137,7 +140,7 @@ missing package or port collision loses observability for the run, never SSH.
 | `sandbox.get` | Current sandbox status + SSH details for the experiment. |
 | `sandbox.sync` | Mirror `$RP_EXPERIMENT_DIR` back to the local experiment folder with SSH rsync. |
 | `sandbox.list` | All experiment sandboxes in the project. |
-| `sandbox.release` | Final best-effort sync, then terminate the experiment's sandbox. |
+| `sandbox.release` | Terminate the experiment's sandbox; run `sandbox.sync` first for deliberate file handoff. |
 | `sandbox.terminal` | Read the experiment's terminal transcript tail. |
 | `sandbox.health` | Is the execution backend reachable. |
 
