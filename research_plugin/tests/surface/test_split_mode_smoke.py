@@ -15,14 +15,13 @@ Asserts: the cloud holds the records + blobs; the daemon moved the bytes
 (rsync ran on the daemon worker); repo_root NEVER reached the cloud; killing
 the daemon mid-run exercises the parachute (FakeSandboxBackend parachute path).
 
-Wiring choice (documented per the plan's allowance): the daemon and the cloud
-share one record store + blob store, so the cross-process record-FORWARDING
-seam (resource_submit_artifact, Phase 9) is stubbed by a shared store — but the
-CONTROL calls and the TASK CHANNEL genuinely cross the HTTP boundary (the cloud
-is a separate uvicorn process-boundary the proxy dials; the daemon long-polls
-it). This is the in-process two-app wiring the plan explicitly accepts when a
-true multi-process test would be flaky, and it still proves the seam: dual
-routing, identity stripping, the HTTP handshake, and the parachute.
+Wiring choice (documented per the plan's allowance): the daemon and cloud share
+one record store + blob store, while resource observations still cross daemon
+loopback → daemon server → control HTTP endpoints. The CONTROL calls and TASK
+CHANNEL also cross the HTTP boundary (the cloud is a separate uvicorn
+process-boundary the proxy dials; the daemon long-polls it). This in-process
+two-app wiring keeps the test stable while proving the routing, identity
+stripping, HTTP handshake, resource byte submission, and parachute seams.
 
 Docker is not required (the backend is FakeSandboxBackend); the test skips only
 if uvicorn cannot bind.
@@ -37,7 +36,7 @@ import unittest
 from pathlib import Path
 
 from backend.app import ResearchPluginApp
-from backend.composition.daemon_mode import build_daemon_executor
+from backend.composition.daemon_mode import DaemonServer, build_daemon_executor
 from backend.control_client import HttpControlPlaneClient
 from backend.daemon_loopback import create_daemon_loopback_app
 from backend.dataplane import LocalDataPlaneWorker
@@ -151,15 +150,13 @@ class SplitModeSmokeTest(unittest.TestCase):
 
         # Daemon loopback for the proxy's data-plane calls + /local/route.
         self.links = ProjectLinks(db_path=root / "daemon" / "links.sqlite")
-        # Data-plane tool calls execute against an app rooted at the CHECKOUT
-        # (the daemon's plane), sharing the cloud store/blobs.
-        self.daemon_app = ResearchPluginApp(
-            repo_root=self.repo,
-            db_path=root / "cloud" / "state.sqlite",
-            store=self.store,
-            blobs=self.blobs,
-            execution_backend=FakeSandboxBackend(),
-            rsync_syncer=self.daemon_rsync(),
+        self.daemon_server = DaemonServer(
+            worker=self.daemon_worker,
+            control=self.control_client,
+            task_loop=self.task_loop,
+            view=view,
+            project_links=self.links,
+            loopback_secret="smoke-secret",
         )
         self.daemon_loopback = self._daemon_loopback_server(root=root)
 
@@ -180,31 +177,32 @@ class SplitModeSmokeTest(unittest.TestCase):
         return FakeRsyncSyncer()
 
     def _daemon_loopback_server(self, *, root: Path):
-        # A loopback app that serves /local/route + /mcp/* (data tools against
-        # the checkout-rooted daemon app). The production loopback owns /mcp/call;
-        # this stub supplies the daemon's tool executor hook.
-        daemon_app = self.daemon_app
+        # A loopback app that serves /local/route + /mcp/*. Resource tools use
+        # the production DaemonServer implementation; sandbox tools stay on the
+        # cloud fake until the sandbox lifecycle split lands.
+        daemon_server = self.daemon_server
         links = self.links
         cloud_app = self.cloud_app
 
         class _Daemon:
-            loopback_secret = "smoke-secret"
+            loopback_secret = daemon_server.loopback_secret
             project_links = links
+            control = daemon_server.control
 
-            class control:
-                @staticmethod
-                def list_tools():
-                    return []
+            @staticmethod
+            def list_tools():
+                return daemon_server.list_tools()
 
             @staticmethod
             def call_tool(*, name: str, arguments: dict, context: dict):
-                del context
-                # Sandbox lifecycle/sync is owned by the CLOUD (it holds the
-                # backend + HttpTaskChannel that drives initial_push); resource.*
-                # reads bytes locally on the daemon app.
-                target = cloud_app if name.startswith("sandbox.") else daemon_app
-                return target.call_tool(
-                    name=name, arguments=arguments, activity_source="mcp"
+                # Sandbox lifecycle/sync is owned by the CLOUD fake here; the
+                # real resource data-plane path is exercised below.
+                if name.startswith("sandbox."):
+                    return cloud_app.call_tool(
+                        name=name, arguments=arguments, activity_source="mcp"
+                    )
+                return daemon_server.call_tool(
+                    name=name, arguments=arguments, context=context
                 )
 
         app = create_daemon_loopback_app(daemon=_Daemon())
@@ -214,7 +212,6 @@ class SplitModeSmokeTest(unittest.TestCase):
         self.task_loop.stop()
         self.cloud.stop()
         self.daemon_loopback.stop()
-        self.daemon_app.shutdown()
         self.cloud_app.shutdown()
         self.tmp.cleanup()
 
@@ -327,8 +324,7 @@ class SplitModeSmokeTest(unittest.TestCase):
                 for v in versions)
         )
         # The daemon (not the cloud) moved the bytes: its worker's rsync ran.
-        self.assertTrue(self.daemon_worker.rsync_syncer.calls or
-                        self.daemon_app.worker.rsync_syncer.calls)
+        self.assertTrue(self.daemon_worker.rsync_syncer.calls)
         # repo_root never reached the cloud: no cloud-side event payload carries
         # an absolute checkout path.
         events = self.cloud_app.store.connect().execute(

@@ -20,9 +20,8 @@ enough. A unix-socket bind is the Phase 9 upgrade.
 The data-plane tool EXECUTION (register_file/associate reading bytes locally and
 submitting to the cloud record half; request/sync driving the worker) is the
 cross-process record-forwarding seam the plan's section 3.1 names
-(resource_submit_artifact). The split-mode smoke exercises it through a
-shared-store two-app wiring; a true multi-process record-forwarding daemon is
-finished in Phase 9.
+(resource_submit_artifact). The production daemon implementation owns the
+resource half; sandbox lifecycle/sync remains the next split milestone.
 """
 
 from __future__ import annotations

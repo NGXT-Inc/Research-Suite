@@ -88,12 +88,47 @@ class ResourceService:
     ) -> dict[str, Any]:
         rel_path, file_path = self._resolve_repo_file(path=path)
         stat = file_path.stat()
-        observed_at = now_iso()
-        token = self._version_token(
+        return self.record_observation(
             path=rel_path,
+            kind=kind,
+            title=title,
+            created_by=created_by,
+            project_id=project_id,
             mtime_ns=stat.st_mtime_ns,
             ctime_ns=stat.st_ctime_ns,
             size_bytes=stat.st_size,
+            content_sha256=_content_sha256(file_path),
+            content_type=mimetypes.guess_type(rel_path)[0] or "application/octet-stream",
+        )
+
+    def record_observation(
+        self,
+        *,
+        path: str,
+        kind: str = "other",
+        title: str = "",
+        created_by: str = "codex",
+        project_id: str | None = None,
+        mtime_ns: int,
+        ctime_ns: int,
+        size_bytes: int,
+        content_sha256: str,
+        content_type: str = "application/octet-stream",
+    ) -> dict[str, Any]:
+        """Record a file observation supplied by the local data plane.
+
+        The control plane stores only repo-relative resource identity,
+        version metadata, and content hashes; the daemon owns local path
+        resolution and file reads.
+        """
+        rel_path = self._repo_relative_path(path=path)
+        self._validate_content_sha256(content_sha256)
+        observed_at = now_iso()
+        token = self._version_token(
+            path=rel_path,
+            mtime_ns=int(mtime_ns),
+            ctime_ns=int(ctime_ns),
+            size_bytes=int(size_bytes),
         )
         with self.store.transaction() as conn:
             project_id = self.store.require_project_id(conn=conn, project_id=project_id)
@@ -114,7 +149,7 @@ class ResourceService:
                         deleted = 0, updated_at = ?
                     WHERE id = ?
                     """,
-                    (kind, kind, title, token, stat.st_mtime_ns, stat.st_size, observed_at, observed_at, resource_id),
+                    (kind, kind, title, token, int(mtime_ns), int(size_bytes), observed_at, observed_at, resource_id),
                 )
                 event_type = "resource.observed"
             else:
@@ -135,8 +170,8 @@ class ResourceService:
                         kind,
                         title,
                         token,
-                        stat.st_mtime_ns,
-                        stat.st_size,
+                        int(mtime_ns),
+                        int(size_bytes),
                         observed_at,
                         self._git_commit_or_none(path=rel_path),
                         created_by,
@@ -145,13 +180,15 @@ class ResourceService:
                     ),
                 )
                 event_type = "resource.registered"
-            version = self._snapshot_version(
+            version = self._snapshot_version_record(
                 conn=conn,
                 resource_id=resource_id,
                 project_id=project_id,
                 rel_path=rel_path,
-                file_path=file_path,
-                stat=stat,
+                content_sha256=content_sha256,
+                size_bytes=int(size_bytes),
+                mtime_ns=int(mtime_ns),
+                content_type=content_type or "application/octet-stream",
                 observed_at=observed_at,
                 created_by=created_by,
             )
@@ -237,49 +274,70 @@ class ResourceService:
                 version_id=version_id,
                 project_id=project_id,
             )
-            target_project_id = self._ensure_target_exists(
-                conn=conn,
-                target_type=storage_target_type,
-                target_id=target_id,
-            )
-            if target_project_id is not None and target_project_id != project_id:
-                raise NotFoundError(f"{target_type} not found in project {project_id}: {target_id}")
-            attempt_index = self._association_attempt_index(
-                conn=conn,
-                target_type=storage_target_type,
-                target_id=target_id,
-            )
-            assoc_id = new_id(prefix="assoc")
-            conn.execute(
-                """
-                INSERT INTO resource_associations
-                  (id, resource_id, version_id, target_type, target_id, role, attempt_index, created_at, created_seq)
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
-                ON CONFLICT(resource_id, target_type, target_id, role, attempt_index)
-                DO UPDATE SET version_id = excluded.version_id, created_at = excluded.created_at
-                """,
-                (
-                    assoc_id,
-                    resource_id,
-                    version_id,
-                    storage_target_type,
-                    target_id,
-                    role,
-                    attempt_index,
-                    now_iso(),
-                    # An upsert keeps the original created_seq (rowid parity).
-                    next_created_seq(conn=conn, table="resource_associations"),
-                ),
-            )
-            self.store.record_event(
+            return self._associate_version(
                 conn=conn,
                 project_id=project_id,
-                event_type="resource.associated",
-                target_type=storage_target_type,
+                resource_id=resource_id,
+                version_id=version_id,
+                storage_target_type=storage_target_type,
+                public_target_type=target_type,
                 target_id=target_id,
-                payload={"resource_id": resource_id, "version_id": version_id, "role": role, "attempt_index": attempt_index},
+                role=role,
             )
-            return self.resolve(resource_id=resource_id, conn=conn)
+
+    def associate_observed(
+        self,
+        *,
+        resource_id: str,
+        target_type: str,
+        target_id: str,
+        role: str,
+        project_id: str | None = None,
+        content_bytes: bytes | None = None,
+        figures: list[dict[str, Any]] | None = None,
+    ) -> dict[str, Any]:
+        """Associate the current observed version, with daemon-submitted bytes.
+
+        Hosted control cannot read the working tree. For gated roles the
+        daemon submits the artifact bytes it just read locally; control checks
+        them against the pinned version hash before storing blobs.
+        """
+        self.permissions.validate_resource_association(target_type=target_type, role=role)
+        storage_target_type = self.permissions.storage_resource_target_type(
+            target_type=target_type
+        )
+        with self.store.transaction() as conn:
+            project_id = self.store.require_project_id(conn=conn, project_id=project_id)
+            resource = conn.execute("SELECT * FROM resources WHERE id = ? AND deleted = 0", (resource_id,)).fetchone()
+            if resource is None:
+                raise NotFoundError(f"resource not found: {resource_id}")
+            if resource["project_id"] != project_id:
+                raise NotFoundError(f"resource not found in project {project_id}: {resource_id}")
+            version_id = str(resource["current_version_id"] or "")
+            if not version_id:
+                raise ValidationError(
+                    "resource must be observed before it can be associated",
+                    details={"resource_id": resource_id},
+                )
+            self._capture_submitted_gated_blob(
+                conn=conn,
+                resource=resource,
+                role=role,
+                version_id=version_id,
+                project_id=project_id,
+                content_bytes=content_bytes,
+                figures=figures or [],
+            )
+            return self._associate_version(
+                conn=conn,
+                project_id=project_id,
+                resource_id=resource_id,
+                version_id=version_id,
+                storage_target_type=storage_target_type,
+                public_target_type=target_type,
+                target_id=target_id,
+                role=role,
+            )
 
     def list_resources(
         self,
@@ -518,7 +576,7 @@ class ResourceService:
             data["current_version"] = None
         return data
 
-    def _resolve_repo_file(self, *, path: str) -> tuple[str, Path]:
+    def _repo_relative_path(self, *, path: str) -> str:
         if not path:
             raise ValidationError("path is required")
         if os.path.isabs(path):
@@ -528,6 +586,11 @@ class ResourceService:
             raise ValidationError("resource path may not contain '..'")
         if rel.parts and rel.parts[0] == ".research_plugin":
             raise ValidationError("resource path may not point inside .research_plugin")
+        return rel.as_posix()
+
+    def _resolve_repo_file(self, *, path: str) -> tuple[str, Path]:
+        rel_path = self._repo_relative_path(path=path)
+        rel = Path(rel_path)
         full = (self.workspace.repo_root / rel).resolve()
         try:
             full.relative_to(self.workspace.repo_root)
@@ -538,6 +601,18 @@ class ResourceService:
         if not full.is_file():
             raise ValidationError("v0.0001 resources must be files")
         return rel.as_posix(), full
+
+    def _validate_content_sha256(self, value: str) -> None:
+        if len(value) != 64 or any(ch not in "0123456789abcdef" for ch in value):
+            raise ValidationError("content_sha256 must be a lowercase sha256 hex digest")
+
+    def _validate_submitted_figure_link(self, *, link: str) -> None:
+        if not link:
+            raise ValidationError("figure link is required")
+        if os.path.isabs(link):
+            raise ValidationError("figure links must be repo-relative")
+        if any(part == ".." for part in Path(link).parts):
+            raise ValidationError("figure links may not contain '..'")
 
     def _ensure_target_exists(self, *, conn: sqlite3.Connection, target_type: str, target_id: str) -> str | None:
         table_by_type = {
@@ -629,6 +704,59 @@ class ResourceService:
                 label=role,
             )
 
+    def _capture_submitted_gated_blob(
+        self,
+        *,
+        conn: sqlite3.Connection,
+        resource: sqlite3.Row,
+        role: str,
+        version_id: str,
+        project_id: str,
+        content_bytes: bytes | None,
+        figures: list[dict[str, Any]],
+    ) -> None:
+        cap = GATED_ROLE_BYTE_CAPS.get(role)
+        if cap is None or self.blobs is None:
+            return
+        if content_bytes is None:
+            raise ValidationError(
+                f"role-{role!r} associations require artifact bytes from the data plane",
+                details={"resource_id": resource["id"], "role": role},
+            )
+        size = len(content_bytes)
+        if size > cap:
+            raise ValidationError(
+                f"{resource['path']} is {size} bytes; the maximum for a role-{role!r} "
+                f"artifact is {cap} bytes — slim the file before associating "
+                "(move raw data/outputs elsewhere and reference them)",
+                details={"path": resource["path"], "role": role, "size_bytes": size, "max_bytes": cap},
+            )
+        version = conn.execute(
+            "SELECT content_sha256, content_type FROM resource_versions WHERE id = ?",
+            (version_id,),
+        ).fetchone()
+        if version is None:
+            raise NotFoundError(f"resource version not found: {version_id}")
+        sha = hashlib.sha256(content_bytes).hexdigest()
+        if sha != str(version["content_sha256"]):
+            raise ValidationError(
+                f"{resource['path']} changed while associating — retry the call",
+                details={"path": resource["path"], "role": role},
+            )
+        self.blobs.put(
+            namespace=project_id,
+            data=content_bytes,
+            content_type=str(version["content_type"]),
+        )
+        if role in {"report", "reflection_doc", "synthesis_doc"}:
+            self._capture_submitted_markdown_figures(
+                conn=conn,
+                version_id=version_id,
+                project_id=project_id,
+                markdown_text=content_bytes.decode("utf-8", errors="replace"),
+                figures=figures,
+            )
+
     # Figures referenced by markdown gated artifacts can be real images; cap
     # each upload.
     FIGURE_MAX_BYTES = 5_000_000
@@ -681,6 +809,99 @@ class ResourceService:
                 """,
                 (version_id, link, sha, size, now_iso()),
             )
+
+    def _capture_submitted_markdown_figures(
+        self,
+        *,
+        conn: sqlite3.Connection,
+        version_id: str,
+        project_id: str,
+        markdown_text: str,
+        figures: list[dict[str, Any]],
+    ) -> None:
+        submitted = {str(figure.get("link_path") or ""): figure for figure in figures}
+        for link in markdown_image_links(markdown_text):
+            figure = submitted.get(link)
+            if figure is None:
+                continue
+            self._validate_submitted_figure_link(link=link)
+            data = figure.get("data")
+            if not isinstance(data, bytes):
+                continue
+            size = len(data)
+            if size > self.FIGURE_MAX_BYTES:
+                continue
+            sha = self.blobs.put(
+                namespace=project_id,
+                data=data,
+                content_type=str(figure.get("content_type") or "application/octet-stream"),
+            )
+            conn.execute(
+                """
+                INSERT INTO report_figures (report_version_id, link_path, sha256, size_bytes, created_at)
+                VALUES (?, ?, ?, ?, ?)
+                ON CONFLICT(report_version_id, link_path)
+                DO UPDATE SET sha256 = excluded.sha256, size_bytes = excluded.size_bytes,
+                              created_at = excluded.created_at
+                """,
+                (version_id, link, sha, size, now_iso()),
+            )
+
+    def _associate_version(
+        self,
+        *,
+        conn: sqlite3.Connection,
+        project_id: str,
+        resource_id: str,
+        version_id: str,
+        storage_target_type: str,
+        public_target_type: str,
+        target_id: str,
+        role: str,
+    ) -> dict[str, Any]:
+        target_project_id = self._ensure_target_exists(
+            conn=conn,
+            target_type=storage_target_type,
+            target_id=target_id,
+        )
+        if target_project_id is not None and target_project_id != project_id:
+            raise NotFoundError(f"{public_target_type} not found in project {project_id}: {target_id}")
+        attempt_index = self._association_attempt_index(
+            conn=conn,
+            target_type=storage_target_type,
+            target_id=target_id,
+        )
+        assoc_id = new_id(prefix="assoc")
+        conn.execute(
+            """
+            INSERT INTO resource_associations
+              (id, resource_id, version_id, target_type, target_id, role, attempt_index, created_at, created_seq)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+            ON CONFLICT(resource_id, target_type, target_id, role, attempt_index)
+            DO UPDATE SET version_id = excluded.version_id, created_at = excluded.created_at
+            """,
+            (
+                assoc_id,
+                resource_id,
+                version_id,
+                storage_target_type,
+                target_id,
+                role,
+                attempt_index,
+                now_iso(),
+                # An upsert keeps the original created_seq (rowid parity).
+                next_created_seq(conn=conn, table="resource_associations"),
+            ),
+        )
+        self.store.record_event(
+            conn=conn,
+            project_id=project_id,
+            event_type="resource.associated",
+            target_type=storage_target_type,
+            target_id=target_id,
+            payload={"resource_id": resource_id, "version_id": version_id, "role": role, "attempt_index": attempt_index},
+        )
+        return self.resolve(resource_id=resource_id, conn=conn)
 
     def _version_token(self, *, path: str, mtime_ns: int, ctime_ns: int, size_bytes: int) -> str:
         # ctime is included so an in-place edit that preserves mtime+size (e.g. a
@@ -753,13 +974,39 @@ class ResourceService:
         observed_at: str,
         created_by: str,
     ) -> dict[str, Any]:
-        content_sha = _content_sha256(file_path)
-        content_type = mimetypes.guess_type(rel_path)[0] or "application/octet-stream"
+        return self._snapshot_version_record(
+            conn=conn,
+            resource_id=resource_id,
+            project_id=project_id,
+            rel_path=rel_path,
+            content_sha256=_content_sha256(file_path),
+            size_bytes=stat.st_size,
+            mtime_ns=stat.st_mtime_ns,
+            content_type=mimetypes.guess_type(rel_path)[0] or "application/octet-stream",
+            observed_at=observed_at,
+            created_by=created_by,
+        )
+
+    def _snapshot_version_record(
+        self,
+        *,
+        conn: sqlite3.Connection,
+        resource_id: str,
+        project_id: str,
+        rel_path: str,
+        content_sha256: str,
+        size_bytes: int,
+        mtime_ns: int,
+        content_type: str,
+        observed_at: str,
+        created_by: str,
+    ) -> dict[str, Any]:
+        self._validate_content_sha256(content_sha256)
         current = conn.execute(
             "SELECT * FROM resource_versions WHERE id = (SELECT current_version_id FROM resources WHERE id = ?)",
             (resource_id,),
         ).fetchone()
-        if current and current["content_sha256"] == content_sha:
+        if current and current["content_sha256"] == content_sha256:
             return self._hydrate_version(row=current, conn=conn)
 
         version_id = new_id(prefix="rver")
@@ -777,11 +1024,11 @@ class ResourceService:
                 resource_id,
                 project_id,
                 rel_path,
-                content_sha,
-                stat.st_size,
-                stat.st_mtime_ns,
+                content_sha256,
+                int(size_bytes),
+                int(mtime_ns),
                 observed_at,
-                content_type,
+                content_type or "application/octet-stream",
                 created_by,
                 observed_at,
                 next_created_seq(conn=conn, table="resource_versions"),

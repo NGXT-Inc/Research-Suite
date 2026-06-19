@@ -110,6 +110,12 @@ class HttpControlPlaneClient:
             )
         return tools
 
+    def submit_resource_observation(self, payload: dict[str, Any]) -> dict[str, Any]:
+        return self._post(path="/api/daemon/resources/observe", payload=payload)
+
+    def submit_resource_association(self, payload: dict[str, Any]) -> dict[str, Any]:
+        return self._post(path="/api/daemon/resources/associate", payload=payload)
+
     # ---- transport (stdlib only) ----
 
     def _headers(self) -> dict[str, str]:

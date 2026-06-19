@@ -7,6 +7,8 @@ marker lifecycle live in `http_server`.
 
 from __future__ import annotations
 
+import base64
+import binascii
 import json
 import mimetypes
 from pathlib import Path
@@ -52,6 +54,22 @@ def _control_mode() -> bool:
 
 
 JsonBody = dict[str, Any] | None
+
+
+def _required_text(payload: dict[str, Any], key: str) -> str:
+    value = payload.get(key)
+    if value is None or str(value) == "":
+        raise ValidationError(f"{key} is required")
+    return str(value)
+
+
+def _decode_b64_field(value: Any, *, label: str) -> bytes:
+    if not isinstance(value, str) or not value:
+        raise ValidationError(f"{label} must be non-empty base64")
+    try:
+        return base64.b64decode(value.encode("ascii"), validate=True)
+    except (binascii.Error, UnicodeEncodeError) as exc:
+        raise ValidationError(f"{label} must be valid base64") from exc
 
 
 def _latest_graph_resource(
@@ -1528,6 +1546,54 @@ def create_fastapi_app(
                 error=payload.get("error"),
             )
             return {"acked": True}
+
+        @http.post("/api/daemon/resources/observe")
+        def daemon_observe_resource(body: JsonBody = Body(default=None)) -> dict[str, Any]:
+            payload = body or {}
+            project_id = _required_text(payload, "project_id")
+            return api_for_project(project_id).app.resources.record_observation(
+                project_id=project_id,
+                path=_required_text(payload, "path"),
+                kind=str(payload.get("kind") or "other"),
+                title=str(payload.get("title") or ""),
+                created_by=str(payload.get("created_by") or "codex"),
+                mtime_ns=int(payload.get("mtime_ns") or 0),
+                ctime_ns=int(payload.get("ctime_ns") or 0),
+                size_bytes=int(payload.get("size_bytes") or 0),
+                content_sha256=_required_text(payload, "content_sha256"),
+                content_type=str(payload.get("content_type") or "application/octet-stream"),
+            )
+
+        @http.post("/api/daemon/resources/associate")
+        def daemon_associate_resource(body: JsonBody = Body(default=None)) -> dict[str, Any]:
+            payload = body or {}
+            project_id = _required_text(payload, "project_id")
+            blob = payload.get("blob")
+            content_bytes = None
+            if isinstance(blob, dict):
+                content_bytes = _decode_b64_field(blob.get("data_b64"), label="blob.data_b64")
+            figures: list[dict[str, Any]] = []
+            for index, figure in enumerate(payload.get("figures") or []):
+                if not isinstance(figure, dict):
+                    raise ValidationError(f"figures[{index}] must be an object")
+                figures.append(
+                    {
+                        "link_path": _required_text(figure, "link_path"),
+                        "data": _decode_b64_field(
+                            figure.get("data_b64"), label=f"figures[{index}].data_b64"
+                        ),
+                        "content_type": str(figure.get("content_type") or "application/octet-stream"),
+                    }
+                )
+            return api_for_project(project_id).app.resources.associate_observed(
+                project_id=project_id,
+                resource_id=_required_text(payload, "resource_id"),
+                target_type=_required_text(payload, "target_type"),
+                target_id=_required_text(payload, "target_id"),
+                role=_required_text(payload, "role"),
+                content_bytes=content_bytes,
+                figures=figures,
+            )
 
     # ---- cloud cleanup sweep trigger (cloud plan Phase 9) ----
     # A scheduling SEAM, not a scheduler: a managed cron / sidecar tick POSTs
