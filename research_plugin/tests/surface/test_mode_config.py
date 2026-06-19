@@ -21,6 +21,13 @@ _PNG = bytes.fromhex(
 )
 
 
+def _project_id(event: dict) -> str | None:
+    if event.get("project_id"):
+        return event["project_id"]
+    args = event.get("args")
+    return args.get("project_id") if isinstance(args, dict) else None
+
+
 class ModeConfigTest(unittest.TestCase):
     def test_default_is_local(self) -> None:
         self.assertIs(resolve_mode(env={}), Mode.LOCAL)
@@ -310,6 +317,66 @@ class ControlModeAuthTest(unittest.TestCase):
         remaining = self.app.tool_calls.stats()
         self.assertEqual(remaining["totals"]["calls"], 1)
         self.assertEqual(remaining["calls"][0]["project_id"], other["id"])
+
+    def test_hosted_activity_is_tenant_scoped_and_redacted(self) -> None:
+        acme = self.client.post(
+            "/api/projects",
+            json={"name": "Acme Activity"},
+            headers={"Authorization": f"Bearer {self.token}"},
+        )
+        self.assertEqual(acme.status_code, 201, acme.text)
+        acme_id = acme.json()["id"]
+        other = self.app.projects.create(name="Other Activity", tenant_id="other")
+        self.app.activity.tool_ok(
+            source="mcp",
+            tool="review.request",
+            arguments={"project_id": acme_id},
+            duration_ms=1,
+            result={"reviewer_capability": "rp_secret"},
+        )
+        self.app.activity.tool_ok(
+            source="mcp",
+            tool="claim.list",
+            arguments={"project_id": other["id"]},
+            duration_ms=1,
+            result={"claims": []},
+        )
+        self.app.activity.tool_ok(
+            source="mcp",
+            tool="project.list",
+            arguments={},
+            duration_ms=1,
+            result={"projects": [{"id": "proj_unscoped"}]},
+        )
+
+        headers = {"Authorization": f"Bearer {self.token}"}
+        scoped = self.client.get(
+            f"/api/activity?project_id={acme_id}&source=mcp",
+            headers=headers,
+        )
+        self.assertEqual(scoped.status_code, 200, scoped.text)
+        self.assertEqual(
+            {_project_id(event) for event in scoped.json()["events"]},
+            {acme_id},
+        )
+        self.assertEqual(scoped.json()["summary"]["total"], len(scoped.json()["events"]))
+        self.assertEqual(
+            scoped.json()["events"][0]["result"]["reviewer_capability"],
+            "[redacted]",
+        )
+
+        denied = self.client.get(
+            f"/api/activity?project_id={other['id']}",
+            headers=headers,
+        )
+        self.assertEqual(denied.status_code, 404, denied.text)
+
+        unscoped = self.client.get("/api/activity?source=mcp", headers=headers)
+        self.assertEqual(unscoped.status_code, 200, unscoped.text)
+        self.assertEqual(
+            {_project_id(event) for event in unscoped.json()["events"]},
+            {acme_id},
+        )
 
     def test_hosted_mcp_review_start_is_tenant_scoped(self) -> None:
         project = self.client.post(

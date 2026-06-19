@@ -306,7 +306,7 @@ def cap_result(*, value: Any) -> Any:
     activity log stays bounded. The caller still received the full result; the
     log is a visibility feed, not an archive.
     """
-    safe = jsonable(value=value)
+    safe = redact_sensitive(value=jsonable(value=value))
     try:
         encoded = json.dumps(safe, separators=(",", ":"))
     except (TypeError, ValueError):
@@ -331,6 +331,17 @@ def jsonable(*, value: Any) -> Any:
     if isinstance(value, (list, tuple)):
         return [jsonable(value=item) for item in value]
     return str(value)
+
+
+def redact_sensitive(*, value: Any) -> Any:
+    if isinstance(value, dict):
+        return {
+            key: "[redacted]" if key in SENSITIVE_KEYS else redact_sensitive(value=item)
+            for key, item in value.items()
+        }
+    if isinstance(value, list):
+        return [redact_sensitive(value=item) for item in value]
+    return value
 
 
 def monotonic_ms() -> int:

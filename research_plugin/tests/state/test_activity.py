@@ -19,6 +19,19 @@ class CapResultTest(unittest.TestCase):
         value = {"projects": [{"id": "proj_1"}]}
         self.assertEqual(cap_result(value=value), value)
 
+    def test_sensitive_result_fields_are_redacted(self) -> None:
+        value = {
+            "reviewer_capability": "rp_secret",
+            "nested": {"capability": "rp_nested"},
+        }
+        self.assertEqual(
+            cap_result(value=value),
+            {
+                "reviewer_capability": "[redacted]",
+                "nested": {"capability": "[redacted]"},
+            },
+        )
+
     def test_oversized_result_is_truncated(self) -> None:
         value = {"blob": "x" * (RESULT_LOG_MAX_BYTES + 1000)}
         capped = cap_result(value=value)

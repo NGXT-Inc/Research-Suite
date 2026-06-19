@@ -97,14 +97,14 @@ GET /api/activity?limit=100
 
 Returns recent backend activity events from `.research_plugin/activity.jsonl`.
 Events are MCP tool calls. Tool-call arguments are summarized to IDs and
-workflow fields. Successful tool-call events include the full tool `result`
-returned to Codex or the HTTP adapter. This is intentionally not truncated by
-the backend; the UI should use progressive disclosure or a scrolling detail panel
-for large responses.
+workflow fields. Successful tool-call events include a capped, JSON-safe tool
+`result`; sensitive fields such as `reviewer_capability` and `capability` are
+redacted before persistence.
 
-Reviewer capabilities can appear in `result` for `review.request`, because that
-is part of the actual response sent to Codex. Treat the activity log as local
-developer/debug data, not as a public audit feed.
+In hosted control mode, activity reads are scoped to projects owned by the
+authenticated principal. Supplying a foreign `project_id` returns not-found;
+unscoped reads include only project-attributed events for the caller's visible
+projects.
 
 ```json
 {

@@ -41,6 +41,7 @@ from .utils import (
     WorkflowError,
 )
 from .state import monotonic_ms
+from .state.activity import effective_source, is_event_ok
 
 
 def _control_mode() -> bool:
@@ -70,6 +71,36 @@ def _required_text(payload: dict[str, Any], key: str) -> str:
     if value is None or str(value) == "":
         raise ValidationError(f"{key} is required")
     return str(value)
+
+
+def _activity_event_project_id(event: dict[str, Any]) -> str | None:
+    value = event.get("project_id")
+    if value:
+        return str(value)
+    args = event.get("args")
+    if isinstance(args, dict) and args.get("project_id"):
+        return str(args["project_id"])
+    return None
+
+
+def _activity_summary(events: list[dict[str, Any]]) -> dict[str, Any]:
+    source_counts: dict[str, int] = {}
+    event_counts: dict[str, int] = {}
+    status_counts = {"ok": 0, "error": 0}
+    for event in events:
+        source = effective_source(event=event)
+        source_counts[source] = source_counts.get(source, 0) + 1
+        event_type = event.get("event") or "unknown"
+        event_counts[event_type] = event_counts.get(event_type, 0) + 1
+        status_counts["ok" if is_event_ok(event=event) else "error"] += 1
+    return {
+        "total": len(events),
+        "count": len(events),
+        "source_counts": source_counts,
+        "event_counts": event_counts,
+        "status_counts": status_counts,
+        "window": len(events),
+    }
 
 
 def _decode_b64_field(
@@ -165,7 +196,14 @@ class ResearchHttpApi:
             "activity_log": str(self.app.activity.log_path),
         }
 
-    def activity(self, limit: int, source: str | None = None, project_id: str | None = None) -> dict[str, Any]:
+    def activity(
+        self,
+        limit: int,
+        source: str | None = None,
+        project_id: str | None = None,
+        project_ids: set[str] | None = None,
+        include_unscoped_events: bool = True,
+    ) -> dict[str, Any]:
         result = self.app.activity.recent(limit=limit, source=source)
         events = result["events"]
         if project_id is not None:
@@ -174,17 +212,26 @@ class ResearchHttpApi:
             # its arguments. Events with no project attribution (e.g.
             # http.request) belong to this app and are kept.
             def _belongs(ev: dict[str, Any]) -> bool:
-                pid = ev.get("project_id")
-                if not pid:
-                    args = ev.get("args")
-                    pid = args.get("project_id") if isinstance(args, dict) else None
+                pid = _activity_event_project_id(ev)
                 return pid in (None, project_id)
 
             events = [ev for ev in events if _belongs(ev)]
+        if project_ids is not None:
+            allowed = {str(pid) for pid in project_ids if str(pid)}
+
+            def _allowed(ev: dict[str, Any]) -> bool:
+                pid = _activity_event_project_id(ev)
+                return (pid in allowed) or (include_unscoped_events and pid is None)
+
+            events = [ev for ev in events if _allowed(ev)]
         payload = {
             "filter": {key: value for key, value in (("source", source), ("project_id", project_id)) if value},
             "events": events,
-            "summary": result["summary"],
+            "summary": (
+                _activity_summary(events)
+                if project_ids is not None or not include_unscoped_events
+                else result["summary"]
+            ),
         }
         if self.expose_local_data_plane:
             payload["activity_log"] = str(self.app.activity.log_path)
@@ -1281,7 +1328,7 @@ def create_fastapi_app(
         finally:
             conn.close()
 
-    def scoped_debug_project_ids(request: Request, project_id: str | None) -> set[str] | None:
+    def visible_project_scope(request: Request, project_id: str | None) -> set[str] | None:
         if not auth_required:
             return None
         principal = getattr(request.state, "principal", LOCAL_PRINCIPAL)
@@ -1474,11 +1521,22 @@ def create_fastapi_app(
 
     @http.get("/api/activity")
     def activity(
-        limit: int = Query(100, ge=1), source: str | None = None, project_id: str | None = None
+        request: Request,
+        limit: int = Query(100, ge=1),
+        source: str | None = None,
+        project_id: str | None = None,
     ) -> dict[str, Any]:
         if router is not None:
             return router.activity_recent(limit=limit, source=source, project_id=project_id)
         assert api is not None
+        if auth_required:
+            return api.activity(
+                limit=limit,
+                source=source,
+                project_id=project_id,
+                project_ids=visible_project_scope(request, project_id),
+                include_unscoped_events=False,
+            )
         return api.activity(limit=limit, source=source, project_id=project_id)
 
     # /api/debug/* expose tool-call internals. In control mode the principal
@@ -1514,7 +1572,7 @@ def create_fastapi_app(
             status=status,
             tool=tool,
             project_id=project_id,
-            project_ids=scoped_debug_project_ids(request, project_id),
+            project_ids=visible_project_scope(request, project_id),
             limit=limit, sort=sort, order=order,
         )
 
@@ -1525,7 +1583,7 @@ def create_fastapi_app(
             raise NotFoundError("no project instantiated yet")
         return target.tool_call_detail(
             call_id=call_id,
-            project_ids=scoped_debug_project_ids(request, None),
+            project_ids=visible_project_scope(request, None),
         )
 
     @http.post("/api/debug/tool-calls/clear")
@@ -1533,7 +1591,7 @@ def create_fastapi_app(
         target = default_api()
         if target is None:
             return {"cleared": 0}
-        return target.tool_calls_clear(project_ids=scoped_debug_project_ids(request, None))
+        return target.tool_calls_clear(project_ids=visible_project_scope(request, None))
 
     @http.get("/api/projects")
     def list_projects(request: Request) -> dict[str, Any]:
