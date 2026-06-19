@@ -20,7 +20,7 @@ from fastapi.responses import JSONResponse, Response
 from . import __version__
 from .app import ResearchPluginApp
 from .version import CLIENT_VERSION_HEADER, MIN_PROXY_VERSION, is_below_floor, meta
-from .contracts import PROJECT_SCOPED_TOOL_NAMES
+from .contracts import DATA_PLANE_TOOL_NAMES, PROJECT_SCOPED_TOOL_NAMES
 from .feed_http import register_feed_routes
 from .project_router import ProjectRouter
 from .services.figure_view import build_experiment_figure
@@ -30,6 +30,7 @@ from .services.permissions import GATED_ROLES, PROJECT_GRAPH_ROLES
 from .services.pinned import pinned_text_for_version
 from .utils import (
     ContentUnavailableError,
+    DataPlaneRequiredError,
     NotFoundError,
     ResearchPluginError,
     ValidationError,
@@ -974,6 +975,15 @@ def create_fastapi_app(
         context: dict[str, Any] | None = None,
         activity_source: str = "http",
     ) -> dict[str, Any]:
+        if auth_required and name in DATA_PLANE_TOOL_NAMES:
+            raise DataPlaneRequiredError(
+                f"{name} requires the local data-plane daemon; hosted control "
+                "mode cannot read local files, hold user SSH keys, or run rsync",
+                details={
+                    "tool": name,
+                    "reason": "requires_local_data_plane",
+                },
+            )
         if router is not None:
             return router.call_tool(
                 name=name,
@@ -992,6 +1002,18 @@ def create_fastapi_app(
                 )
             arguments["project_id"] = projects[0]["id"]
         return api.app.call_tool(name=name, arguments=arguments, activity_source=activity_source)
+
+    def require_data_plane_for_http(*, tool: str) -> None:
+        if not auth_required:
+            return
+        raise DataPlaneRequiredError(
+            f"{tool} requires the local data-plane daemon; hosted control mode "
+            "serves this API as an observer/admin surface",
+            details={
+                "tool": tool,
+                "reason": "requires_local_data_plane",
+            },
+        )
 
     http = FastAPI(title="Research Plugin API", version=__version__)
     # CORS (cloud plan Phase 7): local mode keeps the wide-open `*` policy
@@ -1323,6 +1345,7 @@ def create_fastapi_app(
 
     @http.post("/api/projects/{project_id}/resources", status_code=201)
     def register_resource(project_id: str, body: JsonBody = Body(default=None)) -> dict[str, Any]:
+        require_data_plane_for_http(tool="resource.register_file")
         return api_for_project(project_id).register_resource(project_id=project_id, body=body or {})
 
     @http.get("/api/projects/{project_id}/resources/tree")
@@ -1343,6 +1366,7 @@ def create_fastapi_app(
 
     @http.post("/api/projects/{project_id}/resources/{resource_id}/associate")
     def associate_resource(project_id: str, resource_id: str, body: JsonBody = Body(default=None)) -> dict[str, Any]:
+        require_data_plane_for_http(tool="resource.associate")
         return api_for_project(project_id).call_tool(name="resource.associate", arguments={"project_id": project_id, "resource_id": resource_id, **(body or {})})
 
     @http.delete("/api/projects/{project_id}/resources/{resource_id}")
@@ -1426,6 +1450,7 @@ def create_fastapi_app(
 
     @http.post("/api/projects/{project_id}/experiments/{experiment_id}/sandbox/sync")
     def sync_sandbox(project_id: str, experiment_id: str) -> dict[str, Any]:
+        require_data_plane_for_http(tool="sandbox.sync")
         return api_for_project(project_id).call_tool(
             name="sandbox.sync",
             arguments={"project_id": project_id, "experiment_id": experiment_id},

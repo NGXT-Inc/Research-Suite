@@ -45,7 +45,10 @@ def main() -> int:
     # process arg or env value that gets logged. None ⇒ local mode.
     control_url = (args.control_url or "").rstrip("/") or None
     token = _read_secret_file(os.environ.get("RESEARCH_PLUGIN_CONTROL_TOKEN_FILE"))
-    daemon_secret = _read_secret_file(os.environ.get("RESEARCH_PLUGIN_DAEMON_SECRET_FILE"))
+    daemon_secret_file = os.environ.get("RESEARCH_PLUGIN_DAEMON_SECRET_FILE")
+    if control_url and not daemon_secret_file:
+        daemon_secret_file = str(Path.home() / ".research_plugin" / "daemon_secret")
+    daemon_secret = _read_secret_file(daemon_secret_file)
 
     if not daemon_url and not control_url:
         # Don't hard-exit: Codex will call initialize before anything else, and

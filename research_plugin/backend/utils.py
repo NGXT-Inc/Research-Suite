@@ -61,6 +61,12 @@ class ContentUnavailableError(ResearchPluginError):
     error_code = "content_unavailable"
 
 
+class DataPlaneRequiredError(ResearchPluginError):
+    """The requested mutation must be performed by the local data plane."""
+
+    error_code = "data_plane_required"
+
+
 # ---------------------------------------------------------------------------
 # Identifier + clock helpers
 # ---------------------------------------------------------------------------

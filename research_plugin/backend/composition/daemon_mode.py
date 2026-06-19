@@ -27,6 +27,7 @@ from collections.abc import Mapping
 from pathlib import Path
 from typing import Any
 
+from ..contracts import AGGREGATE_TOOL_NAMES, DATA_PLANE_TOOL_NAMES, static_tool_catalog
 from ..control_client import HttpControlPlaneClient
 from ..dataplane import LocalDataPlaneWorker
 from ..dataplane.http_channel import DaemonTaskLoop
@@ -107,6 +108,51 @@ class DaemonServer:
         self.task_loop.stop()
         if self._auto_sync_thread is not None:
             self._auto_sync_thread.join(timeout=2.0)
+
+    def list_tools(self) -> list[dict[str, Any]]:
+        """The local MCP catalog: data-plane tools plus aggregate enrichers."""
+        allowed = DATA_PLANE_TOOL_NAMES | AGGREGATE_TOOL_NAMES
+        return [tool for tool in static_tool_catalog() if tool.get("name") in allowed]
+
+    def call_tool(
+        self,
+        *,
+        name: str,
+        arguments: dict[str, Any] | None = None,
+        context: dict[str, Any] | None = None,
+    ) -> dict[str, Any]:
+        """Execute a proxy-routed data-plane tool.
+
+        The production loopback endpoint is now real, so split-mode clients no
+        longer hit a 404. Record-forwarding for file/artifact submissions is
+        the next seam; until then these tools fail as ordinary tool results.
+        """
+        del arguments, context
+        if name == "sandbox.health":
+            cloud_ok = True
+            try:
+                self.control.list_tools()
+            except Exception:  # noqa: BLE001
+                cloud_ok = False
+            return {
+                "ok": True,
+                "mode": "daemon",
+                "cloud_reachable": cloud_ok,
+            }
+        if name not in (DATA_PLANE_TOOL_NAMES | AGGREGATE_TOOL_NAMES):
+            raise ValidationError(
+                f"tool is not served by the data plane: {name}",
+                details={"tool": name},
+            )
+        return {
+            "ok": False,
+            "error_code": "data_plane_forwarding_unavailable",
+            "error": (
+                f"{name} reached the local data-plane daemon, but the daemon "
+                "does not yet forward this record mutation to the control plane"
+            ),
+            "tool": name,
+        }
 
     def _auto_sync_loop(self) -> None:
         # Mirror SandboxDaemons._auto_sync_loop, but the targets come from the

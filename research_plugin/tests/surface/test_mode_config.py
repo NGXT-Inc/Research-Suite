@@ -139,6 +139,33 @@ class ControlModeAuthTest(unittest.TestCase):
         allow = resp.headers.get("access-control-allow-headers", "")
         self.assertIn("Authorization", allow)
 
+    def test_data_plane_http_mutation_is_rejected_in_control_mode(self) -> None:
+        headers = {"Authorization": f"Bearer {self.token}"}
+        project = self.client.post(
+            "/api/projects", json={"name": "Hosted Project"}, headers=headers
+        )
+        self.assertEqual(project.status_code, 201, project.text)
+        project_id = project.json()["id"]
+
+        resp = self.client.post(
+            f"/api/projects/{project_id}/resources",
+            json={"path": "local-result.json", "kind": "result"},
+            headers=headers,
+        )
+        self.assertEqual(resp.status_code, 400, resp.text)
+        body = resp.json()
+        self.assertEqual(body["error_code"], "data_plane_required")
+        self.assertEqual(body["tool"], "resource.register_file")
+
+    def test_data_plane_mcp_tool_is_rejected_in_control_mode(self) -> None:
+        resp = self.client.post(
+            "/mcp/call",
+            json={"name": "resource.register_file", "arguments": {"path": "x.txt"}},
+            headers={"Authorization": f"Bearer {self.token}"},
+        )
+        self.assertEqual(resp.status_code, 400, resp.text)
+        self.assertEqual(resp.json()["error_code"], "data_plane_required")
+
 
 class SecretStoreCredentialsTest(unittest.TestCase):
     """Control mode disables user-machine .env discovery (cloud plan Phase 9)."""
@@ -355,6 +382,49 @@ class ModeCompositionTest(unittest.TestCase):
         with self.assertRaises(ValidationError) as ctx:
             build_daemon_server(control_url=None)
         self.assertIn("RESEARCH_PLUGIN_CONTROL_URL", ctx.exception.message)
+
+    def test_daemon_loopback_exposes_data_plane_mcp_surface(self) -> None:
+        from backend.daemon_loopback import create_daemon_loopback_app
+
+        class _StubLinks:
+            @staticmethod
+            def project_for_repo(*, repo_root: str) -> str:
+                return "proj_1"
+
+            @staticmethod
+            def link(*, repo_root: str, project_id: str) -> None:
+                return None
+
+        class _StubDaemon:
+            loopback_secret = "secret"
+            project_links = _StubLinks()
+
+            class control:
+                @staticmethod
+                def list_tools():
+                    return []
+
+        client = TestClient(
+            create_daemon_loopback_app(daemon=_StubDaemon()),
+            raise_server_exceptions=False,
+        )
+        headers = {"Authorization": "Bearer secret"}
+        tools = client.get("/mcp/tools", headers=headers)
+        self.assertEqual(tools.status_code, 200, tools.text)
+        names = {tool["name"] for tool in tools.json()["tools"]}
+        self.assertIn("resource.register_file", names)
+        self.assertIn("sandbox.get", names)
+        self.assertNotIn("claim.create", names)
+
+        called = client.post(
+            "/mcp/call",
+            json={"name": "resource.register_file", "arguments": {"path": "x.txt"}},
+            headers=headers,
+        )
+        self.assertEqual(called.status_code, 200, called.text)
+        result = called.json()["result"]
+        self.assertFalse(result["ok"])
+        self.assertEqual(result["error_code"], "data_plane_forwarding_unavailable")
 
     def test_local_app_builder_is_a_plain_research_plugin_app(self) -> None:
         from backend.composition import build_local_app

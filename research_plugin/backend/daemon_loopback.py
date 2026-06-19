@@ -10,6 +10,8 @@ deliberately small surface:
 - GET /health: daemon liveness plus cloud reachability (feeds sandbox.health).
 - POST /local/link registers a repo_root to project_id mapping (the proxy calls
   it once the cloud has minted a project).
+- GET /mcp/tools and POST /mcp/call expose the local data-plane tool subset to
+  the stateless MCP proxy.
 
 The surface is gated by a local daemon auth secret (risk 11): the daemon holds
 the cloud token and the user private keys, so a bare loopback bind is not
@@ -31,6 +33,7 @@ from fastapi import FastAPI, Header, Query, Request
 from fastapi.responses import JSONResponse
 
 from . import __version__
+from .contracts import AGGREGATE_TOOL_NAMES, DATA_PLANE_TOOL_NAMES, static_tool_catalog
 from .control_client import ControlPlaneUnreachableError
 from .utils import ResearchPluginError, ValidationError
 
@@ -104,8 +107,52 @@ def create_daemon_loopback_app(*, daemon: Any) -> FastAPI:
         daemon.project_links.link(repo_root=repo_root, project_id=project_id)
         return {"linked": True, "repo_root": repo_root, "project_id": project_id}
 
+    @http.get("/mcp/tools")
+    def mcp_tools(authorization: str | None = Header(default=None)) -> dict[str, Any]:
+        _check_secret(authorization)
+        if hasattr(daemon, "list_tools"):
+            tools = daemon.list_tools()
+        else:
+            allowed = DATA_PLANE_TOOL_NAMES | AGGREGATE_TOOL_NAMES
+            tools = [
+                tool for tool in static_tool_catalog() if tool.get("name") in allowed
+            ]
+        return {"tools": tools}
+
+    @http.post("/mcp/call")
+    async def mcp_call(
+        request: Request, authorization: str | None = Header(default=None)
+    ) -> dict[str, Any]:
+        _check_secret(authorization)
+        payload = await request.json()
+        name = str((payload or {}).get("name") or "")
+        arguments = (payload or {}).get("arguments") or {}
+        context = (payload or {}).get("context") or {}
+        if not name:
+            raise ValidationError("tool name is required", details={"field": "name"})
+        if not isinstance(arguments, dict):
+            raise ValidationError("arguments must be an object", details={"field": "arguments"})
+        if not isinstance(context, dict):
+            raise ValidationError("context must be an object", details={"field": "context"})
+        if not hasattr(daemon, "call_tool"):
+            result = _unavailable_result(name=name)
+        else:
+            result = daemon.call_tool(name=name, arguments=arguments, context=context)
+        return {"result": result}
+
     return http
 
 
 class _Unauthorized(Exception):
     """Loopback secret missing or wrong (mapped to 401)."""
+
+
+def _unavailable_result(*, name: str) -> dict[str, Any]:
+    return {
+        "ok": False,
+        "error_code": "data_plane_forwarding_unavailable",
+        "error": (
+            f"{name} reached the data-plane daemon, but record-forwarding for "
+            "this tool is not implemented in this daemon build"
+        ),
+    }
