@@ -79,12 +79,12 @@ from ..execution import (
 )
 from . import sandbox_views
 from .experiments import ExperimentService
-from .metrics_archive import snapshot_mlflow
+from .metrics_archive import MetricsArchive, snapshot_mlflow
 from .metrics_records import MetricsSnapshotStore
 from .quotas import AdmissionRequest, QuotaService
 from .transcript_cache import TranscriptCache
 from .sandbox_daemons import SandboxDaemons
-from .sandbox_mgmt_keys import LocalMgmtKeyStore, MgmtKeyStore
+from .sandbox_mgmt_keys import MgmtKeyStore
 from .sandbox_provisioner import SandboxProvisioner
 from .sandbox_registry import SandboxRegistry
 from .sandbox_support import (
@@ -119,11 +119,13 @@ class SandboxService:
         store: StateStore,
         sandbox_backend: SandboxBackend,
         worker: DataPlaneWorker,
+        mgmt_keys: MgmtKeyStore,
+        metrics_archive: MetricsArchive,
+        lease_client_id: str,
         activity: ActivityLogger | None = None,
         request_wait_seconds: float | None = None,
         stale_provision_seconds: float | None = None,
         experiments: ExperimentService | None = None,
-        mgmt_keys: MgmtKeyStore | None = None,
         blobs: BlobStore | None = None,
         quotas: QuotaService | None = None,
         task_channel: Any | None = None,
@@ -131,6 +133,9 @@ class SandboxService:
         self.store = store
         self.backend = sandbox_backend
         self.activity = activity
+        lease_client_id = str(lease_client_id or "").strip()
+        if not lease_client_id:
+            raise ValidationError("lease_client_id is required")
         # Cost governance (cloud plan Phase 7): admission gate at the
         # procurement choke point. The 'local' tenant has no quota row ⇒
         # unlimited ⇒ a no-op, so local mode is byte-identical.
@@ -138,9 +143,7 @@ class SandboxService:
         # Per-sandbox management keypairs (plan Phase 5, fixed decision 4):
         # control-plane custody; transcript reads, metrics sampling, and the
         # parachute authenticate with these, never with the user key.
-        self.mgmt_keys = mgmt_keys or LocalMgmtKeyStore(
-            root=worker.workspace.research_dir / "mgmt_keys"
-        )
+        self.mgmt_keys = mgmt_keys
         # The blob store holds parachute objects (decision 7's one shared
         # store). None means "no parachute home" — the branch then fails
         # LOUDLY (sandbox.parachute_failed), never silently.
@@ -163,7 +166,7 @@ class SandboxService:
         # the daemon-owned file cache, kept as-is, plus the control-plane
         # record (plan Phase 5) so reviews/UI see metrics without the user
         # machine online.
-        self.metrics_archive = worker.metrics_archive
+        self.metrics_archive = metrics_archive
         self.metrics_records = MetricsSnapshotStore(store=store)
         self._metrics_persisted_at: dict[str, float] = {}
 
@@ -173,11 +176,13 @@ class SandboxService:
         self.worker.set_event_sink(self.registry.emit_event)
         # Sync sessions + leases (plan Phase 4): every byte movement is
         # authorized by the experiment's exclusive lease — the cross-client
-        # authority — and described by a session the worker executes. This
-        # process's lease holder identity is the worker's persisted client id.
+        # authority — and described by a session the worker executes. The lease
+        # holder identity is injected by composition so control can use a
+        # daemon/deployment identity without reaching into a local worker.
         self.leases = LeaseService(store=store)
         self.sessions = SyncSessionService(
-            leases=self.leases, client_id=worker.client_id()
+            leases=self.leases,
+            client_id=lease_client_id,
         )
         # The task channel (plan Phase 4): control enqueues, data executes.
         # In-process it dispatches synchronously, so ordering is unchanged

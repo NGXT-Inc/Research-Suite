@@ -77,11 +77,11 @@ def build_control_app(
     """Build the control-plane app, its daemon task queue, and AuthService.
 
     ``repo_root`` is a throwaway control-side staging dir for the SQLite/blob
-    defaults and telemetry sinks; the control plane never holds a USER checkout
-    (it serves no repo_root over the edge — the proxy strips it). Tests pass an
-    explicit dir; production sets DB_URL + BLOB_BUCKET so the local paths are
-    unused. ``execution_backend`` lets the crash-recovery test inject a
-    reaper-capable fake backend.
+    defaults and compatibility-local sinks; it is never a USER checkout and is
+    never served over the edge (the proxy strips repo_root). Tests pass an
+    explicit dir; production sets DB_URL + BLOB_BUCKET so durable records/blobs
+    do not depend on it. ``execution_backend`` lets the crash-recovery test
+    inject a reaper-capable fake backend.
     """
     staging = repo_root or Path(tempfile.mkdtemp(prefix="rp-control-"))
     db_path = staging / ".research_plugin" / "state.sqlite"

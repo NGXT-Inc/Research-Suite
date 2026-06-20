@@ -21,11 +21,13 @@ from backend.services.sandbox_daemons import SandboxDaemons
 from backend.services.sandbox_dashboards import DashboardTunnels
 from backend.services.sandbox_provisioner import SandboxProvisioner
 from backend.services.sandbox_registry import SandboxRegistry
+from backend.services.sandboxes import SandboxService
 from backend.services.sync_sessions import (
     InProcessControlPlaneView,
     LeaseService,
     SyncSessionService,
 )
+from backend.utils import ValidationError
 from tests.paths import SERVICES_ROOT
 
 FACADE = SERVICES_ROOT / "sandboxes.py"
@@ -82,8 +84,21 @@ class SandboxDecompositionTest(unittest.TestCase):
         self.assertIs(service.control_view.sessions, service.sessions)
         self.assertIs(service.daemons.view, service.control_view)
         self.assertIs(service.tasks.worker, service.worker)
-        # The lease holder identity is the worker's persisted client id.
+        self.assertIs(service.metrics_archive, service.worker.metrics_archive)
+        # Local composition injects the worker-backed values; the facade itself
+        # must not derive them from worker internals (pinned by source test).
         self.assertEqual(service.sessions.client_id, service.worker.client_id())
+
+    def test_facade_requires_explicit_lease_client_id(self) -> None:
+        with self.assertRaisesRegex(ValidationError, "lease_client_id is required"):
+            SandboxService(
+                store=self.app.store,
+                sandbox_backend=self.app.execution_backend,
+                worker=self.app.worker,
+                mgmt_keys=self.app.sandboxes.mgmt_keys,
+                metrics_archive=self.app.sandboxes.metrics_archive,
+                lease_client_id="",
+            )
 
     def test_facade_source_keeps_no_extracted_machinery(self) -> None:
         source = FACADE.read_text(encoding="utf-8")
@@ -96,6 +111,11 @@ class SandboxDecompositionTest(unittest.TestCase):
         self.assertNotIn("SandboxConnFiles", source)
         self.assertNotIn("ssh_rsync", source)
         self.assertNotIn("SshRsyncSyncer", source)
+        # Control-owned collaborators are injected explicitly by composition;
+        # the facade must not derive them from the local worker.
+        self.assertNotIn("worker.workspace", source)
+        self.assertNotIn("worker.metrics_archive", source)
+        self.assertNotIn("worker.client_id()", source)
         # Row SQL lives in SandboxRegistry. The two conn-scoped view helpers
         # for the workflow layer are the only SELECTs allowed to remain.
         self.assertNotIn("UPDATE sandboxes", source)

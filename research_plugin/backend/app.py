@@ -188,6 +188,8 @@ class ResearchPluginApp:
             mgmt_keys=LocalMgmtKeyStore(
                 root=self.workspace.research_dir / "mgmt_keys"
             ),
+            metrics_archive=self.worker.metrics_archive,
+            lease_client_id=self.worker.client_id(),
             # Decision 7's one shared blob store also holds parachute objects.
             blobs=self.blobs,
             # Split mode (Phase 8): the control composition injects an
