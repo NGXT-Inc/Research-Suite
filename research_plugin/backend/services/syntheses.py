@@ -29,11 +29,11 @@ from ..domain.vocabulary import (
     PROJECT_GRAPH_ROLES,
     REFLECTION_LENS_DOC_ROLES,
 )
-from .pinned import pinned_text_for_version, resubmit_hint
-from .reflection_policy import (
+from ..domain.reflection_policy import (
     REFLECTION_BLOCK_NEW_TERMINAL_THRESHOLD,
     REFLECTION_NUDGE_NEW_TERMINAL_THRESHOLD,
 )
+from .pinned import pinned_text_for_version, resubmit_hint
 from .synthesis_gates import (
     CORE_LENSES,
     CORE_LENS_IDS,

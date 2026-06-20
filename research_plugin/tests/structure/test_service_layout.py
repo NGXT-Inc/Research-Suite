@@ -99,8 +99,10 @@ class ServiceLayoutTest(unittest.TestCase):
         for name in ("experiments.py", "syntheses.py"):
             with self.subTest(module=name):
                 source = _source(name)
+                import_modules = _import_module_names(SERVICES / name)
                 self.assertNotIn("ensure_workspace", source)
                 self.assertNotIn("_ensure_workspace", source)
+                self.assertNotIn("reflection_policy", import_modules)
                 self.assertFalse(
                     _import_modules(name) & LOCAL_FS_IMPORTS,
                     f"{name} should not import local filesystem helpers",
@@ -139,6 +141,9 @@ class ServiceLayoutTest(unittest.TestCase):
 
     def test_sandbox_lifecycle_module_is_a_port(self) -> None:
         self.assertEqual(_import_modules("sandbox_lifecycle.py"), {"datetime", "typing"})
+
+    def test_reflection_policy_service_module_is_a_compatibility_shim(self) -> None:
+        self.assertEqual(_import_modules("reflection_policy.py"), {"domain"})
 
     def test_sandbox_lifecycle_workers_use_ports_not_concrete_services(self) -> None:
         self.assertNotIn(
