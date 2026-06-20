@@ -6,7 +6,7 @@ import json
 import re
 from typing import Any, Callable
 
-from ..workspace import experiment_folder_rel
+from ..domain.paths import experiment_folder_rel
 from ..utils import NotFoundError, ValidationError, WorkflowError
 from ..utils import new_id
 from ..state.blobs import BlobStore

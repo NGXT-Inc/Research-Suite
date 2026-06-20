@@ -16,7 +16,7 @@ from __future__ import annotations
 
 import posixpath
 
-from ..workspace import safe_experiment_dirname
+from ..domain.paths import safe_experiment_dirname
 
 
 DEFAULT_REMOTE_ROOT = "/workspace"

@@ -24,8 +24,8 @@ from .workflow_gates import (
     RoleRequirement,
 )
 from .workflow_views import slim_status_and_next, slim_synthesis
+from ..domain.paths import experiment_folder_rel
 from ..state.store import StateStore, row_to_dict, rows_to_dicts
-from ..workspace import experiment_folder_rel
 
 
 EXPERIMENT_STATUS_PRIORITY = {

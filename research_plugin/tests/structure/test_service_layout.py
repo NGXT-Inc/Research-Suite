@@ -49,6 +49,15 @@ VOCABULARY_NAMES = {
     "REVIEW_VERDICTS",
 }
 
+DOMAIN_FORBIDDEN_SEGMENTS = {
+    "composition",
+    "dataplane",
+    "execution",
+    "services",
+    "state",
+    "workspace",
+}
+
 
 class ServiceLayoutTest(unittest.TestCase):
     def test_experiment_service_keeps_lint_and_agent_projection_out(self) -> None:
@@ -77,8 +86,21 @@ class ServiceLayoutTest(unittest.TestCase):
     def test_graph_lint_is_a_leaf_module(self) -> None:
         self.assertEqual(_import_modules("graph_lint.py"), {"json"})
 
-    def test_domain_vocabulary_is_a_leaf_module(self) -> None:
-        self.assertEqual(_import_module_names(DOMAIN_ROOT / "vocabulary.py"), set())
+    def test_domain_modules_do_not_import_backend_layers(self) -> None:
+        for path in sorted(DOMAIN_ROOT.glob("*.py")):
+            if path.name == "__init__.py":
+                continue
+            with self.subTest(module=path.name):
+                segments = {
+                    segment
+                    for module in _import_module_names(path)
+                    for segment in module.split(".")
+                }
+                forbidden = segments & DOMAIN_FORBIDDEN_SEGMENTS
+                self.assertFalse(
+                    forbidden,
+                    f"domain modules must stay independent of backend layers: {sorted(forbidden)}",
+                )
 
     def test_vocabulary_imports_bypass_permission_service(self) -> None:
         for path in sorted(BACKEND_ROOT.rglob("*.py")):

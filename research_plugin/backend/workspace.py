@@ -4,6 +4,8 @@ from __future__ import annotations
 
 from pathlib import Path
 
+from .domain.paths import safe_experiment_dirname
+
 
 class LocalWorkspace:
     """Data-plane view of the local repository checkout.
@@ -43,20 +45,6 @@ class LocalWorkspace:
             return Path(path).resolve().relative_to(self.repo_root).as_posix()
         except ValueError:
             return str(path)
-
-
-def safe_experiment_dirname(experiment_id: str) -> str:
-    """Filesystem-safe directory name for an experiment (its name or id)."""
-    return "".join(ch if ch.isalnum() or ch in "-_." else "_" for ch in experiment_id) or "experiment"
-
-
-def experiment_folder_rel(*, experiment_id: str, name: str = "") -> str:
-    """The experiment folder path relative to the repo root, with trailing slash.
-
-    The agent-facing spelling of local_experiment_dir — used in tool responses
-    and workflow guidance so agents are told exactly where to work.
-    """
-    return f"experiments/{safe_experiment_dirname(name.strip() or experiment_id)}/"
 
 
 def local_experiment_dir(*, repo_root: Path, experiment_id: str, name: str = "") -> Path:

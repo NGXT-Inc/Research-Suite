@@ -59,7 +59,13 @@ CONTROL_MODULES = (
 )
 
 # Module names (any dotted segment) control modules may never import.
-CONTROL_FORBIDDEN_SEGMENTS = {"subprocess", "ssh_rsync", "sandbox_conn", "dataplane"}
+CONTROL_FORBIDDEN_SEGMENTS = {
+    "dataplane",
+    "sandbox_conn",
+    "ssh_rsync",
+    "subprocess",
+    "workspace",
+}
 
 
 def _imports(path: Path) -> set[str]:
@@ -87,10 +93,13 @@ def _import_segments(path: Path) -> set[str]:
         if isinstance(node, ast.Import):
             for alias in node.names:
                 segments.update(alias.name.split("."))
-        elif isinstance(node, ast.ImportFrom) and node.module:
+        elif isinstance(node, ast.ImportFrom):
             if node.module == "__future__":
                 continue
-            segments.update(node.module.split("."))
+            if node.module:
+                segments.update(node.module.split("."))
+            for alias in node.names:
+                segments.update(alias.name.split("."))
     return segments
 
 
