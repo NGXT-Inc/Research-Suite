@@ -12,8 +12,8 @@ from typing import Any, Protocol
 from ..utils import NotFoundError, ValidationError, new_id, now_iso
 from ..state.blobs import BlobStore
 from ..state.store import StateStore, next_created_seq, row_to_dict, rows_to_dicts
+from ..domain.markdown_images import MARKDOWN_FIGURE_MAX_BYTES, markdown_image_links
 from ..domain.vocabulary import GATED_ROLE_BYTE_CAPS
-from .artifacts import markdown_image_links
 from .permissions import PermissionService
 
 
@@ -30,14 +30,6 @@ class ResourceObserver(Protocol):
         title: str = "",
         created_by: str = "codex",
     ) -> dict[str, Any]: ...
-
-
-def _content_sha256(file_path: Path) -> str:
-    digest = hashlib.sha256()
-    with file_path.open("rb") as handle:
-        for chunk in iter(lambda: handle.read(1024 * 1024), b""):
-            digest.update(chunk)
-    return digest.hexdigest()
 
 
 class ResourceService:
@@ -267,35 +259,19 @@ class ResourceService:
         role: str,
         project_id: str | None = None,
     ) -> dict[str, Any]:
-        self.permissions.validate_resource_association(target_type=target_type, role=role)
-        storage_target_type = self.permissions.storage_resource_target_type(
-            target_type=target_type
+        """Record an already-observed association.
+
+        Local and daemon tool paths call ``associate_observed`` with bytes for
+        gated roles after the data plane has read the working tree. Keeping this
+        fallback record-only prevents the service from reaching into local files.
+        """
+        return self.associate_observed(
+            resource_id=resource_id,
+            target_type=target_type,
+            target_id=target_id,
+            role=role,
+            project_id=project_id,
         )
-        with self.store.transaction() as conn:
-            project_id = self.store.require_project_id(conn=conn, project_id=project_id)
-            resource = conn.execute("SELECT * FROM resources WHERE id = ? AND deleted = 0", (resource_id,)).fetchone()
-            if resource is None:
-                raise NotFoundError(f"resource not found: {resource_id}")
-            if resource["project_id"] != project_id:
-                raise NotFoundError(f"resource not found in project {project_id}: {resource_id}")
-            version_id = self._ensure_current_version_for_resource(conn=conn, resource=resource)
-            self._capture_gated_blob(
-                conn=conn,
-                resource=resource,
-                role=role,
-                version_id=version_id,
-                project_id=project_id,
-            )
-            return self._associate_version(
-                conn=conn,
-                project_id=project_id,
-                resource_id=resource_id,
-                version_id=version_id,
-                storage_target_type=storage_target_type,
-                public_target_type=target_type,
-                target_id=target_id,
-                role=role,
-            )
 
     def associate_observed(
         self,
@@ -641,20 +617,6 @@ class ResourceService:
             raise ValidationError("resource path may not point inside .research_plugin")
         return rel.as_posix()
 
-    def _resolve_repo_file(self, *, path: str) -> tuple[str, Path]:
-        rel_path = self._repo_relative_path(path=path)
-        rel = Path(rel_path)
-        full = (self.workspace.repo_root / rel).resolve()
-        try:
-            full.relative_to(self.workspace.repo_root)
-        except ValueError as exc:
-            raise ValidationError("resource path escapes repo root") from exc
-        if not full.exists():
-            raise NotFoundError(f"resource file does not exist: {path}")
-        if not full.is_file():
-            raise ValidationError("v0.0001 resources must be files")
-        return rel.as_posix(), full
-
     def _validate_content_sha256(self, value: str) -> None:
         if len(value) != 64 or any(ch not in "0123456789abcdef" for ch in value):
             raise ValidationError("content_sha256 must be a lowercase sha256 hex digest")
@@ -697,65 +659,6 @@ class ResourceService:
         if row is None:
             raise NotFoundError(f"{target_type} not found: {target_id}")
         return int(row["attempt_index"])
-
-    def _capture_gated_blob(
-        self,
-        *,
-        conn: sqlite3.Connection,
-        resource: sqlite3.Row,
-        role: str,
-        version_id: str,
-        project_id: str,
-    ) -> None:
-        """Snapshot a gated-role file's bytes into the blob store at associate.
-
-        Decision 6 of the cloud migration plan: gated artifacts (plan, report,
-        graph, project_graph, reflection_doc (legacy synthesis_doc),
-        reflection_lens_doc (legacy reflection), change_spec; legacy proposals)
-        submit their content when associated, so gates can lint immutable pinned
-        bytes instead of live files. Size caps are
-        enforced here — before any bytes are stored — with the version's
-        content_sha256 as the blob key, so blob and pin cannot disagree.
-        """
-        cap = GATED_ROLE_BYTE_CAPS.get(role)
-        if cap is None or self.blobs is None:
-            return
-        rel_path, file_path = self._resolve_repo_file(path=resource["path"])
-        size = file_path.stat().st_size
-        if size > cap:
-            raise ValidationError(
-                f"{rel_path} is {size} bytes; the maximum for a role-{role!r} "
-                f"artifact is {cap} bytes — slim the file before associating "
-                "(move raw data/outputs elsewhere and reference them)",
-                details={"path": rel_path, "role": role, "size_bytes": size, "max_bytes": cap},
-            )
-        data = file_path.read_bytes()
-        version = conn.execute(
-            "SELECT content_sha256, content_type FROM resource_versions WHERE id = ?",
-            (version_id,),
-        ).fetchone()
-        if version is None:
-            raise NotFoundError(f"resource version not found: {version_id}")
-        sha = hashlib.sha256(data).hexdigest()
-        if sha != str(version["content_sha256"]):
-            raise ValidationError(
-                f"{rel_path} changed while associating — retry the call",
-                details={"path": rel_path, "role": role},
-            )
-        self.blobs.put(
-            namespace=project_id,
-            data=data,
-            content_type=str(version["content_type"]),
-        )
-        if role in {"report", "reflection_doc", "synthesis_doc"}:
-            self._capture_markdown_figures(
-                conn=conn,
-                version_id=version_id,
-                project_id=project_id,
-                markdown_rel_path=rel_path,
-                markdown_text=data.decode("utf-8", errors="replace"),
-                label=role,
-            )
 
     def _capture_submitted_gated_blob(
         self,
@@ -810,10 +713,6 @@ class ResourceService:
                 figures=figures,
             )
 
-    # Figures referenced by markdown gated artifacts can be real images; cap
-    # each upload.
-    FIGURE_MAX_BYTES = 5_000_000
-
     def _capture_markdown_figures(
         self,
         *,
@@ -844,7 +743,7 @@ class ResourceService:
             if not resolved.is_file():
                 continue
             size = resolved.stat().st_size
-            if size > self.FIGURE_MAX_BYTES:
+            if size > MARKDOWN_FIGURE_MAX_BYTES:
                 continue
             figure_data = resolved.read_bytes()
             sha = self.blobs.put(
@@ -882,7 +781,7 @@ class ResourceService:
             if not isinstance(data, bytes):
                 continue
             size = len(data)
-            if size > self.FIGURE_MAX_BYTES:
+            if size > MARKDOWN_FIGURE_MAX_BYTES:
                 continue
             sha = self.blobs.put(
                 namespace=project_id,
@@ -965,80 +864,6 @@ class ResourceService:
     def _git_commit_or_none(self, *, path: str) -> str | None:
         # Keep this optional and failure-tolerant; resource identity is file-first.
         return None
-
-    def _ensure_current_version_for_resource(self, *, conn: sqlite3.Connection, resource: sqlite3.Row) -> str:
-        rel_path, file_path = self._resolve_repo_file(path=resource["path"])
-        stat = file_path.stat()
-        token = self._version_token(
-            path=rel_path,
-            mtime_ns=stat.st_mtime_ns,
-            ctime_ns=stat.st_ctime_ns,
-            size_bytes=stat.st_size,
-        )
-        if resource["current_version_id"] and resource["version_token"] == token:
-            return str(resource["current_version_id"])
-        observed_at = now_iso()
-        version = self._snapshot_version(
-            conn=conn,
-            resource_id=resource["id"],
-            project_id=resource["project_id"],
-            rel_path=rel_path,
-            file_path=file_path,
-            stat=stat,
-            observed_at=observed_at,
-            created_by=resource["created_by"],
-        )
-        conn.execute(
-            """
-            UPDATE resources
-            SET version_token = ?, mtime_ns = ?, size_bytes = ?, observed_at = ?,
-                missing = 0, updated_at = ?, current_version_id = ?
-            WHERE id = ?
-            """,
-            (
-                token,
-                stat.st_mtime_ns,
-                stat.st_size,
-                observed_at,
-                observed_at,
-                version["id"],
-                resource["id"],
-            ),
-        )
-        self.store.record_event(
-            conn=conn,
-            project_id=resource["project_id"],
-            event_type="resource.observed",
-            target_type="resource",
-            target_id=resource["id"],
-            payload={"path": rel_path, "version_id": version["id"]},
-        )
-        return str(version["id"])
-
-    def _snapshot_version(
-        self,
-        *,
-        conn: sqlite3.Connection,
-        resource_id: str,
-        project_id: str,
-        rel_path: str,
-        file_path: Path,
-        stat: os.stat_result,
-        observed_at: str,
-        created_by: str,
-    ) -> dict[str, Any]:
-        return self._snapshot_version_record(
-            conn=conn,
-            resource_id=resource_id,
-            project_id=project_id,
-            rel_path=rel_path,
-            content_sha256=_content_sha256(file_path),
-            size_bytes=stat.st_size,
-            mtime_ns=stat.st_mtime_ns,
-            content_type=mimetypes.guess_type(rel_path)[0] or "application/octet-stream",
-            observed_at=observed_at,
-            created_by=created_by,
-        )
 
     def _snapshot_version_record(
         self,

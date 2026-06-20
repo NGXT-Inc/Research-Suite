@@ -23,8 +23,6 @@ from __future__ import annotations
 
 import base64
 import json
-import mimetypes
-import os
 import threading
 import time
 from collections.abc import Mapping
@@ -38,11 +36,9 @@ from ..dataplane.feed_images import LocalFeedImageReader
 from ..dataplane.http_channel import DaemonTaskLoop
 from ..dataplane.project_links import ProjectLinks
 from ..dataplane.remote_view import HttpControlPlaneView
+from ..dataplane.resource_artifacts import LocalResourceArtifactReader
 from ..dataplane.resource_observer import LocalResourceObserver
-from ..domain.vocabulary import GATED_ROLE_BYTE_CAPS
 from ..execution import build_sandbox_backend
-from ..services.artifacts import markdown_image_links, markdown_image_targets
-from ..services.resources import ResourceService
 from ..services import sandbox_views
 from ..utils import ValidationError
 from ..workspace import LocalWorkspace
@@ -361,33 +357,31 @@ class DaemonServer:
         payload: dict[str, Any] = {
             **intent,
         }
-        if role in GATED_ROLE_BYTE_CAPS:
-            rel_path, file_path = self._resolve_repo_file(repo_root=repo_root, path=path)
-            size = file_path.stat().st_size
-            cap = GATED_ROLE_BYTE_CAPS[role]
-            if size > cap:
-                raise ValidationError(
-                    f"{rel_path} is {size} bytes; the maximum for a role-{role!r} "
-                    f"artifact is {cap} bytes — slim the file before associating "
-                    "(move raw data/outputs elsewhere and reference them)",
-                    details={"path": rel_path, "role": role, "size_bytes": size, "max_bytes": cap},
-                )
-            data = file_path.read_bytes()
-            markdown_text = data.decode("utf-8", errors="replace")
-            if role in {"report", "reflection_doc", "synthesis_doc"}:
-                self._reject_absolute_markdown_image_targets(
-                    markdown_rel_path=rel_path, markdown_text=markdown_text
-                )
+        artifact = LocalResourceArtifactReader(repo_root=repo_root).read_for_association(
+            path=path, role=role
+        )
+        content_bytes = artifact.get("content_bytes")
+        if content_bytes is not None:
             payload["blob"] = {
-                "data_b64": base64.b64encode(data).decode("ascii"),
-                "content_type": mimetypes.guess_type(rel_path)[0] or "application/octet-stream",
+                "data_b64": base64.b64encode(content_bytes).decode("ascii"),
+                "content_type": str(
+                    artifact.get("content_type") or "application/octet-stream"
+                ),
             }
-            if role in {"report", "reflection_doc", "synthesis_doc"}:
-                payload["figures"] = self._submitted_figures(
-                    repo_root=repo_root,
-                    markdown_rel_path=rel_path,
-                    markdown_text=markdown_text,
-                )
+            figures = artifact.get("figures") or []
+            if figures:
+                payload["figures"] = [
+                    {
+                        "link_path": str(figure.get("link_path") or ""),
+                        "data_b64": base64.b64encode(figure["data"]).decode("ascii"),
+                        "content_type": str(
+                            figure.get("content_type") or "application/octet-stream"
+                        ),
+                        "size_bytes": int(figure.get("size_bytes") or 0),
+                    }
+                    for figure in figures
+                    if isinstance(figure.get("data"), bytes)
+                ]
         return self.control.submit_resource_association(payload)
 
     def _submit_resource_observation(
@@ -409,46 +403,6 @@ class DaemonServer:
         return self.control.submit_resource_observation(
             {"project_id": project_id, **observation}
         )
-
-    def _submitted_figures(
-        self, *, repo_root: Path, markdown_rel_path: str, markdown_text: str
-    ) -> list[dict[str, Any]]:
-        markdown_dir = (repo_root / markdown_rel_path).parent
-        figures: list[dict[str, Any]] = []
-        for link in markdown_image_links(markdown_text):
-            resolved = (markdown_dir / link).resolve()
-            try:
-                resolved.relative_to(repo_root)
-            except ValueError as exc:
-                raise ValidationError(
-                    f"report image link escapes the repo: {link}",
-                    details={"link": link, "resource": markdown_rel_path},
-                ) from exc
-            if not resolved.is_file():
-                continue
-            size = resolved.stat().st_size
-            if size > ResourceService.FIGURE_MAX_BYTES:
-                continue
-            data = resolved.read_bytes()
-            figures.append(
-                {
-                    "link_path": link,
-                    "data_b64": base64.b64encode(data).decode("ascii"),
-                    "content_type": mimetypes.guess_type(link)[0] or "application/octet-stream",
-                    "size_bytes": size,
-                }
-            )
-        return figures
-
-    def _reject_absolute_markdown_image_targets(
-        self, *, markdown_rel_path: str, markdown_text: str
-    ) -> None:
-        for target in markdown_image_targets(markdown_text):
-            if target.startswith("/") or os.path.isabs(target):
-                raise ValidationError(
-                    f"markdown image link must be repo-relative: {target}",
-                    details={"link": target, "resource": markdown_rel_path},
-                )
 
     def _repo_root_from_context(self, *, context: dict[str, Any]) -> Path:
         repo_root = str(context.get("repo_root") or "")
@@ -473,27 +427,6 @@ class DaemonServer:
         if value is None or str(value) == "":
             raise ValidationError(f"{key} is required")
         return str(value)
-
-    def _resolve_repo_file(self, *, repo_root: Path, path: str) -> tuple[str, Path]:
-        if not path:
-            raise ValidationError("path is required")
-        if os.path.isabs(path):
-            raise ValidationError("resource paths must be repo-relative")
-        rel = Path(path)
-        if any(part == ".." for part in rel.parts):
-            raise ValidationError("resource path may not contain '..'")
-        if rel.parts and rel.parts[0] == ".research_plugin":
-            raise ValidationError("resource path may not point inside .research_plugin")
-        full = (repo_root / rel).resolve()
-        try:
-            full.relative_to(repo_root)
-        except ValueError as exc:
-            raise ValidationError("resource path escapes repo root") from exc
-        if not full.exists():
-            raise ValidationError(f"resource file does not exist: {path}")
-        if not full.is_file():
-            raise ValidationError("v0.0001 resources must be files")
-        return rel.as_posix(), full
 
     def _auto_sync_loop(self) -> None:
         # Mirror SandboxDaemons._auto_sync_loop, but the targets come from the

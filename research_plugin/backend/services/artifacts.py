@@ -5,6 +5,8 @@ from __future__ import annotations
 import re
 from collections.abc import Callable
 
+from ..domain.markdown_images import markdown_image_links, markdown_image_targets
+
 
 # --- Plan schema (PRD-style) -------------------------------------------------
 # plan.md is the face of the experiment in the UI and the artifact the design
@@ -43,7 +45,6 @@ MAX_REPORT_BYTES = 16_000
 
 _HEADING_RE = re.compile(r"^(#{1,6})[ \t]+(.*?)[ \t]*#*[ \t]*$", re.MULTILINE)
 _HTML_COMMENT_RE = re.compile(r"<!--.*?-->", re.DOTALL)
-_IMAGE_LINK_RE = re.compile(r"!\[[^\]]*\]\(\s*<?([^)\s>]+)>?(?:\s+[\"'][^\"']*[\"'])?\s*\)")
 
 
 def _normalize_heading(text: str) -> str:
@@ -101,26 +102,6 @@ def _has_markdown_table(text: str) -> bool:
         if sep and "---" in sep and set(sep) <= set("|-: \t"):
             return True
     return False
-
-
-def markdown_image_links(markdown_text: str) -> list[str]:
-    """Relative markdown image links, in order.
-
-    External, absolute, and data: URLs are skipped; only repo-relative image
-    links need submitted bytes alongside the markdown artifact.
-    """
-    links: list[str] = []
-    for target in markdown_image_targets(markdown_text):
-        if target.startswith(("http://", "https://", "data:", "/")):
-            continue
-        links.append(target)
-    return links
-
-
-def markdown_image_targets(markdown_text: str) -> list[str]:
-    """All markdown image targets, including external and absolute links."""
-    stripped = _HTML_COMMENT_RE.sub("", markdown_text)
-    return [match.group(1) for match in _IMAGE_LINK_RE.finditer(stripped)]
 
 
 def report_figure_links(report_text: str) -> list[str]:

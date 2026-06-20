@@ -7,6 +7,7 @@ from pathlib import Path
 
 from .dataplane import LocalDataPlaneWorker
 from .dataplane.feed_images import LocalFeedImageReader
+from .dataplane.resource_artifacts import LocalResourceArtifactReader
 from .dataplane.resource_observer import LocalResourceObserver
 from .dataplane.tasks import InProcessTaskChannel
 from .execution import SandboxBackend, build_sandbox_backend
@@ -26,6 +27,7 @@ class LocalRuntime:
     execution_backend: SandboxBackend
     worker: LocalDataPlaneWorker
     feed_image_reader: LocalFeedImageReader
+    resource_artifact_reader: LocalResourceArtifactReader
     resource_observer: LocalResourceObserver
     task_channel: InProcessTaskChannel
     mgmt_keys: LocalMgmtKeyStore
@@ -70,6 +72,7 @@ def build_local_runtime(
         execution_backend=execution_backend,
         worker=worker,
         feed_image_reader=LocalFeedImageReader(repo_root=workspace.repo_root),
+        resource_artifact_reader=LocalResourceArtifactReader(repo_root=workspace.repo_root),
         resource_observer=LocalResourceObserver(repo_root=workspace.repo_root),
         task_channel=InProcessTaskChannel(worker=worker),
         mgmt_keys=LocalMgmtKeyStore(root=workspace.research_dir / "mgmt_keys"),

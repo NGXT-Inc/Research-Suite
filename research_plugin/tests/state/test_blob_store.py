@@ -251,6 +251,24 @@ class AssociateByteCaptureTest(unittest.TestCase):
         )
         self.assertEqual(resource["associations"], [])
 
+    def test_invalid_association_intent_preflights_before_reading_artifact(self) -> None:
+        path = self.repo / "plan.md"
+        path.write_text("valid enough to register\n")
+        resource = self.call(
+            "resource.register_file", project_id=self.project_id, path="plan.md"
+        )
+        path.unlink()
+
+        with self.assertRaisesRegex(NotFoundError, "experiment not found"):
+            self.call(
+                "resource.associate",
+                project_id=self.project_id,
+                resource_id=resource["id"],
+                target_type="experiment",
+                target_id="exp_missing",
+                role="plan",
+            )
+
     def test_live_file_gate_semantics_unchanged_this_phase(self) -> None:
         # Phase 1 is additive: associating still re-observes the live file
         # (capture happens alongside, not instead).

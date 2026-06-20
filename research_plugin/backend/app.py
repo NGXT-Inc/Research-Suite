@@ -22,6 +22,7 @@ from .state.blobs import BlobStore
 from .observability import StructuredLogger
 from .tool_facade import ToolDispatcher
 from .tool_handlers import build_local_tool_handlers
+from .utils import ValidationError
 
 if TYPE_CHECKING:
     from .execution import SandboxBackend
@@ -90,6 +91,8 @@ class ResearchPluginApp:
         self.execution_backend = runtime.execution_backend
         self.worker = runtime.worker
         self.feed_image_reader = runtime.feed_image_reader
+        self.resource_artifact_reader = runtime.resource_artifact_reader
+        self.resource_observer = runtime.resource_observer
         self.projects = ProjectService(store=self.store)
         self.claims = ClaimService(store=self.store)
         self.experiments = ExperimentService(
@@ -100,7 +103,7 @@ class ResearchPluginApp:
             store=self.store,
             permissions=self.permissions,
             workspace=self.workspace,
-            observer=runtime.resource_observer,
+            observer=self.resource_observer,
             blobs=self.blobs,
         )
         # One-time local upgrade: capture bytes for gated associations made
@@ -168,6 +171,7 @@ class ResearchPluginApp:
                 experiments=self.experiments,
                 reflections=self.reflections,
                 resources=self.resources,
+                resource_associate=self.associate_resource,
                 reviews=self.reviews,
                 sandboxes=self.sandboxes,
                 feed=self.feed,
@@ -183,6 +187,51 @@ class ResearchPluginApp:
 
     def list_tools(self) -> list[dict[str, Any]]:
         return self.tools.list_tools()
+
+    def associate_resource(
+        self,
+        *,
+        resource_id: str,
+        target_type: str,
+        target_id: str,
+        role: str,
+        project_id: str | None = None,
+    ) -> dict[str, Any]:
+        validation = self.resources.validate_association_intent(
+            resource_id=resource_id,
+            target_type=target_type,
+            target_id=target_id,
+            role=role,
+            project_id=project_id,
+        )
+        resource = validation.get("resource") or {}
+        actual_project_id = str(resource.get("project_id") or project_id or "")
+        path = str(resource.get("path") or "")
+        if not path:
+            raise ValidationError(f"resource has no path: {resource_id}")
+        observation = self.resource_observer.observe_file(
+            path=path,
+            kind=str(resource.get("kind") or "other"),
+            title=str(resource.get("title") or ""),
+            created_by=str(resource.get("created_by") or "codex"),
+        )
+        self.resources.record_observation(
+            project_id=actual_project_id,
+            **observation,
+        )
+        artifact = self.resource_artifact_reader.read_for_association(
+            path=path,
+            role=role,
+        )
+        return self.resources.associate_observed(
+            resource_id=resource_id,
+            target_type=target_type,
+            target_id=target_id,
+            role=role,
+            project_id=actual_project_id,
+            content_bytes=artifact.get("content_bytes"),
+            figures=artifact.get("figures") or [],
+        )
 
     def post_feed(
         self,

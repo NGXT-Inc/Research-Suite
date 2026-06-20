@@ -94,9 +94,10 @@ class ServiceLayoutTest(unittest.TestCase):
         self.assertNotIn("ACTIVE_PROCESS_STATUSES =", source)
 
     def test_artifact_lint_is_a_leaf_module(self) -> None:
-        # Pure text lint: regexes + a callback type. No filesystem imports —
-        # figure resolution is the caller's business (submission capture).
-        self.assertEqual(_import_modules("artifacts.py"), {"re", "collections"})
+        # Pure text lint: regexes, a callback type, and shared domain markdown
+        # image parsing. No filesystem imports — figure resolution is the
+        # caller's business (submission capture).
+        self.assertEqual(_import_modules("artifacts.py"), {"re", "collections", "domain"})
 
     def test_metrics_archive_service_module_is_a_port(self) -> None:
         # The concrete file/HTTP/SQLite archive lives in dataplane. Services
@@ -117,6 +118,17 @@ class ServiceLayoutTest(unittest.TestCase):
         self.assertNotIn("_resolve_repo_file", register_slice)
         self.assertNotIn("_content_sha256", register_slice)
         self.assertNotIn(".stat(", register_slice)
+
+    def test_resource_association_uses_submitted_artifact_bytes(self) -> None:
+        source = _source("resources.py")
+        start = source.index("    def associate(")
+        end = source.index("    def associate_observed(")
+        associate_slice = source[start:end]
+
+        self.assertIn("self.associate_observed", associate_slice)
+        self.assertNotIn("_resolve_repo_file", source)
+        self.assertNotIn("_ensure_current_version_for_resource", source)
+        self.assertNotIn("_capture_gated_blob", source)
 
     def test_feed_service_does_not_read_local_image_paths(self) -> None:
         source = _source("feed.py")
