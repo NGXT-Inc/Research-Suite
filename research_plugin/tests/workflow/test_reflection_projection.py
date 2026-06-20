@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import unittest
 
-from backend.services.reflection_projection import (
+from backend.domain.reflection_projection import (
     external_reflection_state,
     external_reflection_transition,
 )

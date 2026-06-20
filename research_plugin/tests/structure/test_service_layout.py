@@ -223,6 +223,17 @@ class ServiceLayoutTest(unittest.TestCase):
                 self.assertIn("domain.experiment_names", imports)
                 self.assertNotIn("experiment_names", imports)
 
+    def test_reflection_projection_is_domain_leaf_module(self) -> None:
+        self.assertEqual(
+            _import_module_names(DOMAIN_ROOT / "reflection_projection.py"),
+            {"typing"},
+        )
+        for name in ("reflection_tools.py", "workflow_views.py"):
+            with self.subTest(module=name):
+                imports = _import_module_names(SERVICES / name)
+                self.assertIn("domain.reflection_projection", imports)
+                self.assertNotIn("reflection_projection", imports)
+
     def test_graph_lint_is_domain_leaf_module(self) -> None:
         self.assertEqual(_import_module_names(DOMAIN_ROOT / "graph_lint.py"), {"json"})
 

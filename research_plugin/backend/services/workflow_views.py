@@ -4,11 +4,11 @@ from __future__ import annotations
 
 from typing import Any
 
-from ..domain.vocabulary import EXPERIMENT_ACTIVE_PROCESS_STATUSES
-from .reflection_projection import (
+from ..domain.reflection_projection import (
     external_reflection_status,
     external_reflection_transition,
 )
+from ..domain.vocabulary import EXPERIMENT_ACTIVE_PROCESS_STATUSES
 
 
 # Agent-facing projection of status_and_next. The next-action decision is

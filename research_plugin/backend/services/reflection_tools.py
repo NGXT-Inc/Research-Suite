@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from typing import Any, Protocol
 
-from .reflection_projection import external_reflection_state
+from ..domain.reflection_projection import external_reflection_state
 
 
 class ReflectionWaveStore(Protocol):
