@@ -4,13 +4,13 @@ from __future__ import annotations
 
 from typing import Any
 
-from .experiments import ExperimentService
-from .permissions import (
+from ..domain.vocabulary import (
     PROJECT_GRAPH_ROLE,
     PROJECT_GRAPH_ROLES,
     REFLECTION_LENS_DOC_ROLE,
     RESOURCE_ROLES,
 )
+from .experiments import ExperimentService
 from .resources import ResourceService
 from .reviews import ReviewService
 from .sandboxes import SandboxService

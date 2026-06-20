@@ -2,8 +2,9 @@ from __future__ import annotations
 
 import ast
 import unittest
+from pathlib import Path
 
-from tests.paths import PLUGIN_ROOT, SERVICES_ROOT
+from tests.paths import BACKEND_ROOT, DOMAIN_ROOT, PLUGIN_ROOT, SERVICES_ROOT
 
 ROOT = PLUGIN_ROOT
 SERVICES = SERVICES_ROOT
@@ -14,16 +15,39 @@ def _source(name: str) -> str:
 
 
 def _import_modules(name: str) -> set[str]:
-    tree = ast.parse(_source(name))
+    return {module.split(".", 1)[0] for module in _import_module_names(SERVICES / name)}
+
+
+def _import_module_names(path: Path) -> set[str]:
+    tree = ast.parse(path.read_text(encoding="utf-8"))
     modules: set[str] = set()
     for node in ast.walk(tree):
         if isinstance(node, ast.Import):
-            modules.update(alias.name.split(".", 1)[0] for alias in node.names)
+            modules.update(alias.name for alias in node.names)
         elif isinstance(node, ast.ImportFrom) and node.module:
             if node.module == "__future__":
                 continue
-            modules.add(node.module.split(".", 1)[0])
+            modules.add(node.module)
     return modules
+
+
+VOCABULARY_NAMES = {
+    "GATED_ROLES",
+    "GATED_ROLE_BYTE_CAPS",
+    "LEGACY_PROJECT_GRAPH_ROLE",
+    "LEGACY_PROPOSALS_ROLE",
+    "LEGACY_REFLECTION_DOC_ROLE",
+    "LEGACY_REFLECTION_LENS_DOC_ROLE",
+    "LEGACY_RESOURCE_ROLES",
+    "PROJECT_GRAPH_ROLE",
+    "PROJECT_GRAPH_ROLES",
+    "REFLECTION_LENS_DOC_ROLE",
+    "REFLECTION_LENS_DOC_ROLES",
+    "RESOURCE_ROLES",
+    "RESOURCE_TARGET_TYPES",
+    "REVIEW_ROLES",
+    "REVIEW_VERDICTS",
+}
 
 
 class ServiceLayoutTest(unittest.TestCase):
@@ -53,10 +77,33 @@ class ServiceLayoutTest(unittest.TestCase):
     def test_graph_lint_is_a_leaf_module(self) -> None:
         self.assertEqual(_import_modules("graph_lint.py"), {"json"})
 
+    def test_domain_vocabulary_is_a_leaf_module(self) -> None:
+        self.assertEqual(_import_module_names(DOMAIN_ROOT / "vocabulary.py"), set())
+
+    def test_vocabulary_imports_bypass_permission_service(self) -> None:
+        for path in sorted(BACKEND_ROOT.rglob("*.py")):
+            if path == SERVICES / "permissions.py":
+                continue
+            with self.subTest(module=str(path.relative_to(BACKEND_ROOT))):
+                tree = ast.parse(path.read_text(encoding="utf-8"))
+                for node in ast.walk(tree):
+                    if not isinstance(node, ast.ImportFrom) or not node.module:
+                        continue
+                    if node.module.split(".")[-1] != "permissions":
+                        continue
+                    leaked = VOCABULARY_NAMES & {alias.name for alias in node.names}
+                    self.assertFalse(
+                        leaked,
+                        f"import vocabulary from backend.domain.vocabulary, not permissions: {sorted(leaked)}",
+                    )
+
     def test_synthesis_gates_only_reuses_workflow_gate_dataclasses(self) -> None:
         # The second gate table must not grow service dependencies: it shares
-        # the experiment table's dataclasses so the two workflows cannot drift.
-        self.assertEqual(_import_modules("synthesis_gates.py"), {"typing", "workflow_gates"})
+        # the experiment table's dataclasses and pure domain role names only.
+        self.assertEqual(
+            _import_module_names(SERVICES / "synthesis_gates.py"),
+            {"domain.vocabulary", "typing", "workflow_gates"},
+        )
 
     def test_view_modules_do_not_import_service_state_machines(self) -> None:
         for name in ("experiment_views.py", "workflow_views.py"):

@@ -29,7 +29,7 @@ from .services.figure_view import build_experiment_figure
 from .services.feed import MAX_IMAGE_BYTES
 from .services.graph_lint import MAX_GRAPH_NODES, graph_problems
 from .services.identity import LOCAL_PRINCIPAL, AuthError, AuthService
-from .services.permissions import GATED_ROLES, PROJECT_GRAPH_ROLES
+from .domain.vocabulary import GATED_ROLES, PROJECT_GRAPH_ROLES
 from .services.pinned import pinned_text_for_version
 from .utils import (
     ContentUnavailableError,

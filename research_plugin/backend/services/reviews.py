@@ -13,8 +13,9 @@ from ..utils import NotFoundError, PermissionDeniedError, ValidationError
 from .experiments import ExperimentService
 from ..utils import new_id
 from ..state.blobs import BlobStore
+from ..domain.vocabulary import GATED_ROLES
 from .identity import LOCAL_TENANT_ID
-from .permissions import GATED_ROLES, PermissionService
+from .permissions import PermissionService
 from ..state.store import StateStore, next_created_seq, row_to_dict
 from .syntheses import SynthesisService
 from ..utils import now_iso

@@ -23,7 +23,7 @@ from .artifacts import markdown_image_links
 from .claims import CLAIM_CONFIDENCES, CLAIM_STATUSES
 from .experiments import ExperimentService
 from .graph_lint import graph_problems
-from .permissions import PROJECT_GRAPH_ROLES, REFLECTION_LENS_DOC_ROLES
+from ..domain.vocabulary import PROJECT_GRAPH_ROLES, REFLECTION_LENS_DOC_ROLES
 from .pinned import pinned_text_for_version, resubmit_hint
 from .reflection_policy import (
     REFLECTION_BLOCK_NEW_TERMINAL_THRESHOLD,

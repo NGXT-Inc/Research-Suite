@@ -34,7 +34,7 @@ from __future__ import annotations
 
 from typing import Any
 
-from .permissions import (
+from ..domain.vocabulary import (
     PROJECT_GRAPH_ROLE,
     REFLECTION_LENS_DOC_ROLE,
 )

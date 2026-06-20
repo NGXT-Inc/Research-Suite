@@ -38,10 +38,10 @@ from ..dataplane import LocalDataPlaneWorker
 from ..dataplane.http_channel import DaemonTaskLoop
 from ..dataplane.project_links import ProjectLinks
 from ..dataplane.remote_view import HttpControlPlaneView
+from ..domain.vocabulary import GATED_ROLE_BYTE_CAPS
 from ..execution import build_sandbox_backend
 from ..services.artifacts import markdown_image_links, markdown_image_targets
 from ..services.feed import MAX_IMAGE_BYTES
-from ..services.permissions import GATED_ROLE_BYTE_CAPS
 from ..services.resources import ResourceService
 from ..services import sandbox_views
 from ..utils import ValidationError

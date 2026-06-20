@@ -9,7 +9,7 @@ the MCP tool surface.
 from .claims import ClaimService
 from .experiments import ExperimentService
 from .feed import FeedService
-from .permissions import RESOURCE_ROLES, PermissionService
+from .permissions import PermissionService
 from .projects import ProjectService
 from .resources import ResourceService
 from .reviews import ReviewService
@@ -18,7 +18,6 @@ from .syntheses import SynthesisService
 from .workflow import WorkflowService
 
 __all__ = [
-    "RESOURCE_ROLES",
     "ClaimService",
     "ExperimentService",
     "FeedService",

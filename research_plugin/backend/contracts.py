@@ -7,7 +7,7 @@ from typing import Any, Literal
 
 from pydantic import BaseModel, ConfigDict, Field
 
-from .services.permissions import RESOURCE_ROLES, RESOURCE_TARGET_TYPES
+from .domain.vocabulary import RESOURCE_ROLES, RESOURCE_TARGET_TYPES
 
 
 class ContractModel(BaseModel):

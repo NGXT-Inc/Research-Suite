@@ -40,7 +40,7 @@ from .state import (
 from .state.blobs import BlobStore, LocalDirBlobStore
 from .observability import StructuredLogger
 from .services.workflow_gates import TERMINAL_STATUSES as EXPERIMENT_TERMINAL_STATUSES
-from .services.permissions import PROJECT_GRAPH_ROLES
+from .domain.vocabulary import PROJECT_GRAPH_ROLES
 
 
 @dataclass(frozen=True)

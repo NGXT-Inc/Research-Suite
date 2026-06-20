@@ -10,7 +10,7 @@ from pathlib import Path
 from backend.app import ResearchPluginApp
 from backend.services.artifacts import MAX_REPORT_BYTES
 from backend.services.graph_lint import MAX_GRAPH_BYTES
-from backend.services.permissions import GATED_ROLE_BYTE_CAPS, GATED_ROLES
+from backend.domain.vocabulary import GATED_ROLE_BYTE_CAPS, GATED_ROLES
 from backend.state.blobs import LocalDirBlobStore
 from backend.utils import NotFoundError, ValidationError
 from tests.fakes import FakeBlobStore
