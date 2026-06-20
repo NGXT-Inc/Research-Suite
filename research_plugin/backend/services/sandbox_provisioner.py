@@ -25,7 +25,7 @@ from dataclasses import dataclass
 from datetime import UTC, datetime
 from typing import Any, Callable
 
-from ..execution import (
+from ..sandbox_backend import (
     BackendPermissionError,
     BackendUnavailableError,
     BackendValidationError,

@@ -22,7 +22,7 @@ from typing import Any, Callable
 from .app import ResearchPluginApp
 from .contracts import PROJECT_SCOPED_TOOL_NAMES, static_tool_catalog
 from .daemon_marker import clear_marker, write_marker
-from .execution import SandboxBackend
+from .sandbox_backend import SandboxBackend
 from .utils import NotFoundError, ValidationError, now_iso
 
 

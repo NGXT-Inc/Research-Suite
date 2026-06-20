@@ -25,9 +25,9 @@ from .tool_handlers import build_local_tool_handlers
 from .utils import ValidationError
 
 if TYPE_CHECKING:
-    from .execution import SandboxBackend
     from .execution.ssh_rsync import SshRsyncSyncer
     from .local_runtime import LocalRuntime
+    from .sandbox_backend import SandboxBackend
 
 
 class ResearchPluginApp:

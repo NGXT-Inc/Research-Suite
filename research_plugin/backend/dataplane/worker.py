@@ -31,7 +31,7 @@ from pathlib import Path
 from typing import Any, Callable, Protocol
 
 from ..execution.ssh_rsync import SshRsyncSyncer
-from ..execution.types import SandboxBackend
+from ..sandbox_backend import SandboxBackend
 from .metrics_archive import MetricsArchive, snapshot_mlflow, snapshot_mlflow_db
 from .sandbox_dashboards import DashboardTunnels
 from ..sandbox_support import (

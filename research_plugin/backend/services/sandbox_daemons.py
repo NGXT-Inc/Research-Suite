@@ -21,7 +21,7 @@ import threading
 from datetime import UTC, datetime
 from typing import Any, Callable, Protocol
 
-from ..execution.types import SandboxBackend
+from ..sandbox_backend import SandboxBackend
 from .experiments import ExperimentService
 from .sandbox_provisioner import SandboxProvisioner
 from .sandbox_registry import SandboxRegistry

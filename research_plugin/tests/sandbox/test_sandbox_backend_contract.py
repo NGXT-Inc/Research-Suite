@@ -8,7 +8,7 @@ from unittest import mock
 from backend.execution.backends.fake import FakeSandboxBackend
 from backend.execution.backends.lambda_labs import LambdaLabsSandboxBackend
 from backend.execution.backends.modal.sandbox_backend import ModalSandboxBackend
-from backend.execution.types import (
+from backend.sandbox_backend import (
     BackendCapabilities,
     ProvisionedSandbox,
     SandboxBackendBase,
@@ -32,6 +32,8 @@ BACKEND_METHODS = (
     "local_dashboard_ports",
     "find_sandbox_id",
     "run_parachute",
+    "sandbox_secrets",
+    "write_secrets",
     "shutdown",
 )
 

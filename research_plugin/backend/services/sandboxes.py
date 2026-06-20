@@ -66,7 +66,7 @@ from ..utils import (
     ValidationError,
     now_iso,
 )
-from ..execution import (
+from ..sandbox_backend import (
     BackendUnavailableError,
     SandboxBackend,
     SandboxRequest,

@@ -41,6 +41,7 @@ DOMAIN_MODULES = tuple(sorted(DOMAIN_ROOT.glob("*.py")))
 
 CONTROL_MODULES = (
     *DOMAIN_MODULES,
+    BACKEND_ROOT / "sandbox_backend.py",
     BACKEND_ROOT / "tool_facade.py",
     BACKEND_ROOT / "tool_handlers.py",
     SERVICES_ROOT / "projects.py",
@@ -193,6 +194,29 @@ class PlaneImportLintTest(unittest.TestCase):
         for name in ("sync_sessions.py", "sandbox_views.py"):
             with self.subTest(module=name):
                 self.assertNotIn("execution", _import_segments(SERVICES_ROOT / name))
+
+    def test_sandbox_services_use_backend_port_not_execution_package(self) -> None:
+        # Record/control sandbox services depend on the provider-neutral port,
+        # while concrete provider machinery stays under execution/.
+        for name in ("sandbox_daemons.py", "sandbox_provisioner.py", "sandboxes.py"):
+            with self.subTest(module=name):
+                self.assertNotIn("execution", _import_segments(SERVICES_ROOT / name))
+
+    def test_sandbox_backend_port_is_neutral(self) -> None:
+        imports = _import_segments(BACKEND_ROOT / "sandbox_backend.py")
+        forbidden = imports & {
+            "dataplane",
+            "execution",
+            "services",
+            "ssh_rsync",
+            "state",
+            "subprocess",
+            "workspace",
+        }
+        self.assertFalse(
+            forbidden,
+            f"sandbox backend port imports backend layers: {sorted(forbidden)}",
+        )
 
     def test_telemetry_sinks_are_store_independent(self) -> None:
         # ActivityLogger and ToolCallStore are config-injected, machine-local

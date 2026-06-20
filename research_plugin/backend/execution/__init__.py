@@ -1,8 +1,7 @@
-"""Backend-neutral sandbox-execution subsystem.
+"""Sandbox backend factory and compatibility exports.
 
-The runtime contract (SandboxBackend protocol, SandboxRequest/ProvisionedSandbox
-dataclasses) lives in `.types`. Backend implementations live under `.backends`.
-The selection factory `build_sandbox_backend` is the public entry point.
+The backend port lives in ``backend.sandbox_backend``. Backend implementations
+and their factory live under this execution package.
 """
 
 from __future__ import annotations
@@ -11,15 +10,13 @@ import os
 from pathlib import Path
 from typing import Any, Callable
 
-from .errors import (
+from ..sandbox_backend import (
+    SANDBOX_STATES,
+    BackendCapabilities,
     BackendPermissionError,
     BackendUnavailableError,
     BackendValidationError,
     ExecutionBackendError,
-)
-from .types import (
-    SANDBOX_STATES,
-    BackendCapabilities,
     OnCreated,
     OnPhase,
     ProvisionedSandbox,
