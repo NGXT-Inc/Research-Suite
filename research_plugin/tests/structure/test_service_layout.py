@@ -200,11 +200,17 @@ class ServiceLayoutTest(unittest.TestCase):
 
     def test_feed_service_does_not_read_local_image_paths(self) -> None:
         source = _source("feed.py")
+        imports = _import_module_names(SERVICES / "feed.py")
 
+        self.assertNotIn("from . import feed_policy", source)
+        self.assertNotIn("feed_policy", imports)
         self.assertNotIn("resolve_repo_relative_file", source)
         self.assertNotIn(".read_bytes(", source)
         self.assertNotIn("workspace", source)
         self.assertIn("post_observed", source)
+
+    def test_feed_policy_is_domain_leaf_module(self) -> None:
+        self.assertEqual(_import_module_names(DOMAIN_ROOT / "feed_policy.py"), set())
 
     def test_graph_lint_is_domain_leaf_module(self) -> None:
         self.assertEqual(_import_module_names(DOMAIN_ROOT / "graph_lint.py"), {"json"})

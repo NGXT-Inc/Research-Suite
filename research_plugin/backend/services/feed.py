@@ -18,14 +18,14 @@ import json
 from pathlib import Path
 from typing import Any
 
+from ..domain import feed_policy
 from ..domain.feed_images import (
     MAX_FEED_IMAGE_BYTES,
     SERVEABLE_IMAGE_TYPES,
     sniff_image_type,
 )
-from ..utils import NotFoundError, ValidationError, new_id, now_iso
 from ..state.store import StateStore, next_created_seq, row_to_dict, rows_to_dicts
-from . import feed_policy
+from ..utils import NotFoundError, ValidationError, new_id, now_iso
 from .feed_unfurl import UnfurlError, fetch_preview_image, unfurl
 
 # Hard cap on post text — "old Twitter, not an essay" (Feed_PRD.md open question,

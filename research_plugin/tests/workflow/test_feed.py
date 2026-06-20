@@ -7,7 +7,7 @@ import unittest
 from pathlib import Path
 
 from backend.app import ResearchPluginApp
-from backend.services import feed_policy
+from backend.domain import feed_policy
 from backend.services.feed import POST_TEXT_MAX
 from backend.services.feed_unfurl import UnfurlError, unfurl
 from backend.utils import ValidationError

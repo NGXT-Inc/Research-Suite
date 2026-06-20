@@ -2,10 +2,10 @@
 
 The primary mechanism that decides when an agent posts is the posting *skill*
 (the curation bar). This module holds only the **backup** nudge: a soft,
-never-forced "consider posting" hint surfaced through ``workflow.status_and_next``
-when a main agent has gone a long stretch without posting while new activity has
-accrued. The hint never blocks anything (unlike the reflection hard-cap) — the
-feed is ungated by design.
+never-forced "consider posting" hint surfaced on the first page of
+``feed.list`` when a main agent has gone a long stretch without posting while
+new activity has accrued. The hint never blocks anything (unlike the reflection
+hard-cap) — the feed is ungated by design.
 
 The two anchors compared are time-since-last-post and events-since-last-post; the
 nudge fires only when BOTH cross their thresholds, so a quiet project never nags
