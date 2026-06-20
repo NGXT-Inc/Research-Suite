@@ -129,8 +129,8 @@ proxy routing and the partition test (`control ∪ data ∪ aggregate == TOOL_CO
 | → both (`aggregate`) | `sandbox.health` (daemon self-check + cloud reachability + auth status); `sandbox.get` (cloud row facts + daemon enrichment — see below) |
 | → cloud (`control`) | everything else: `workflow.status_and_next`, `project.*`, `claim.*`, `experiment.*`, `synthesis.*`, `resource.list/resolve/delete`, `review.*`, `sandbox.options/list/release/terminal` |
 
-`sandbox.get` cannot be pure-control: today it lazily spawns dashboard tunnels (`sandboxes.py:270-289`,
-`subprocess.Popen` at `sandbox_dashboards.py:251`) and renders the agent-facing `ssh.command` /
+`sandbox.get` cannot be pure-control: today it asks the daemon worker to merge local dashboard tunnels
+(`dataplane/sandbox_dashboards.py`) and renders the agent-facing `ssh.command` /
 `local_dir` from conn files + `repo_root` (`sandbox_views.py:105-116`). The agent view decomposes:
 provider-portable row facts come from the cloud; `command`, `local_dir`, loopback dashboards, and conn
 state are daemon-side enrichment merged by the proxy/daemon. The `review.*` row is contingent on open

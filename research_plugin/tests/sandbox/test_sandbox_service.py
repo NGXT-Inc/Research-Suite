@@ -184,7 +184,7 @@ class SandboxServiceTest(unittest.TestCase):
         # instant probe always loses that race. _tunnel_ready must wait for
         # the bind, then probe end-to-end.
         import http.server
-        from backend.services.sandbox_dashboards import _free_local_port, _tunnel_ready
+        from backend.dataplane.sandbox_dashboards import _free_local_port, _tunnel_ready
 
         port = _free_local_port()
         server: list = []
@@ -216,7 +216,7 @@ class SandboxServiceTest(unittest.TestCase):
                 server[0].shutdown()
 
     def test_tunnel_ready_fails_fast_when_ssh_dies(self) -> None:
-        from backend.services.sandbox_dashboards import _free_local_port, _tunnel_ready
+        from backend.dataplane.sandbox_dashboards import _free_local_port, _tunnel_ready
 
         port = _free_local_port()
         dead_ssh = subprocess.Popen(["true"])
@@ -226,7 +226,7 @@ class SandboxServiceTest(unittest.TestCase):
         )
 
     def test_tunnel_ready_times_out_without_listener(self) -> None:
-        from backend.services.sandbox_dashboards import _free_local_port, _tunnel_ready
+        from backend.dataplane.sandbox_dashboards import _free_local_port, _tunnel_ready
 
         port = _free_local_port()
         fake_ssh = subprocess.Popen(["sleep", "30"])
@@ -241,7 +241,7 @@ class SandboxServiceTest(unittest.TestCase):
 
     def test_mlflow_deep_link_picks_newest_real_experiment(self) -> None:
         # No runs yet in the experiment: land on the experiment chart view.
-        from backend.services.sandbox_dashboards import _mlflow_deep_link
+        from backend.dataplane.sandbox_dashboards import _mlflow_deep_link
 
         class FakeResponse:
             status_code = 200
@@ -263,8 +263,8 @@ class SandboxServiceTest(unittest.TestCase):
             def json():
                 return {"runs": []}
 
-        with patch("backend.services.sandbox_dashboards.httpx.get", return_value=FakeResponse()), patch(
-            "backend.services.sandbox_dashboards.httpx.post", return_value=NoRuns()
+        with patch("backend.dataplane.sandbox_dashboards.httpx.get", return_value=FakeResponse()), patch(
+            "backend.dataplane.sandbox_dashboards.httpx.post", return_value=NoRuns()
         ):
             self.assertEqual(
                 _mlflow_deep_link("http://127.0.0.1:5000"),
@@ -274,7 +274,7 @@ class SandboxServiceTest(unittest.TestCase):
     def test_mlflow_deep_link_lands_on_latest_run_model_metrics(self) -> None:
         # With runs present, link straight to the newest run's Model metrics
         # tab — and a RUNNING run beats a newer finished one.
-        from backend.services.sandbox_dashboards import _mlflow_deep_link
+        from backend.dataplane.sandbox_dashboards import _mlflow_deep_link
 
         class Experiments:
             status_code = 200
@@ -300,8 +300,8 @@ class SandboxServiceTest(unittest.TestCase):
                     ]
                 }
 
-        with patch("backend.services.sandbox_dashboards.httpx.get", return_value=Experiments()), patch(
-            "backend.services.sandbox_dashboards.httpx.post", return_value=Runs()
+        with patch("backend.dataplane.sandbox_dashboards.httpx.get", return_value=Experiments()), patch(
+            "backend.dataplane.sandbox_dashboards.httpx.post", return_value=Runs()
         ):
             self.assertEqual(
                 _mlflow_deep_link("http://127.0.0.1:5000"),
@@ -309,7 +309,7 @@ class SandboxServiceTest(unittest.TestCase):
             )
 
     def test_mlflow_deep_link_run_lookup_failure_degrades_to_chart_view(self) -> None:
-        from backend.services.sandbox_dashboards import _mlflow_deep_link
+        from backend.dataplane.sandbox_dashboards import _mlflow_deep_link
         import httpx as _httpx
 
         class Experiments:
@@ -323,8 +323,8 @@ class SandboxServiceTest(unittest.TestCase):
                     ]
                 }
 
-        with patch("backend.services.sandbox_dashboards.httpx.get", return_value=Experiments()), patch(
-            "backend.services.sandbox_dashboards.httpx.post",
+        with patch("backend.dataplane.sandbox_dashboards.httpx.get", return_value=Experiments()), patch(
+            "backend.dataplane.sandbox_dashboards.httpx.post",
             side_effect=_httpx.ConnectError("down"),
         ):
             self.assertEqual(
@@ -333,7 +333,7 @@ class SandboxServiceTest(unittest.TestCase):
             )
 
     def test_mlflow_deep_link_falls_back_to_base_url(self) -> None:
-        from backend.services.sandbox_dashboards import _mlflow_deep_link
+        from backend.dataplane.sandbox_dashboards import _mlflow_deep_link
         import httpx as _httpx
 
         class OnlyDefault:
@@ -343,7 +343,7 @@ class SandboxServiceTest(unittest.TestCase):
             def json():
                 return {"experiments": [{"experiment_id": "0", "name": "Default", "last_update_time": 1}]}
 
-        with patch("backend.services.sandbox_dashboards.httpx.get", return_value=OnlyDefault()):
+        with patch("backend.dataplane.sandbox_dashboards.httpx.get", return_value=OnlyDefault()):
             self.assertEqual(_mlflow_deep_link("http://x"), "http://x")
 
         class ServerError:
@@ -353,11 +353,11 @@ class SandboxServiceTest(unittest.TestCase):
             def json():
                 return {}
 
-        with patch("backend.services.sandbox_dashboards.httpx.get", return_value=ServerError()):
+        with patch("backend.dataplane.sandbox_dashboards.httpx.get", return_value=ServerError()):
             self.assertEqual(_mlflow_deep_link("http://x"), "http://x")
 
         with patch(
-            "backend.services.sandbox_dashboards.httpx.get",
+            "backend.dataplane.sandbox_dashboards.httpx.get",
             side_effect=_httpx.ConnectError("down"),
         ):
             self.assertEqual(_mlflow_deep_link("http://x"), "http://x")
@@ -626,11 +626,11 @@ class SandboxServiceTest(unittest.TestCase):
             status_code = 200
 
         with (
-            patch("backend.services.sandbox_dashboards.subprocess.Popen", side_effect=fake_popen),
+            patch("backend.dataplane.sandbox_dashboards.subprocess.Popen", side_effect=fake_popen),
             # The bind-wait would loop against a port nobody listens on; a
             # connectable socket stands in for ssh having bound the forward.
-            patch("backend.services.sandbox_dashboards.socket.create_connection", return_value=MagicMock()),
-            patch("backend.services.sandbox_dashboards.httpx.get", return_value=FakeResponse()),
+            patch("backend.dataplane.sandbox_dashboards.socket.create_connection", return_value=MagicMock()),
+            patch("backend.dataplane.sandbox_dashboards.httpx.get", return_value=FakeResponse()),
         ):
             result = self.call(
                 "sandbox.request", project_id=self.project_id, experiment_id=exp_id

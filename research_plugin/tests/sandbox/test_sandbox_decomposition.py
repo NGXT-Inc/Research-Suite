@@ -23,7 +23,7 @@ from backend.app import ResearchPluginApp
 from backend.dataplane import InProcessTaskChannel, LocalDataPlaneWorker
 from backend.execution.backends.fake import FakeSandboxBackend
 from backend.services.sandbox_daemons import SandboxDaemons
-from backend.services.sandbox_dashboards import DashboardTunnels
+from backend.dataplane.sandbox_dashboards import DashboardTunnels
 from backend.services.sandbox_provisioner import SandboxProvisioner
 from backend.services.sandbox_registry import SandboxRegistry
 from backend.services.sandboxes import SandboxService
@@ -180,6 +180,7 @@ import backend.services.sandboxes
 for name in (
     "backend.dataplane.tasks",
     "backend.dataplane.worker",
+    "backend.dataplane.sandbox_dashboards",
     "backend.execution.ssh_rsync",
     "backend.workspace",
 ):
