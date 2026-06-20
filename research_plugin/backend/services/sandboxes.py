@@ -72,11 +72,11 @@ from ..sandbox_backend import (
     SandboxRequest,
 )
 from . import sandbox_views
-from .experiments import ExperimentService
 from .metrics_archive import MetricsArchive
 from .metrics_records import MetricsSnapshotStore
 from .quotas import AdmissionRequest, QuotaService
 from .transcript_cache import TranscriptCache
+from .sandbox_lifecycle import ExperimentTransitions
 from .sandbox_daemons import SandboxDaemons
 from .sandbox_mgmt_keys import MgmtKeyStore
 from .sandbox_provisioner import SandboxProvisioner
@@ -120,7 +120,7 @@ class SandboxService:
         activity: ActivityLogger | None = None,
         request_wait_seconds: float | None = None,
         stale_provision_seconds: float | None = None,
-        experiments: ExperimentService | None = None,
+        experiments: ExperimentTransitions | None = None,
         blobs: BlobStore | None = None,
         quotas: QuotaService | None = None,
         task_channel: TaskChannel | None = None,
@@ -135,6 +135,10 @@ class SandboxService:
             raise ValidationError("task_channel is required")
         if not callable(getattr(task_channel, "submit", None)):
             raise ValidationError("task_channel.submit is required")
+        if experiments is None:
+            raise ValidationError("experiments is required")
+        if not callable(getattr(experiments, "apply_system_transition", None)):
+            raise ValidationError("experiments.apply_system_transition is required")
         # Cost governance (cloud plan Phase 7): admission gate at the
         # procurement choke point. The 'local' tenant has no quota row ⇒
         # unlimited ⇒ a no-op, so local mode is byte-identical.
@@ -149,7 +153,7 @@ class SandboxService:
         self.blobs = blobs
         # Sandbox lifecycle changes experiment status only through the workflow
         # engine's system transitions — never by writing the experiments table.
-        self.experiments = experiments or ExperimentService(store=store)
+        self.experiments = experiments
         # All conn/tunnel/rsync work routes through the data-plane worker; the
         # facade owns no local-IO machinery of its own.
         self.worker = worker

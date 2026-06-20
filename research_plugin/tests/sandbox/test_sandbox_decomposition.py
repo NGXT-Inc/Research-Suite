@@ -140,6 +140,33 @@ class SandboxDecompositionTest(unittest.TestCase):
                 task_channel=object(),
             )
 
+    def test_facade_requires_explicit_experiment_transitions(self) -> None:
+        with self.assertRaisesRegex(ValidationError, "experiments is required"):
+            SandboxService(
+                store=self.app.store,
+                sandbox_backend=self.app.execution_backend,
+                worker=self.app.worker,
+                mgmt_keys=self.app.sandboxes.mgmt_keys,
+                metrics_archive=self.app.sandboxes.metrics_archive,
+                lease_client_id="client",
+                task_channel=self.app.sandboxes.tasks,
+            )
+
+    def test_facade_requires_experiment_transition_port(self) -> None:
+        with self.assertRaisesRegex(
+            ValidationError, "experiments.apply_system_transition is required"
+        ):
+            SandboxService(
+                store=self.app.store,
+                sandbox_backend=self.app.execution_backend,
+                worker=self.app.worker,
+                mgmt_keys=self.app.sandboxes.mgmt_keys,
+                metrics_archive=self.app.sandboxes.metrics_archive,
+                lease_client_id="client",
+                task_channel=self.app.sandboxes.tasks,
+                experiments=object(),
+            )
+
     def test_facade_source_keeps_no_extracted_machinery(self) -> None:
         source = FACADE.read_text(encoding="utf-8")
         # Job/daemon threads live in the provisioner and daemons modules.
@@ -152,6 +179,7 @@ class SandboxDecompositionTest(unittest.TestCase):
         self.assertNotIn("ssh_rsync", source)
         self.assertNotIn("SshRsyncSyncer", source)
         self.assertNotIn("InProcessTaskChannel(", source)
+        self.assertNotIn("experiments", _import_modules(FACADE))
         self.assertNotIn("dataplane.tasks", _import_modules(FACADE))
         self.assertNotIn(
             "dataplane.tasks",
