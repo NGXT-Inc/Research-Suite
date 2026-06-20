@@ -138,7 +138,9 @@ class ResearchPluginApp:
             # Split mode (Phase 8): the control composition injects an
             # HttpTaskChannel so control enqueues data-plane work to the daemon
             # over HTTP. None ⇒ the synchronous in-process channel (local mode).
-            task_channel=task_channel,
+            task_channel=(
+                task_channel if task_channel is not None else runtime.task_channel
+            ),
         )
         self.workflow = WorkflowService(
             store=self.store,

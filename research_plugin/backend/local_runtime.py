@@ -6,6 +6,7 @@ from dataclasses import dataclass
 from pathlib import Path
 
 from .dataplane import LocalDataPlaneWorker
+from .dataplane.tasks import InProcessTaskChannel
 from .execution import SandboxBackend, build_sandbox_backend
 from .execution.ssh_rsync import SshRsyncSyncer
 from .services.sandbox_mgmt_keys import LocalMgmtKeyStore
@@ -22,6 +23,7 @@ class LocalRuntime:
     blobs: BlobStore
     execution_backend: SandboxBackend
     worker: LocalDataPlaneWorker
+    task_channel: InProcessTaskChannel
     mgmt_keys: LocalMgmtKeyStore
 
 
@@ -47,6 +49,11 @@ def build_local_runtime(
             repo_root=workspace.repo_root,
             activity=_activity_hook,
         )
+    worker = LocalDataPlaneWorker(
+        workspace=workspace,
+        backend=execution_backend,
+        rsync_syncer=rsync_syncer,
+    )
     return LocalRuntime(
         workspace=workspace,
         activity=activity,
@@ -57,10 +64,7 @@ def build_local_runtime(
             root=workspace.research_dir / "blobs"
         ),
         execution_backend=execution_backend,
-        worker=LocalDataPlaneWorker(
-            workspace=workspace,
-            backend=execution_backend,
-            rsync_syncer=rsync_syncer,
-        ),
+        worker=worker,
+        task_channel=InProcessTaskChannel(worker=worker),
         mgmt_keys=LocalMgmtKeyStore(root=workspace.research_dir / "mgmt_keys"),
     )

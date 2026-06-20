@@ -52,9 +52,8 @@ import sqlite3
 import threading
 import time
 from pathlib import Path
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING, Any, Protocol
 
-from ..dataplane.tasks import InProcessTaskChannel
 from ..execution.sync_dirs import remote_experiment_dir
 
 if TYPE_CHECKING:
@@ -110,6 +109,17 @@ from .sync_sessions import (
 )
 
 
+class TaskChannel(Protocol):
+    def submit(
+        self,
+        *,
+        task_type: str,
+        payload: dict[str, Any],
+        deadline: str | None = None,
+        tenant_id: str | None = None,
+    ) -> Any: ...
+
+
 class SandboxService:
     """Facade over sandbox persistence, provisioning, the worker, and daemons."""
 
@@ -128,7 +138,7 @@ class SandboxService:
         experiments: ExperimentService | None = None,
         blobs: BlobStore | None = None,
         quotas: QuotaService | None = None,
-        task_channel: Any | None = None,
+        task_channel: TaskChannel | None = None,
     ) -> None:
         self.store = store
         self.backend = sandbox_backend
@@ -136,6 +146,10 @@ class SandboxService:
         lease_client_id = str(lease_client_id or "").strip()
         if not lease_client_id:
             raise ValidationError("lease_client_id is required")
+        if task_channel is None:
+            raise ValidationError("task_channel is required")
+        if not callable(getattr(task_channel, "submit", None)):
+            raise ValidationError("task_channel.submit is required")
         # Cost governance (cloud plan Phase 7): admission gate at the
         # procurement choke point. The 'local' tenant has no quota row ⇒
         # unlimited ⇒ a no-op, so local mode is byte-identical.
@@ -185,12 +199,10 @@ class SandboxService:
             client_id=lease_client_id,
         )
         # The task channel (plan Phase 4): control enqueues, data executes.
-        # In-process it dispatches synchronously, so ordering is unchanged
-        # (the default). In split mode the control composition injects an
-        # HttpTaskChannel that enqueues to the daemon's long-poll loop
-        # (Phase 8), with the SAME submit signature so this service is
-        # channel-blind.
-        self.tasks = task_channel or InProcessTaskChannel(worker=self.worker)
+        # Local composition injects a worker-backed in-process channel; split
+        # control injects an HttpTaskChannel. This service is channel-blind and
+        # never constructs data-plane machinery itself.
+        self.tasks = task_channel
         # Marking a row failed/terminated also tears down its runtime
         # attachments; the registry stays persistence-only via this hook.
         self.registry.on_terminal = self._on_terminal_row

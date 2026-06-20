@@ -10,6 +10,10 @@ SandboxDaemons.
 
 from __future__ import annotations
 
+import ast
+import os
+import subprocess
+import sys
 import tempfile
 import unittest
 from pathlib import Path
@@ -31,6 +35,18 @@ from backend.utils import ValidationError
 from tests.paths import SERVICES_ROOT
 
 FACADE = SERVICES_ROOT / "sandboxes.py"
+
+
+def _import_modules(path: Path) -> set[str]:
+    tree = ast.parse(path.read_text(encoding="utf-8"))
+    modules: set[str] = set()
+    for node in ast.walk(tree):
+        if isinstance(node, ast.Import):
+            modules.update(alias.name for alias in node.names)
+        elif isinstance(node, ast.ImportFrom) and node.module:
+            if node.module != "__future__":
+                modules.add(node.module)
+    return modules
 
 
 class SandboxDecompositionTest(unittest.TestCase):
@@ -100,6 +116,29 @@ class SandboxDecompositionTest(unittest.TestCase):
                 lease_client_id="",
             )
 
+    def test_facade_requires_explicit_task_channel(self) -> None:
+        with self.assertRaisesRegex(ValidationError, "task_channel is required"):
+            SandboxService(
+                store=self.app.store,
+                sandbox_backend=self.app.execution_backend,
+                worker=self.app.worker,
+                mgmt_keys=self.app.sandboxes.mgmt_keys,
+                metrics_archive=self.app.sandboxes.metrics_archive,
+                lease_client_id="client",
+            )
+
+    def test_facade_requires_task_channel_submit(self) -> None:
+        with self.assertRaisesRegex(ValidationError, "task_channel.submit is required"):
+            SandboxService(
+                store=self.app.store,
+                sandbox_backend=self.app.execution_backend,
+                worker=self.app.worker,
+                mgmt_keys=self.app.sandboxes.mgmt_keys,
+                metrics_archive=self.app.sandboxes.metrics_archive,
+                lease_client_id="client",
+                task_channel=object(),
+            )
+
     def test_facade_source_keeps_no_extracted_machinery(self) -> None:
         source = FACADE.read_text(encoding="utf-8")
         # Job/daemon threads live in the provisioner and daemons modules.
@@ -111,6 +150,8 @@ class SandboxDecompositionTest(unittest.TestCase):
         self.assertNotIn("SandboxConnFiles", source)
         self.assertNotIn("ssh_rsync", source)
         self.assertNotIn("SshRsyncSyncer", source)
+        self.assertNotIn("InProcessTaskChannel(", source)
+        self.assertNotIn("dataplane.tasks", _import_modules(FACADE))
         # Control-owned collaborators are injected explicitly by composition;
         # the facade must not derive them from the local worker.
         self.assertNotIn("worker.workspace", source)
@@ -121,6 +162,23 @@ class SandboxDecompositionTest(unittest.TestCase):
         self.assertNotIn("UPDATE sandboxes", source)
         self.assertNotIn("INSERT INTO sandboxes", source)
         self.assertEqual(source.count("SELECT * FROM sandboxes"), 3)
+
+    def test_facade_import_does_not_load_data_plane_task_machinery(self) -> None:
+        code = """
+import sys
+import backend.services.sandboxes
+for name in (
+    "backend.dataplane.tasks",
+    "backend.dataplane.worker",
+    "backend.execution.ssh_rsync",
+    "backend.workspace",
+):
+    if name in sys.modules:
+        raise SystemExit(f"{name} loaded")
+"""
+        env = dict(os.environ)
+        env["PYTHONPATH"] = str(FACADE.parents[2])
+        subprocess.run([sys.executable, "-c", code], check=True, env=env)
 
     def test_registry_module_stays_dependency_free(self) -> None:
         # The registry must not import its consumers (no cycles, no backend,
