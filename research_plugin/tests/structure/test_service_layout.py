@@ -233,6 +233,9 @@ class ServiceLayoutTest(unittest.TestCase):
     def test_synthesis_service_uses_experiment_name_leaf(self) -> None:
         self.assertNotIn("experiments", _import_segments(SERVICES / "syntheses.py"))
 
+    def test_synthesis_service_uses_claim_vocabulary(self) -> None:
+        self.assertNotIn("claims", _import_segments(SERVICES / "syntheses.py"))
+
     def test_view_modules_do_not_import_service_state_machines(self) -> None:
         for name in ("experiment_views.py", "workflow_views.py"):
             with self.subTest(module=name):

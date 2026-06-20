@@ -19,6 +19,11 @@ REVIEW_ROLES = frozenset(
 )
 REVIEW_VERDICTS = frozenset({"pass", "needs_changes", "fail"})
 
+CLAIM_STATUSES = frozenset(
+    {"draft", "active", "supported", "weakened", "contradicted", "abandoned"}
+)
+CLAIM_CONFIDENCES = frozenset({"low", "medium", "high"})
+
 RESOURCE_TARGET_TYPES = frozenset({"experiment", "reflection", "claim", "review", "attempt"})
 
 PROJECT_GRAPH_ROLE = "project_graph"

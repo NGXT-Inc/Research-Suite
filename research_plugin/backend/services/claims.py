@@ -4,16 +4,11 @@ from __future__ import annotations
 
 from typing import Any
 
+from ..domain.vocabulary import CLAIM_CONFIDENCES, CLAIM_STATUSES
 from ..utils import NotFoundError, ValidationError
 from ..utils import new_id
 from ..state.store import StateStore, row_to_dict, rows_to_dicts
 from ..utils import now_iso
-
-
-CLAIM_STATUSES = frozenset(
-    {"draft", "active", "supported", "weakened", "contradicted", "abandoned"}
-)
-CLAIM_CONFIDENCES = frozenset({"low", "medium", "high"})
 
 
 class ClaimService:
