@@ -110,12 +110,14 @@ class ServiceLayoutTest(unittest.TestCase):
 
     def test_workflow_service_keeps_agent_projection_out(self) -> None:
         source = _source("workflow.py")
+        imports = _import_segments(SERVICES / "workflow.py")
 
         self.assertNotIn("def slim_status_and_next", source)
         self.assertNotIn("def _slim_experiment", source)
         self.assertNotIn("def _sandbox_summary", source)
         self.assertNotIn("TERMINAL_EXPERIMENT_STATUSES", source)
         self.assertNotIn("ACTIVE_PROCESS_STATUSES =", source)
+        self.assertNotIn("resources", imports)
 
     def test_artifact_lint_is_a_leaf_module(self) -> None:
         # Pure text lint: regexes, a callback type, and shared domain markdown

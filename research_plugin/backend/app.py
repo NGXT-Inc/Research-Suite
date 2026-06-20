@@ -151,7 +151,6 @@ class ResearchPluginApp:
             experiments=self.experiments,
             reviews=self.reviews,
             sandboxes=self.sandboxes,
-            resources=self.resources,
             syntheses=self.syntheses,
         )
         # Feed (Feed_PRD.md) is a self-contained module: it owns its schema,

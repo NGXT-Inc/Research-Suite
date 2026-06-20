@@ -11,7 +11,6 @@ from ..domain.vocabulary import (
     RESOURCE_ROLES,
 )
 from .experiments import ExperimentService
-from .resources import ResourceService
 from .reviews import ReviewService
 from .sandboxes import SandboxService
 from .syntheses import SynthesisService
@@ -51,14 +50,12 @@ class WorkflowService:
         experiments: ExperimentService,
         reviews: ReviewService,
         sandboxes: SandboxService,
-        resources: ResourceService,
         syntheses: SynthesisService,
     ) -> None:
         self.store = store
         self.experiments = experiments
         self.reviews = reviews
         self.sandboxes = sandboxes
-        self.resources = resources
         self.syntheses = syntheses
 
     def status_and_next(
