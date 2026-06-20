@@ -19,10 +19,11 @@ from __future__ import annotations
 import os
 import threading
 from datetime import UTC, datetime
-from typing import Any, Callable, Protocol
+from typing import Any, Callable
 
 from ..sandbox_backend import SandboxBackend
 from ..ports.sandbox_lifecycle import ExperimentTransitions, ProvisionReaper
+from ..ports.sandbox_sync import ControlPlaneView
 from .sandbox_registry import SandboxRegistry
 from ..sandbox_support import (
     DEFAULT_AUTO_RSYNC_INTERVAL_SECONDS,
@@ -31,18 +32,6 @@ from ..sandbox_support import (
     env_float,
     parse_iso,
 )
-
-
-class ControlPlaneView(Protocol):
-    """What the auto-sync poller may know about the control plane.
-
-    ``sync_targets`` returns the running sandboxes this client should sync,
-    each with a freshly granted/renewed lease-backed session (rows leased to
-    another client are absent). In-process it is served by the registry +
-    lease service; in split mode it becomes the daemon's poll (plan Phase 8).
-    """
-
-    def sync_targets(self) -> list[dict[str, Any]]: ...
 
 
 class SandboxDaemons:

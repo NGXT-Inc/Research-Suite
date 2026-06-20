@@ -45,7 +45,8 @@ class HttpControlPlaneView:
 
     # ---- sync targets (the ControlPlaneView poll) ----
 
-    def sync_targets(self) -> list[dict[str, Any]]:
+    def sync_targets(self, *, tenant_id: str | None = None) -> list[dict[str, Any]]:
+        _ = tenant_id  # tenant scope is enforced by the daemon bearer identity.
         body = self._request(
             method="GET",
             path=f"/api/daemon/sync-targets?client_id={self._client_id}",

@@ -23,7 +23,7 @@ from __future__ import annotations
 import threading
 from dataclasses import dataclass
 from datetime import UTC, datetime
-from typing import Any, Callable, Protocol
+from typing import Any, Callable
 
 from ..sandbox_backend import (
     BackendPermissionError,
@@ -34,6 +34,7 @@ from ..sandbox_backend import (
 )
 from ..domain.sync_contract import DEFAULT_DATA_DIR, remote_experiment_dir
 from ..ports.sandbox_lifecycle import ExperimentTransitions
+from ..ports.sandbox_sync import SyncSessionIssuer
 from ..ports.sandbox_worker import SandboxWorker
 from ..ports.task_channel import TaskChannel
 from ..utils import now_iso
@@ -47,21 +48,6 @@ from ..sandbox_support import (
 
 
 RefreshRow = Callable[..., dict[str, Any]]
-
-
-class SyncSessionIssuer(Protocol):
-    def grant(
-        self,
-        *,
-        experiment_id: str,
-        sandbox_id: str,
-        ssh_host: str,
-        ssh_port: int,
-        ssh_user: str,
-        experiment_dir: str,
-        data_dir: str = "",
-    ) -> dict[str, Any]:
-        ...
 
 
 class _Canceled(Exception):

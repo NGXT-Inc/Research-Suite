@@ -138,6 +138,7 @@ class ServiceLayoutTest(unittest.TestCase):
             "metrics_archive.py": {"pathlib", "typing"},
             "mgmt_keys.py": {"pathlib", "typing"},
             "sandbox_lifecycle.py": {"datetime", "typing"},
+            "sandbox_sync.py": {"typing"},
             "sandbox_worker.py": {"pathlib", "typing"},
             "task_channel.py": {"typing"},
         }
@@ -152,6 +153,10 @@ class ServiceLayoutTest(unittest.TestCase):
                 source = (PORTS_ROOT / name).read_text(encoding="utf-8")
                 for forbidden in ("httpx", "sqlite3", "json", "tempfile", "os."):
                     self.assertNotIn(forbidden, source)
+        self.assertIn(
+            "def sync_targets(self, *, tenant_id: str | None = None)",
+            (PORTS_ROOT / "sandbox_sync.py").read_text(encoding="utf-8"),
+        )
 
     def test_reflection_policy_service_module_is_a_compatibility_shim(self) -> None:
         self.assertEqual(_import_modules("reflection_policy.py"), {"domain"})
@@ -166,6 +171,8 @@ class ServiceLayoutTest(unittest.TestCase):
         self.assertNotIn(
             "ports.mgmt_keys", _import_module_names(SERVICES / "sandbox_mgmt_keys.py")
         )
+        self.assertNotIn("class ControlPlaneView", _source("sandbox_daemons.py"))
+        self.assertNotIn("class SyncSessionIssuer", _source("sandbox_provisioner.py"))
         daemon_imports = _import_segments(SERVICES / "sandbox_daemons.py")
         self.assertNotIn("experiments", daemon_imports)
         self.assertNotIn("sandbox_provisioner", daemon_imports)
