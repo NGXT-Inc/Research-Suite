@@ -5,6 +5,27 @@ from __future__ import annotations
 from collections.abc import Callable
 from typing import Any
 
+from .services.experiment_views import slim_experiment_state
+
+
+def _experiment_get_state_agent(
+    *, experiments: Any, experiment_id: str, project_id: str | None = None
+) -> dict[str, Any]:
+    return slim_experiment_state(
+        experiments.get_state(experiment_id=experiment_id, project_id=project_id)
+    )
+
+
+def _experiment_list_agent(
+    *, experiments: Any, project_id: str | None = None
+) -> dict[str, Any]:
+    full = experiments.list_experiments(project_id=project_id)
+    return {
+        "experiments": [
+            slim_experiment_state(experiment) for experiment in full["experiments"]
+        ]
+    }
+
 
 def build_control_tool_handlers(
     *,
@@ -24,6 +45,20 @@ def build_control_tool_handlers(
     This is intentionally a thin registry: composition supplies the services,
     and ToolDispatcher verifies the final name set against TOOL_CONTRACTS.
     """
+    def experiment_get_state_agent(
+        *, experiment_id: str, project_id: str | None = None
+    ) -> dict[str, Any]:
+        return _experiment_get_state_agent(
+            experiments=experiments,
+            experiment_id=experiment_id,
+            project_id=project_id,
+        )
+
+    def experiment_list_agent(
+        *, project_id: str | None = None
+    ) -> dict[str, Any]:
+        return _experiment_list_agent(experiments=experiments, project_id=project_id)
+
     return {
         "workflow.status_and_next": workflow.status_and_next_agent,
         "project.create": projects.create,
@@ -35,8 +70,8 @@ def build_control_tool_handlers(
         "claim.list": claims.list_claims,
         "claim.update": claims.update,
         "experiment.create": experiments.create,
-        "experiment.list": experiments.list_experiments_agent,
-        "experiment.get_state": experiments.get_state_agent,
+        "experiment.list": experiment_list_agent,
+        "experiment.get_state": experiment_get_state_agent,
         "experiment.transition": experiments.transition,
         "reflection.create": reflections.create,
         "reflection.get": reflections.get,

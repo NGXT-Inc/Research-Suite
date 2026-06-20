@@ -14,7 +14,6 @@ from ..utils import now_iso
 from .artifacts import plan_sections_missing, report_problems
 from .experiment_names import validate_experiment_name
 from .graph_lint import graph_problems
-from .experiment_views import slim_experiment_state
 from .pinned import pinned_artifact_text
 from .reflection_policy import REFLECTION_BLOCK_NEW_TERMINAL_THRESHOLD
 from .workflow_gates import (
@@ -313,17 +312,6 @@ class ExperimentService:
         finally:
             if owns_conn:
                 conn.close()
-
-    def get_state_agent(self, *, experiment_id: str, project_id: str | None = None) -> dict[str, Any]:
-        """Agent/MCP-facing get_state: full detail, minus the pure waste."""
-        return slim_experiment_state(
-            self.get_state(experiment_id=experiment_id, project_id=project_id)
-        )
-
-    def list_experiments_agent(self, *, project_id: str | None = None) -> dict[str, Any]:
-        """Agent/MCP-facing experiment.list: each experiment slimmed like get_state."""
-        full = self.list_experiments(project_id=project_id)
-        return {"experiments": [slim_experiment_state(exp) for exp in full["experiments"]]}
 
     def list_experiments(self, *, project_id: str | None = None) -> dict[str, Any]:
         conn = self.store.connect()

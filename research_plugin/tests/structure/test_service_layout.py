@@ -87,6 +87,9 @@ class ServiceLayoutTest(unittest.TestCase):
         source = _source("experiments.py")
 
         self.assertNotIn("def slim_experiment_state", source)
+        self.assertNotIn("experiment_views", _import_segments(SERVICES / "experiments.py"))
+        self.assertNotIn("def get_state_agent", source)
+        self.assertNotIn("def list_experiments_agent", source)
         self.assertNotIn("def report_problems", source)
         self.assertNotIn("def plan_sections_missing", source)
         self.assertNotIn("REQUIRED_PLAN_SECTIONS", source)
