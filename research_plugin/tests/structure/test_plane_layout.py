@@ -40,6 +40,7 @@ DOMAIN_MODULES = tuple(sorted(DOMAIN_ROOT.glob("*.py")))
 
 CONTROL_MODULES = (
     *DOMAIN_MODULES,
+    BACKEND_ROOT / "tool_facade.py",
     SERVICES_ROOT / "projects.py",
     SERVICES_ROOT / "claims.py",
     SERVICES_ROOT / "experiments.py",

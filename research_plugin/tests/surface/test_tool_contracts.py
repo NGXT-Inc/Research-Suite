@@ -5,9 +5,16 @@ import unittest
 from pathlib import Path
 
 from backend.app import ResearchPluginApp
-from backend.contracts import TOOL_CONTRACTS, static_tool_catalog
+from backend.contracts import (
+    AGGREGATE_TOOL_NAMES,
+    CONTROL_PLANE_TOOL_NAMES,
+    DATA_PLANE_TOOL_NAMES,
+    TOOL_CONTRACTS,
+    static_tool_catalog,
+)
 from backend.execution.backends.fake import FakeSandboxBackend
 from backend.project_router import ProjectRouter
+from backend.tool_facade import ToolDispatcher
 
 
 class ToolContractRegistryTest(unittest.TestCase):
@@ -58,6 +65,23 @@ class StaticCatalogNoSideEffectTest(unittest.TestCase):
                 router.shutdown()
             self.assertEqual({tool["name"] for tool in tools}, set(TOOL_CONTRACTS))
             self.assertFalse((Path(tmp) / "_tool_schema").exists())
+
+
+class ToolDispatcherTest(unittest.TestCase):
+    def test_dispatcher_can_expose_a_control_subset(self) -> None:
+        tool_names = CONTROL_PLANE_TOOL_NAMES | AGGREGATE_TOOL_NAMES
+        handlers = {name: (lambda **_: {}) for name in tool_names}
+        dispatcher = ToolDispatcher(
+            handlers=handlers,
+            permissions=object(),
+            activity=object(),
+            tool_calls=object(),
+            tool_names=tool_names,
+        )
+
+        listed_names = {tool["name"] for tool in dispatcher.list_tools()}
+        self.assertEqual(listed_names, tool_names)
+        self.assertFalse(listed_names & DATA_PLANE_TOOL_NAMES)
 
 
 if __name__ == "__main__":

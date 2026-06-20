@@ -3,16 +3,10 @@
 from __future__ import annotations
 
 import json
-from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Callable
 
-from pydantic import ValidationError as PydanticValidationError
-
-from .contracts import ContractModel, TOOL_CONTRACTS
 from .dataplane import LocalDataPlaneWorker
-from .utils import ResearchPluginError
-from .utils import ValidationError as ToolValidationError
 from .execution import SandboxBackend, build_sandbox_backend
 from .execution.ssh_rsync import SshRsyncSyncer
 from .workspace import LocalWorkspace
@@ -34,64 +28,13 @@ from .state import (
     BaseStateStore,
     StateStore,
     ToolCallStore,
-    monotonic_ms,
     rows_to_dicts,
 )
 from .state.blobs import BlobStore, LocalDirBlobStore
 from .observability import StructuredLogger
 from .services.workflow_gates import TERMINAL_STATUSES as EXPERIMENT_TERMINAL_STATUSES
 from .domain.vocabulary import PROJECT_GRAPH_ROLES
-
-
-@dataclass(frozen=True)
-class ToolSpec:
-    description: str
-    input_model: type[ContractModel]
-    handler: Callable[..., dict[str, Any]]
-
-    def input_schema(self) -> dict[str, Any]:
-        schema = self.input_model.model_json_schema()
-        schema.pop("title", None)
-        return schema
-
-    def call(
-        self,
-        *,
-        raw_arguments: dict[str, Any],
-        internal_kwargs: dict[str, Any] | None = None,
-    ) -> dict[str, Any]:
-        request = self.input_model.model_validate(raw_arguments)
-        kwargs = request.model_dump()
-        if internal_kwargs:
-            kwargs.update(internal_kwargs)
-        return self.handler(**kwargs)
-
-
-def _contract_error_message(*, exc: PydanticValidationError) -> str:
-    first = exc.errors()[0] if exc.errors() else {}
-    loc = ".".join(str(part) for part in first.get("loc", ())) or "input"
-    error_type = first.get("type")
-    if error_type == "missing":
-        return f"{loc} is required"
-    if error_type == "extra_forbidden":
-        return f"unexpected field: {loc}"
-    return f"{loc}: {first.get('msg', 'invalid value')}"
-
-
-def _assert_tool_contracts_match_handlers(
-    *, handlers: dict[str, Callable[..., dict[str, Any]]]
-) -> None:
-    handler_names = set(handlers)
-    contract_names = set(TOOL_CONTRACTS)
-    if handler_names == contract_names:
-        return
-    missing_handlers = sorted(contract_names - handler_names)
-    missing_contracts = sorted(handler_names - contract_names)
-    raise AssertionError(
-        "tool handler/contract mismatch"
-        f"; missing handlers: {', '.join(missing_handlers) or 'none'}"
-        f"; missing contracts: {', '.join(missing_contracts) or 'none'}"
-    )
+from .tool_facade import ToolDispatcher
 
 
 class ResearchPluginApp:
@@ -252,16 +195,12 @@ class ResearchPluginApp:
             "feed.post": self.feed.post,
             "feed.list": self.feed.list_posts,
         }
-        _assert_tool_contracts_match_handlers(handlers=handlers)
-        self._tools = {
-            name: ToolSpec(contract.description, contract.input_model, handlers[name])
-            for name, contract in TOOL_CONTRACTS.items()
-        }
-        # Plane annotation per tool (cloud plan §3.3): served so the stdlib-only
-        # proxy can route from the catalog without importing contracts.
-        self._tool_planes = {
-            name: contract.plane for name, contract in TOOL_CONTRACTS.items()
-        }
+        self.tools = ToolDispatcher(
+            handlers=handlers,
+            permissions=self.permissions,
+            activity=self.activity,
+            tool_calls=self.tool_calls,
+        )
 
     def reflection_create(
         self,
@@ -613,15 +552,7 @@ class ResearchPluginApp:
         return summary
 
     def list_tools(self) -> list[dict[str, Any]]:
-        return [
-            {
-                "name": name,
-                "description": spec.description,
-                "inputSchema": spec.input_schema(),
-                "plane": self._tool_planes[name],
-            }
-            for name, spec in self._tools.items()
-        ]
+        return self.tools.list_tools()
 
     def shutdown(self) -> None:
         """Best-effort: stop background provisioning jobs and the sync poller."""
@@ -643,88 +574,13 @@ class ResearchPluginApp:
         internal_kwargs: dict[str, Any] | None = None,
         telemetry_project_id: str | None = None,
     ) -> dict[str, Any]:
-        arguments = arguments or {}
-        telemetry_arguments = arguments
-        if telemetry_project_id:
-            telemetry_arguments = {
-                **arguments,
-                "project_id": telemetry_project_id,
-            }
-        started = monotonic_ms()
-        try:
-            if name not in self._tools:
-                raise ResearchPluginError(f"unknown tool: {name}", details={"tool": name})
-            self.permissions.reject_reviewer_mutation(
-                tool_name=name,
-                review_session_id=arguments.get("review_session_id"),
-            )
-            try:
-                result = self._tools[name].call(
-                    raw_arguments=arguments,
-                    internal_kwargs=internal_kwargs,
-                )
-            except PydanticValidationError as exc:
-                raise ToolValidationError(
-                    _contract_error_message(exc=exc),
-                    details={"tool": name, "errors": exc.errors()},
-                ) from exc
-            duration_ms = monotonic_ms() - started
-            self.activity.tool_ok(
-                source=activity_source,
-                tool=name,
-                arguments=telemetry_arguments,
-                duration_ms=duration_ms,
-                result=result,
-            )
-            self.tool_calls.record(
-                tool=name,
-                source=activity_source,
-                status="ok",
-                duration_ms=duration_ms,
-                arguments=telemetry_arguments,
-                result=result,
-            )
-            return result
-        except ResearchPluginError as exc:
-            duration_ms = monotonic_ms() - started
-            self.activity.tool_error(
-                source=activity_source,
-                tool=name,
-                arguments=telemetry_arguments,
-                duration_ms=duration_ms,
-                error=exc.message,
-                error_code=exc.error_code,
-            )
-            self.tool_calls.record(
-                tool=name,
-                source=activity_source,
-                status="error",
-                duration_ms=duration_ms,
-                arguments=telemetry_arguments,
-                error=exc.message,
-                error_code=exc.error_code,
-            )
-            raise
-        except Exception as exc:
-            duration_ms = monotonic_ms() - started
-            self.activity.tool_error(
-                source=activity_source,
-                tool=name,
-                arguments=telemetry_arguments,
-                duration_ms=duration_ms,
-                error=str(exc),
-                error_code="unexpected",
-            )
-            self.tool_calls.record(
-                tool=name,
-                source=activity_source,
-                status="error",
-                duration_ms=duration_ms,
-                arguments=telemetry_arguments,
-                error=str(exc),
-                error_code="unexpected",
-            )
-            raise
+        return self.tools.call_tool(
+            name=name,
+            arguments=arguments,
+            activity_source=activity_source,
+            internal_kwargs=internal_kwargs,
+            telemetry_project_id=telemetry_project_id,
+        )
 
     def _activity_hook(self, event_type: str, payload: dict[str, Any]) -> None:
         """Bridge backend emit-style logging and ActivityLogger."""
