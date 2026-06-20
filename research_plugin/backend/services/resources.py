@@ -7,15 +7,18 @@ import mimetypes
 import os
 import sqlite3
 from pathlib import Path
-from typing import Any
+from typing import Any, Protocol
 
 from ..utils import NotFoundError, ValidationError, new_id, now_iso
 from ..state.blobs import BlobStore
 from ..state.store import StateStore, next_created_seq, row_to_dict, rows_to_dicts
-from ..workspace import LocalWorkspace
 from ..domain.vocabulary import GATED_ROLE_BYTE_CAPS
 from .artifacts import markdown_image_links
 from .permissions import PermissionService
+
+
+class WorkspaceReader(Protocol):
+    repo_root: Path
 
 
 def _content_sha256(file_path: Path) -> str:
@@ -34,7 +37,7 @@ class ResourceService:
         *,
         store: StateStore,
         permissions: PermissionService,
-        workspace: LocalWorkspace,
+        workspace: WorkspaceReader,
         blobs: BlobStore | None = None,
     ) -> None:
         self.store = store

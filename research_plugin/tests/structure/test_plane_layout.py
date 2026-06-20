@@ -260,6 +260,26 @@ for name in (
         imports = _top_level_import_segments(BACKEND_ROOT / "app.py")
         self.assertNotIn("local_runtime", imports)
 
+    def test_app_import_keeps_local_io_modules_unloaded(self) -> None:
+        # Import-time separation is not a full ControlApp, but app import should
+        # not pull in local workspace, rsync, or data-plane worker machinery.
+        code = """
+import sys
+import backend.app
+for name in (
+    "backend.local_runtime",
+    "backend.workspace",
+    "backend.dataplane.worker",
+    "backend.execution.ssh_rsync",
+    "backend.services.sandbox_conn",
+):
+    if name in sys.modules:
+        raise SystemExit(f"{name} loaded")
+"""
+        env = dict(os.environ)
+        env["PYTHONPATH"] = str(BACKEND_ROOT.parent)
+        subprocess.run([sys.executable, "-c", code], check=True, env=env)
+
 
 class ProxyStdlibOnlyTest(unittest.TestCase):
     """The stdio MCP proxy must stay stdlib-only (cloud plan Phase 8 packaging).
