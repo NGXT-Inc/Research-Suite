@@ -705,6 +705,9 @@ class ExperimentService:
         ).fetchone()
         return row is not None
 
+    def target_snapshot_id(self, *, conn, experiment_id: str) -> str:
+        return self._target_snapshot_id(conn=conn, experiment_id=experiment_id)
+
     def _target_snapshot_id(self, *, conn, experiment_id: str) -> str:
         experiment = self.get_state(experiment_id=experiment_id, conn=conn)
         resource_tokens = [

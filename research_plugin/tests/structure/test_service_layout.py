@@ -172,6 +172,12 @@ class ServiceLayoutTest(unittest.TestCase):
     def test_review_service_uses_permission_port(self) -> None:
         self.assertNotIn("permissions", _import_segments(SERVICES / "reviews.py"))
 
+    def test_review_service_uses_target_ports(self) -> None:
+        imports = _import_segments(SERVICES / "reviews.py")
+
+        self.assertNotIn("experiments", imports)
+        self.assertNotIn("syntheses", imports)
+
     def test_feed_service_does_not_read_local_image_paths(self) -> None:
         source = _source("feed.py")
 

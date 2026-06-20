@@ -10,13 +10,11 @@ from datetime import UTC, datetime, timedelta
 from typing import Any, Protocol
 
 from ..utils import NotFoundError, PermissionDeniedError, ValidationError
-from .experiments import ExperimentService
 from ..utils import new_id
 from ..state.blobs import BlobStore
 from ..domain.vocabulary import GATED_ROLES
 from .identity import LOCAL_TENANT_ID
 from ..state.store import StateStore, next_created_seq, row_to_dict
-from .syntheses import SynthesisService
 from ..utils import now_iso
 
 
@@ -39,6 +37,54 @@ class ReviewPolicy(Protocol):
         ...
 
 
+class ExperimentReviewTarget(Protocol):
+    def get_state(
+        self,
+        *,
+        experiment_id: str,
+        project_id: str | None = None,
+        conn: Any | None = None,
+    ) -> dict[str, Any]:
+        ...
+
+    def target_snapshot_id(self, *, conn: Any, experiment_id: str) -> str:
+        ...
+
+    def send_back_to_running(
+        self, *, conn: Any, experiment_id: str, revision_context: str
+    ) -> None:
+        ...
+
+    def send_back_to_planned(
+        self, *, conn: Any, experiment_id: str, revision_context: str
+    ) -> None:
+        ...
+
+
+class SynthesisReviewTarget(Protocol):
+    def get_state(
+        self,
+        *,
+        synthesis_id: str,
+        project_id: str | None = None,
+        conn: Any | None = None,
+    ) -> dict[str, Any]:
+        ...
+
+    def target_snapshot_id(self, *, conn: Any, synthesis_id: str) -> str:
+        ...
+
+    def send_back_to_reflecting(
+        self, *, conn: Any, synthesis_id: str, revision_context: str
+    ) -> None:
+        ...
+
+    def send_back_to_synthesizing(
+        self, *, conn: Any, synthesis_id: str, revision_context: str
+    ) -> None:
+        ...
+
+
 class ReviewService:
     """Owns review gates and capability-scoped reviewer sessions.
 
@@ -54,8 +100,8 @@ class ReviewService:
         *,
         store: StateStore,
         permissions: ReviewPolicy,
-        experiments: ExperimentService,
-        syntheses: SynthesisService,
+        experiments: ExperimentReviewTarget,
+        syntheses: SynthesisReviewTarget,
         blobs: BlobStore | None = None,
     ) -> None:
         self.store = store
@@ -672,22 +718,13 @@ class ReviewService:
 
     def _target_snapshot_id(self, *, conn, target_type: str, target_id: str) -> str:
         if target_type == "experiment":
-            exp = self.experiments.get_state(experiment_id=target_id, conn=conn)
-            resource_tokens = [
-                f"{res['id']}:{res.get('association_version_id') or res['version_token']}:{res.get('association_role', '')}:{res.get('association_attempt_index', 0)}"
-                for res in exp.get("current_attempt_resources", [])
-            ]
-            return "|".join(
-                [
-                    "experiment",
-                    exp["id"],
-                    exp["status"],
-                    str(exp["attempt_index"]),
-                    ",".join(sorted(resource_tokens)),
-                ]
+            return self.experiments.target_snapshot_id(
+                conn=conn, experiment_id=target_id
             )
         if target_type == "synthesis":
-            return self.syntheses._target_snapshot_id(conn=conn, synthesis_id=target_id)
+            return self.syntheses.target_snapshot_id(
+                conn=conn, synthesis_id=target_id
+            )
         return f"{target_type}:{target_id}"
 
     def _revision_context(

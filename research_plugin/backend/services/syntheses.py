@@ -1204,6 +1204,9 @@ class SynthesisService:
         ).fetchone()
         return row is not None
 
+    def target_snapshot_id(self, *, conn, synthesis_id: str) -> str:
+        return self._target_snapshot_id(conn=conn, synthesis_id=synthesis_id)
+
     def _target_snapshot_id(self, *, conn, synthesis_id: str) -> str:
         synthesis = self.get_state(synthesis_id=synthesis_id, conn=conn)
         resource_tokens = [
