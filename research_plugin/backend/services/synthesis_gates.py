@@ -20,8 +20,8 @@ reflection artifacts (graph + reflection doc + change spec) are revised.
 The same three consumers as ``workflow_gates.GATE_TABLE`` read this table —
 enforcement (``SynthesisService._next_status``), guidance
 (``WorkflowService._synthesis_workflow_for``), and discovery
-(``allowed_synthesis_transitions_for``) — reusing the same dataclasses so the
-two workflows cannot drift in shape.
+(``allowed_synthesis_transitions_for``) — reusing the same gate contract
+dataclasses so the two workflows cannot drift in shape.
 
 All gates here check envelopes only (files exist, the roster is covered, the
 graph parses within budget, the reflection doc is concise, and the change spec
@@ -34,11 +34,11 @@ from __future__ import annotations
 
 from typing import Any
 
+from ..domain.gates import ForwardTransition, ReviewRequirement, RoleRequirement
 from ..domain.vocabulary import (
     PROJECT_GRAPH_ROLE,
     REFLECTION_LENS_DOC_ROLE,
 )
-from .workflow_gates import ForwardTransition, ReviewRequirement, RoleRequirement
 
 
 SYNTHESIS_TERMINAL_STATUSES = frozenset({"published", "abandoned"})

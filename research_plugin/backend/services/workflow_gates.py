@@ -28,9 +28,9 @@ them. The sandbox registry applies them via
 
 from __future__ import annotations
 
-from dataclasses import dataclass
 from typing import Any
 
+from ..domain.gates import ForwardTransition, ReviewRequirement, RoleRequirement
 from ..domain.vocabulary import (
     EXPERIMENT_ACTIVE_PROCESS_STATUSES,
     EXPERIMENT_TERMINAL_STATUSES,
@@ -38,52 +38,6 @@ from ..domain.vocabulary import (
 
 TERMINAL_STATUSES = EXPERIMENT_TERMINAL_STATUSES
 ACTIVE_PROCESS_STATUSES = EXPERIMENT_ACTIVE_PROCESS_STATUSES
-
-
-@dataclass(frozen=True)
-class RoleRequirement:
-    """A current-attempt resource association the forward transition needs."""
-
-    role: str
-    # Enforcement: WorkflowError message when the association is absent.
-    error: str
-    # Enforcement: deep-lint hook run after the association exists
-    # ("plan" | "report" | ""). The lint reads the SUBMITTED bytes pinned at
-    # resource.associate — never the live file (fix-and-resubmit semantics).
-    validator: str = ""
-    # Guidance while unmet: current_gate / next_action / allowed_actions /
-    # missing_evidence entry / resource_guidance payload key.
-    gate: str = ""
-    action: str = ""
-    allowed: tuple[str, ...] = ()
-    missing: str = ""
-    guidance_key: str = ""
-
-
-@dataclass(frozen=True)
-class ReviewRequirement:
-    """A passing review the forward transition needs."""
-
-    role: str  # design_reviewer | experiment_reviewer
-    skill: str  # reviewer skill the orienting agent launches
-    action_name: str  # stem for launch_{...}er / wait_for_{...} / {...}_passed
-    error: str  # enforcement message when no passing review exists
-    pass_action: str  # guidance next_action once the verdict is pass
-
-
-@dataclass(frozen=True)
-class ForwardTransition:
-    """The one forward transition out of a status, with its gate contract."""
-
-    name: str
-    to_status: str
-    requires_prose: str = ""
-    requirements: tuple[RoleRequirement, ...] = ()
-    review: ReviewRequirement | None = None
-    # Guidance once every requirement is met: "go transition".
-    ready_gate: str = ""
-    ready_action: str = ""
-    ready_allowed: tuple[str, ...] = ()
 
 
 GATE_TABLE: dict[str, ForwardTransition] = {
