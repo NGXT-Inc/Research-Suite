@@ -192,9 +192,8 @@ class LocalDataPlaneWorker:
     def ensure_workspace(self, *, experiment_id: str, name: str = "") -> Path:
         """Create the experiment's one local folder (its sandbox sync root).
 
-        Local mode creates it eagerly at experiment.create; in split mode
-        workspace creation becomes lazy on the first data-routed touch
-        (plan §3.1) — this method is that touch point.
+        Workspace creation happens on the first data-routed touch (plan §3.1);
+        record services only return logical folder guidance.
         """
         folder = self.workspace.experiment_dir(experiment_id=experiment_id, name=name)
         folder.mkdir(parents=True, exist_ok=True)

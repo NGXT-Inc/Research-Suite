@@ -42,10 +42,11 @@ class ExperimentNamingTest(unittest.TestCase):
             with self.assertRaises(ValidationError, msg=bad):
                 self._create(name=bad, intent="Bad name.")
 
-    def test_folder_is_named_after_the_experiment(self) -> None:
+    def test_create_returns_folder_without_eager_local_io(self) -> None:
         exp = self._create(name="lora-rank-sweep", intent="Sweep LoRA ranks.")
         self.assertEqual(exp["name"], "lora-rank-sweep")
-        self.assertTrue((self.repo / "experiments" / "lora-rank-sweep").is_dir())
+        self.assertEqual(exp["folder"], "experiments/lora-rank-sweep/")
+        self.assertFalse((self.repo / "experiments" / "lora-rank-sweep").exists())
         self.assertFalse((self.repo / "experiments" / exp["id"]).exists())
 
     def test_create_response_announces_the_folder(self) -> None:

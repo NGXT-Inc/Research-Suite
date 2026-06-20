@@ -155,7 +155,6 @@ class ResearchPluginApp:
         self.experiments = ExperimentService(
             store=self.store,
             blobs=self.blobs,
-            ensure_workspace=self.worker.ensure_workspace,
         )
         self.resources = ResourceService(
             store=self.store,
@@ -169,7 +168,6 @@ class ResearchPluginApp:
         self.syntheses = SynthesisService(
             store=self.store,
             blobs=self.blobs,
-            ensure_workspace=self.worker.ensure_workspace,
         )
         self.reviews = ReviewService(
             store=self.store,

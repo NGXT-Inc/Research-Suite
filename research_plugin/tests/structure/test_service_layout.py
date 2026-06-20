@@ -49,6 +49,8 @@ VOCABULARY_NAMES = {
     "REVIEW_VERDICTS",
 }
 
+LOCAL_FS_IMPORTS = {"os", "pathlib", "shutil"}
+
 DOMAIN_FORBIDDEN_SEGMENTS = {
     "composition",
     "dataplane",
@@ -68,6 +70,19 @@ class ServiceLayoutTest(unittest.TestCase):
         self.assertNotIn("def plan_sections_missing", source)
         self.assertNotIn("REQUIRED_PLAN_SECTIONS", source)
         self.assertNotIn("_HEADING_RE", source)
+
+    def test_record_services_do_not_create_local_workspaces(self) -> None:
+        for name in ("experiments.py", "syntheses.py"):
+            with self.subTest(module=name):
+                source = _source(name)
+                self.assertNotIn("ensure_workspace", source)
+                self.assertNotIn("_ensure_workspace", source)
+                self.assertFalse(
+                    _import_modules(name) & LOCAL_FS_IMPORTS,
+                    f"{name} should not import local filesystem helpers",
+                )
+                self.assertNotIn(".mkdir(", source)
+                self.assertNotIn("open(", source)
 
     def test_workflow_service_keeps_agent_projection_out(self) -> None:
         source = _source("workflow.py")

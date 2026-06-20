@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import json
 import re
-from typing import Any, Callable
+from typing import Any
 
 from ..domain.paths import experiment_folder_rel
 from ..utils import NotFoundError, ValidationError, WorkflowError
@@ -40,19 +40,12 @@ class ExperimentService:
         *,
         store: StateStore,
         blobs: BlobStore | None = None,
-        ensure_workspace: Callable[..., Any] | None = None,
     ) -> None:
         self.store = store
         # Gate lints read submitted (pinned) bytes from here, never the
         # working tree. Optional only for direct construction in tests; the
         # composition root always injects it.
         self.blobs = blobs
-        # Data-plane duty (plan §3.1): creating experiments/<name>/ is local
-        # IO, so the composition root passes the worker's ensure_workspace.
-        # Local mode keeps creating the folder at experiment.create; in split
-        # mode workspace creation becomes lazy on the first data-routed touch
-        # and the folder guidance below turns advisory.
-        self._ensure_workspace = ensure_workspace
 
     def create(
         self,
@@ -132,15 +125,14 @@ class ExperimentService:
                 target_id=experiment_id,
                 payload={"name": name, "intent": intent},
             )
-            if self._ensure_workspace is not None:
-                self._ensure_workspace(experiment_id=experiment_id, name=name)
             state = self.get_state(experiment_id=experiment_id, conn=conn)
             state["folder"] = experiment_folder_rel(experiment_id=experiment_id, name=name)
             state["folder_guidance"] = (
-                f"Created {state['folder']} — the experiment's one folder and its "
-                "sandbox sync unit. Work in it from the start: plan.md, scripts, "
-                "configs, and results all live there, and everything a run needs "
-                "must be staged inside it before sandbox.request."
+                f"Use {state['folder']} as the experiment's one folder and sandbox "
+                "sync unit. Data-plane actions create it on demand; work in it "
+                "from the start: plan.md, scripts, configs, and results all live "
+                "there, and everything a run needs must be staged inside it before "
+                "sandbox.request."
             )
             return state
 

@@ -14,7 +14,7 @@ from __future__ import annotations
 
 import json
 import re
-from typing import Any, Callable
+from typing import Any
 
 from ..state.blobs import BlobStore
 from ..state.store import StateStore, next_created_seq, row_to_dict, rows_to_dicts
@@ -57,13 +57,11 @@ class SynthesisService:
         *,
         store: StateStore,
         blobs: BlobStore | None = None,
-        ensure_workspace: Callable[..., Any] | None = None,
     ) -> None:
         self.store = store
         # Gate lints read submitted (pinned) bytes from here, never the
         # working tree (see services/pinned.py).
         self.blobs = blobs
-        self._ensure_workspace = ensure_workspace
 
     # ---- create ----
 
@@ -1127,9 +1125,6 @@ class SynthesisService:
                     "parallelism": str(proposal.get("parallelism") or "").strip(),
                 },
             )
-            if self._ensure_workspace is not None:
-                self._ensure_workspace(experiment_id=experiment_id, name=name)
-
     def _current_role_row(self, *, conn, synthesis_id: str, role: str):
         return conn.execute(
             """
