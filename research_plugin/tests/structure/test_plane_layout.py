@@ -32,7 +32,6 @@ from tests.paths import BACKEND_ROOT, DOMAIN_ROOT, SERVICES_ROOT
 # with ssh-keygen — a process the control VM runs itself, never user-machine
 # IO.
 SUBPROCESS_ALLOWED = {
-    "sandbox_conn.py",
     "sandbox_dashboards.py",
     "sandbox_mgmt_keys.py",
 }
@@ -270,6 +269,7 @@ for name in (
     "backend.local_runtime",
     "backend.workspace",
     "backend.dataplane.worker",
+    "backend.dataplane.sandbox_conn",
     "backend.execution.ssh_rsync",
     "backend.services.sandbox_conn",
 ):

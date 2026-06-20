@@ -59,8 +59,8 @@ class LocalMgmtKeyStore:
         if key_path.exists() and pub_path.exists():
             return pub_path.read_text().strip()
         key_path.parent.mkdir(parents=True, exist_ok=True)
-        # Remove a half-written pair before regenerating (mirrors the user-key
-        # path in sandbox_conn.SandboxConnFiles.ensure_keypair).
+        # Remove a half-written pair before regenerating (mirrors the
+        # data-plane user-key path).
         for path in (key_path, pub_path):
             if path.exists():
                 path.unlink()

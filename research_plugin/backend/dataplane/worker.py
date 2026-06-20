@@ -33,7 +33,6 @@ from typing import Any, Callable, Protocol
 from ..execution.ssh_rsync import SshRsyncSyncer
 from ..execution.types import SandboxBackend
 from ..services.metrics_archive import MetricsArchive, snapshot_mlflow_db
-from ..services.sandbox_conn import SandboxConnFiles
 from ..services.sandbox_dashboards import DashboardTunnels
 from ..services.sandbox_support import (
     ACTIVE_SANDBOX_STATUSES,
@@ -48,6 +47,7 @@ from ..services.sync_sessions import (
 )
 from ..utils import ValidationError
 from ..workspace import LocalWorkspace
+from .sandbox_conn import SandboxConnFiles
 from .state import SandboxLocalState
 
 
