@@ -47,7 +47,7 @@ class FeedPostInput(ProjectScopedInput):
     image_path: str | None = Field(
         default=None,
         description=(
-            "Optional repo-relative or absolute path to an image to attach "
+            "Optional repo-relative path to an image to attach "
             "(a training plot, a generated graphic, a document excerpt). Most "
             "posts should carry a visual. Stored server-side; the file is read once."
         ),

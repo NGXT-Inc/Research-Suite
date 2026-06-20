@@ -118,6 +118,14 @@ class ServiceLayoutTest(unittest.TestCase):
         self.assertNotIn("_content_sha256", register_slice)
         self.assertNotIn(".stat(", register_slice)
 
+    def test_feed_service_does_not_read_local_image_paths(self) -> None:
+        source = _source("feed.py")
+
+        self.assertNotIn("resolve_repo_relative_file", source)
+        self.assertNotIn(".read_bytes(", source)
+        self.assertNotIn("workspace", source)
+        self.assertIn("post_observed", source)
+
     def test_graph_lint_is_a_leaf_module(self) -> None:
         self.assertEqual(_import_modules("graph_lint.py"), {"json"})
 

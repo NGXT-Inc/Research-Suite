@@ -15,10 +15,14 @@ UI consumes and the soft posting nudge surfaced through ``workflow``.
 from __future__ import annotations
 
 import json
-import mimetypes
 from pathlib import Path
 from typing import Any
 
+from ..domain.feed_images import (
+    MAX_FEED_IMAGE_BYTES,
+    SERVEABLE_IMAGE_TYPES,
+    sniff_image_type,
+)
 from ..utils import NotFoundError, ValidationError, new_id, now_iso
 from ..state.store import StateStore, next_created_seq, row_to_dict, rows_to_dicts
 from . import feed_policy
@@ -30,8 +34,8 @@ POST_TEXT_MAX = 280
 
 AUTHOR_ROLES = frozenset({"main", "reviewer", "lens"})
 
-# Image bytes are captured into the blob store; cap what we will ingest.
-MAX_IMAGE_BYTES = 10_000_000
+# Backward-compatible import surface for HTTP code/tests.
+MAX_IMAGE_BYTES = MAX_FEED_IMAGE_BYTES
 
 _KNOWN_REF_PREFIXES = ("exp_", "claim_", "res_", "rver_", "syn_", "rev_")
 
@@ -95,29 +99,9 @@ def _validate_handle(handle: str) -> str:
     return handle
 
 
-def _sniff_image_type(path: Path, data: bytes) -> str | None:
-    """Best-effort image content-type from magic bytes, then extension."""
-    if data[:8].startswith(b"\x89PNG\r\n\x1a\n"):
-        return "image/png"
-    if data[:3] == b"\xff\xd8\xff":
-        return "image/jpeg"
-    if data[:6] in (b"GIF87a", b"GIF89a"):
-        return "image/gif"
-    if data[:4] == b"RIFF" and data[8:12] == b"WEBP":
-        return "image/webp"
-    head = data[:256].lstrip()
-    if head[:5].lower() == b"<?xml" or head[:4].lower() == b"<svg":
-        return "image/svg+xml"
-    guessed, _ = mimetypes.guess_type(path.name)
-    if guessed and guessed.startswith("image/"):
-        return guessed
-    return None
-
-
 class FeedService:
-    def __init__(self, *, store: StateStore, workspace: Any, blobs: Any) -> None:
+    def __init__(self, *, store: StateStore, blobs: Any) -> None:
         self.store = store
-        self.workspace = workspace
         self.blobs = blobs
         self._ensure_schema()
 
@@ -208,10 +192,14 @@ class FeedService:
         project_id: str | None = None,
     ) -> dict[str, Any]:
         """Write a post. ``handle`` must already be registered in this project."""
+        if image_path:
+            raise ValidationError(
+                "image_path must be read by the local data plane before posting"
+            )
         return self._post(
             handle=handle,
             text=text,
-            image_path=image_path,
+            image_path=None,
             image_bytes=None,
             url=url,
             ref=ref,
@@ -306,8 +294,8 @@ class FeedService:
                     data=image_bytes,
                 )
             elif image_path:
-                image_sha256, image_content_type = self._capture_image(
-                    project_id=project_id, image_path=image_path
+                raise ValidationError(
+                    "image bytes are required when image_path is provided"
                 )
 
             link_url = ""
@@ -384,27 +372,6 @@ class FeedService:
             )
         return handle, text, ref
 
-    def _capture_image(self, *, project_id: str, image_path: str) -> tuple[str, str]:
-        """Read a local image, store its bytes in the blob store, return (sha, type)."""
-        candidate = Path(image_path)
-        if not candidate.is_absolute():
-            candidate = Path(self.workspace.repo_root) / candidate
-        try:
-            candidate = candidate.resolve()
-        except OSError as exc:
-            raise ValidationError(f"could not read image: {image_path}") from exc
-        if not candidate.is_file():
-            raise ValidationError(f"image not found: {image_path}")
-        size = candidate.stat().st_size
-        if size > MAX_IMAGE_BYTES:
-            raise ValidationError(
-                f"image is {size} bytes; keep feed images under {MAX_IMAGE_BYTES}"
-            )
-        data = candidate.read_bytes()
-        return self._capture_image_bytes(
-            project_id=project_id, image_path=image_path, data=data
-        )
-
     def _capture_image_bytes(
         self, *, project_id: str, image_path: str, data: bytes
     ) -> tuple[str, str]:
@@ -414,10 +381,10 @@ class FeedService:
                 f"image is {len(data)} bytes; keep feed images under {MAX_IMAGE_BYTES}"
             )
         candidate = Path(image_path or "feed-image")
-        content_type = _sniff_image_type(candidate, data)
+        content_type = sniff_image_type(candidate, data)
         if content_type is None:
             raise ValidationError(
-                f"{image_path} does not look like an image (png/jpeg/gif/webp/svg)"
+                f"{image_path} does not look like an image (png/jpeg/gif/webp)"
             )
         sha = self.blobs.put(namespace=project_id, data=data)
         return sha, content_type
@@ -444,10 +411,16 @@ class FeedService:
         image_url = card.get("image_url") or ""
         if image_url:
             try:
-                img_bytes, _ctype = fetch_preview_image(image_url)
-                preview["image_sha256"] = self.blobs.put(
-                    namespace=project_id, data=img_bytes
-                )
+                img_bytes, ctype = fetch_preview_image(image_url)
+                normalized = (ctype or "").split(";", 1)[0].strip().lower()
+                # Only re-host raster thumbnails. An external SVG og:image would
+                # otherwise be served same-origin (stored XSS); drop it to a
+                # text-only card instead.
+                if normalized in SERVEABLE_IMAGE_TYPES:
+                    preview["image_sha256"] = self.blobs.put(
+                        namespace=project_id, data=img_bytes
+                    )
+                    preview["image_content_type"] = normalized
             except UnfurlError:
                 # A missing/unsafe thumbnail just means a text-only preview card.
                 pass
@@ -525,17 +498,23 @@ class FeedService:
         finally:
             conn.close()
         sha = ""
+        ctype = ""
         if row is not None:
             try:
-                sha = str(json.loads(row["link_preview_json"] or "{}").get("image_sha256") or "")
+                preview = json.loads(row["link_preview_json"] or "{}")
+                sha = str(preview.get("image_sha256") or "")
+                ctype = str(preview.get("image_content_type") or "")
             except (TypeError, ValueError):
                 sha = ""
         if not sha:
             raise NotFoundError(f"no link image for post: {post_id}")
-        # Re-hosted thumbnails are images by construction (fetch_preview_image
-        # checks the content-type); we no longer carry the original type, so a
-        # generic image hint is enough for the browser.
-        return self.blobs.get(namespace=project_id, sha256=sha), "image/*"
+        # Serve the real sniffed content type captured at unfurl time. Older rows
+        # predate the stored type; fall back to a safe non-renderable default
+        # rather than the invalid `image/*` media range.
+        return (
+            self.blobs.get(namespace=project_id, sha256=sha),
+            ctype or "application/octet-stream",
+        )
 
     def _post_view(self, item: dict[str, Any]) -> dict[str, Any]:
         preview_raw = item.get("link_preview_json") or "{}"

@@ -72,6 +72,7 @@ def build_local_tool_handlers(
     reviews: Any,
     sandboxes: Any,
     feed: Any,
+    feed_post: Callable[..., dict[str, Any]] | None = None,
 ) -> dict[str, Callable[..., dict[str, Any]]]:
     """Map all local-mode tool names to service methods."""
     handlers = build_control_tool_handlers(
@@ -92,7 +93,7 @@ def build_local_tool_handlers(
             "resource.associate": resources.associate,
             "sandbox.request": sandboxes.request,
             "sandbox.sync": sandboxes.sync,
-            "feed.post": feed.post,
+            "feed.post": feed_post if feed_post is not None else feed.post,
         }
     )
     return handlers

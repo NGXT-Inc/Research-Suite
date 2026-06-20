@@ -80,6 +80,17 @@ class FeedServiceTest(unittest.TestCase):
         self.assertEqual(data, _PNG)
         self.assertEqual(ctype, "image/png")
 
+    def test_feed_service_rejects_unobserved_local_image_path(self) -> None:
+        self.call("feed.register", project_id=self.pid, handle="Nova-7")
+        (self.repo / "plot.png").write_bytes(_PNG)
+        with self.assertRaises(ValidationError):
+            self.app.feed.post(
+                project_id=self.pid,
+                handle="Nova-7",
+                text="plot",
+                image_path="plot.png",
+            )
+
     def test_observed_image_bytes_are_captured_and_served(self) -> None:
         self.call("feed.register", project_id=self.pid, handle="Nova-7")
         result = self.app.feed.post_observed(
@@ -99,6 +110,16 @@ class FeedServiceTest(unittest.TestCase):
         self.call("feed.register", project_id=self.pid, handle="Nova-7")
         with self.assertRaises(ValidationError):
             self.call("feed.post", project_id=self.pid, handle="Nova-7", text="x", image_path="nope.png")
+
+    def test_feed_post_preflights_before_reading_image(self) -> None:
+        with self.assertRaisesRegex(ValidationError, "not registered"):
+            self.call(
+                "feed.post",
+                project_id=self.pid,
+                handle="Ghost",
+                text="plot",
+                image_path="missing.png",
+            )
 
     def test_bad_link_degrades_to_plain_chip(self) -> None:
         # An unreachable/disallowed URL must NOT fail the post (PRD edge case).

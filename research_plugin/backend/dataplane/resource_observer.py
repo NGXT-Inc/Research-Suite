@@ -13,6 +13,7 @@ from pathlib import Path
 from typing import Any
 
 from ..utils import NotFoundError, ValidationError
+from .repo_paths import resolve_repo_path
 
 
 class LocalResourceObserver:
@@ -45,31 +46,15 @@ class LocalResourceObserver:
         }
 
     def resolve_repo_file(self, *, path: str) -> tuple[str, Path]:
-        rel_path = repo_relative_resource_path(path=path)
+        rel_path, full = resolve_repo_path(
+            repo_root=self.repo_root, path=path, subject="resource path"
+        )
         rel = Path(rel_path)
-        full = (self.repo_root / rel).resolve()
-        try:
-            full.relative_to(self.repo_root)
-        except ValueError as exc:
-            raise ValidationError("resource path escapes repo root") from exc
         if not full.exists():
             raise NotFoundError(f"resource file does not exist: {path}")
         if not full.is_file():
             raise ValidationError("v0.0001 resources must be files")
         return rel.as_posix(), full
-
-
-def repo_relative_resource_path(*, path: str) -> str:
-    if not path:
-        raise ValidationError("path is required")
-    rel = Path(path)
-    if rel.is_absolute():
-        raise ValidationError("resource paths must be repo-relative")
-    if any(part == ".." for part in rel.parts):
-        raise ValidationError("resource path may not contain '..'")
-    if rel.parts and rel.parts[0] == ".research_plugin":
-        raise ValidationError("resource path may not point inside .research_plugin")
-    return rel.as_posix()
 
 
 def content_sha256(file_path: Path) -> str:

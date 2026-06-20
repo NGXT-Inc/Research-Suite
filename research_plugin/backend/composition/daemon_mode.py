@@ -34,6 +34,7 @@ from typing import Any
 from ..contracts import AGGREGATE_TOOL_NAMES, DATA_PLANE_TOOL_NAMES, static_tool_catalog
 from ..control_client import HttpControlPlaneClient
 from ..dataplane import LocalDataPlaneWorker
+from ..dataplane.feed_images import LocalFeedImageReader
 from ..dataplane.http_channel import DaemonTaskLoop
 from ..dataplane.project_links import ProjectLinks
 from ..dataplane.remote_view import HttpControlPlaneView
@@ -41,7 +42,6 @@ from ..dataplane.resource_observer import LocalResourceObserver
 from ..domain.vocabulary import GATED_ROLE_BYTE_CAPS
 from ..execution import build_sandbox_backend
 from ..services.artifacts import markdown_image_links, markdown_image_targets
-from ..services.feed import MAX_IMAGE_BYTES
 from ..services.resources import ResourceService
 from ..services import sandbox_views
 from ..utils import ValidationError
@@ -240,25 +240,10 @@ class DaemonServer:
         return self.control.submit_feed_post(payload)
 
     def _feed_image_payload(self, *, repo_root: Path, image_path: str) -> dict[str, Any]:
-        candidate = Path(image_path)
-        if not candidate.is_absolute():
-            candidate = repo_root / candidate
-        try:
-            candidate = candidate.resolve()
-        except OSError as exc:
-            raise ValidationError(f"could not read image: {image_path}") from exc
-        if not candidate.is_file():
-            raise ValidationError(f"image not found: {image_path}")
-        size = candidate.stat().st_size
-        if size > MAX_IMAGE_BYTES:
-            raise ValidationError(
-                f"image is {size} bytes; keep feed images under {MAX_IMAGE_BYTES}"
-            )
+        image = LocalFeedImageReader(repo_root=repo_root).read_image(path=image_path)
         return {
-            # Keep cloud-bound metadata path-shaped only enough for image sniffing;
-            # never send repo_root or an absolute local filename upstream.
-            "path": candidate.name or "feed-image",
-            "data_b64": base64.b64encode(candidate.read_bytes()).decode("ascii"),
+            "path": str(image["path"]),
+            "data_b64": base64.b64encode(image["data"]).decode("ascii"),
         }
 
     def _sandbox_get_enrichment(

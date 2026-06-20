@@ -89,6 +89,7 @@ class ResearchPluginApp:
         self.blobs = runtime.blobs
         self.execution_backend = runtime.execution_backend
         self.worker = runtime.worker
+        self.feed_image_reader = runtime.feed_image_reader
         self.projects = ProjectService(store=self.store)
         self.claims = ClaimService(store=self.store)
         self.experiments = ExperimentService(
@@ -156,7 +157,6 @@ class ResearchPluginApp:
         # depends on it. Constructed here purely as a composition-root wiring.
         self.feed = FeedService(
             store=self.store,
-            workspace=self.workspace,
             blobs=self.blobs,
         )
         self.tools = ToolDispatcher(
@@ -171,6 +171,7 @@ class ResearchPluginApp:
                 reviews=self.reviews,
                 sandboxes=self.sandboxes,
                 feed=self.feed,
+                feed_post=self.post_feed,
             ),
             permissions=self.permissions,
             activity=self.activity,
@@ -182,6 +183,38 @@ class ResearchPluginApp:
 
     def list_tools(self) -> list[dict[str, Any]]:
         return self.tools.list_tools()
+
+    def post_feed(
+        self,
+        *,
+        handle: str,
+        text: str,
+        image_path: str | None = None,
+        url: str | None = None,
+        ref: str | None = None,
+        project_id: str | None = None,
+    ) -> dict[str, Any]:
+        if image_path:
+            self.feed.validate_post_intent(
+                handle=handle,
+                text=text,
+                ref=ref,
+                project_id=project_id,
+            )
+        image = (
+            self.feed_image_reader.read_image(path=image_path)
+            if image_path
+            else None
+        )
+        return self.feed.post_observed(
+            handle=handle,
+            text=text,
+            image_path=str(image["path"]) if image else None,
+            image_bytes=image["data"] if image else None,
+            url=url,
+            ref=ref,
+            project_id=project_id,
+        )
 
     def shutdown(self) -> None:
         """Best-effort: stop background provisioning jobs and the sync poller."""
