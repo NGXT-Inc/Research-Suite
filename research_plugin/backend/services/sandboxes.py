@@ -54,6 +54,7 @@ import time
 from pathlib import Path
 from typing import Any, Protocol
 
+from ..domain.quota_contract import AdmissionRequest
 from ..domain.sync_contract import remote_experiment_dir
 
 from ..state.activity import ActivityLogger
@@ -74,7 +75,6 @@ from ..sandbox_backend import (
 from . import sandbox_views
 from .metrics_archive import MetricsArchive
 from .metrics_records import MetricsSnapshotStore
-from .quotas import AdmissionRequest
 from .transcript_cache import TranscriptCache
 from .sandbox_lifecycle import ExperimentTransitions
 from .sandbox_daemons import SandboxDaemons

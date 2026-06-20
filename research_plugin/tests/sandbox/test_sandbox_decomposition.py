@@ -210,6 +210,7 @@ class SandboxDecompositionTest(unittest.TestCase):
         self.assertNotIn("SshRsyncSyncer", source)
         self.assertNotIn("InProcessTaskChannel(", source)
         self.assertNotIn("experiments", _import_modules(FACADE))
+        self.assertNotIn("quotas", _import_modules(FACADE))
         self.assertNotIn("QuotaService", source)
         self.assertNotIn("dataplane.tasks", _import_modules(FACADE))
         self.assertNotIn(

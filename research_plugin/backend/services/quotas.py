@@ -26,6 +26,7 @@ from dataclasses import dataclass
 from datetime import UTC, datetime
 from typing import Any
 
+from ..domain.quota_contract import AdmissionRequest
 from ..state.store import BaseStateStore, row_to_dict
 from ..utils import PermissionDeniedError, now_iso
 
@@ -33,21 +34,6 @@ from ..utils import PermissionDeniedError, now_iso
 # is the tenant id). Tenant ids are opaque strings; '__global__' cannot collide
 # with one minted by ``new_id`` (those carry a ``tnt_``-style prefix).
 GLOBAL_SCOPE = "__global__"
-
-
-@dataclass(frozen=True)
-class AdmissionRequest:
-    """The cost-relevant facts of a sandbox request, for quota admission.
-
-    Decoupled from execution.SandboxRequest so the quota seam stays a pure
-    record-layer concern (no provider types). ``price_usd_per_hour`` is the
-    quoted price for the chosen instance (0/None when the provider has none,
-    e.g. Modal), checked against the tenant's price ceiling.
-    """
-
-    tenant_id: str
-    time_limit_seconds: int
-    price_usd_per_hour: float | None = None
 
 
 @dataclass(frozen=True)
