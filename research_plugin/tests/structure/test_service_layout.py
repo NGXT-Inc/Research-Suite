@@ -136,6 +136,7 @@ class ServiceLayoutTest(unittest.TestCase):
     def test_sandbox_ports_are_neutral_and_outside_services(self) -> None:
         expected_imports = {
             "metrics_archive.py": {"pathlib", "typing"},
+            "mgmt_keys.py": {"pathlib", "typing"},
             "sandbox_lifecycle.py": {"datetime", "typing"},
             "sandbox_worker.py": {"pathlib", "typing"},
             "task_channel.py": {"typing"},
@@ -158,6 +159,12 @@ class ServiceLayoutTest(unittest.TestCase):
     def test_sandbox_lifecycle_workers_use_ports_not_concrete_services(self) -> None:
         self.assertNotIn(
             "experiments", _import_segments(SERVICES / "sandbox_provisioner.py")
+        )
+        self.assertNotIn(
+            "sandbox_mgmt_keys", _import_segments(SERVICES / "sandboxes.py")
+        )
+        self.assertNotIn(
+            "ports.mgmt_keys", _import_module_names(SERVICES / "sandbox_mgmt_keys.py")
         )
         daemon_imports = _import_segments(SERVICES / "sandbox_daemons.py")
         self.assertNotIn("experiments", daemon_imports)

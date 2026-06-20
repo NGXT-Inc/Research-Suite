@@ -21,27 +21,9 @@ from __future__ import annotations
 import os
 import subprocess
 from pathlib import Path
-from typing import Protocol
 
 from ..utils import ValidationError
 from ..sandbox_support import _safe_name
-
-
-class MgmtKeyStore(Protocol):
-    """Control-plane custody of per-sandbox management keypairs."""
-
-    def ensure(self, *, experiment_id: str) -> str:
-        """Mint (or reuse) the experiment's management keypair; returns the
-        public key — the only half that ever leaves the store."""
-        ...
-
-    def key_path(self, *, experiment_id: str) -> Path:
-        """Path to the private key, for the management SSH channel."""
-        ...
-
-    def remove(self, *, experiment_id: str) -> None:
-        """Drop the keypair (terminal rows; the next provision mints fresh)."""
-        ...
 
 
 class LocalMgmtKeyStore:
