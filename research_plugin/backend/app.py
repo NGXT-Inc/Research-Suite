@@ -10,6 +10,7 @@ from .services.experiments import ExperimentService
 from .services.feed import FeedService
 from .services.permissions import PermissionService
 from .services.project_overview import ProjectOverviewService
+from .services.quotas import QuotaService
 from .services.reflection_tools import ReflectionToolService
 from .services.projects import ProjectService
 from .services.resources import ResourceService
@@ -83,6 +84,7 @@ class ResearchPluginApp:
         # Dormant (disabled) in local mode, so behavior is byte-identical.
         self.structured_logger = StructuredLogger()
         self.permissions = PermissionService()
+        self.quotas = QuotaService(store=self.store)
         # Content-addressed store for gated-artifact bytes (and figures and
         # parachute objects). Local mode roots it next to the state DB; the
         # control composition injects an S3BlobStore (Phase 8). Same protocol,
@@ -139,6 +141,7 @@ class ResearchPluginApp:
             lease_client_id=self.worker.client_id(),
             # Decision 7's one shared blob store also holds parachute objects.
             blobs=self.blobs,
+            quotas=self.quotas,
             # Split mode (Phase 8): the control composition injects an
             # HttpTaskChannel so control enqueues data-plane work to the daemon
             # over HTTP. None ⇒ the synchronous in-process channel (local mode).

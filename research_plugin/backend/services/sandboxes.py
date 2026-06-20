@@ -52,7 +52,7 @@ import sqlite3
 import threading
 import time
 from pathlib import Path
-from typing import Any
+from typing import Any, Protocol
 
 from ..domain.sync_contract import remote_experiment_dir
 
@@ -74,7 +74,7 @@ from ..sandbox_backend import (
 from . import sandbox_views
 from .metrics_archive import MetricsArchive
 from .metrics_records import MetricsSnapshotStore
-from .quotas import AdmissionRequest, QuotaService
+from .quotas import AdmissionRequest
 from .transcript_cache import TranscriptCache
 from .sandbox_lifecycle import ExperimentTransitions
 from .sandbox_daemons import SandboxDaemons
@@ -105,6 +105,11 @@ from .task_channel import TaskChannel
 from .sandbox_worker import SandboxWorker
 
 
+class QuotaAdmission(Protocol):
+    def check_admission(self, *, request: AdmissionRequest) -> None:
+        ...
+
+
 class SandboxService:
     """Facade over sandbox persistence, provisioning, the worker, and daemons."""
 
@@ -122,7 +127,7 @@ class SandboxService:
         stale_provision_seconds: float | None = None,
         experiments: ExperimentTransitions | None = None,
         blobs: BlobStore | None = None,
-        quotas: QuotaService | None = None,
+        quotas: QuotaAdmission | None = None,
         task_channel: TaskChannel | None = None,
     ) -> None:
         self.store = store
@@ -139,10 +144,14 @@ class SandboxService:
             raise ValidationError("experiments is required")
         if not callable(getattr(experiments, "apply_system_transition", None)):
             raise ValidationError("experiments.apply_system_transition is required")
+        if quotas is None:
+            raise ValidationError("quotas is required")
+        if not callable(getattr(quotas, "check_admission", None)):
+            raise ValidationError("quotas.check_admission is required")
         # Cost governance (cloud plan Phase 7): admission gate at the
         # procurement choke point. The 'local' tenant has no quota row ⇒
         # unlimited ⇒ a no-op, so local mode is byte-identical.
-        self.quotas = quotas or QuotaService(store=store)
+        self.quotas = quotas
         # Per-sandbox management keypairs (plan Phase 5, fixed decision 4):
         # control-plane custody; transcript reads, metrics sampling, and the
         # parachute authenticate with these, never with the user key.
@@ -1548,7 +1557,7 @@ class SandboxService:
         Best-effort: only meaningful for bundled-hardware backends that expose a
         catalog with prices (Lambda, the fake's selection mode). Returns None
         when there is no instance_type or no matching priced option, in which
-        case QuotaService skips the price ceiling (Modal has no per-hour quote).
+        case quota admission skips the price ceiling (Modal has no per-hour quote).
         """
         if not instance_type:
             return None

@@ -102,6 +102,7 @@ class SandboxDecompositionTest(unittest.TestCase):
         self.assertIs(service.daemons.view, service.control_view)
         self.assertIs(service.tasks.worker, service.worker)
         self.assertIs(service.metrics_archive, service.worker.metrics_archive)
+        self.assertIs(service.quotas, self.app.quotas)
         # Local composition injects the worker-backed values; the facade itself
         # must not derive them from worker internals (pinned by source test).
         self.assertEqual(service.sessions.client_id, service.worker.client_id())
@@ -167,6 +168,35 @@ class SandboxDecompositionTest(unittest.TestCase):
                 experiments=object(),
             )
 
+    def test_facade_requires_explicit_quota_admission(self) -> None:
+        with self.assertRaisesRegex(ValidationError, "quotas is required"):
+            SandboxService(
+                store=self.app.store,
+                sandbox_backend=self.app.execution_backend,
+                worker=self.app.worker,
+                mgmt_keys=self.app.sandboxes.mgmt_keys,
+                metrics_archive=self.app.sandboxes.metrics_archive,
+                lease_client_id="client",
+                task_channel=self.app.sandboxes.tasks,
+                experiments=self.app.experiments,
+            )
+
+    def test_facade_requires_quota_admission_port(self) -> None:
+        with self.assertRaisesRegex(
+            ValidationError, "quotas.check_admission is required"
+        ):
+            SandboxService(
+                store=self.app.store,
+                sandbox_backend=self.app.execution_backend,
+                worker=self.app.worker,
+                mgmt_keys=self.app.sandboxes.mgmt_keys,
+                metrics_archive=self.app.sandboxes.metrics_archive,
+                lease_client_id="client",
+                task_channel=self.app.sandboxes.tasks,
+                experiments=self.app.experiments,
+                quotas=object(),
+            )
+
     def test_facade_source_keeps_no_extracted_machinery(self) -> None:
         source = FACADE.read_text(encoding="utf-8")
         # Job/daemon threads live in the provisioner and daemons modules.
@@ -180,6 +210,7 @@ class SandboxDecompositionTest(unittest.TestCase):
         self.assertNotIn("SshRsyncSyncer", source)
         self.assertNotIn("InProcessTaskChannel(", source)
         self.assertNotIn("experiments", _import_modules(FACADE))
+        self.assertNotIn("QuotaService", source)
         self.assertNotIn("dataplane.tasks", _import_modules(FACADE))
         self.assertNotIn(
             "dataplane.tasks",
