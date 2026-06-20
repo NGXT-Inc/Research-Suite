@@ -3,12 +3,9 @@
 from __future__ import annotations
 
 from pathlib import Path
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
-from .dataplane import LocalDataPlaneWorker
-from .execution import SandboxBackend, build_sandbox_backend
-from .execution.ssh_rsync import SshRsyncSyncer
-from .workspace import LocalWorkspace
+from .local_runtime import build_local_runtime
 from .services.claims import ClaimService
 from .services.experiments import ExperimentService
 from .services.feed import FeedService
@@ -19,19 +16,17 @@ from .services.projects import ProjectService
 from .services.resources import ResourceService
 from .services.reviews import ReviewService
 from .services.sandboxes import SandboxService
-from .services.sandbox_mgmt_keys import LocalMgmtKeyStore
 from .services.syntheses import SynthesisService
 from .services.workflow import WorkflowService
-from .state import (
-    ActivityLogger,
-    BaseStateStore,
-    StateStore,
-    ToolCallStore,
-)
-from .state.blobs import BlobStore, LocalDirBlobStore
+from .state import BaseStateStore, StateStore
+from .state.blobs import BlobStore
 from .observability import StructuredLogger
 from .tool_facade import ToolDispatcher
 from .tool_handlers import build_local_tool_handlers
+
+if TYPE_CHECKING:
+    from .execution import SandboxBackend
+    from .execution.ssh_rsync import SshRsyncSyncer
 
 
 class ResearchPluginApp:
@@ -52,7 +47,13 @@ class ResearchPluginApp:
         # about the checkout; local paths flow from the workspace and every
         # local-IO duty routes through the data-plane worker. This constructor
         # IS the local-mode composition — it binds both planes in one process.
-        self.workspace = LocalWorkspace(repo_root=repo_root)
+        runtime = build_local_runtime(
+            repo_root=repo_root,
+            execution_backend=execution_backend,
+            rsync_syncer=rsync_syncer,
+            blobs=blobs,
+        )
+        self.workspace = runtime.workspace
         # Store injection (cloud plan Phase 6): the dual-dialect contract
         # tests hand in a PostgresStateStore; absent that, local mode builds
         # its SQLite store at db_path exactly as before. The control profile
@@ -61,12 +62,10 @@ class ResearchPluginApp:
         self.store = store if store is not None else StateStore(db_path=db_path)
         # Telemetry sinks are machine-local by construction: composition hands
         # them explicit paths (the control composition gets its own sinks).
-        self.activity = ActivityLogger(repo_root=self.workspace.repo_root)
+        self.activity = runtime.activity
         # Full-fidelity tool-call recorder backing the debug analyzer. Isolated in
         # its own SQLite file so its churn never touches the state DB.
-        self.tool_calls = ToolCallStore(
-            db_path=self.workspace.research_dir / "tool_calls.sqlite"
-        )
+        self.tool_calls = runtime.tool_calls
         # Structured cloud log stream (cloud plan Phase 9): one redacted JSON
         # line per tool call / HTTP request to stdout, in control mode only.
         # Dormant (disabled) in local mode, so behavior is byte-identical.
@@ -76,20 +75,9 @@ class ResearchPluginApp:
         # parachute objects). Local mode roots it next to the state DB; the
         # control composition injects an S3BlobStore (Phase 8). Same protocol,
         # same contract tests, so the rest of the app is blob-impl-blind.
-        self.blobs = blobs if blobs is not None else LocalDirBlobStore(
-            root=self.workspace.research_dir / "blobs"
-        )
-        if execution_backend is None:
-            execution_backend = build_sandbox_backend(
-                repo_root=self.workspace.repo_root,
-                activity=self._activity_hook,
-            )
-        self.execution_backend = execution_backend
-        self.worker = LocalDataPlaneWorker(
-            workspace=self.workspace,
-            backend=execution_backend,
-            rsync_syncer=rsync_syncer,
-        )
+        self.blobs = runtime.blobs
+        self.execution_backend = runtime.execution_backend
+        self.worker = runtime.worker
         self.projects = ProjectService(store=self.store)
         self.claims = ClaimService(store=self.store)
         self.experiments = ExperimentService(
@@ -124,16 +112,14 @@ class ResearchPluginApp:
         )
         self.sandboxes = SandboxService(
             store=self.store,
-            sandbox_backend=execution_backend,
+            sandbox_backend=self.execution_backend,
             worker=self.worker,
             activity=self.activity,
             experiments=self.experiments,
             # Per-sandbox management keys (plan Phase 5): control-plane
             # custody — local mode roots them under .research_plugin/ beside
             # the rest of the control state.
-            mgmt_keys=LocalMgmtKeyStore(
-                root=self.workspace.research_dir / "mgmt_keys"
-            ),
+            mgmt_keys=runtime.mgmt_keys,
             metrics_archive=self.worker.metrics_archive,
             lease_client_id=self.worker.client_id(),
             # Decision 7's one shared blob store also holds parachute objects.
@@ -210,10 +196,3 @@ class ResearchPluginApp:
             internal_kwargs=internal_kwargs,
             telemetry_project_id=telemetry_project_id,
         )
-
-    def _activity_hook(self, event_type: str, payload: dict[str, Any]) -> None:
-        """Bridge backend emit-style logging and ActivityLogger."""
-        try:
-            self.activity.emit(event_type=event_type, payload=payload)
-        except Exception:  # noqa: BLE001
-            pass

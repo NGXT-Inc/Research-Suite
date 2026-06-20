@@ -196,6 +196,22 @@ class PlaneImportLintTest(unittest.TestCase):
         imports = _import_segments(SERVICES_ROOT / "reflection_tools.py")
         self.assertNotIn("syntheses", imports)
 
+    def test_app_keeps_concrete_local_runtime_wiring_in_one_module(self) -> None:
+        # This is an incremental local-mode extraction, not a ControlApp split:
+        # ResearchPluginApp may still depend on local_runtime, but concrete
+        # filesystem/worker/default-backend classes stay out of app.py.
+        source = (BACKEND_ROOT / "app.py").read_text(encoding="utf-8")
+        for forbidden in (
+            "LocalWorkspace",
+            "LocalDataPlaneWorker",
+            "LocalDirBlobStore",
+            "ActivityLogger",
+            "ToolCallStore",
+            "LocalMgmtKeyStore",
+            "build_sandbox_backend",
+        ):
+            self.assertNotIn(forbidden, source)
+
 
 class ProxyStdlibOnlyTest(unittest.TestCase):
     """The stdio MCP proxy must stay stdlib-only (cloud plan Phase 8 packaging).
