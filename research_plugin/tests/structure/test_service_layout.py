@@ -49,6 +49,10 @@ def _import_segments(path: Path) -> set[str]:
 
 
 VOCABULARY_NAMES = {
+    "CLAIM_CONFIDENCES",
+    "CLAIM_STATUSES",
+    "EXPERIMENT_ACTIVE_PROCESS_STATUSES",
+    "EXPERIMENT_TERMINAL_STATUSES",
     "GATED_ROLES",
     "GATED_ROLE_BYTE_CAPS",
     "LEGACY_PROJECT_GRAPH_ROLE",
@@ -235,6 +239,11 @@ class ServiceLayoutTest(unittest.TestCase):
 
     def test_synthesis_service_uses_claim_vocabulary(self) -> None:
         self.assertNotIn("claims", _import_segments(SERVICES / "syntheses.py"))
+
+    def test_status_views_use_domain_vocabulary(self) -> None:
+        for name in ("project_overview.py", "workflow_views.py", "syntheses.py"):
+            with self.subTest(module=name):
+                self.assertNotIn("workflow_gates", _import_segments(SERVICES / name))
 
     def test_view_modules_do_not_import_service_state_machines(self) -> None:
         for name in ("experiment_views.py", "workflow_views.py"):

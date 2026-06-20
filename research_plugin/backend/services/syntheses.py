@@ -25,6 +25,7 @@ from .graph_lint import graph_problems
 from ..domain.vocabulary import (
     CLAIM_CONFIDENCES,
     CLAIM_STATUSES,
+    EXPERIMENT_TERMINAL_STATUSES,
     PROJECT_GRAPH_ROLES,
     REFLECTION_LENS_DOC_ROLES,
 )
@@ -41,7 +42,6 @@ from .synthesis_gates import (
     SYNTHESIS_TERMINAL_STATUSES,
     allowed_synthesis_transitions_for,
 )
-from .workflow_gates import TERMINAL_STATUSES as EXPERIMENT_TERMINAL_STATUSES
 
 
 _LENS_ID_RE = re.compile(r"^[a-z][a-z0-9_-]*$")

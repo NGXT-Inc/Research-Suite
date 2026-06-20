@@ -5,9 +5,8 @@ from __future__ import annotations
 import json
 from typing import Any, Protocol
 
-from ..domain.vocabulary import PROJECT_GRAPH_ROLES
+from ..domain.vocabulary import EXPERIMENT_TERMINAL_STATUSES, PROJECT_GRAPH_ROLES
 from ..state.store import BaseStateStore, rows_to_dicts
-from .workflow_gates import TERMINAL_STATUSES as EXPERIMENT_TERMINAL_STATUSES
 
 
 class ProjectCurrentReader(Protocol):

@@ -31,9 +31,13 @@ from __future__ import annotations
 from dataclasses import dataclass
 from typing import Any
 
+from ..domain.vocabulary import (
+    EXPERIMENT_ACTIVE_PROCESS_STATUSES,
+    EXPERIMENT_TERMINAL_STATUSES,
+)
 
-TERMINAL_STATUSES = frozenset({"complete", "failed", "abandoned"})
-ACTIVE_PROCESS_STATUSES = frozenset({"provisioning", "running"})
+TERMINAL_STATUSES = EXPERIMENT_TERMINAL_STATUSES
+ACTIVE_PROCESS_STATUSES = EXPERIMENT_ACTIVE_PROCESS_STATUSES
 
 
 @dataclass(frozen=True)

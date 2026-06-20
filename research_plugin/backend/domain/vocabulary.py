@@ -24,6 +24,9 @@ CLAIM_STATUSES = frozenset(
 )
 CLAIM_CONFIDENCES = frozenset({"low", "medium", "high"})
 
+EXPERIMENT_TERMINAL_STATUSES = frozenset({"complete", "failed", "abandoned"})
+EXPERIMENT_ACTIVE_PROCESS_STATUSES = frozenset({"provisioning", "running"})
+
 RESOURCE_TARGET_TYPES = frozenset({"experiment", "reflection", "claim", "review", "attempt"})
 
 PROJECT_GRAPH_ROLE = "project_graph"

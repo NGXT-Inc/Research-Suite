@@ -4,11 +4,11 @@ from __future__ import annotations
 
 from typing import Any
 
+from ..domain.vocabulary import EXPERIMENT_ACTIVE_PROCESS_STATUSES
 from .reflection_projection import (
     external_reflection_status,
     external_reflection_transition,
 )
-from .workflow_gates import ACTIVE_PROCESS_STATUSES
 
 
 # Agent-facing projection of status_and_next. The next-action decision is
@@ -153,7 +153,11 @@ def slim_synthesis(syn: dict[str, Any]) -> dict[str, Any]:
 def _sandbox_summary(sandboxes: list[dict[str, Any]]) -> dict[str, Any]:
     """Collapse the sandbox row(s) to 'is there an active one, and if so what'."""
     active = next(
-        (sb for sb in sandboxes if sb.get("status") in ACTIVE_PROCESS_STATUSES),
+        (
+            sb
+            for sb in sandboxes
+            if sb.get("status") in EXPERIMENT_ACTIVE_PROCESS_STATUSES
+        ),
         None,
     )
     if active is not None:
