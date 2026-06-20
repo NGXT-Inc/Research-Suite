@@ -31,8 +31,8 @@ metrics, views glue). The machinery lives in dedicated collaborators:
     pulled-mlflow.db metrics fallback (cloud plan §3.1).
   - `sync_sessions` — sync leases (the cross-client byte-movement authority),
     session issuance, and the poller's ControlPlaneView (cloud plan Phase 4).
-  - `dataplane.InProcessTaskChannel` — the control→data task seam: initial
-    push, final pull, conn refresh, and teardown ride it as tasks.
+  - `TaskChannel` — the control→data task seam: initial push, final pull,
+    conn refresh, and teardown ride it as tasks.
   - `sandbox_daemons.SandboxDaemons` — the auto-rsync poller and the
     expiration reaper threads.
   - `sandbox_support` — constants, pure helpers, the SSH dispatcher template.
@@ -52,7 +52,7 @@ import sqlite3
 import threading
 import time
 from pathlib import Path
-from typing import TYPE_CHECKING, Any, Protocol
+from typing import TYPE_CHECKING, Any
 
 from ..execution.sync_dirs import remote_experiment_dir
 
@@ -107,17 +107,7 @@ from .sync_sessions import (
     LeaseService,
     SyncSessionService,
 )
-
-
-class TaskChannel(Protocol):
-    def submit(
-        self,
-        *,
-        task_type: str,
-        payload: dict[str, Any],
-        deadline: str | None = None,
-        tenant_id: str | None = None,
-    ) -> Any: ...
+from .task_channel import TaskChannel
 
 
 class SandboxService:

@@ -28,7 +28,6 @@ if TYPE_CHECKING:
     # Typing-only: runtime imports here would close the package cycle
     # services → dataplane → services (metrics_archive) and break
     # `import backend.dataplane` as an entry point.
-    from ..dataplane.tasks import InProcessTaskChannel
     from ..dataplane.worker import DataPlaneWorker
 
 from ..execution import (
@@ -51,6 +50,7 @@ from .sandbox_support import (
     parse_iso,
 )
 from .sync_sessions import SyncSessionService
+from .task_channel import TaskChannel
 
 
 RefreshRow = Callable[..., dict[str, Any]]
@@ -67,7 +67,7 @@ class SandboxProvisioner:
         experiments: ExperimentService,
         worker: DataPlaneWorker,
         sessions: SyncSessionService,
-        tasks: InProcessTaskChannel,
+        tasks: TaskChannel,
         refresh_row: RefreshRow,
         stale_provision_seconds: float,
     ) -> None:

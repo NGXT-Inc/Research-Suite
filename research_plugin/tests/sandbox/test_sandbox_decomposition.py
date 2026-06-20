@@ -152,6 +152,10 @@ class SandboxDecompositionTest(unittest.TestCase):
         self.assertNotIn("SshRsyncSyncer", source)
         self.assertNotIn("InProcessTaskChannel(", source)
         self.assertNotIn("dataplane.tasks", _import_modules(FACADE))
+        self.assertNotIn(
+            "dataplane.tasks",
+            _import_modules(FACADE.parent / "sandbox_provisioner.py"),
+        )
         # Control-owned collaborators are injected explicitly by composition;
         # the facade must not derive them from the local worker.
         self.assertNotIn("worker.workspace", source)
