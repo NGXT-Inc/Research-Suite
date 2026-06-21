@@ -383,13 +383,19 @@ class ServiceLayoutTest(unittest.TestCase):
             _class_method_names(synthesis_writer_path, "SynthesisExperimentWriter"),
             {"create_from_synthesis"},
         )
+        self.assertEqual(
+            _class_method_names(synthesis_writer_path, "SynthesisProjectWriter"),
+            {"stop_from_synthesis"},
+        )
         from backend.ports.synthesis_writers import (
             SynthesisClaimWriter,
             SynthesisExperimentWriter,
+            SynthesisProjectWriter,
         )
 
         self.assertIn(Protocol, SynthesisClaimWriter.__mro__)
         self.assertIn(Protocol, SynthesisExperimentWriter.__mro__)
+        self.assertIn(Protocol, SynthesisProjectWriter.__mro__)
 
     def test_reflection_policy_service_module_is_a_compatibility_shim(self) -> None:
         self.assertEqual(_import_modules("reflection_policy.py"), {"domain"})
@@ -592,6 +598,12 @@ class ServiceLayoutTest(unittest.TestCase):
         self.assertIn("claims: SynthesisClaimWriter", source)
         self.assertNotIn("INSERT INTO claims", source)
         self.assertNotIn("UPDATE claims", source)
+
+    def test_synthesis_service_uses_project_writer_for_hard_stop(self) -> None:
+        source = _source("syntheses.py")
+        self.assertIn("project_writer: SynthesisProjectWriter", source)
+        self.assertNotIn("UPDATE projects", source)
+        self.assertNotIn("project.stopped", source)
 
     def test_status_views_use_domain_vocabulary(self) -> None:
         for name in ("project_overview.py", "workflow_views.py", "syntheses.py"):

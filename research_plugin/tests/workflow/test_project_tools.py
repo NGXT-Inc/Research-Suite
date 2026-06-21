@@ -55,6 +55,59 @@ class ProjectToolTest(unittest.TestCase):
         self.assertEqual(stopped["hard_stop_rationale"], "No viable directions remain.")
         self.assertEqual(stopped["stopped_at"], "2026-01-01T00:00:00Z")
 
+    def test_stop_from_synthesis_sets_hard_stop_fields_and_event(self) -> None:
+        project = self.call("project.create", name="Alpha")
+        with self.app.store.transaction() as conn:
+            self.app.projects.stop_from_synthesis(
+                conn=conn,
+                project_id=project["id"],
+                synthesis_id="syn_stop",
+                rationale="No viable directions remain.",
+            )
+
+        stopped = self.call("project.get", project_id=project["id"])
+        self.assertEqual(stopped["status"], "stopped")
+        self.assertEqual(stopped["hard_stop_reflection_id"], "syn_stop")
+        self.assertEqual(stopped["hard_stop_rationale"], "No viable directions remain.")
+        self.assertTrue(stopped["stopped_at"])
+        events = self.app.store.recent_events(project_id=project["id"], limit=5)[
+            "events"
+        ]
+        stopped_event = next(
+            event
+            for event in events
+            if event["type"] == "project.stopped"
+            and event["target_id"] == project["id"]
+        )
+        self.assertEqual(
+            stopped_event["payload"],
+            {
+                "synthesis_id": "syn_stop",
+                "rationale": "No viable directions remain.",
+            },
+        )
+
+    def test_stop_from_synthesis_updates_legacy_synthesis_id_column(self) -> None:
+        project = self.call("project.create", name="Alpha")
+        with self.app.store.transaction() as conn:
+            columns = {
+                str(row["name"])
+                for row in conn.execute("PRAGMA table_info(projects)").fetchall()
+            }
+            if "hard_stop_synthesis_id" not in columns:
+                conn.execute("ALTER TABLE projects ADD COLUMN hard_stop_synthesis_id TEXT")
+            self.app.projects.stop_from_synthesis(
+                conn=conn,
+                project_id=project["id"],
+                synthesis_id="syn_legacy",
+                rationale="Legacy compatibility.",
+            )
+            row = conn.execute(
+                "SELECT hard_stop_synthesis_id FROM projects WHERE id = ?",
+                (project["id"],),
+            ).fetchone()
+        self.assertEqual(row["hard_stop_synthesis_id"], "syn_legacy")
+
     def test_project_name_must_be_at_least_three_chars_on_create_and_update(self) -> None:
         with self.assertRaises(ValidationError) as ctx:
             self.call("project.create", name="ab")

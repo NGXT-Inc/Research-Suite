@@ -38,7 +38,11 @@ from ..domain.vocabulary import (
     PROJECT_GRAPH_ROLES,
     REFLECTION_LENS_DOC_ROLES,
 )
-from ..ports.synthesis_writers import SynthesisClaimWriter, SynthesisExperimentWriter
+from ..ports.synthesis_writers import (
+    SynthesisClaimWriter,
+    SynthesisExperimentWriter,
+    SynthesisProjectWriter,
+)
 from ..state.blobs import BlobStore
 from ..state.store import StateStore, next_created_seq, row_to_dict, rows_to_dicts
 from ..utils import NotFoundError, ValidationError, WorkflowError, new_id, now_iso
@@ -63,11 +67,13 @@ class SynthesisService:
         store: StateStore,
         claims: SynthesisClaimWriter,
         experiment_writer: SynthesisExperimentWriter,
+        project_writer: SynthesisProjectWriter,
         blobs: BlobStore | None = None,
     ) -> None:
         self.store = store
         self.claims = claims
         self.experiment_writer = experiment_writer
+        self.project_writer = project_writer
         # Gate lints read submitted (pinned) bytes from here, never the
         # working tree (see services/pinned.py).
         self.blobs = blobs
@@ -1004,37 +1010,11 @@ class SynthesisService:
     def _materialize_hard_stop(
         self, *, conn, project_id: str, synthesis_id: str, rationale: str
     ) -> None:
-        now = now_iso()
-        columns = {
-            str(row["name"])
-            for row in conn.execute("PRAGMA table_info(projects)").fetchall()
-        }
-        assignments = [
-            "status = 'stopped'",
-            "hard_stop_reflection_id = ?",
-            "hard_stop_rationale = ?",
-            "stopped_at = ?",
-        ]
-        params: list[Any] = [synthesis_id, rationale, now]
-        if "hard_stop_synthesis_id" in columns:
-            assignments.insert(2, "hard_stop_synthesis_id = ?")
-            params.insert(1, synthesis_id)
-        params.append(project_id)
-        conn.execute(
-            f"""
-            UPDATE projects
-            SET {", ".join(assignments)}
-            WHERE id = ?
-            """,
-            params,
-        )
-        self.store.record_event(
+        self.project_writer.stop_from_synthesis(
             conn=conn,
             project_id=project_id,
-            event_type="project.stopped",
-            target_type="project",
-            target_id=project_id,
-            payload={"synthesis_id": synthesis_id, "rationale": rationale},
+            synthesis_id=synthesis_id,
+            rationale=rationale,
         )
 
     def _materialize_experiment_wave(

@@ -105,6 +105,47 @@ class ProjectService:
         finally:
             conn.close()
 
+    def stop_from_synthesis(
+        self,
+        *,
+        conn,
+        project_id: str,
+        synthesis_id: str,
+        rationale: str,
+    ) -> None:
+        now = now_iso()
+        columns = {
+            str(row["name"])
+            for row in conn.execute("PRAGMA table_info(projects)").fetchall()
+        }
+        assignments = [
+            "status = 'stopped'",
+            "hard_stop_reflection_id = ?",
+            "hard_stop_rationale = ?",
+            "stopped_at = ?",
+        ]
+        params: list[Any] = [synthesis_id, rationale, now]
+        if "hard_stop_synthesis_id" in columns:
+            assignments.insert(2, "hard_stop_synthesis_id = ?")
+            params.insert(1, synthesis_id)
+        params.append(project_id)
+        conn.execute(
+            f"""
+            UPDATE projects
+            SET {", ".join(assignments)}
+            WHERE id = ?
+            """,
+            params,
+        )
+        self.store.record_event(
+            conn=conn,
+            project_id=project_id,
+            event_type="project.stopped",
+            target_type="project",
+            target_id=project_id,
+            payload={"synthesis_id": synthesis_id, "rationale": rationale},
+        )
+
     def list_projects(self, *, tenant_id: str | None = None) -> dict[str, Any]:
         conn = self.store.connect()
         try:

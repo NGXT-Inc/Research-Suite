@@ -54,3 +54,17 @@ class SynthesisExperimentWriter(Protocol):
         parallelism: str,
     ) -> str:
         ...
+
+
+class SynthesisProjectWriter(Protocol):
+    """Project writes triggered by a reviewed synthesis change spec."""
+
+    def stop_from_synthesis(
+        self,
+        *,
+        conn: Any,
+        project_id: str,
+        synthesis_id: str,
+        rationale: str,
+    ) -> None:
+        ...

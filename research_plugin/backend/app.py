@@ -113,6 +113,7 @@ class ResearchPluginApp:
             store=self.store,
             claims=self.claims,
             experiment_writer=self.experiments,
+            project_writer=self.projects,
             blobs=self.blobs,
         )
         self.reflections = ReflectionToolService(syntheses=self.syntheses)
