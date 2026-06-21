@@ -311,6 +311,10 @@ for name in (
         # service just to translate public names.
         imports = _import_segments(SERVICES_ROOT / "reflection_tools.py")
         self.assertNotIn("syntheses", imports)
+        self.assertIn("reflection_waves", imports)
+        source = (SERVICES_ROOT / "reflection_tools.py").read_text(encoding="utf-8")
+        self.assertIn("syntheses: ReflectionWaveStore", source)
+        self.assertNotIn("class ReflectionWaveStore", source)
 
     def test_app_keeps_concrete_local_runtime_wiring_in_one_module(self) -> None:
         # This is an incremental local-mode extraction, not a ControlApp split:

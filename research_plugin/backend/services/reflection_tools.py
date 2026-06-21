@@ -2,41 +2,10 @@
 
 from __future__ import annotations
 
-from typing import Any, Protocol
+from typing import Any
 
 from ..domain.reflection_projection import external_reflection_state
-
-
-class ReflectionWaveStore(Protocol):
-    def create(
-        self,
-        *,
-        project_id: str | None = None,
-        title: str = "",
-        lenses: list[dict[str, Any]] | None = None,
-    ) -> dict[str, Any]:
-        ...
-
-    def get_state(
-        self,
-        *,
-        synthesis_id: str,
-        project_id: str | None = None,
-        conn: Any | None = None,
-    ) -> dict[str, Any]:
-        ...
-
-    def list_syntheses(self, *, project_id: str | None = None) -> dict[str, Any]:
-        ...
-
-    def transition(
-        self,
-        *,
-        project_id: str | None,
-        synthesis_id: str,
-        transition: str,
-    ) -> dict[str, Any]:
-        ...
+from ..ports.reflection_waves import ReflectionWaveStore
 
 
 class ReflectionToolService:

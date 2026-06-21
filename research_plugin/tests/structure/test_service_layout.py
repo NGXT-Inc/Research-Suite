@@ -3,6 +3,7 @@ from __future__ import annotations
 import ast
 import unittest
 from pathlib import Path
+from typing import get_type_hints
 
 from tests.paths import BACKEND_ROOT, DOMAIN_ROOT, PLUGIN_ROOT, PORTS_ROOT, SERVICES_ROOT
 
@@ -139,6 +140,7 @@ class ServiceLayoutTest(unittest.TestCase):
             "mgmt_keys.py": {"pathlib", "typing"},
             "project_readers.py": {"typing"},
             "quota_admission.py": {"domain.quota_contract", "typing"},
+            "reflection_waves.py": {"typing"},
             "review_targets.py": {"typing"},
             "sandbox_lifecycle.py": {"datetime", "typing"},
             "sandbox_sync.py": {"typing"},
@@ -175,6 +177,16 @@ class ServiceLayoutTest(unittest.TestCase):
             "def open_synthesis(self, *, conn: Any, project_id: str)",
             project_reader_source,
         )
+        reflection_wave_source = (PORTS_ROOT / "reflection_waves.py").read_text(
+            encoding="utf-8"
+        )
+        for signature in (
+            "def create(",
+            "def get_state(",
+            "def list_syntheses(self, *, project_id: str | None = None)",
+            "def transition(",
+        ):
+            self.assertIn(signature, reflection_wave_source)
 
     def test_reflection_policy_service_module_is_a_compatibility_shim(self) -> None:
         self.assertEqual(_import_modules("reflection_policy.py"), {"domain"})
@@ -284,6 +296,14 @@ class ServiceLayoutTest(unittest.TestCase):
                 imports = _import_module_names(SERVICES / name)
                 self.assertIn("domain.reflection_projection", imports)
                 self.assertNotIn("reflection_projection", imports)
+        reflection_imports = _import_segments(SERVICES / "reflection_tools.py")
+        self.assertIn("reflection_waves", reflection_imports)
+        reflection_source = _source("reflection_tools.py")
+        self.assertIn("syntheses: ReflectionWaveStore", reflection_source)
+        self.assertNotIn("class ReflectionWaveStore", reflection_source)
+        from backend.services.reflection_tools import ReflectionToolService
+
+        get_type_hints(ReflectionToolService.create)
 
     def test_graph_lint_is_domain_leaf_module(self) -> None:
         self.assertEqual(_import_module_names(DOMAIN_ROOT / "graph_lint.py"), {"json"})
