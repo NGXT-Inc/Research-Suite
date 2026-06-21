@@ -8,6 +8,19 @@ from backend.domain.review_gates import (
     expected_review_gate_role,
     is_review_gate_exempt,
 )
+from backend.domain.synthesis_gates import SYNTHESIS_GATE_TABLE
+from backend.domain.workflow_gates import GATE_TABLE
+
+
+def _review_roles_from_gate_tables() -> dict[tuple[str, str], str]:
+    rows: dict[tuple[str, str], str] = {}
+    for status, forward in GATE_TABLE.items():
+        if forward.review is not None:
+            rows[("experiment", status)] = forward.review.role
+    for status, forward in SYNTHESIS_GATE_TABLE.items():
+        if forward.review is not None:
+            rows[("synthesis", status)] = forward.review.role
+    return rows
 
 
 class ReviewGatePolicyTest(unittest.TestCase):
@@ -20,6 +33,9 @@ class ReviewGatePolicyTest(unittest.TestCase):
                 ("synthesis", "synthesis_review"): "reflection_reviewer",
             },
         )
+
+    def test_gate_roles_match_transition_review_requirements(self) -> None:
+        self.assertEqual(REVIEW_GATE_ROLES, _review_roles_from_gate_tables())
 
     def test_expected_role_returns_none_outside_review_gates(self) -> None:
         self.assertEqual(
