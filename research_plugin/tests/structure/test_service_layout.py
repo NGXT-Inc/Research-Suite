@@ -849,6 +849,18 @@ class ServiceLayoutTest(unittest.TestCase):
         self.assertNotIn("FROM report_figures", source)
         self.assertNotIn("self.app.blobs.get", source)
 
+    def test_transport_delegates_synthesis_overview_to_service(self) -> None:
+        source = (BACKEND_ROOT / "http_api.py").read_text(encoding="utf-8")
+        start = source.index("    def syntheses_view(")
+        end = source.index("    def synthesis_detail(", start)
+        block = source[start:end]
+
+        self.assertIn("self.app.syntheses.overview", block)
+        self.assertNotIn("self.app.store.connect", block)
+        self.assertNotIn("reflection_signal", block)
+        self.assertNotIn("open_synthesis", block)
+        self.assertNotIn("latest_published", block)
+
     def test_transport_delegates_graph_ref_resolution_to_service(self) -> None:
         source = (BACKEND_ROOT / "http_api.py").read_text(encoding="utf-8")
         self.assertIn("self.app.graph_refs.resolve_index", source)

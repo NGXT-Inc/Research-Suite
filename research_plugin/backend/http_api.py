@@ -762,21 +762,7 @@ class ResearchHttpApi:
 
     def syntheses_view(self, *, project_id: str) -> dict[str, Any]:
         """All reflection waves plus the staleness/coverage signal for the UI."""
-        syntheses = self.app.syntheses.list_syntheses(project_id=project_id)["syntheses"]
-        conn = self.app.store.connect()
-        try:
-            signal = self.app.syntheses.reflection_signal(project_id=project_id, conn=conn)
-            open_wave = self.app.syntheses.open_synthesis(conn=conn, project_id=project_id)
-            published = self.app.syntheses.latest_published(conn=conn, project_id=project_id)
-        finally:
-            conn.close()
-        return {
-            "syntheses": syntheses,
-            "current": open_wave or published,
-            "open_synthesis": open_wave,
-            "latest_published": published,
-            "signal": signal,
-        }
+        return self.app.syntheses.overview(project_id=project_id)
 
     def synthesis_detail(self, *, project_id: str, synthesis_id: str) -> dict[str, Any]:
         return self.app.syntheses.get_state(synthesis_id=synthesis_id, project_id=project_id)

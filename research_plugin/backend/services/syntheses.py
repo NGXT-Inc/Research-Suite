@@ -332,6 +332,31 @@ class SynthesisService:
         finally:
             conn.close()
 
+    def overview(self, *, project_id: str | None = None) -> dict[str, Any]:
+        """All waves plus the current reflection signal for project UI views."""
+        conn = self.store.connect()
+        try:
+            project_id = self.store.require_project_id(conn=conn, project_id=project_id)
+            rows = conn.execute(
+                "SELECT id FROM syntheses WHERE project_id = ? ORDER BY created_at",
+                (project_id,),
+            ).fetchall()
+            syntheses = [
+                self.get_state(synthesis_id=row["id"], conn=conn) for row in rows
+            ]
+            signal = self.reflection_signal(project_id=project_id, conn=conn)
+            open_wave = self.open_synthesis(conn=conn, project_id=project_id)
+            published = self.latest_published(conn=conn, project_id=project_id)
+            return {
+                "syntheses": syntheses,
+                "current": open_wave or published,
+                "open_synthesis": open_wave,
+                "latest_published": published,
+                "signal": signal,
+            }
+        finally:
+            conn.close()
+
     def open_synthesis(self, *, conn, project_id: str) -> dict[str, Any] | None:
         """The one non-terminal wave for the project, fully hydrated, or None."""
         row = conn.execute(
