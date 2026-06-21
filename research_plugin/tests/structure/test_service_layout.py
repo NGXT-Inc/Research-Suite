@@ -733,6 +733,22 @@ class ServiceLayoutTest(unittest.TestCase):
                     re.search(r"datetime\.now\([^)]*UTC[^)]*\)\.isoformat\(", source)
                 )
 
+    def test_env_coercion_is_single_sourced(self) -> None:
+        self.assertEqual(_import_module_names(BACKEND_ROOT / "env.py"), {"collections.abc", "os"})
+        for path in sorted(BACKEND_ROOT.rglob("*.py")):
+            if path.name == "env.py":
+                continue
+            source = path.read_text(encoding="utf-8")
+            with self.subTest(module=path.relative_to(BACKEND_ROOT).as_posix()):
+                self.assertNotIn("def env_flag", source)
+                self.assertNotIn("def env_float", source)
+                self.assertNotIn("RESEARCH_PLUGIN_ACTIVITY_STDERR\", \"\").lower()", source)
+                self.assertNotIn("RESEARCH_PLUGIN_SANDBOX_REAPER\", \"1\").lower()", source)
+                self.assertNotIn(
+                    "RESEARCH_PLUGIN_SANDBOX_AUTO_RSYNC\", \"1\").lower()",
+                    source,
+                )
+
     def test_services_type_against_base_state_store(self) -> None:
         concrete_store_names = {"StateStore", "SqliteStateStore"}
         for path in sorted(SERVICES.glob("*.py")):

@@ -10,6 +10,7 @@ import traceback
 from pathlib import Path
 from typing import Any, Callable
 
+from ..env import env_bool
 from ..utils import now_iso
 
 
@@ -44,13 +45,6 @@ ID_KEYS = {
 }
 
 
-def env_flag(*, name: str, default: bool = False) -> bool:
-    value = os.environ.get(name)
-    if value is None:
-        return default
-    return value.strip().lower() not in {"", "0", "false", "off", "no"}
-
-
 class ActivityLogger:
     """Writes compact JSONL events without owning domain state."""
 
@@ -63,9 +57,9 @@ class ActivityLogger:
         mirror_stderr: bool | None = None,
     ) -> None:
         self.repo_root = repo_root
-        self.enabled = env_flag(name="RESEARCH_PLUGIN_ACTIVITY_LOG", default=True) if enabled is None else enabled
+        self.enabled = env_bool("RESEARCH_PLUGIN_ACTIVITY_LOG", default=True) if enabled is None else enabled
         self.mirror_stderr = (
-            env_flag(name="RESEARCH_PLUGIN_ACTIVITY_STDERR", default=False)
+            env_bool("RESEARCH_PLUGIN_ACTIVITY_STDERR", default=False)
             if mirror_stderr is None
             else mirror_stderr
         )

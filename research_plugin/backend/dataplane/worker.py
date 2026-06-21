@@ -31,6 +31,7 @@ from pathlib import Path
 from typing import Any, Callable, Protocol
 
 from ..execution.ssh_rsync import SshRsyncSyncer
+from ..env import env_float
 from ..sandbox_backend import SandboxBackend
 from .metrics_archive import MetricsArchive, snapshot_mlflow, snapshot_mlflow_db
 from .sandbox_dashboards import DashboardTunnels
@@ -39,7 +40,6 @@ from ..sandbox_support import (
     DEFAULT_INITIAL_PUSH_ATTEMPTS,
     DEFAULT_INITIAL_PUSH_RETRY_SECONDS,
     decode_dashboards,
-    env_float,
 )
 from ..domain.sync_contract import (
     DIRECTION_POLICY,

@@ -122,6 +122,24 @@ class ControlAppTest(unittest.TestCase):
                     execution_backend=FakeSandboxBackend(),
                 )
 
+    def test_control_app_reads_task_result_timeout_from_injected_env(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            app, _queue, _auth = build_control_app(
+                repo_root=Path(tmp),
+                env={"RESEARCH_PLUGIN_TASK_RESULT_TIMEOUT": "2.5"},
+                execution_backend=FakeSandboxBackend(),
+            )
+            self.addCleanup(app.shutdown)
+            self.assertEqual(app.sandboxes.tasks.result_timeout_seconds, 2.5)
+
+        with tempfile.TemporaryDirectory() as tmp:
+            with self.assertRaises(ValueError):
+                build_control_app(
+                    repo_root=Path(tmp),
+                    env={"RESEARCH_PLUGIN_TASK_RESULT_TIMEOUT": "bad"},
+                    execution_backend=FakeSandboxBackend(),
+                )
+
     def test_control_app_without_repo_root_requires_durable_config(self) -> None:
         with self.assertRaises(ValidationError) as ctx:
             build_control_app(repo_root=None, env={}, execution_backend=FakeSandboxBackend())

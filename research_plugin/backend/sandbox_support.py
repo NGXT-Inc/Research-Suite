@@ -9,7 +9,6 @@ importing the service package.
 from __future__ import annotations
 
 import json
-import os
 import re
 from datetime import UTC, datetime, timedelta
 from typing import Any
@@ -237,18 +236,6 @@ def iso_after(*, seconds: int) -> str:
 
 def parse_iso(value: Any) -> datetime | None:
     return _parse_iso(value)
-
-
-def env_float(name: str, override: float | None, default: float) -> float:
-    if override is not None:
-        return float(override)
-    raw = os.environ.get(name)
-    if raw:
-        try:
-            return float(raw)
-        except ValueError:
-            pass
-    return default
 
 
 # Dashboards persistence is plain JSON, mirroring how Python sees the field on

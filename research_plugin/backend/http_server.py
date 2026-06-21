@@ -24,6 +24,7 @@ from .config import (
     resolve_mode,
 )
 from .daemon_marker import clear_marker, write_marker
+from .env import env_bool
 from .http_api import create_fastapi_app
 from .project_router import ProjectRouter
 
@@ -238,7 +239,7 @@ def main() -> int:
     parser.add_argument(
         "--activity-stderr",
         action="store_true",
-        default=os.environ.get("RESEARCH_PLUGIN_ACTIVITY_STDERR", "").lower() in {"1", "true", "yes", "on"},
+        default=env_bool("RESEARCH_PLUGIN_ACTIVITY_STDERR", default=False),
         help="Mirror activity JSONL events to stderr for live terminal watching.",
     )
     args = parser.parse_args()

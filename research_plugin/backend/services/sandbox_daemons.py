@@ -16,13 +16,13 @@ syncer, metrics archive, and blob store stay where they are.
 
 from __future__ import annotations
 
-import os
 import threading
 from datetime import UTC, datetime
 from typing import Any, Callable
 
 from ..sandbox_backend import SandboxBackend
 from ..sandbox_autosync import run_auto_sync_target
+from ..env import env_bool, env_float
 from ..ports.sandbox_lifecycle import ExperimentTransitions, ProvisionReaper
 from ..ports.sandbox_sync import ControlPlaneView
 from .sandbox_registry import SandboxRegistry
@@ -30,7 +30,6 @@ from ..sandbox_support import (
     DEFAULT_AUTO_RSYNC_INTERVAL_SECONDS,
     DEFAULT_REAPER_INTERVAL_SECONDS,
     DEFAULT_STALE_PROVISION_DEADLINE_SECONDS,
-    env_float,
     parse_iso,
 )
 
@@ -101,8 +100,7 @@ class SandboxDaemons:
         from ..config import resolve_auth_required
 
         if not resolve_auth_required():
-            raw = os.environ.get("RESEARCH_PLUGIN_SANDBOX_REAPER", "1").lower()
-            if raw in {"0", "false", "no", "off"}:
+            if not env_bool("RESEARCH_PLUGIN_SANDBOX_REAPER", default=True):
                 return False
         return self.backend.capabilities.enforce_expiry
 
@@ -214,8 +212,7 @@ class SandboxDaemons:
 
         if resolve_mode() is Mode.CONTROL:
             return False
-        raw = os.environ.get("RESEARCH_PLUGIN_SANDBOX_AUTO_RSYNC", "1").lower()
-        if raw in {"0", "false", "no", "off"}:
+        if not env_bool("RESEARCH_PLUGIN_SANDBOX_AUTO_RSYNC", default=True):
             return False
         return self.backend.capabilities.auto_sync
 

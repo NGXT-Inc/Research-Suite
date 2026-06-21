@@ -27,8 +27,8 @@ from ..sandbox_support import (
     DEFAULT_AUTO_RSYNC_INTERVAL_SECONDS,
     POLL_AFTER_SECONDS,
     decode_dashboards,
-    env_float,
 )
+from ..env import env_float
 
 
 def _sync_interval_seconds() -> int:

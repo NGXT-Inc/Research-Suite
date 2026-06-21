@@ -42,6 +42,7 @@ from ..config import (
 )
 from ..control_app import ControlApp
 from ..dataplane.http_channel import HttpTaskChannel, HttpTaskQueue
+from ..env import env_float
 from ..execution import build_sandbox_backend
 from ..http_api import create_fastapi_app
 from ..services.cleanup import CleanupService
@@ -106,10 +107,8 @@ def build_control_app(
     # A bounded result wait so a reaper final_pull falls through to the expiry
     # parachute promptly when the daemon is unreachable (billing protection
     # beats data recovery) instead of blocking the reaper thread.
-    import os
-
-    result_timeout = float(
-        os.environ.get("RESEARCH_PLUGIN_TASK_RESULT_TIMEOUT", "30") or "30"
+    result_timeout = env_float(
+        "RESEARCH_PLUGIN_TASK_RESULT_TIMEOUT", None, 30.0, env=env, strict=True
     )
     task_queue = HttpTaskQueue()
     task_channel = HttpTaskChannel(queue=task_queue, result_timeout_seconds=result_timeout)

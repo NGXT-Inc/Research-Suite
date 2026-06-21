@@ -92,11 +92,11 @@ from ..sandbox_support import (
     PARACHUTE_MAX_OBJECT_BYTES,
     PARACHUTE_TTL_SECONDS,
     encode_dashboards,
-    env_float,
     iso_after,
     parse_terminal_markers,
     validate_request_inputs,
 )
+from ..env import env_float
 from .sync_sessions import (
     DEFAULT_FINAL_PULL_DEADLINE_SECONDS,
     InProcessControlPlaneView,
