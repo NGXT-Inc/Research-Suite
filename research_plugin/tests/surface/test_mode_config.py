@@ -1407,6 +1407,9 @@ class VersionHandshakeTest(unittest.TestCase):
         self.assertEqual(local.json()["mode"], "local")
         self.assertFalse(local.json()["capabilities"]["hosted_control"])
         self.assertTrue(local.json()["capabilities"]["local_data_plane_http"])
+        self.assertTrue(local.json()["capabilities"]["resource_registration"])
+        self.assertTrue(local.json()["capabilities"]["resource_association"])
+        self.assertTrue(local.json()["capabilities"]["sandbox_sync"])
 
     def test_meta_is_unauthenticated(self) -> None:
         # A client must be able to discover the floor before holding a token.

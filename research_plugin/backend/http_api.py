@@ -28,7 +28,11 @@ from .project_router import ProjectRouter
 from .domain.graph_lint import MAX_GRAPH_NODES, graph_problems
 from .domain.resource_selection import preferred_associated_resource
 from .domain.vocabulary import GATED_ROLES, PROJECT_GRAPH_ROLES
-from .http_policy import HOSTED_CONTROL_TOOL_POLICIES, HttpSurfacePolicy
+from .http_policy import (
+    HOSTED_CONTROL_TOOL_POLICIES,
+    HTTP_DATA_PLANE_FEATURE_TO_TOOL,
+    HttpSurfacePolicy,
+)
 from .services.figure_view import build_experiment_figure
 from .services.feed import MAX_IMAGE_BYTES
 from .services.identity import LOCAL_PRINCIPAL, AuthError, AuthService
@@ -1038,7 +1042,8 @@ def create_fastapi_app(
             return result
         return api.app.call_tool(name=name, arguments=arguments, activity_source=activity_source)
 
-    def require_data_plane_for_http(*, tool: str) -> None:
+    def require_data_plane_for_http(*, feature: str) -> None:
+        tool = HTTP_DATA_PLANE_FEATURE_TO_TOOL[feature]
         if surface.allow_data_plane_http:
             return
         raise DataPlaneRequiredError(
@@ -1274,9 +1279,7 @@ def create_fastapi_app(
         payload["capabilities"] = {
             "hosted_control": surface.hosted_control,
             "local_data_plane_http": surface.allow_data_plane_http,
-            "resource_registration": surface.allow_data_plane_http,
-            "resource_association": surface.allow_data_plane_http,
-            "sandbox_sync": surface.allow_data_plane_http,
+            **surface.data_plane_http_capabilities(),
         }
         return payload
 
@@ -1504,7 +1507,7 @@ def create_fastapi_app(
 
     @http.post("/api/projects/{project_id}/resources", status_code=201)
     def register_resource(project_id: str, body: JsonBody = Body(default=None)) -> dict[str, Any]:
-        require_data_plane_for_http(tool="resource.register_file")
+        require_data_plane_for_http(feature="resource_registration")
         return api_for_project(project_id).register_resource(project_id=project_id, body=body or {})
 
     @http.get("/api/projects/{project_id}/resources/tree")
@@ -1525,7 +1528,7 @@ def create_fastapi_app(
 
     @http.post("/api/projects/{project_id}/resources/{resource_id}/associate")
     def associate_resource(project_id: str, resource_id: str, body: JsonBody = Body(default=None)) -> dict[str, Any]:
-        require_data_plane_for_http(tool="resource.associate")
+        require_data_plane_for_http(feature="resource_association")
         return api_for_project(project_id).call_tool(name="resource.associate", arguments={"project_id": project_id, "resource_id": resource_id, **(body or {})})
 
     @http.delete("/api/projects/{project_id}/resources/{resource_id}")
@@ -1620,7 +1623,7 @@ def create_fastapi_app(
 
     @http.post("/api/projects/{project_id}/experiments/{experiment_id}/sandbox/sync")
     def sync_sandbox(project_id: str, experiment_id: str) -> dict[str, Any]:
-        require_data_plane_for_http(tool="sandbox.sync")
+        require_data_plane_for_http(feature="sandbox_sync")
         return api_for_project(project_id).call_tool(
             name="sandbox.sync",
             arguments={"project_id": project_id, "experiment_id": experiment_id},

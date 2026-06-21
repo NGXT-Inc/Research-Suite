@@ -921,6 +921,31 @@ class ServiceLayoutTest(unittest.TestCase):
         self.assertIn("api.app.reviews.request_project_id(", source)
         self.assertNotIn("SELECT project_id FROM review_requests", source)
 
+    def test_http_data_plane_capabilities_use_policy_table(self) -> None:
+        source = (BACKEND_ROOT / "http_api.py").read_text(encoding="utf-8")
+        policy_source = (BACKEND_ROOT / "http_policy.py").read_text(encoding="utf-8")
+        from backend.http_policy import HTTP_DATA_PLANE_FEATURE_TO_TOOL
+
+        self.assertEqual(
+            HTTP_DATA_PLANE_FEATURE_TO_TOOL,
+            {
+                "resource_registration": "resource.register_file",
+                "resource_association": "resource.associate",
+                "sandbox_sync": "sandbox.sync",
+            },
+        )
+        self.assertIn("HTTP_DATA_PLANE_FEATURE_TO_TOOL", policy_source)
+        self.assertIn("HTTP_DATA_PLANE_FEATURE_TO_TOOL", source)
+        self.assertIn("surface.data_plane_http_capabilities()", source)
+        for feature, tool_name in HTTP_DATA_PLANE_FEATURE_TO_TOOL.items():
+            with self.subTest(feature=feature):
+                self.assertIn(f'feature="{feature}"', source)
+                self.assertNotIn(f'tool="{tool_name}"', source)
+                self.assertNotIn(
+                    f'"{feature}": surface.allow_data_plane_http',
+                    source,
+                )
+
     def test_transport_delegates_submitted_resource_blob_reads_to_service(self) -> None:
         source = (BACKEND_ROOT / "http_api.py").read_text(encoding="utf-8")
 

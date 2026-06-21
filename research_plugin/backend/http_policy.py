@@ -39,10 +39,25 @@ class HttpSurfacePolicy:
             release_uses_final_pull=not auth_present,
         )
 
+    def data_plane_http_capabilities(self) -> dict[str, bool]:
+        return {
+            feature: self.allow_data_plane_http
+            for feature in HTTP_DATA_PLANE_FEATURE_TO_TOOL
+        }
+
 
 HOSTED_CONTROL_TOOL_POLICIES = {
     "project.create": HostedToolPolicy(tenant_id_fallback=None),
     "project.list": HostedToolPolicy(),
     "project.current": HostedToolPolicy(),
     "review.start": HostedToolPolicy(telemetry_from_review_request=True),
+}
+
+
+# Browser-visible /api/meta capability keys for local data-plane HTTP routes.
+# Daemon-only data-plane endpoints use daemon auth instead of this UI handshake.
+HTTP_DATA_PLANE_FEATURE_TO_TOOL = {
+    "resource_registration": "resource.register_file",
+    "resource_association": "resource.associate",
+    "sandbox_sync": "sandbox.sync",
 }

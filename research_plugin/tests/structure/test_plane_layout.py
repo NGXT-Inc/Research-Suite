@@ -305,6 +305,22 @@ class ToolPlanePartitionTest(unittest.TestCase):
         )
         self.assertEqual(AGGREGATE_TOOL_NAMES, {"sandbox.health", "sandbox.get"})
 
+    def test_http_data_plane_features_point_at_data_plane_tools(self) -> None:
+        from backend.http_policy import HTTP_DATA_PLANE_FEATURE_TO_TOOL
+
+        self.assertEqual(
+            HTTP_DATA_PLANE_FEATURE_TO_TOOL,
+            {
+                "resource_registration": "resource.register_file",
+                "resource_association": "resource.associate",
+                "sandbox_sync": "sandbox.sync",
+            },
+        )
+        self.assertLessEqual(
+            set(HTTP_DATA_PLANE_FEATURE_TO_TOOL.values()),
+            DATA_PLANE_TOOL_NAMES,
+        )
+
     def test_daemon_tool_catalogs_use_contract_plane_sets(self) -> None:
         daemon_mode = BACKEND_ROOT / "composition" / "daemon_mode.py"
         for path in (daemon_mode, BACKEND_ROOT / "daemon_loopback.py"):
