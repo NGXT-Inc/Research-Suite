@@ -667,6 +667,42 @@ class SandboxServiceTest(unittest.TestCase):
         with self.assertRaises(NotFoundError):
             self.call("sandbox.get", project_id=other, experiment_id=exp_id)
 
+    def test_get_scoped_to_tenant(self) -> None:
+        project_id = self.app.projects.create(
+            name="Tenant Sandbox", tenant_id="tenant_a"
+        )["id"]
+        self.app.sandboxes.registry.upsert(
+            experiment_id="exp_tenant",
+            project_id=project_id,
+            status="failed",
+            sandbox_id="sbx_tenant",
+            workdir="/workspace/experiments/tenant",
+            sync_dir="/workspace/experiments/tenant",
+        )
+
+        with self.assertRaises(NotFoundError):
+            self.app.sandboxes.get(
+                experiment_id="exp_tenant",
+                project_id=project_id,
+                tenant_id="tenant_b",
+                include_data_plane_enrichment=False,
+            )
+        with self.assertRaises(ValidationError):
+            self.app.sandboxes.get(
+                experiment_id="exp_tenant",
+                tenant_id="tenant_b",
+                include_data_plane_enrichment=False,
+            )
+
+        got = self.app.sandboxes.get(
+            experiment_id="exp_tenant",
+            project_id=project_id,
+            tenant_id="tenant_a",
+            include_data_plane_enrichment=False,
+        )
+        self.assertEqual(got["experiment_id"], "exp_tenant")
+        self.assertEqual(got["sandbox_id"], "sbx_tenant")
+
     # ---- live usage metrics ----
 
     def test_metrics_for_running_sandbox(self) -> None:

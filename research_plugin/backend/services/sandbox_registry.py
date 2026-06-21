@@ -44,13 +44,17 @@ class SandboxRegistry:
             conn.close()
 
     def fetch_scoped(
-        self, *, experiment_id: str, project_id: str | None
+        self,
+        *,
+        experiment_id: str,
+        project_id: str | None,
+        tenant_id: str | None = None,
     ) -> dict[str, Any]:
         conn = self.store.connect()
         try:
-            if project_id is not None:
+            if project_id is not None or tenant_id is not None:
                 project_id = self.store.require_project_id(
-                    conn=conn, project_id=project_id
+                    conn=conn, project_id=project_id, tenant_id=tenant_id
                 )
             row = conn.execute(
                 "SELECT * FROM sandboxes WHERE experiment_id = ?", (experiment_id,)

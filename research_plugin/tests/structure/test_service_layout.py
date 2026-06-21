@@ -621,6 +621,18 @@ class ServiceLayoutTest(unittest.TestCase):
                             "services should type store dependencies against BaseStateStore",
                         )
 
+    def test_transport_delegates_sandbox_get_tenant_scope_to_service(self) -> None:
+        source = (BACKEND_ROOT / "http_api.py").read_text(encoding="utf-8")
+        self.assertIn('name != "sandbox.get"', source)
+        marker = 'if auth_required and name == "sandbox.get":'
+        start = source.index(marker)
+        end = source.index("return result", start)
+        block = source[start:end]
+        self.assertIn("tenant_id=", block)
+        self.assertIn("api.app.sandboxes.get", block)
+        self.assertNotIn(".store.transaction", block)
+        self.assertNotIn("require_project_id", block)
+
     def test_vocabulary_imports_bypass_permission_service(self) -> None:
         for path in sorted(BACKEND_ROOT.rglob("*.py")):
             if path == SERVICES / "permissions.py":

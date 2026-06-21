@@ -1216,7 +1216,12 @@ def create_fastapi_app(
                     details={"projects": [project["id"] for project in projects]},
                 )
             arguments["project_id"] = projects[0]["id"]
-        if auth_required and name in PROJECT_SCOPED_TOOL_NAMES and arguments.get("project_id"):
+        if (
+            auth_required
+            and name != "sandbox.get"
+            and name in PROJECT_SCOPED_TOOL_NAMES
+            and arguments.get("project_id")
+        ):
             with api.app.store.transaction() as conn:
                 api.app.store.require_project_id(
                     conn=conn,
@@ -1225,9 +1230,11 @@ def create_fastapi_app(
                 )
         if auth_required and name == "sandbox.get":
             experiment_id = str(arguments.get("experiment_id") or "")
+            project_id = str(arguments.get("project_id") or "") or None
             result = api.app.sandboxes.get(
-                experiment_id=str(arguments.get("experiment_id") or ""),
-                project_id=arguments.get("project_id"),
+                experiment_id=experiment_id,
+                project_id=project_id,
+                tenant_id=getattr(principal, "tenant_id", "") or "",
                 include_data_plane_enrichment=False,
             )
             if getattr(principal, "client_id", "") == "daemon":

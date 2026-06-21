@@ -414,12 +414,13 @@ class SandboxService:
         *,
         experiment_id: str,
         project_id: str | None = None,
+        tenant_id: str | None = None,
         include_data_plane_enrichment: bool = True,
     ) -> dict[str, Any]:
         """Read-only poll target. Never provisions; reconciles stale state."""
         try:
             row = self.registry.fetch_scoped(
-                experiment_id=experiment_id, project_id=project_id
+                experiment_id=experiment_id, project_id=project_id, tenant_id=tenant_id
             )
         except NotFoundError:
             # Soften only the genuine "never provisioned" case so the poll loop
