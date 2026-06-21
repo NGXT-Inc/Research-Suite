@@ -834,7 +834,7 @@ class ServiceLayoutTest(unittest.TestCase):
     def test_transport_delegates_sandbox_get_tenant_scope_to_service(self) -> None:
         source = (BACKEND_ROOT / "http_api.py").read_text(encoding="utf-8")
         self.assertIn('name != "sandbox.get"', source)
-        marker = 'if auth_required and name == "sandbox.get":'
+        marker = 'if surface.enforce_project_scope and name == "sandbox.get":'
         start = source.index(marker)
         end = source.index("return result", start)
         block = source[start:end]
@@ -842,6 +842,26 @@ class ServiceLayoutTest(unittest.TestCase):
         self.assertIn("api.app.sandboxes.get", block)
         self.assertNotIn(".store.transaction", block)
         self.assertNotIn("require_project_id", block)
+
+    def test_http_surface_policy_keeps_mode_decisions_named(self) -> None:
+        source = (BACKEND_ROOT / "http_api.py").read_text(encoding="utf-8")
+
+        self.assertIn("class _HttpSurfacePolicy", source)
+        self.assertIn("surface = _HttpSurfacePolicy.for_auth(auth)", source)
+        self.assertNotIn("auth_required", source)
+        for field_name in (
+            "require_bearer_auth",
+            "restrict_cors",
+            "expose_local_data_plane",
+            "accept_repo_root_context",
+            "allow_data_plane_http",
+            "allow_data_plane_tool_calls",
+            "use_hosted_tool_policies",
+            "enforce_project_scope",
+            "release_uses_final_pull",
+        ):
+            with self.subTest(field_name=field_name):
+                self.assertIn(field_name, source)
 
     def test_hosted_tool_call_metadata_uses_policy_table(self) -> None:
         source = (BACKEND_ROOT / "http_api.py").read_text(encoding="utf-8")
@@ -870,7 +890,7 @@ class ServiceLayoutTest(unittest.TestCase):
             "review.start",
         ):
             self.assertIn(f'"{tool_name}": _HostedToolPolicy', source)
-            self.assertNotIn(f'if auth_required and name == "{tool_name}"', source)
+            self.assertNotIn(f'if surface.hosted_control and name == "{tool_name}"', source)
         self.assertIn("telemetry_from_review_request=True", source)
         self.assertIn("api.app.reviews.request_project_id(", source)
         self.assertNotIn("SELECT project_id FROM review_requests", source)

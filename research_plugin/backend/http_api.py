@@ -53,6 +53,36 @@ class _HostedToolPolicy:
     telemetry_from_review_request: bool = False
 
 
+@dataclass(frozen=True)
+class _HttpSurfacePolicy:
+    require_bearer_auth: bool
+    restrict_cors: bool
+    hosted_control: bool
+    expose_local_data_plane: bool
+    accept_repo_root_context: bool
+    allow_data_plane_http: bool
+    allow_data_plane_tool_calls: bool
+    use_hosted_tool_policies: bool
+    enforce_project_scope: bool
+    release_uses_final_pull: bool
+
+    @classmethod
+    def for_auth(cls, auth: AuthService | None) -> "_HttpSurfacePolicy":
+        control_mode = auth is not None
+        return cls(
+            require_bearer_auth=control_mode,
+            restrict_cors=control_mode,
+            hosted_control=control_mode,
+            expose_local_data_plane=not control_mode,
+            accept_repo_root_context=not control_mode,
+            allow_data_plane_http=not control_mode,
+            allow_data_plane_tool_calls=not control_mode,
+            use_hosted_tool_policies=control_mode,
+            enforce_project_scope=control_mode,
+            release_uses_final_pull=not control_mode,
+        )
+
+
 HOSTED_CONTROL_TOOL_POLICIES = {
     "project.create": _HostedToolPolicy(tenant_id_fallback=None),
     "project.list": _HostedToolPolicy(),
@@ -927,9 +957,9 @@ def create_fastapi_app(
     # (control mode). Every existing caller passes neither, so nothing changes.
     if (app is None) == (router is None):
         raise ValueError("provide exactly one of app or router")
-    auth_required = auth is not None
+    surface = _HttpSurfacePolicy.for_auth(auth)
     api = (
-        ResearchHttpApi(app=app, expose_local_data_plane=not auth_required)
+        ResearchHttpApi(app=app, expose_local_data_plane=surface.expose_local_data_plane)
         if app is not None
         else None
     )
@@ -938,7 +968,7 @@ def create_fastapi_app(
         if router is not None:
             return ResearchHttpApi(
                 app=router.app_for_project(project_id),
-                expose_local_data_plane=not auth_required,
+                expose_local_data_plane=surface.expose_local_data_plane,
             )
         assert api is not None
         return api
@@ -949,7 +979,7 @@ def create_fastapi_app(
         assert router is not None
         app = router.any_app()
         return (
-            ResearchHttpApi(app=app, expose_local_data_plane=not auth_required)
+            ResearchHttpApi(app=app, expose_local_data_plane=surface.expose_local_data_plane)
             if app is not None
             else None
         )
@@ -964,7 +994,7 @@ def create_fastapi_app(
     ) -> dict[str, Any]:
         arguments = dict(arguments or {})
         context = dict(context or {})
-        if auth_required and context.get("repo_root"):
+        if not surface.accept_repo_root_context and context.get("repo_root"):
             raise DataPlaneRequiredError(
                 "repo_root context is local data-plane state; hosted control "
                 "requires the proxy or daemon to resolve and send project_id",
@@ -973,7 +1003,7 @@ def create_fastapi_app(
                     "reason": "repo_root_hidden_from_cloud",
                 },
             )
-        if auth_required and name in DATA_PLANE_TOOL_NAMES:
+        if not surface.allow_data_plane_tool_calls and name in DATA_PLANE_TOOL_NAMES:
             raise DataPlaneRequiredError(
                 f"{name} requires the local data-plane daemon; hosted control "
                 "mode cannot read local files, hold user SSH keys, or run rsync",
@@ -982,7 +1012,7 @@ def create_fastapi_app(
                     "reason": "requires_local_data_plane",
                 },
             )
-        if auth_required and name == "sandbox.release":
+        if not surface.release_uses_final_pull and name == "sandbox.release":
             # Browser/admin release is a control-plane lifecycle action, but a
             # final rsync pull is data-plane work. Hosted calls terminate without
             # the pull; reapers and local/daemon calls still use the full path.
@@ -1009,7 +1039,11 @@ def create_fastapi_app(
                 activity_source=activity_source,
             )
         assert api is not None
-        policy = HOSTED_CONTROL_TOOL_POLICIES.get(name) if auth_required else None
+        policy = (
+            HOSTED_CONTROL_TOOL_POLICIES.get(name)
+            if surface.use_hosted_tool_policies
+            else None
+        )
         if policy is not None:
             call_kwargs: dict[str, Any] = {
                 "internal_kwargs": {
@@ -1038,7 +1072,7 @@ def create_fastapi_app(
                 )
             arguments["project_id"] = projects[0]["id"]
         if (
-            auth_required
+            surface.enforce_project_scope
             and name != "sandbox.get"
             and name in PROJECT_SCOPED_TOOL_NAMES
             and arguments.get("project_id")
@@ -1049,7 +1083,7 @@ def create_fastapi_app(
                     project_id=str(arguments["project_id"]),
                     tenant_id=getattr(principal, "tenant_id", "") or "",
                 )
-        if auth_required and name == "sandbox.get":
+        if surface.enforce_project_scope and name == "sandbox.get":
             experiment_id = str(arguments.get("experiment_id") or "")
             project_id = str(arguments.get("project_id") or "") or None
             result = api.app.sandboxes.get(
@@ -1066,7 +1100,7 @@ def create_fastapi_app(
         return api.app.call_tool(name=name, arguments=arguments, activity_source=activity_source)
 
     def require_data_plane_for_http(*, tool: str) -> None:
-        if not auth_required:
+        if surface.allow_data_plane_http:
             return
         raise DataPlaneRequiredError(
             f"{tool} requires the local data-plane daemon; hosted control mode "
@@ -1079,7 +1113,7 @@ def create_fastapi_app(
 
     def require_daemon_principal(request: Request) -> Any:
         principal = getattr(request.state, "principal", LOCAL_PRINCIPAL)
-        if not auth_required:
+        if not surface.require_bearer_auth:
             return principal
         if getattr(principal, "client_id", "") != "daemon":
             raise PermissionDeniedError(
@@ -1090,7 +1124,7 @@ def create_fastapi_app(
 
     def require_admin_principal(request: Request) -> Any:
         principal = getattr(request.state, "principal", LOCAL_PRINCIPAL)
-        if not auth_required:
+        if not surface.require_bearer_auth:
             return principal
         if getattr(principal, "client_id", "") != "admin":
             raise PermissionDeniedError(
@@ -1101,7 +1135,7 @@ def create_fastapi_app(
 
     def require_tenant_or_admin(request: Request, tenant_id: str) -> Any:
         principal = getattr(request.state, "principal", LOCAL_PRINCIPAL)
-        if not auth_required:
+        if not surface.require_bearer_auth:
             return principal
         if getattr(principal, "client_id", "") == "admin":
             return principal
@@ -1112,7 +1146,7 @@ def create_fastapi_app(
     def require_daemon_project(request: Request, project_id: str) -> ResearchHttpApi:
         principal = require_daemon_principal(request)
         target = api_for_project(project_id)
-        if auth_required:
+        if surface.enforce_project_scope:
             with target.app.store.transaction() as conn:
                 target.app.store.require_project_id(
                     conn=conn,
@@ -1123,7 +1157,7 @@ def create_fastapi_app(
 
     def require_http_project(request: Request, project_id: str) -> ResearchHttpApi:
         target = api_for_project(project_id)
-        if auth_required:
+        if surface.enforce_project_scope:
             principal = getattr(request.state, "principal", LOCAL_PRINCIPAL)
             with target.app.store.transaction() as conn:
                 target.app.store.require_project_id(
@@ -1134,7 +1168,7 @@ def create_fastapi_app(
         return target
 
     def visible_project_ids(principal: Any) -> set[str]:
-        if not auth_required:
+        if not surface.enforce_project_scope:
             return set()
         target = default_api()
         if target is None:
@@ -1144,7 +1178,7 @@ def create_fastapi_app(
         )
 
     def visible_project_scope(request: Request, project_id: str | None) -> set[str] | None:
-        if not auth_required:
+        if not surface.enforce_project_scope:
             return None
         principal = getattr(request.state, "principal", LOCAL_PRINCIPAL)
         allowed = visible_project_ids(principal)
@@ -1159,7 +1193,7 @@ def create_fastapi_app(
     # (loopback-only, auth off) — unchanged. Control mode uses an explicit
     # allowed-origins list (empty by default until the hosted UI origin is
     # configured) and allows the headers the SPA stamps on every request.
-    if auth_required:
+    if surface.restrict_cors:
         http.add_middleware(
             CORSMiddleware,
             allow_origins=allowed_origins or [],
@@ -1186,7 +1220,7 @@ def create_fastapi_app(
         # mode): a valid `Authorization: Bearer` is required; missing/invalid/
         # expired/revoked returns 401 before any handler runs. CORS preflights
         # (OPTIONS) are never authenticated.
-        if not auth_required:
+        if not surface.require_bearer_auth:
             request.state.principal = LOCAL_PRINCIPAL
             return await call_next(request)
         if request.method == "OPTIONS":
@@ -1295,7 +1329,7 @@ def create_fastapi_app(
         # paths (repo_root, store path, registry path). Local mode keeps the
         # rich shape (loopback, single user). Control mode returns a slim
         # liveness shape — no host paths cross the cloud edge.
-        if auth_required:
+        if not surface.expose_local_data_plane:
             return {"ok": True, "version": __version__}
         if router is not None:
             return {"ok": True, "version": __version__, **router.health()}
@@ -1309,13 +1343,13 @@ def create_fastapi_app(
         # constants; mode/capabilities tell browser clients which local
         # data-plane actions to hide before requests start getting rejected.
         payload = meta()
-        payload["mode"] = "control" if auth_required else "local"
+        payload["mode"] = "control" if surface.hosted_control else "local"
         payload["capabilities"] = {
-            "hosted_control": auth_required,
-            "local_data_plane_http": not auth_required,
-            "resource_registration": not auth_required,
-            "resource_association": not auth_required,
-            "sandbox_sync": not auth_required,
+            "hosted_control": surface.hosted_control,
+            "local_data_plane_http": surface.allow_data_plane_http,
+            "resource_registration": surface.allow_data_plane_http,
+            "resource_association": surface.allow_data_plane_http,
+            "sandbox_sync": surface.allow_data_plane_http,
         }
         return payload
 
@@ -1329,7 +1363,7 @@ def create_fastapi_app(
         if router is not None:
             return router.activity_recent(limit=limit, source=source, project_id=project_id)
         assert api is not None
-        if auth_required:
+        if surface.enforce_project_scope:
             return api.activity(
                 limit=limit,
                 source=source,
@@ -1398,7 +1432,7 @@ def create_fastapi_app(
         if router is not None:
             return router.list_projects()
         assert api is not None
-        if auth_required:
+        if surface.enforce_project_scope:
             principal = getattr(request.state, "principal", LOCAL_PRINCIPAL)
             return api.app.projects.list_projects(
                 tenant_id=getattr(principal, "tenant_id", "") or ""
@@ -1424,7 +1458,7 @@ def create_fastapi_app(
         return api.create_project(
             body=payload,
             tenant_id=(getattr(principal, "tenant_id", "") or None)
-            if auth_required
+            if surface.enforce_project_scope
             else None,
         )
 
@@ -1610,7 +1644,7 @@ def create_fastapi_app(
             project_id=project_id,
             body=body or {},
             tenant_id=(getattr(principal, "tenant_id", "") or None)
-            if auth_required
+            if surface.enforce_project_scope
             else None,
         )
 
@@ -1687,7 +1721,7 @@ def create_fastapi_app(
     # the feed package plus this one line.
     def app_for_feed(project_id: str, request: Request) -> ResearchPluginApp:
         target = api_for_project(project_id)
-        if auth_required:
+        if surface.enforce_project_scope:
             with target.app.store.transaction() as conn:
                 target.app.store.require_project_id(
                     conn=conn,
@@ -1709,7 +1743,7 @@ def create_fastapi_app(
         else:
             assert api is not None
             tools = api.app.list_tools()
-        if auth_required:
+        if not surface.allow_data_plane_tool_calls:
             tools = [tool for tool in tools if tool.get("plane") != "data"]
         return {"tools": tools}
 
