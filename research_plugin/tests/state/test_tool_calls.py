@@ -202,6 +202,17 @@ class ToolCallStatsParityTest(unittest.TestCase):
                     error="unavailable",
                     error_code="unavailable",
                 )
+                sink.record(
+                    tool="review.start",
+                    source="mcp",
+                    status="ok",
+                    duration_ms=5,
+                    arguments={
+                        "project_id": "p",
+                        "reviewer_capability": "rp_" + ("x" * 128),
+                    },
+                    result={"capability": "rp_" + ("y" * 128)},
+                )
 
             local_stats = store.stats(limit=50)
             control_stats = control.stats(limit=50)

@@ -78,22 +78,25 @@ class ToolCallStore:
         if not self.enabled:
             return
         try:
+            sent_chars = payload_chars(value=arguments)
+            received_chars = (
+                len(error or "") if status == "error" else payload_chars(value=result)
+            )
             # Redact bearer-like secrets before they hit disk (cloud plan Phase
             # 7). This store keeps full I/O, so review.request results and
             # review.start args would otherwise persist one-time capabilities.
-            arguments = _redact_sensitive(arguments)
-            result = _redact_sensitive(result)
+            stored_arguments = _redact_sensitive(arguments)
+            stored_result = _redact_sensitive(result)
             # Derive scope + entity target from the args so the UI can render a
             # project-scoped feed and an entity chip without re-parsing payloads.
             project_id = str(arguments.get("project_id") or "") if isinstance(arguments, dict) else ""
             target_type, target_id = self._target_of(arguments)
-            args_text, args_trunc, sent_chars = self._encode(arguments)
+            args_text, args_trunc, _ = self._encode(stored_arguments)
             if status == "error":
                 result_text = error or ""
                 result_trunc = 0
-                received_chars = len(result_text)
             else:
-                result_text, result_trunc, received_chars = self._encode(result)
+                result_text, result_trunc, _ = self._encode(stored_result)
             with self._lock, self._db() as conn:
                 conn.execute(
                     """
