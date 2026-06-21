@@ -767,14 +767,15 @@ for name in (
     def test_control_mode_builds_control_app_not_local_app(self) -> None:
         path = BACKEND_ROOT / "composition" / "control_mode.py"
         source = path.read_text(encoding="utf-8")
-        top_level_imports = _top_level_import_segments(path)
+        imports = _import_segments(path)
         self.assertIn("from ..control_app import ControlApp", source)
         self.assertIn("app = ControlApp(", source)
         self.assertNotIn("ResearchPluginApp", source)
         self.assertNotIn("build_local_runtime", source)
         self.assertIn("MountedMgmtKeyStore", source)
         self.assertIn("resolve_mgmt_key_path", source)
-        self.assertNotIn("mgmt_keys", top_level_imports)
+        self.assertNotIn("LocalMgmtKeyStore", source)
+        self.assertNotIn("mgmt_keys", imports)
         self.assertIn("CONTROL_COMPAT_REPO_ROOT", source)
         self.assertNotIn("tempfile", _import_segments(path))
 

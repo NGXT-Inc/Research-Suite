@@ -120,7 +120,7 @@ def build_control_app(
         blobs=blobs,
         task_channel=task_channel,
         execution_backend=execution_backend,
-        mgmt_keys=_build_mgmt_key_store(staging=staging, env=env),
+        mgmt_keys=_build_mgmt_key_store(env=env),
     )
     auth = AuthService(store=app.store)
     # Cloud reaper crash recovery (plan Phase 8, risk 6): a control restart with
@@ -180,24 +180,18 @@ def _control_repo_root(
     return CONTROL_COMPAT_REPO_ROOT
 
 
-def _build_mgmt_key_store(
-    *, staging: Path, env: Mapping[str, str] | None = None
-):
+def _build_mgmt_key_store(*, env: Mapping[str, str] | None = None):
     key_path = resolve_mgmt_key_path(env)
     public_key = resolve_mgmt_public_key(env)
-    if key_path or public_key:
-        if not key_path:
-            raise ValidationError(
-                "RESEARCH_PLUGIN_MGMT_KEY_PATH is required when "
-                "RESEARCH_PLUGIN_MGMT_PUBLIC_KEY is set"
-            )
-        return MountedMgmtKeyStore(
-            private_key_path=Path(key_path),
-            public_key=public_key,
+    if not key_path:
+        raise ValidationError(
+            "RESEARCH_PLUGIN_MGMT_KEY_PATH is required in control mode; "
+            "mount an externally managed management key"
         )
-    from ..state.mgmt_keys import LocalMgmtKeyStore
-
-    return LocalMgmtKeyStore(root=staging / ".research_plugin" / "mgmt_keys")
+    return MountedMgmtKeyStore(
+        private_key_path=Path(key_path),
+        public_key=public_key,
+    )
 
 
 def _resume_active_sandboxes(*, app: ControlApp) -> None:

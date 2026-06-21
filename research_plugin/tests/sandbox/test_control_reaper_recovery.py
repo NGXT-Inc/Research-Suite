@@ -16,8 +16,19 @@ import unittest
 from pathlib import Path
 
 from backend.composition.control_mode import build_control_app
+from backend.config import MGMT_KEY_PATH_ENV_VAR, MGMT_PUBLIC_KEY_ENV_VAR
 from backend.execution.backends.fake import FakeSandboxBackend
 from backend.execution.types import BackendCapabilities
+
+
+def _mounted_mgmt_key_env(root: Path) -> dict[str, str]:
+    key_path = root / "managed_key"
+    key_path.write_text("PRIVATE KEY\n", encoding="utf-8")
+    key_path.chmod(0o600)
+    return {
+        MGMT_KEY_PATH_ENV_VAR: str(key_path),
+        MGMT_PUBLIC_KEY_ENV_VAR: "ssh-ed25519 AAAAmanaged",
+    }
 
 
 def _reaper_capable_backend(*, alive_ids: tuple[str, ...] = ()) -> FakeSandboxBackend:
@@ -78,6 +89,7 @@ class ControlReaperRecoveryTest(unittest.TestCase):
     def _build(self, *, alive_ids: tuple[str, ...] = ()):
         app, queue, _auth = build_control_app(
             repo_root=self.staging,
+            env=_mounted_mgmt_key_env(self.staging),
             execution_backend=_reaper_capable_backend(alive_ids=alive_ids),
         )
         self._apps.append(app)

@@ -8,7 +8,13 @@ from pathlib import Path
 from fastapi.testclient import TestClient
 
 from backend.app import ResearchPluginApp
-from backend.config import Mode, resolve_auth_required, resolve_mode
+from backend.config import (
+    MGMT_KEY_PATH_ENV_VAR,
+    MGMT_PUBLIC_KEY_ENV_VAR,
+    Mode,
+    resolve_auth_required,
+    resolve_mode,
+)
 from backend.execution.backends.fake import FakeSandboxBackend
 from backend.http_api import create_fastapi_app
 from backend.services.identity import AuthService
@@ -26,6 +32,16 @@ def _project_id(event: dict) -> str | None:
         return event["project_id"]
     args = event.get("args")
     return args.get("project_id") if isinstance(args, dict) else None
+
+
+def _mounted_mgmt_key_env(root: Path) -> dict[str, str]:
+    key_path = root / "managed_key"
+    key_path.write_text("PRIVATE KEY\n", encoding="utf-8")
+    key_path.chmod(0o600)
+    return {
+        MGMT_KEY_PATH_ENV_VAR: str(key_path),
+        MGMT_PUBLIC_KEY_ENV_VAR: "ssh-ed25519 AAAAmanaged",
+    }
 
 
 class ModeConfigTest(unittest.TestCase):
@@ -1465,7 +1481,10 @@ class ModeCompositionTest(unittest.TestCase):
     def test_control_server_builds_with_auth_and_daemon_endpoints(self) -> None:
         from backend.composition import build_control_server
 
-        server = build_control_server(repo_root=self.repo)
+        server = build_control_server(
+            repo_root=self.repo,
+            env=_mounted_mgmt_key_env(self.repo),
+        )
         self.addCleanup(server.shutdown)
         # Auth ON (control mode) and the daemon task/sync-target endpoints exist.
         paths = {getattr(r, "path", "") for r in server.fastapi_app.routes}

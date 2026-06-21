@@ -22,12 +22,23 @@ from datetime import UTC, datetime, timedelta
 from pathlib import Path
 
 from backend.app import ResearchPluginApp
+from backend.config import MGMT_KEY_PATH_ENV_VAR, MGMT_PUBLIC_KEY_ENV_VAR
 from backend.execution.backends.fake import FakeSandboxBackend
 from backend.execution.types import BackendCapabilities
 from backend.services.cleanup import CleanupService
 from backend.services.sync_sessions import LeaseService
 from backend.utils import PermissionDeniedError
 from tests.fakes import FakeRsyncSyncer
+
+
+def _mounted_mgmt_key_env(root: Path) -> dict[str, str]:
+    key_path = root / "managed_key"
+    key_path.write_text("PRIVATE KEY\n", encoding="utf-8")
+    key_path.chmod(0o600)
+    return {
+        MGMT_KEY_PATH_ENV_VAR: str(key_path),
+        MGMT_PUBLIC_KEY_ENV_VAR: "ssh-ed25519 AAAAmanaged",
+    }
 
 
 class _Base(unittest.TestCase):
@@ -197,7 +208,9 @@ class ControlRestartTest(unittest.TestCase):
 
         backend = self._reaper_backend()
         app, _queue, _auth = build_control_app(
-            repo_root=self.staging, execution_backend=backend
+            repo_root=self.staging,
+            env=_mounted_mgmt_key_env(self.staging),
+            execution_backend=backend,
         )
         self._apps.append(app)
         return app, backend

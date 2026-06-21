@@ -24,11 +24,23 @@ from backend.state.managed_mgmt_keys import MountedMgmtKeyStore
 from backend.utils import ValidationError
 
 
+def _mounted_mgmt_key_env(root: Path) -> dict[str, str]:
+    key_path = root / "managed_key"
+    key_path.write_text("PRIVATE KEY\n", encoding="utf-8")
+    key_path.chmod(0o600)
+    return {
+        MGMT_KEY_PATH_ENV_VAR: str(key_path),
+        MGMT_PUBLIC_KEY_ENV_VAR: "ssh-ed25519 AAAAmanaged",
+    }
+
+
 class ControlAppTest(unittest.TestCase):
     def test_control_app_records_scoped_activity_without_local_runtime(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
             app, _queue, auth = build_control_app(
-                repo_root=Path(tmp),
+                repo_root=root,
+                env=_mounted_mgmt_key_env(root),
                 execution_backend=FakeSandboxBackend(),
             )
             self.addCleanup(app.shutdown)
@@ -91,15 +103,11 @@ class ControlAppTest(unittest.TestCase):
     def test_control_app_uses_mounted_management_key_when_configured(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)
-            key_path = root / "managed_key"
-            key_path.write_text("PRIVATE KEY\n", encoding="utf-8")
-            key_path.chmod(0o600)
+            env = _mounted_mgmt_key_env(root)
+            key_path = Path(env[MGMT_KEY_PATH_ENV_VAR])
             app, _queue, _auth = build_control_app(
                 repo_root=root / "staging",
-                env={
-                    MGMT_KEY_PATH_ENV_VAR: str(key_path),
-                    MGMT_PUBLIC_KEY_ENV_VAR: "ssh-ed25519 AAAAmanaged",
-                },
+                env=env,
                 execution_backend=FakeSandboxBackend(),
             )
             self.addCleanup(app.shutdown)
@@ -122,21 +130,38 @@ class ControlAppTest(unittest.TestCase):
                     execution_backend=FakeSandboxBackend(),
                 )
 
+    def test_control_app_requires_mounted_management_key(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            with self.assertRaises(ValidationError) as ctx:
+                build_control_app(
+                    repo_root=Path(tmp),
+                    execution_backend=FakeSandboxBackend(),
+                )
+        self.assertIn(MGMT_KEY_PATH_ENV_VAR, ctx.exception.message)
+
     def test_control_app_reads_task_result_timeout_from_injected_env(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
             app, _queue, _auth = build_control_app(
-                repo_root=Path(tmp),
-                env={"RESEARCH_PLUGIN_TASK_RESULT_TIMEOUT": "2.5"},
+                repo_root=root,
+                env={
+                    **_mounted_mgmt_key_env(root),
+                    "RESEARCH_PLUGIN_TASK_RESULT_TIMEOUT": "2.5",
+                },
                 execution_backend=FakeSandboxBackend(),
             )
             self.addCleanup(app.shutdown)
             self.assertEqual(app.sandboxes.tasks.result_timeout_seconds, 2.5)
 
         with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
             with self.assertRaises(ValueError):
                 build_control_app(
-                    repo_root=Path(tmp),
-                    env={"RESEARCH_PLUGIN_TASK_RESULT_TIMEOUT": "bad"},
+                    repo_root=root,
+                    env={
+                        **_mounted_mgmt_key_env(root),
+                        "RESEARCH_PLUGIN_TASK_RESULT_TIMEOUT": "bad",
+                    },
                     execution_backend=FakeSandboxBackend(),
                 )
 
@@ -151,16 +176,13 @@ class ControlAppTest(unittest.TestCase):
     def test_control_app_without_repo_root_uses_non_created_compat_root(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)
-            key_path = root / "managed_key"
-            key_path.write_text("PRIVATE KEY\n", encoding="utf-8")
-            key_path.chmod(0o600)
+            mounted_env = _mounted_mgmt_key_env(root)
             store = StateStore(db_path=root / "state.sqlite")
             blobs = LocalDirBlobStore(root=root / "blobs")
             env = {
+                **mounted_env,
                 DB_URL_ENV_VAR: "postgresql://user:pass@db/research_plugin",
                 BLOB_BUCKET_ENV_VAR: "research-plugin-blobs",
-                MGMT_KEY_PATH_ENV_VAR: str(key_path),
-                MGMT_PUBLIC_KEY_ENV_VAR: "ssh-ed25519 AAAAmanaged",
             }
             with (
                 patch(
@@ -197,9 +219,11 @@ class ControlAppTest(unittest.TestCase):
         from backend.composition.control_mode import build_control_server
 
         with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
             server = build_control_server(
-                repo_root=Path(tmp),
+                repo_root=root,
                 env={
+                    **_mounted_mgmt_key_env(root),
                     ALLOWED_ORIGINS_ENV_VAR: (
                         "https://ui.example.com, http://localhost:5173"
                     )
