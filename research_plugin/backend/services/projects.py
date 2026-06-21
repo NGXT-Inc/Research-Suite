@@ -158,6 +158,17 @@ class ProjectService:
         finally:
             conn.close()
 
+    def project_ids_for_tenant(self, *, tenant_id: str) -> set[str]:
+        conn = self.store.connect()
+        try:
+            rows = conn.execute(
+                "SELECT id FROM projects WHERE tenant_id = ?",
+                (tenant_id,),
+            ).fetchall()
+            return {str(row["id"]) for row in rows}
+        finally:
+            conn.close()
+
     def current(self, *, tenant_id: str | None = None) -> dict[str, Any]:
         projects = self.list_projects(tenant_id=tenant_id)["projects"]
         if not projects:

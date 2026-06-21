@@ -647,6 +647,11 @@ class ServiceLayoutTest(unittest.TestCase):
         self.assertNotIn("FROM reviews", source)
         self.assertNotIn("FROM syntheses", source)
 
+    def test_transport_delegates_visible_project_lookup_to_service(self) -> None:
+        source = (BACKEND_ROOT / "http_api.py").read_text(encoding="utf-8")
+        self.assertIn("target.app.projects.project_ids_for_tenant", source)
+        self.assertNotIn("SELECT id FROM projects WHERE tenant_id", source)
+
     def test_vocabulary_imports_bypass_permission_service(self) -> None:
         for path in sorted(BACKEND_ROOT.rglob("*.py")):
             if path == SERVICES / "permissions.py":

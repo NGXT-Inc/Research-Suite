@@ -1194,15 +1194,9 @@ def create_fastapi_app(
         target = default_api()
         if target is None:
             return set()
-        conn = target.app.store.connect()
-        try:
-            rows = conn.execute(
-                "SELECT id FROM projects WHERE tenant_id = ?",
-                (getattr(principal, "tenant_id", "") or "",),
-            ).fetchall()
-            return {str(row["id"]) for row in rows}
-        finally:
-            conn.close()
+        return target.app.projects.project_ids_for_tenant(
+            tenant_id=getattr(principal, "tenant_id", "") or ""
+        )
 
     def visible_project_scope(request: Request, project_id: str | None) -> set[str] | None:
         if not auth_required:
