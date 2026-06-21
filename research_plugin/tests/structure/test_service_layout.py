@@ -916,7 +916,9 @@ class ServiceLayoutTest(unittest.TestCase):
         source = (BACKEND_ROOT / "http_api.py").read_text(encoding="utf-8")
 
         self.assertIn("def require_project_scope(", source)
-        self.assertEqual(source.count(".store.require_project_id("), 1)
+        self.assertNotIn(".store.require_project_id(", source)
+        self.assertNotIn(".store.transaction(", source)
+        self.assertIn("target.app.projects.require_project_scope(", source)
         self.assertGreaterEqual(source.count("require_project_scope("), 5)
 
     def test_hosted_tool_call_metadata_uses_policy_table(self) -> None:

@@ -905,12 +905,10 @@ def create_fastapi_app(
     ) -> None:
         if not surface.enforce_project_scope:
             return
-        with target.app.store.transaction() as conn:
-            target.app.store.require_project_id(
-                conn=conn,
-                project_id=project_id,
-                tenant_id=getattr(principal, "tenant_id", "") or "",
-            )
+        target.app.projects.require_project_scope(
+            project_id=project_id,
+            tenant_id=getattr(principal, "tenant_id", "") or "",
+        )
 
     def route_call_tool(
         *,
