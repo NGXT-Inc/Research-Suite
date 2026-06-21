@@ -34,6 +34,7 @@ from fastapi.responses import JSONResponse
 from . import __version__
 from .contracts import AGGREGATE_TOOL_NAMES, DATA_PLANE_TOOL_NAMES, static_tool_catalog
 from .control_client import ControlPlaneUnreachableError
+from .mcp_http import register_mcp_routes
 from .utils import ResearchPluginError, ValidationError
 
 
@@ -106,42 +107,35 @@ def create_daemon_loopback_app(*, daemon: Any) -> FastAPI:
         daemon.project_links.link(repo_root=repo_root, project_id=project_id)
         return {"linked": True, "repo_root": repo_root, "project_id": project_id}
 
-    @http.get("/mcp/tools")
-    def mcp_tools(authorization: str | None = Header(default=None)) -> dict[str, Any]:
-        _check_secret(authorization)
+    def list_mcp_tools() -> list[dict[str, Any]]:
         if hasattr(daemon, "list_tools"):
-            tools = daemon.list_tools()
-        elif hasattr(daemon, "call_tool"):
+            return daemon.list_tools()
+        if hasattr(daemon, "call_tool"):
             allowed = DATA_PLANE_TOOL_NAMES | AGGREGATE_TOOL_NAMES
-            tools = [
+            return [
                 tool for tool in static_tool_catalog() if tool.get("name") in allowed
             ]
-        else:
-            tools = []
-        return {"tools": tools}
+        return []
 
-    @http.post("/mcp/call")
-    async def mcp_call(
-        request: Request, authorization: str | None = Header(default=None)
+    def call_mcp_tool(
+        name: str,
+        arguments: dict[str, Any],
+        context: dict[str, Any],
+        _request: Request,
     ) -> dict[str, Any]:
-        _check_secret(authorization)
-        payload = await request.json()
-        name = str((payload or {}).get("name") or "")
-        arguments = (payload or {}).get("arguments") or {}
-        context = (payload or {}).get("context") or {}
-        if not name:
-            raise ValidationError("tool name is required", details={"field": "name"})
-        if not isinstance(arguments, dict):
-            raise ValidationError("arguments must be an object", details={"field": "arguments"})
-        if not isinstance(context, dict):
-            raise ValidationError("context must be an object", details={"field": "context"})
         if not hasattr(daemon, "call_tool"):
             raise ValidationError(
                 "data-plane forwarding is unavailable in this daemon build",
                 details={"tool": name, "error_code": "data_plane_forwarding_unavailable"},
             )
-        result = daemon.call_tool(name=name, arguments=arguments, context=context)
-        return {"result": result}
+        return daemon.call_tool(name=name, arguments=arguments, context=context)
+
+    register_mcp_routes(
+        http,
+        list_tools=list_mcp_tools,
+        call_tool=call_mcp_tool,
+        authorize=_check_secret,
+    )
 
     return http
 

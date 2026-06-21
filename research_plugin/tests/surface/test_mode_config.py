@@ -1563,6 +1563,22 @@ class ModeCompositionTest(unittest.TestCase):
         self.assertEqual(called.status_code, 400, called.text)
         self.assertEqual(called.json()["error_code"], "data_plane_forwarding_unavailable")
 
+        malformed_unauth = client.post(
+            "/mcp/call",
+            content="{",
+            headers={"Content-Type": "application/json"},
+        )
+        self.assertEqual(malformed_unauth.status_code, 401, malformed_unauth.text)
+
+        malformed_auth = client.post(
+            "/mcp/call",
+            content="{",
+            headers={**headers, "Content-Type": "application/json"},
+        )
+        self.assertEqual(malformed_auth.status_code, 400, malformed_auth.text)
+        self.assertEqual(malformed_auth.json()["error_code"], "validation_error")
+        self.assertEqual(malformed_auth.json()["field"], "body")
+
     def test_local_app_builder_is_a_plain_research_plugin_app(self) -> None:
         from backend.composition import build_local_app
 

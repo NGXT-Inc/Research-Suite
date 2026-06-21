@@ -34,6 +34,7 @@ from .http_policy import (
     HTTP_DATA_PLANE_FEATURE_TO_TOOL,
     HttpSurfacePolicy,
 )
+from .mcp_http import register_mcp_routes
 from .services.figure_view import build_experiment_figure
 from .services.feed import MAX_IMAGE_BYTES
 from .services.identity import LOCAL_PRINCIPAL, AuthError, AuthService
@@ -1667,41 +1668,36 @@ def create_fastapi_app(
 
     register_feed_routes(http, app_for=app_for_feed)
 
-    # MCP-shaped endpoints — drive the same ResearchPluginApp.call_tool path that
-    # the stdio MCP server uses. The stdio MCP proxy forwards Codex tool calls
-    # here; UIs talk to /api/* and don't need these. Errors are mapped to the
-    # ResearchPluginError handler above so they preserve error_code + details.
-    @http.get("/mcp/tools")
-    def mcp_tools_list() -> dict[str, Any]:
+    def list_mcp_tools() -> list[dict[str, Any]]:
         if router is not None:
-            tools = router.list_tools()
-        else:
-            assert api is not None
-            tools = api.app.list_tools()
-        if not surface.allow_data_plane_tool_calls:
-            tools = [tool for tool in tools if tool.get("plane") != "data"]
-        return {"tools": tools}
+            return router.list_tools()
+        assert api is not None
+        return api.app.list_tools()
 
-    @http.post("/mcp/call")
-    def mcp_call(request: Request, body: JsonBody = Body(default=None)) -> dict[str, Any]:
-        payload = body or {}
-        name = payload.get("name")
-        if not isinstance(name, str) or not name:
-            raise ValidationError("tool name is required", details={"field": "name"})
-        arguments = payload.get("arguments") or {}
-        if not isinstance(arguments, dict):
-            raise ValidationError("arguments must be an object", details={"field": "arguments"})
-        context = payload.get("context") or {}
-        if context is not None and not isinstance(context, dict):
-            raise ValidationError("context must be an object", details={"field": "context"})
-        result = route_call_tool(
+    def call_mcp_tool(
+        name: str,
+        arguments: dict[str, Any],
+        context: dict[str, Any],
+        request: Request,
+    ) -> dict[str, Any]:
+        return route_call_tool(
             name=name,
             arguments=arguments,
             context=context,
             activity_source="mcp",
             principal=getattr(request.state, "principal", LOCAL_PRINCIPAL),
         )
-        return {"result": result}
+
+    register_mcp_routes(
+        http,
+        list_tools=list_mcp_tools,
+        call_tool=call_mcp_tool,
+        allow_tool=(
+            None
+            if surface.allow_data_plane_tool_calls
+            else lambda tool: tool.get("plane") != "data"
+        ),
+    )
 
     # ---- daemon task channel + sync-target poll (cloud plan Phase 8) ----
     # Daemon-initiated only: the cloud NEVER connects inbound. These endpoints

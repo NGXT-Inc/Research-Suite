@@ -976,6 +976,28 @@ class ServiceLayoutTest(unittest.TestCase):
         self.assertIn("require_admin(request)", admin_source)
         self.assertIn("require_tenant_or_admin(request, tenant_id)", admin_source)
 
+    def test_mcp_http_routes_are_shared_by_control_and_daemon(self) -> None:
+        source = (BACKEND_ROOT / "http_api.py").read_text(encoding="utf-8")
+        daemon_source = (BACKEND_ROOT / "daemon_loopback.py").read_text(encoding="utf-8")
+        mcp_source = (BACKEND_ROOT / "mcp_http.py").read_text(encoding="utf-8")
+
+        self.assertEqual(
+            _import_module_names(BACKEND_ROOT / "mcp_http.py"),
+            {"collections.abc", "json", "typing", "fastapi", "utils"},
+        )
+        for owner_source in (source, daemon_source):
+            self.assertIn("register_mcp_routes(", owner_source)
+            self.assertNotIn('@http.get("/mcp/tools")', owner_source)
+            self.assertNotIn('@http.post("/mcp/call")', owner_source)
+            self.assertNotIn("tool name is required", owner_source)
+            self.assertNotIn("arguments must be an object", owner_source)
+            self.assertNotIn("context must be an object", owner_source)
+        self.assertIn('"/mcp/tools"', mcp_source)
+        self.assertIn('"/mcp/call"', mcp_source)
+        self.assertIn("tool name is required", mcp_source)
+        self.assertIn("arguments must be an object", mcp_source)
+        self.assertIn("context must be an object", mcp_source)
+
     def test_transport_delegates_submitted_resource_blob_reads_to_service(self) -> None:
         source = (BACKEND_ROOT / "http_api.py").read_text(encoding="utf-8")
 
