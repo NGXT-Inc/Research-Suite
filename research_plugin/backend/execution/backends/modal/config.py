@@ -7,6 +7,7 @@ from dataclasses import dataclass
 from pathlib import Path, PurePosixPath
 from typing import Any, Mapping
 
+from ....env import env_int
 from ...errors import BackendValidationError
 from ...sync_dirs import DEFAULT_DATA_DIR, DEFAULT_REMOTE_ROOT, SESSIONS_DIRNAME
 
@@ -81,14 +82,16 @@ class ModalConfig:
         load_modal_env_file()
         return cls(
             app_name=_env_str("RESEARCH_PLUGIN_MODAL_APP", DEFAULT_APP_NAME),
-            retention_seconds=_env_int(
+            retention_seconds=_positive_env_int(
                 "RESEARCH_PLUGIN_MODAL_RETENTION_SECONDS", DEFAULT_RETENTION_SECONDS
             ),
-            sandbox_timeout=_env_int(
+            sandbox_timeout=_positive_env_int(
                 "RESEARCH_PLUGIN_MODAL_SANDBOX_TIMEOUT", DEFAULT_SANDBOX_TIMEOUT
             ),
-            job_timeout=_env_int("RESEARCH_PLUGIN_MODAL_JOB_TIMEOUT", DEFAULT_JOB_TIMEOUT),
-            idle_timeout=_env_non_negative_int(
+            job_timeout=_positive_env_int(
+                "RESEARCH_PLUGIN_MODAL_JOB_TIMEOUT", DEFAULT_JOB_TIMEOUT
+            ),
+            idle_timeout=_non_negative_env_int(
                 "RESEARCH_PLUGIN_MODAL_IDLE_TIMEOUT", DEFAULT_IDLE_TIMEOUT
             ),
             remote_root=_absolute_posix_path(
@@ -103,7 +106,7 @@ class ModalConfig:
                 _env_str("RESEARCH_PLUGIN_MODAL_RUNNER_DIR", DEFAULT_RUNNER_DIR),
                 field="RESEARCH_PLUGIN_MODAL_RUNNER_DIR",
             ),
-            timeout_buffer_seconds=_env_int(
+            timeout_buffer_seconds=_positive_env_int(
                 "RESEARCH_PLUGIN_MODAL_TIMEOUT_BUFFER_SECONDS",
                 DEFAULT_TIMEOUT_BUFFER_SECONDS,
             ),
@@ -111,7 +114,7 @@ class ModalConfig:
                 "RESEARCH_PLUGIN_MODAL_VOLUME_PREFIX",
                 DEFAULT_VOLUME_NAME_PREFIX,
             ),
-            volume_version=_env_int(
+            volume_version=_positive_env_int(
                 "RESEARCH_PLUGIN_MODAL_VOLUME_VERSION",
                 DEFAULT_VOLUME_VERSION,
             ),
@@ -272,19 +275,28 @@ def _env_str(name: str, default: str) -> str:
     return value
 
 
-def _env_int(name: str, default: int) -> int:
-    return _positive_int(os.environ.get(name, default), field=name)
+def _positive_env_int(name: str, default: int) -> int:
+    parsed = _modal_env_int(name=name, default=default)
+    if parsed <= 0:
+        raise BackendValidationError(f"{name} must be positive")
+    return parsed
 
 
-def _env_non_negative_int(name: str, default: int) -> int:
-    """Parse a non-negative integer env var."""
-    value = os.environ.get(name, default)
-    try:
-        parsed = int(value)
-    except (TypeError, ValueError) as exc:
-        raise BackendValidationError(f"{name} must be an integer") from exc
+def _non_negative_env_int(name: str, default: int) -> int:
+    parsed = _modal_env_int(name=name, default=default)
     if parsed < 0:
         raise BackendValidationError(f"{name} must not be negative")
+    return parsed
+
+
+def _modal_env_int(*, name: str, default: int) -> int:
+    raw = os.environ.get(name)
+    if raw is not None and not str(raw).strip():
+        raise BackendValidationError(f"{name} must be an integer")
+    try:
+        parsed = env_int(name, default)
+    except ValueError as exc:
+        raise BackendValidationError(f"{name} must be an integer") from exc
     return parsed
 
 

@@ -760,6 +760,19 @@ class ServiceLayoutTest(unittest.TestCase):
                     source,
                 )
 
+    def test_modal_integer_env_parsing_uses_shared_helper(self) -> None:
+        source = (
+            BACKEND_ROOT / "execution" / "backends" / "modal" / "config.py"
+        ).read_text(encoding="utf-8")
+
+        self.assertIn("from ....env import env_int", source)
+        self.assertNotIn("def _env_int", source)
+        self.assertNotIn("def _env_non_negative_int", source)
+        self.assertNotIn("_positive_int(os.environ.get", source)
+        self.assertIn("_modal_env_int(", source)
+        self.assertIn("_positive_env_int(", source)
+        self.assertIn("_non_negative_env_int(", source)
+
     def test_services_type_against_base_state_store(self) -> None:
         concrete_store_names = {"StateStore", "SqliteStateStore"}
         for path in sorted(SERVICES.glob("*.py")):

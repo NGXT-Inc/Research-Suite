@@ -151,6 +151,34 @@ class FakeModal:
     App = FakeApp
 
 
+class ModalConfigEnvParsingTest(unittest.TestCase):
+    def test_blank_integer_env_value_is_invalid(self) -> None:
+        with mock.patch.dict(
+            os.environ,
+            {
+                "RESEARCH_PLUGIN_MODE": "control",
+                "RESEARCH_PLUGIN_MODAL_JOB_TIMEOUT": "",
+            },
+            clear=True,
+        ):
+            with self.assertRaisesRegex(
+                BackendValidationError,
+                "RESEARCH_PLUGIN_MODAL_JOB_TIMEOUT must be an integer",
+            ):
+                ModalConfig.from_env()
+
+    def test_idle_timeout_zero_is_allowed(self) -> None:
+        with mock.patch.dict(
+            os.environ,
+            {
+                "RESEARCH_PLUGIN_MODE": "control",
+                "RESEARCH_PLUGIN_MODAL_IDLE_TIMEOUT": "0",
+            },
+            clear=True,
+        ):
+            self.assertEqual(ModalConfig.from_env().idle_timeout, 0)
+
+
 class ModalSandboxBackendTest(unittest.TestCase):
     def setUp(self) -> None:
         FakeSandbox.registry = {}
