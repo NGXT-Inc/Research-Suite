@@ -57,6 +57,7 @@ CONTROL_MODULES = (
     SERVICES_ROOT / "metrics_records.py",
     BACKEND_ROOT / "record_core.py",
     BACKEND_ROOT / "control_app.py",
+    BACKEND_ROOT / "control_runtime.py",
     BACKEND_ROOT / "state" / "store.py",
     BACKEND_ROOT / "state" / "dialects.py",
 )
@@ -746,6 +747,9 @@ for name in (
             "tool_names=CONTROL_PLANE_TOOL_NAMES | AGGREGATE_TOOL_NAMES",
             source,
         )
+        self.assertNotIn("class ControlActivitySink", source)
+        self.assertNotIn("class ControlToolCallSink", source)
+        self.assertNotIn("class ControlSandboxWorker", source)
         for forbidden in (
             "ResearchPluginApp",
             "build_local_runtime",
