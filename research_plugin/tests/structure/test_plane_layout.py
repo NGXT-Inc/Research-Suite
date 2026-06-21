@@ -55,8 +55,8 @@ CONTROL_MODULES = (
     SERVICES_ROOT / "feed.py",
     SERVICES_ROOT / "sync_sessions.py",
     SERVICES_ROOT / "metrics_records.py",
-    SERVICES_ROOT / "sandbox_metrics.py",
-    SERVICES_ROOT / "sandbox_parachute.py",
+    SERVICES_ROOT / "sandbox" / "sandbox_metrics.py",
+    SERVICES_ROOT / "sandbox" / "sandbox_parachute.py",
     BACKEND_ROOT / "record_core.py",
     BACKEND_ROOT / "control_app.py",
     BACKEND_ROOT / "control_runtime.py",
@@ -383,7 +383,7 @@ load("subprocess")
                     self.assertTrue(_imports_management_key_adapter(path))
 
     def test_only_sandbox_io_modules_spawn_processes(self) -> None:
-        for path in sorted(SERVICES_ROOT.glob("*.py")):
+        for path in sorted(SERVICES_ROOT.rglob("*.py")):
             with self.subTest(module=path.name):
                 self.assertFalse(
                     _process_spawn_references(path),
@@ -436,9 +436,12 @@ load("subprocess")
     def test_sync_record_views_do_not_import_execution(self) -> None:
         # Remote directory names and session version pins are a control/data
         # contract, not provider execution machinery.
-        for name in ("sync_sessions.py", "sandbox_views.py"):
-            with self.subTest(module=name):
-                self.assertNotIn("execution", _import_segments(SERVICES_ROOT / name))
+        for path in (
+            SERVICES_ROOT / "sync_sessions.py",
+            SERVICES_ROOT / "sandbox" / "sandbox_views.py",
+        ):
+            with self.subTest(module=path.name):
+                self.assertNotIn("execution", _import_segments(path))
         source = (SERVICES_ROOT / "sync_sessions.py").read_text(encoding="utf-8")
         imports = _import_segments(SERVICES_ROOT / "sync_sessions.py")
         self.assertIn("sandbox_sync", imports)
@@ -452,7 +455,9 @@ load("subprocess")
         # while concrete provider machinery stays under execution/.
         for name in ("sandbox_daemons.py", "sandbox_provisioner.py", "sandboxes.py"):
             with self.subTest(module=name):
-                self.assertNotIn("execution", _import_segments(SERVICES_ROOT / name))
+                self.assertNotIn(
+                    "execution", _import_segments(SERVICES_ROOT / "sandbox" / name)
+                )
 
     def test_sandbox_backend_port_is_neutral(self) -> None:
         imports = _import_segments(BACKEND_ROOT / "sandbox_backend.py")
@@ -504,7 +509,7 @@ load("subprocess")
 import sys
 import backend.sandbox_support
 for name in (
-    "backend.services.sandboxes",
+    "backend.services.sandbox.sandboxes",
     "backend.dataplane.worker",
     "backend.execution.ssh_rsync",
     "backend.workspace",
@@ -802,7 +807,7 @@ for name in (
         # filesystem key custody adapter belongs to composition-state wiring,
         # not services/.
         self.assertFalse((SERVICES_ROOT / "sandbox_mgmt_keys.py").exists())
-        for path in sorted(SERVICES_ROOT.glob("*.py")):
+        for path in sorted(SERVICES_ROOT.rglob("*.py")):
             with self.subTest(module=path.name):
                 self.assertFalse(_imports_management_key_adapter(path))
                 self.assertNotIn("LocalMgmtKeyStore", path.read_text(encoding="utf-8"))

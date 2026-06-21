@@ -5,7 +5,7 @@ from __future__ import annotations
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
-from .services.sandboxes import SandboxService
+from .services.sandbox.sandboxes import SandboxService
 from .services.workflow import WorkflowService
 from .state import BaseStateStore, StateStore
 from .state.blobs import BlobStore

@@ -14,7 +14,7 @@ from backend.sandbox_backend import (
     SandboxBackendBase,
     SandboxRequest,
 )
-from backend.services.sandbox_daemons import SandboxDaemons
+from backend.services.sandbox.sandbox_daemons import SandboxDaemons
 from tests.paths import BACKEND_ROOT, SERVICES_ROOT
 
 
@@ -118,7 +118,7 @@ class SandboxBackendContractTest(unittest.TestCase):
         self.assertIsNone(backend.shutdown())
 
     def test_services_do_not_probe_backend_optional_methods(self) -> None:
-        for path in SERVICES_ROOT.glob("*.py"):
+        for path in SERVICES_ROOT.rglob("*.py"):
             source = path.read_text(encoding="utf-8")
             with self.subTest(path=path.name):
                 self.assertNotIn("getattr(self.backend", source)
@@ -186,7 +186,7 @@ class SandboxBackendContractTest(unittest.TestCase):
 
     def test_services_do_not_dispatch_on_provider_name_literals(self) -> None:
         provider_names = {"modal", "lambda_labs"}
-        for path in SERVICES_ROOT.glob("*.py"):
+        for path in SERVICES_ROOT.rglob("*.py"):
             tree = ast.parse(path.read_text(encoding="utf-8"), filename=str(path))
             string_literals = {
                 node.value

@@ -41,7 +41,7 @@ from ..dataplane.resource_observer import LocalResourceObserver
 from ..execution import build_sandbox_backend
 from ..sandbox_autosync import run_auto_sync_target
 from ..secret_tokens import mint_secret
-from ..services import sandbox_views
+from ..services.sandbox import sandbox_views
 from ..utils import ValidationError
 from ..workspace import LocalWorkspace
 

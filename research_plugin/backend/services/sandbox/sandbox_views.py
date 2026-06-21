@@ -21,14 +21,14 @@ from __future__ import annotations
 
 from typing import Any
 
-from ..domain.sync_contract import DEFAULT_DATA_DIR, remote_experiment_dir
-from ..sandbox_support import (
+from ...domain.sync_contract import DEFAULT_DATA_DIR, remote_experiment_dir
+from ...sandbox_support import (
     ACTIVE_SANDBOX_STATUSES,
     DEFAULT_AUTO_RSYNC_INTERVAL_SECONDS,
     POLL_AFTER_SECONDS,
     decode_dashboards,
 )
-from ..env import env_float
+from ...env import env_float
 
 
 def _sync_interval_seconds() -> int:

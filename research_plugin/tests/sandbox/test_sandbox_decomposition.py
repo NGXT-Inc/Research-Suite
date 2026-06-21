@@ -22,13 +22,13 @@ from typing import get_type_hints
 from backend.app import ResearchPluginApp
 from backend.dataplane import InProcessTaskChannel, LocalDataPlaneWorker
 from backend.execution.backends.fake import FakeSandboxBackend
-from backend.services.sandbox_daemons import SandboxDaemons
+from backend.services.sandbox.sandbox_daemons import SandboxDaemons
 from backend.dataplane.sandbox_dashboards import DashboardTunnels
-from backend.services.sandbox_metrics import SandboxMetrics
-from backend.services.sandbox_parachute import SandboxParachute
-from backend.services.sandbox_provisioner import SandboxProvisioner
-from backend.services.sandbox_registry import SandboxRegistry
-from backend.services.sandboxes import SandboxService
+from backend.services.sandbox.sandbox_metrics import SandboxMetrics
+from backend.services.sandbox.sandbox_parachute import SandboxParachute
+from backend.services.sandbox.sandbox_provisioner import SandboxProvisioner
+from backend.services.sandbox.sandbox_registry import SandboxRegistry
+from backend.services.sandbox.sandboxes import SandboxService
 from backend.services.sync_sessions import (
     InProcessControlPlaneView,
     LeaseService,
@@ -37,7 +37,7 @@ from backend.services.sync_sessions import (
 from backend.utils import ValidationError
 from tests.paths import SERVICES_ROOT
 
-FACADE = SERVICES_ROOT / "sandboxes.py"
+FACADE = SERVICES_ROOT / "sandbox" / "sandboxes.py"
 
 
 def _import_modules(path: Path) -> set[str]:
@@ -232,7 +232,7 @@ class SandboxDecompositionTest(unittest.TestCase):
         )
         self.assertNotIn(
             "sandbox_registry",
-            _import_modules(FACADE.parent / "sync_sessions.py"),
+            _import_modules(FACADE.parent.parent / "sync_sessions.py"),
         )
         self.assertNotIn(
             "sync_sessions",
@@ -264,7 +264,7 @@ class SandboxDecompositionTest(unittest.TestCase):
     def test_facade_import_does_not_load_data_plane_task_machinery(self) -> None:
         code = """
 import sys
-import backend.services.sandboxes
+import backend.services.sandbox.sandboxes
 for name in (
     "backend.dataplane.tasks",
     "backend.dataplane.worker",
@@ -277,7 +277,7 @@ for name in (
         raise SystemExit(f"{name} loaded")
 """
         env = dict(os.environ)
-        env["PYTHONPATH"] = str(FACADE.parents[2])
+        env["PYTHONPATH"] = str(FACADE.parents[3])
         subprocess.run([sys.executable, "-c", code], check=True, env=env)
 
     def test_service_type_hints_resolve_without_data_plane_worker(self) -> None:

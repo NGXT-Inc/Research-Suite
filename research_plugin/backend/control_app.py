@@ -17,7 +17,7 @@ from .observability import StructuredLogger
 from .ports.mgmt_keys import MgmtKeyStore
 from .record_core import build_record_core
 from .sandbox_backend import SandboxBackend
-from .services.sandboxes import SandboxService
+from .services.sandbox.sandboxes import SandboxService
 from .services.workflow import WorkflowService
 from .state import BaseStateStore
 from .state.blobs import BlobStore

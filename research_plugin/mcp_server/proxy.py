@@ -358,7 +358,7 @@ class HttpProxyMcpServer:
         except _UpstreamError as exc:
             daemon_err = {"error": exc.message, "error_code": exc.error_code}
         # Cloud row facts are the base view. The daemon contributes only
-        # machine-local enrichment, matching backend.services.sandbox_views'
+        # machine-local enrichment, matching backend.services.sandbox.sandbox_views'
         # agent view shape without importing backend code into the stdlib proxy.
         merged = dict(cloud)
         if any(daemon.get(key) for key in ("command", "raw_command", "key_path")):

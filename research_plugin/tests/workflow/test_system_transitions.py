@@ -169,7 +169,9 @@ class SandboxDrivenTransitionTest(SystemTransitionTestBase):
     def test_sandbox_code_has_no_raw_experiment_writes(self) -> None:
         # The boundary itself: the sandbox registry must not UPDATE/INSERT the
         # experiments table. Status changes go through apply_system_transition.
-        source = (SERVICES_ROOT / "sandboxes.py").read_text(encoding="utf-8")
+        source = (SERVICES_ROOT / "sandbox" / "sandboxes.py").read_text(
+            encoding="utf-8"
+        )
         self.assertNotIn("UPDATE experiments", source)
         self.assertNotIn("INSERT INTO experiments", source)
 

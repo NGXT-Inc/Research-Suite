@@ -25,21 +25,21 @@ from dataclasses import dataclass
 from datetime import UTC, datetime
 from typing import Any, Callable
 
-from ..sandbox_backend import (
+from ...sandbox_backend import (
     BackendPermissionError,
     BackendUnavailableError,
     BackendValidationError,
     SandboxBackend,
     SandboxRequest,
 )
-from ..domain.sync_contract import DEFAULT_DATA_DIR, remote_experiment_dir
-from ..ports.sandbox_lifecycle import ExperimentTransitions
-from ..ports.sandbox_sync import SyncSessionIssuer
-from ..ports.sandbox_worker import SandboxWorker
-from ..ports.task_channel import TaskChannel
-from ..utils import now_iso
+from ...domain.sync_contract import DEFAULT_DATA_DIR, remote_experiment_dir
+from ...ports.sandbox_lifecycle import ExperimentTransitions
+from ...ports.sandbox_sync import SyncSessionIssuer
+from ...ports.sandbox_worker import SandboxWorker
+from ...ports.task_channel import TaskChannel
+from ...utils import now_iso
 from .sandbox_registry import SandboxRegistry
-from ..sandbox_support import (
+from ...sandbox_support import (
     ACTIVE_SANDBOX_STATUSES,
     encode_dashboards,
     iso_after,

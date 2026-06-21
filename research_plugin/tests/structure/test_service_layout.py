@@ -476,16 +476,22 @@ class ServiceLayoutTest(unittest.TestCase):
 
     def test_sandbox_lifecycle_workers_use_ports_not_concrete_services(self) -> None:
         self.assertNotIn(
-            "experiments", _import_segments(SERVICES / "sandbox_provisioner.py")
+            "experiments",
+            _import_segments(SERVICES / "sandbox" / "sandbox_provisioner.py"),
         )
         self.assertNotIn(
-            "sandbox_mgmt_keys", _import_segments(SERVICES / "sandboxes.py")
+            "sandbox_mgmt_keys",
+            _import_segments(SERVICES / "sandbox" / "sandboxes.py"),
         )
         self.assertFalse((SERVICES / "sandbox_mgmt_keys.py").exists())
-        self.assertNotIn("class QuotaAdmission", _source("sandboxes.py"))
-        self.assertNotIn("class ControlPlaneView", _source("sandbox_daemons.py"))
-        self.assertNotIn("class SyncSessionIssuer", _source("sandbox_provisioner.py"))
-        daemon_imports = _import_segments(SERVICES / "sandbox_daemons.py")
+        self.assertNotIn("class QuotaAdmission", _source("sandbox/sandboxes.py"))
+        self.assertNotIn(
+            "class ControlPlaneView", _source("sandbox/sandbox_daemons.py")
+        )
+        self.assertNotIn(
+            "class SyncSessionIssuer", _source("sandbox/sandbox_provisioner.py")
+        )
+        daemon_imports = _import_segments(SERVICES / "sandbox" / "sandbox_daemons.py")
         self.assertNotIn("experiments", daemon_imports)
         self.assertNotIn("sandbox_provisioner", daemon_imports)
 
@@ -503,7 +509,7 @@ class ServiceLayoutTest(unittest.TestCase):
         helper = BACKEND_ROOT / "sandbox_autosync.py"
         daemon_mode = BACKEND_ROOT / "composition" / "daemon_mode.py"
         daemon_source = daemon_mode.read_text(encoding="utf-8")
-        local_source = _source("sandbox_daemons.py")
+        local_source = _source("sandbox/sandbox_daemons.py")
 
         self.assertEqual(_import_module_names(helper), {"collections.abc", "typing"})
         self.assertIn("run_auto_sync_target", daemon_source)
@@ -780,7 +786,7 @@ class ServiceLayoutTest(unittest.TestCase):
 
     def test_services_type_against_base_state_store(self) -> None:
         concrete_store_names = {"StateStore", "SqliteStateStore"}
-        for path in sorted(SERVICES.glob("*.py")):
+        for path in sorted(SERVICES.rglob("*.py")):
             if path.name == "__init__.py":
                 continue
             with self.subTest(module=path.name):
@@ -853,7 +859,7 @@ class ServiceLayoutTest(unittest.TestCase):
             self.assertIn(Protocol, protocol.__mro__)
 
     def test_control_services_do_not_leak_sqlite_connection_types(self) -> None:
-        for name in ("pinned.py", "resources.py", "sandboxes.py"):
+        for name in ("pinned.py", "resources.py", "sandbox/sandboxes.py"):
             with self.subTest(module=name):
                 source = _source(name)
                 self.assertNotIn("sqlite3.Connection", source)

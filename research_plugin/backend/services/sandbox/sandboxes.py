@@ -52,37 +52,37 @@ from __future__ import annotations
 from pathlib import Path
 from typing import Any
 
-from ..domain.quota_contract import AdmissionRequest
-from ..domain.sync_contract import remote_experiment_dir
+from ...domain.quota_contract import AdmissionRequest
+from ...domain.sync_contract import remote_experiment_dir
 
-from ..state.activity import ActivityLogger
-from ..state.blobs import BlobStore
-from ..state.store import BaseStateStore, Connection, row_to_dict
-from ..utils import (
+from ...state.activity import ActivityLogger
+from ...state.blobs import BlobStore
+from ...state.store import BaseStateStore, Connection, row_to_dict
+from ...utils import (
     NotFoundError,
     PermissionDeniedError,
     ResearchPluginError,
     ValidationError,
 )
-from ..sandbox_backend import (
+from ...sandbox_backend import (
     BackendUnavailableError,
     SandboxBackend,
     SandboxRequest,
 )
-from ..ports.metrics_archive import MetricsArchive
-from ..ports.mgmt_keys import MgmtKeyStore
-from ..ports.quota_admission import QuotaAdmission
-from ..ports.sandbox_lifecycle import ExperimentTransitions
-from ..ports.sandbox_worker import SandboxWorker
-from ..ports.task_channel import TaskChannel
+from ...ports.metrics_archive import MetricsArchive
+from ...ports.mgmt_keys import MgmtKeyStore
+from ...ports.quota_admission import QuotaAdmission
+from ...ports.sandbox_lifecycle import ExperimentTransitions
+from ...ports.sandbox_worker import SandboxWorker
+from ...ports.task_channel import TaskChannel
 from . import sandbox_views
 from .sandbox_metrics import SandboxMetrics
 from .sandbox_parachute import SandboxParachute
-from .transcript_cache import TranscriptCache
+from ..transcript_cache import TranscriptCache
 from .sandbox_daemons import SandboxDaemons
 from .sandbox_provisioner import SandboxProvisioner
 from .sandbox_registry import SandboxRegistry
-from ..sandbox_support import (
+from ...sandbox_support import (
     ACTIVE_SANDBOX_STATUSES,
     DEFAULT_REQUEST_WAIT_SECONDS,
     DEFAULT_STALE_PROVISION_SECONDS,
@@ -91,8 +91,8 @@ from ..sandbox_support import (
     parse_terminal_markers,
     validate_request_inputs,
 )
-from ..env import env_float
-from .sync_sessions import (
+from ...env import env_float
+from ..sync_sessions import (
     DEFAULT_FINAL_PULL_DEADLINE_SECONDS,
     InProcessControlPlaneView,
     LeaseService,

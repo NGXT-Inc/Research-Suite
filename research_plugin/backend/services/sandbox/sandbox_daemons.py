@@ -20,13 +20,13 @@ import threading
 from datetime import UTC, datetime
 from typing import Any, Callable
 
-from ..sandbox_backend import SandboxBackend
-from ..sandbox_autosync import run_auto_sync_target
-from ..env import env_bool, env_float
-from ..ports.sandbox_lifecycle import ExperimentTransitions, ProvisionReaper
-from ..ports.sandbox_sync import ControlPlaneView
+from ...sandbox_backend import SandboxBackend
+from ...sandbox_autosync import run_auto_sync_target
+from ...env import env_bool, env_float
+from ...ports.sandbox_lifecycle import ExperimentTransitions, ProvisionReaper
+from ...ports.sandbox_sync import ControlPlaneView
 from .sandbox_registry import SandboxRegistry
-from ..sandbox_support import (
+from ...sandbox_support import (
     DEFAULT_AUTO_RSYNC_INTERVAL_SECONDS,
     DEFAULT_REAPER_INTERVAL_SECONDS,
     DEFAULT_STALE_PROVISION_DEADLINE_SECONDS,
@@ -97,7 +97,7 @@ class SandboxDaemons:
         # be able to leave billing VMs unreaped. Local/daemon mode keeps the
         # switch (the user owns their own bill). enforce_expiry still gates by
         # backend (the in-memory fake opts out).
-        from ..config import resolve_auth_required
+        from ...config import resolve_auth_required
 
         if not resolve_auth_required():
             if not env_bool("RESEARCH_PLUGIN_SANDBOX_REAPER", default=True):
@@ -208,7 +208,7 @@ class SandboxDaemons:
         # the auto-rsync poller — the cloud never rsyncs a user checkout (the
         # daemon owns that). In local/daemon mode the env switch + the backend
         # capability decide as before.
-        from ..config import Mode, resolve_mode
+        from ...config import Mode, resolve_mode
 
         if resolve_mode() is Mode.CONTROL:
             return False
