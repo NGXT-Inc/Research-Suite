@@ -31,7 +31,6 @@ from .domain.vocabulary import GATED_ROLES, PROJECT_GRAPH_ROLES
 from .services.figure_view import build_experiment_figure
 from .services.feed import MAX_IMAGE_BYTES
 from .services.identity import LOCAL_PRINCIPAL, AuthError, AuthService
-from .services.pinned import pinned_text_for_version
 from .utils import (
     ContentUnavailableError,
     DataPlaneRequiredError,
@@ -467,11 +466,8 @@ class ResearchHttpApi:
             raise NotFoundError(
                 f"version {version_id} is not associated with resource {resource.get('id')}"
             )
-        conn = self.app.store.connect()
         try:
-            text = pinned_text_for_version(
-                conn=conn,
-                blobs=self.app.blobs,
+            text = self.app.resources.pinned_text_for_version(
                 version_id=version_id,
                 what="resource content",
                 role="",
@@ -488,8 +484,6 @@ class ResearchHttpApi:
                 "detail": str(exc),
                 "version_id": version_id,
             }
-        finally:
-            conn.close()
         return {
             "resource": resource,
             "path": resource.get("path"),
@@ -540,34 +534,12 @@ class ResearchHttpApi:
         if latest_assoc not in candidates:
             candidates.append(latest_assoc)
         for version_id in candidates:
-            text = self._submitted_text_for_version(version_id=version_id)
+            text = self.app.resources.submitted_text_for_version(
+                version_id=version_id
+            )
             if text is not None:
                 return text, version_id
         return None
-
-    def _submitted_text_for_version(self, *, version_id: str | None) -> str | None:
-        """The submitted bytes captured for one resource version (decoded), or
-        None when the version is unknown or its bytes were never blob-captured.
-        Shared by the no-version content default and the association readers."""
-        if not version_id:
-            return None
-        conn = self.app.store.connect()
-        try:
-            row = conn.execute(
-                "SELECT project_id, content_sha256 FROM resource_versions WHERE id = ?",
-                (str(version_id),),
-            ).fetchone()
-        finally:
-            conn.close()
-        if row is None:
-            return None
-        try:
-            data = self.app.blobs.get(
-                namespace=str(row["project_id"]), sha256=str(row["content_sha256"])
-            )
-        except NotFoundError:
-            return None
-        return data.decode("utf-8", errors="replace")
 
     def resource_file(
         self, project_id: str, resource_id: str, rel: str | None = None
@@ -579,7 +551,7 @@ class ResearchHttpApi:
             # the resource's pinned version) serve from the blob store; only
             # un-submitted links fall back to a repo-jailed live read, a
             # local-mode convenience.
-            blob = self._submitted_figure(project_id=project_id, resource=resource, rel=rel)
+            blob = self._submitted_figure(resource=resource, rel=rel)
             if blob is not None:
                 data, name = blob
                 mime = mimetypes.guess_type(name)[0] or "application/octet-stream"
@@ -616,24 +588,15 @@ class ResearchHttpApi:
         }
 
     def _submitted_figure(
-        self, *, project_id: str, resource: dict[str, Any], rel: str
+        self, *, resource: dict[str, Any], rel: str
     ) -> tuple[bytes, str] | None:
         version_id = self._latest_gated_version_id(resource=resource)
         if version_id is None:
             return None
-        conn = self.app.store.connect()
-        try:
-            row = conn.execute(
-                "SELECT sha256 FROM report_figures WHERE report_version_id = ? AND link_path = ?",
-                (version_id, rel),
-            ).fetchone()
-        finally:
-            conn.close()
-        if row is None:
-            return None
-        try:
-            data = self.app.blobs.get(namespace=project_id, sha256=str(row["sha256"]))
-        except NotFoundError:
+        data = self.app.resources.submitted_figure(
+            version_id=version_id, link_path=rel
+        )
+        if data is None:
             return None
         return data, rel.rsplit("/", 1)[-1]
 
@@ -912,7 +875,7 @@ class ResearchHttpApi:
     def _association_pinned_text(self, resource: dict[str, Any]) -> str | None:
         """The submitted bytes behind a resources_for_target row (associated
         version → blob), or None when nothing was submitted."""
-        return self._submitted_text_for_version(
+        return self.app.resources.submitted_text_for_version(
             version_id=resource.get("association_version_id")
         )
 

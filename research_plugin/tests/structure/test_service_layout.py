@@ -835,6 +835,19 @@ class ServiceLayoutTest(unittest.TestCase):
         self.assertIn("telemetry_from_review_request=True", source)
         self.assertIn("review_request_project_id(", source)
 
+    def test_transport_delegates_submitted_resource_blob_reads_to_service(self) -> None:
+        source = (BACKEND_ROOT / "http_api.py").read_text(encoding="utf-8")
+
+        self.assertIn("self.app.resources.pinned_text_for_version", source)
+        self.assertIn("self.app.resources.submitted_text_for_version", source)
+        self.assertIn("self.app.resources.submitted_figure", source)
+        self.assertNotIn(
+            "SELECT project_id, content_sha256 FROM resource_versions",
+            source,
+        )
+        self.assertNotIn("FROM report_figures", source)
+        self.assertNotIn("self.app.blobs.get", source)
+
     def test_transport_delegates_graph_ref_resolution_to_service(self) -> None:
         source = (BACKEND_ROOT / "http_api.py").read_text(encoding="utf-8")
         self.assertIn("self.app.graph_refs.resolve_index", source)

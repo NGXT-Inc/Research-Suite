@@ -7,7 +7,7 @@ import os
 from pathlib import Path
 from typing import Any
 
-from ..utils import NotFoundError, ValidationError, new_id, now_iso
+from ..utils import NotFoundError, ValidationError, WorkflowError, new_id, now_iso
 from ..ports.resource_records import ResourceAssociationPolicy
 from ..state.blobs import BlobStore
 from ..state.store import (
@@ -20,6 +20,7 @@ from ..state.store import (
 )
 from ..domain.markdown_images import MARKDOWN_FIGURE_MAX_BYTES, markdown_image_links
 from ..domain.vocabulary import GATED_ROLE_BYTE_CAPS
+from .pinned import pinned_text_for_version as load_pinned_text_for_version
 
 
 class ResourceService:
@@ -426,6 +427,81 @@ class ResourceService:
             return {"resource": resource, "versions": [self._hydrate_version(row=row, conn=conn) for row in rows]}
         finally:
             conn.close()
+
+    def pinned_text_for_version(
+        self, *, version_id: str, what: str, role: str = ""
+    ) -> str:
+        """Submitted UTF-8 text for one resource version, or WorkflowError.
+
+        This is the strict reader used by explicit versioned presentation
+        paths. The looser ``submitted_text_for_version`` below powers UI
+        fallbacks that should degrade to unavailable instead of raising.
+        """
+        if self.blobs is None:
+            raise WorkflowError(
+                f"{what}: no blob store is configured; submitted content is unavailable"
+            )
+        conn = self.store.connect()
+        try:
+            return load_pinned_text_for_version(
+                conn=conn,
+                blobs=self.blobs,
+                version_id=version_id,
+                what=what,
+                role=role,
+            )
+        finally:
+            conn.close()
+
+    def submitted_text_for_version(self, *, version_id: str | None) -> str | None:
+        """Best-effort submitted text for one version, decoded for UI display."""
+        if not version_id or self.blobs is None:
+            return None
+        conn = self.store.connect()
+        try:
+            row = conn.execute(
+                "SELECT project_id, content_sha256 FROM resource_versions WHERE id = ?",
+                (str(version_id),),
+            ).fetchone()
+        finally:
+            conn.close()
+        if row is None:
+            return None
+        try:
+            data = self.blobs.get(
+                namespace=str(row["project_id"]), sha256=str(row["content_sha256"])
+            )
+        except NotFoundError:
+            return None
+        return data.decode("utf-8", errors="replace")
+
+    def submitted_figure(
+        self, *, version_id: str | None, link_path: str
+    ) -> bytes | None:
+        """Best-effort submitted figure bytes for a markdown image link."""
+        if not version_id or self.blobs is None:
+            return None
+        conn = self.store.connect()
+        try:
+            row = conn.execute(
+                """
+                SELECT v.project_id, f.sha256
+                FROM report_figures f
+                JOIN resource_versions v ON v.id = f.report_version_id
+                WHERE f.report_version_id = ? AND f.link_path = ?
+                """,
+                (str(version_id), link_path),
+            ).fetchone()
+        finally:
+            conn.close()
+        if row is None:
+            return None
+        try:
+            return self.blobs.get(
+                namespace=str(row["project_id"]), sha256=str(row["sha256"])
+            )
+        except NotFoundError:
+            return None
 
     def resources_for_target(
         self, *, conn: Connection, target_type: str, target_id: str
