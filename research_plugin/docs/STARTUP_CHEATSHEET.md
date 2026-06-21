@@ -173,7 +173,7 @@ Stop old research-plugin HTTP/reload processes:
 
 ```bash
 pkill -f 'scripts/dev_http_reload.py.*--port 8787'
-pkill -f 'backend.http_server --host 127.0.0.1 --port 8787'
+pkill -f 'backend.transport.http_server --host 127.0.0.1 --port 8787'
 ```
 
 ## Terminal 3: Live Activity

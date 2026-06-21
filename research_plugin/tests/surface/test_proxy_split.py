@@ -18,7 +18,7 @@ from pathlib import Path
 
 from backend.app import ResearchPluginApp
 from backend.execution.backends.fake import FakeSandboxBackend
-from backend.http_server import make_http_server
+from backend.transport.http_server import make_http_server
 from mcp_server.daemon_marker import marker_path
 from mcp_server.proxy import HttpProxyMcpServer, ProxyConfig
 from tests.fakes import FakeRsyncSyncer
@@ -242,7 +242,7 @@ class ProxyIdentityResolutionTest(unittest.TestCase):
                     return []
 
         # Stand up the daemon loopback app directly on a thread.
-        from backend.http_server import _bind_socket
+        from backend.transport.http_server import _bind_socket
         import uvicorn
 
         app = create_daemon_loopback_app(daemon=_StubDaemon())

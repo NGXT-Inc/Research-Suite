@@ -46,7 +46,7 @@ def server_command(
 ) -> list[str]:
     # Go through the bash launcher so the credential-resolution chain in
     # bin/research-plugin-http (user-config dirs > plugin-tree fallback) runs
-    # before backend.http_server starts. If we exec'd `python -m backend.http_server`
+    # before backend.transport.http_server starts. If we exec'd `python -m backend.transport.http_server`
     # directly here, RESEARCH_PLUGIN_MODAL_ENV_FILE never gets set and the
     # Modal client breaks because nothing populates MODAL_TOKEN_ID/SECRET.
     command = [

@@ -11,7 +11,7 @@
 ## Why this doc exists
 
 Today the backend runs entirely on the user's machine. Both the long-lived
-HTTP daemon (`python -m backend.http_server`) and the stdlib-only stdio proxy
+HTTP daemon (`python -m backend.transport.http_server`) and the stdlib-only stdio proxy
 (`python -m mcp_server`) are local, and the daemon happens to sit on the same
 filesystem as the user's research repo. That co-location is the only reason
 sync works: the daemon can `rsync` between a Modal/Lambda VM and a local path
@@ -236,7 +236,7 @@ This is evolution, not a rewrite — the local daemon already owns sync.
 3. **Stand up the cloud control plane** (auth, multi-tenant DB, provisioning,
    credential issuance). Point the MCP server's control-plane tools at it.
 4. **Ship the local data-plane daemon** as the slimmed-down successor to
-   `backend.http_server`: data half only, authenticating to the cloud.
+   `backend.transport.http_server`: data half only, authenticating to the cloud.
 5. **Add lease enforcement + `direction_policy`** and the
    `start_sync`/`stop_sync`/`sync_status` tools.
 

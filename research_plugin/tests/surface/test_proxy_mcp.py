@@ -23,7 +23,7 @@ from mcp_server.daemon_marker import (
     read_marker,
     write_marker,
 )
-from backend.http_server import make_http_server
+from backend.transport.http_server import make_http_server
 from backend.execution.backends.fake import FakeSandboxBackend
 from mcp_server.proxy import HttpProxyMcpServer, ProxyConfig
 

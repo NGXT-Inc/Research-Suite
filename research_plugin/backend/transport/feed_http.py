@@ -16,7 +16,7 @@ from typing import Any, Callable
 from fastapi import Body, Query, Request
 from fastapi.responses import Response
 
-from .utils import ValidationError
+from ..utils import ValidationError
 
 _TRACK_EVENTS = {"feed_opened", "post_viewed", "link_clicked", "image_viewed"}
 

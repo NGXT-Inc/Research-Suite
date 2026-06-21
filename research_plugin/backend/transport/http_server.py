@@ -4,7 +4,7 @@ Owns the running uvicorn server: binds the socket, runs uvicorn against the
 FastAPI app from `http_api`, and manages the `.research_plugin/daemon.json`
 discovery marker over the lifetime of the process.
 
-Also the CLI entry point (`python -m backend.http_server`).
+Also the CLI entry point (`python -m backend.transport.http_server`).
 """
 
 from __future__ import annotations
@@ -16,17 +16,17 @@ from pathlib import Path
 
 import uvicorn
 
-from .app import ResearchPluginApp
-from .config import (
+from ..app import ResearchPluginApp
+from ..config import (
     Mode,
     resolve_control_token,
     resolve_control_url,
     resolve_mode,
 )
-from .daemon_marker import clear_marker, write_marker
-from .env import env_bool
+from ..daemon_marker import clear_marker, write_marker
+from ..env import env_bool
 from .http_api import create_fastapi_app
-from .project_router import ProjectRouter
+from ..project_router import ProjectRouter
 
 
 def _bind_socket(*, host: str, port: int) -> socket.socket:
@@ -143,7 +143,7 @@ def _serve_control(*, host: str, port: int) -> int:
     Hosted/no-repo-root control requires durable DB, durable blob store, and a
     mounted management key. Auth is ON.
     """
-    from .composition import build_control_server
+    from ..composition import build_control_server
 
     server = build_control_server()
     host, selected_port, uv, server_socket = _serve_uvicorn(
@@ -170,8 +170,8 @@ def _serve_daemon(*, host: str, port: int) -> int:
     127.0.0.1 fallback). Starts the task long-poll + auto-sync loops and serves
     a loopback surface for the proxy (GET /local/route + the data-plane tools).
     """
-    from .composition import build_daemon_server
-    from .daemon_loopback import create_daemon_loopback_app
+    from ..composition import build_daemon_server
+    from ..daemon_loopback import create_daemon_loopback_app
 
     control_url = resolve_control_url()
     token = resolve_control_token()

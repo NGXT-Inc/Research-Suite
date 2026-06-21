@@ -9,8 +9,8 @@ from typing import Any
 
 from fastapi import Body, Query, Request
 
-from .services.feed import MAX_IMAGE_BYTES
-from .utils import ValidationError
+from ..services.feed import MAX_IMAGE_BYTES
+from ..utils import ValidationError
 
 JsonBody = dict[str, Any] | None
 DaemonPrincipalRequired = Callable[[Request], Any]

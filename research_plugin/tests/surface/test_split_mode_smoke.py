@@ -49,7 +49,7 @@ from backend.dataplane.project_links import ProjectLinks
 from backend.dataplane.remote_view import HttpControlPlaneView
 from backend.execution.backends.fake import FakeSandboxBackend
 from backend.services.identity import AuthService
-from backend.http_server import _bind_socket
+from backend.transport.http_server import _bind_socket
 from backend.state import StateStore
 from backend.state.blobs import LocalDirBlobStore
 from backend.utils import ValidationError
@@ -325,7 +325,7 @@ class AuthenticatedSplitProxyTest(unittest.TestCase):
         self.auth = AuthService(store=self.cloud_app.store)
         self.token = self.auth.mint_token(tenant_id="acme")
 
-        from backend.http_api import create_fastapi_app
+        from backend.transport.http_api import create_fastapi_app
 
         cloud_fastapi = create_fastapi_app(app=self.cloud_app, auth=self.auth)
         self.cloud_client = TestClient(cloud_fastapi, raise_server_exceptions=False)
@@ -431,7 +431,7 @@ class SplitModeSmokeTest(unittest.TestCase):
             rsync_syncer=FakeRsyncSyncer(),
             task_channel=HttpTaskChannel(queue=self.task_queue, result_timeout_seconds=3.0),
         )
-        from backend.http_api import create_fastapi_app
+        from backend.transport.http_api import create_fastapi_app
 
         cloud_fastapi = create_fastapi_app(
             app=self.cloud_app,

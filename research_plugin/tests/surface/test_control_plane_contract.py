@@ -24,7 +24,7 @@ from typing import Any, Callable, ClassVar, Protocol
 from backend.app import ResearchPluginApp
 from backend.control_client import HttpControlPlaneClient
 from backend.execution.backends.fake import FakeSandboxBackend
-from backend.http_server import make_http_server
+from backend.transport.http_server import make_http_server
 from mcp_server.daemon_marker import marker_path
 from tests.fakes import FakeRsyncSyncer
 

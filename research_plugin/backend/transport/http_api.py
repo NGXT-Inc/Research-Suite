@@ -18,30 +18,30 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse, Response
 from pydantic import ValidationError as PydanticValidationError
 
-from . import __version__
+from .. import __version__
 from .admin_http import register_admin_routes
-from .app import ResearchPluginApp
+from ..app import ResearchPluginApp
 from .daemon_http import register_daemon_routes
-from .version import CLIENT_VERSION_HEADER, MIN_PROXY_VERSION, is_below_floor, meta
-from .contracts import (
+from ..version import CLIENT_VERSION_HEADER, MIN_PROXY_VERSION, is_below_floor, meta
+from ..contracts import (
     DATA_PLANE_TOOL_NAMES,
     PROJECT_SCOPED_TOOL_NAMES,
     TOOL_CONTRACTS,
 )
 from .feed_http import register_feed_routes
-from .project_router import ProjectRouter
-from .domain.graph_lint import MAX_GRAPH_NODES, graph_problems
-from .domain.resource_selection import preferred_associated_resource
-from .domain.vocabulary import GATED_ROLES, PROJECT_GRAPH_ROLES
+from ..project_router import ProjectRouter
+from ..domain.graph_lint import MAX_GRAPH_NODES, graph_problems
+from ..domain.resource_selection import preferred_associated_resource
+from ..domain.vocabulary import GATED_ROLES, PROJECT_GRAPH_ROLES
 from .http_policy import (
     HOSTED_CONTROL_TOOL_POLICIES,
     HTTP_DATA_PLANE_FEATURE_TO_TOOL,
     HttpSurfacePolicy,
 )
 from .mcp_http import register_mcp_routes
-from .services.figure_view import build_experiment_figure
-from .services.identity import LOCAL_PRINCIPAL, AuthError, AuthService
-from .utils import (
+from ..services.figure_view import build_experiment_figure
+from ..services.identity import LOCAL_PRINCIPAL, AuthError, AuthService
+from ..utils import (
     ContentUnavailableError,
     DataPlaneRequiredError,
     NotFoundError,
@@ -50,8 +50,8 @@ from .utils import (
     ValidationError,
     WorkflowError,
 )
-from .state import monotonic_ms
-from .state.activity import effective_source, is_event_ok
+from ..state import monotonic_ms
+from ..state.activity import effective_source, is_event_ok
 
 
 JsonBody = dict[str, Any] | None

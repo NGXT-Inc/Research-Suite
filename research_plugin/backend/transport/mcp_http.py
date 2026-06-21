@@ -8,7 +8,7 @@ from typing import Any
 
 from fastapi import Header, Request
 
-from .utils import ValidationError
+from ..utils import ValidationError
 
 ToolCatalog = Callable[[], list[dict[str, Any]]]
 ToolFilter = Callable[[dict[str, Any]], bool]

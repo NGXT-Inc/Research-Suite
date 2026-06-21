@@ -10,7 +10,7 @@ from pathlib import Path
 from unittest.mock import MagicMock, patch
 
 from backend.app import ResearchPluginApp
-from backend.http_api import ResearchHttpApi
+from backend.transport.http_api import ResearchHttpApi
 from backend.execution.backends.fake import FakeSandboxBackend
 from backend.sandbox_backend import SandboxRequest
 from backend.utils import NotFoundError, PermissionDeniedError, ValidationError

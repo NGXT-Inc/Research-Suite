@@ -19,7 +19,7 @@ from backend.config import (
     MGMT_PUBLIC_KEY_ENV_VAR,
 )
 from backend.execution.backends.fake import FakeSandboxBackend
-from backend.http_api import create_fastapi_app
+from backend.transport.http_api import create_fastapi_app
 from backend.state import StateStore
 from backend.state.blobs import LocalDirBlobStore
 from backend.state.managed_mgmt_keys import MountedMgmtKeyStore

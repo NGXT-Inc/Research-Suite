@@ -46,4 +46,4 @@ export PYTHONPATH="$PLUGIN_DIR${PYTHONPATH:+:$PYTHONPATH}"
 # cloud holds the platform keys; the daemon never resolves them. No .env probe.
 export RESEARCH_PLUGIN_MODE=daemon
 
-exec "$PYTHON_BIN" -m backend.http_server "$@"
+exec "$PYTHON_BIN" -m backend.transport.http_server "$@"

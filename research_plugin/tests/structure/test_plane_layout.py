@@ -308,7 +308,7 @@ class ToolPlanePartitionTest(unittest.TestCase):
         self.assertEqual(AGGREGATE_TOOL_NAMES, {"sandbox.health", "sandbox.get"})
 
     def test_http_data_plane_features_point_at_data_plane_tools(self) -> None:
-        from backend.http_policy import HTTP_DATA_PLANE_FEATURE_TO_TOOL
+        from backend.transport.http_policy import HTTP_DATA_PLANE_FEATURE_TO_TOOL
 
         self.assertEqual(
             HTTP_DATA_PLANE_FEATURE_TO_TOOL,

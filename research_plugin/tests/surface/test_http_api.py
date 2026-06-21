@@ -9,7 +9,7 @@ from unittest.mock import patch
 from fastapi.testclient import TestClient
 
 from backend.app import ResearchPluginApp
-from backend.http_api import ResearchHttpApi, create_fastapi_app
+from backend.transport.http_api import ResearchHttpApi, create_fastapi_app
 from backend.project_router import ProjectRouter
 from backend.execution.backends.fake import FakeSandboxBackend
 from backend.utils import ContentUnavailableError

@@ -7,7 +7,7 @@ from typing import Any
 
 from fastapi import Request
 
-from .observability import TenantCounters
+from ..observability import TenantCounters
 
 
 def register_admin_routes(

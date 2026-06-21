@@ -21,7 +21,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 from backend.app import ResearchPluginApp
 from backend.execution.backends.fake import FakeSandboxBackend
 from backend.execution.ssh_rsync import SshRsyncResult
-from backend.http_server import make_http_server
+from backend.transport.http_server import make_http_server
 
 
 class NoopRsyncSyncer:

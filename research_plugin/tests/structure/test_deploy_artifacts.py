@@ -53,7 +53,7 @@ class DeployArtifactsTest(unittest.TestCase):
         scripts = pyproject["project"]["scripts"]
         self.assertEqual(
             scripts.get("research-plugin-control"),
-            "backend.http_server:control_main",
+            "backend.transport.http_server:control_main",
         )
         # The control extra exists and carries the Postgres + object-store deps.
         control_extra = " ".join(

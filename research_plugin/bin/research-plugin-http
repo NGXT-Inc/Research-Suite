@@ -66,4 +66,4 @@ if [[ -z "${RESEARCH_PLUGIN_MODAL_ENV_FILE:-}" ]]; then
   done
 fi
 
-exec "$PYTHON_BIN" -m backend.http_server "$@"
+exec "$PYTHON_BIN" -m backend.transport.http_server "$@"

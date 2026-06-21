@@ -37,9 +37,9 @@ daemon = []
 
 [project.scripts]
 research-plugin-mcp = "mcp_server.__main__:main"
-research-plugin-http = "backend.http_server:main"
-research-plugin-daemon = "backend.http_server:daemon_main"
-research-plugin-control = "backend.http_server:control_main"
+research-plugin-http = "backend.transport.http_server:main"
+research-plugin-daemon = "backend.transport.http_server:daemon_main"
+research-plugin-control = "backend.transport.http_server:control_main"
 
 [tool.setuptools.packages.find]
 # Discover backend + mcp_server AND their subpackages (backend.services,

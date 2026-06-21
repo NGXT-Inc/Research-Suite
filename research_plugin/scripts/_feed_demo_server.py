@@ -14,7 +14,7 @@ from pathlib import Path
 import uvicorn
 
 from backend.app import ResearchPluginApp
-from backend.http_api import create_fastapi_app
+from backend.transport.http_api import create_fastapi_app
 
 NOW_MS = int(os.environ.get("FEED_NOW_MS", "0")) or None
 TMP = Path(tempfile.mkdtemp(prefix="feed_demo_"))

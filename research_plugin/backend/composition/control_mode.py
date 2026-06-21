@@ -48,8 +48,8 @@ from ..control_app import ControlApp
 from ..dataplane.http_channel import HttpTaskChannel, HttpTaskQueue
 from ..env import env_bool, env_float
 from ..execution import build_sandbox_backend
-from ..http_api import create_fastapi_app
-from ..http_policy import HttpSurfacePolicy
+from ..transport.http_api import create_fastapi_app
+from ..transport.http_policy import HttpSurfacePolicy
 from ..services.cleanup import CleanupService
 from ..services.identity import AuthService
 from ..state.managed_mgmt_keys import MountedMgmtKeyStore
