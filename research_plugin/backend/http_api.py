@@ -697,25 +697,9 @@ class ResearchHttpApi:
                 "problems": ["graph has no submitted content — re-associate it (role 'graph')"],
                 "path": chosen.get("path"),
             }
-        graph: dict[str, Any] | None = None
-        try:
-            parsed = json.loads(text)
-            if isinstance(parsed, dict):
-                graph = parsed
-        except json.JSONDecodeError:
-            graph = None
-        return {
-            **base,
-            "available": True,
-            "resource_id": chosen.get("id"),
-            "path": chosen.get("path"),
-            "association_attempt_index": chosen.get("association_attempt_index"),
-            "graph": graph,
-            "problems": graph_problems(text),
-            "ref_index": self.app.graph_refs.resolve_index(
-                project_id=project_id, graph=graph
-            ),
-        }
+        return self._graph_payload(
+            base=base, chosen=chosen, text=text, project_id=project_id
+        )
 
     def syntheses_view(self, *, project_id: str) -> dict[str, Any]:
         """All reflection waves plus the staleness/coverage signal for the UI."""
@@ -792,6 +776,15 @@ class ResearchHttpApi:
                 ],
                 "path": chosen.get("path"),
             }
+        return self._graph_payload(
+            base=base, chosen=chosen, text=text, project_id=project_id
+        )
+
+    def _graph_payload(
+        self, *, base: dict[str, Any], chosen: dict[str, Any], text: str, project_id: str
+    ) -> dict[str, Any]:
+        """Parse + lint + resolve-refs the available-graph tail shared by the
+        experiment and synthesis graph endpoints (byte-identical payload)."""
         graph: dict[str, Any] | None = None
         try:
             parsed = json.loads(text)

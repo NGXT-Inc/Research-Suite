@@ -38,7 +38,7 @@ import traceback
 from copy import deepcopy
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Any, TextIO
+from typing import Any, Iterator, TextIO
 from urllib import error as urllib_error
 from urllib.request import Request, urlopen
 
@@ -138,6 +138,8 @@ class HttpProxyMcpServer:
         # Cache the daemon's repo_root→project_id resolution so split-mode cloud
         # calls don't re-hit /local/route every time.
         self._project_id: str | None = None
+        self._scoped_cache: set[str] | None = None
+        self._plane_cache: dict[str, str] | None = None
 
     # ---- stdio loop ------------------------------------------------------
 
@@ -240,19 +242,11 @@ class HttpProxyMcpServer:
         merged: dict[str, dict[str, Any]] = {}
         # Cloud first, daemon second so daemon (data/aggregate) schemas win on
         # overlap — but in practice planes are disjoint except aggregate.
-        for is_cloud, url in (
-            (True, self.config.control_url),
-            (False, self._daemon_url_or_none()),
-        ):
-            if not url:
+        for is_cloud, tool in self._each_catalog_tool():
+            if tool.get("name") == "project.list":
                 continue
-            try:
-                for tool in self._catalog_from(url=url, is_cloud=is_cloud):
-                    merged[tool["name"]] = tool
-            except _UpstreamError:
-                # A down upstream must not blank the whole tool list — serve
-                # what the reachable side advertises.
-                continue
+            shaped = self._with_hidden_project_scope(tool=tool)
+            merged[shaped["name"]] = shaped
         return list(merged.values())
 
     def _catalog_from(self, *, url: str, is_cloud: bool) -> list[dict[str, Any]]:
@@ -269,6 +263,26 @@ class HttpProxyMcpServer:
             for tool in tools
             if tool.get("name") != "project.list"
         ]
+
+    def _each_catalog_tool(self) -> Iterator[tuple[bool, dict[str, Any]]]:
+        """Yield (is_cloud, raw_tool) for every reachable upstream's /mcp/tools.
+
+        Raw = pre-strip, so callers can read 'plane' and project_id schema. A
+        down upstream is skipped, never fatal.
+        """
+        for is_cloud, url in (
+            (True, self.config.control_url),
+            (False, self._daemon_url_or_none()),
+        ):
+            if not url:
+                continue
+            try:
+                body = self._http_get(url=f"{url}/mcp/tools", is_cloud=is_cloud)
+            except _UpstreamError:
+                continue
+            for tool in body.get("tools") or []:
+                if isinstance(tool, dict):
+                    yield is_cloud, tool
 
     # ---- tools/call ------------------------------------------------------
 
@@ -422,52 +436,29 @@ class HttpProxyMcpServer:
         # A control tool is project-scoped iff its raw input schema declares a
         # project_id property (read from the catalog BEFORE the proxy strips it
         # for the client). Capability-scoped tools (review.start/submit) are not.
-        scoped = getattr(self, "_scoped_cache", None)
-        if scoped is None:
-            scoped = set()
-            for is_cloud, url in (
-                (True, self.config.control_url),
-                (False, self._daemon_url_or_none()),
-            ):
-                if not url:
-                    continue
-                try:
-                    body = self._http_get(url=f"{url}/mcp/tools", is_cloud=is_cloud)
-                except _UpstreamError:
-                    continue
-                for tool in body.get("tools") or []:
-                    schema = tool.get("inputSchema")
-                    props = schema.get("properties") if isinstance(schema, dict) else None
-                    if isinstance(tool.get("name"), str) and isinstance(props, dict):
-                        if "project_id" in props:
-                            scoped.add(tool["name"])
+        if self._scoped_cache is None:
+            scoped: set[str] = set()
+            for _is_cloud, tool in self._each_catalog_tool():
+                schema = tool.get("inputSchema")
+                props = schema.get("properties") if isinstance(schema, dict) else None
+                if isinstance(tool.get("name"), str) and isinstance(props, dict) and "project_id" in props:
+                    scoped.add(tool["name"])
             self._scoped_cache = scoped
-        return name in scoped
+        return name in self._scoped_cache
 
     def _plane_for(self, *, name: str) -> str:
         # Resolve a tool's plane from the merged catalog (drift-proof). Cached
         # on first lookup; aggregate tools resolve here too.
-        planes = getattr(self, "_plane_cache", None)
-        if planes is None:
-            planes = {}
-            for is_cloud, url in (
-                (True, self.config.control_url),
-                (False, self._daemon_url_or_none()),
-            ):
-                if not url:
-                    continue
-                try:
-                    body = self._http_get(url=f"{url}/mcp/tools", is_cloud=is_cloud)
-                except _UpstreamError:
-                    continue
-                for tool in body.get("tools") or []:
-                    plane = tool.get("plane")
-                    if isinstance(tool.get("name"), str) and isinstance(plane, str):
-                        planes.setdefault(tool["name"], plane)
+        if self._plane_cache is None:
+            planes: dict[str, str] = {}
+            for _is_cloud, tool in self._each_catalog_tool():
+                plane = tool.get("plane")
+                if isinstance(tool.get("name"), str) and isinstance(plane, str):
+                    planes.setdefault(tool["name"], plane)
             self._plane_cache = planes
         # Unknown tool ⇒ control (the conservative default: most tools are
         # control, and the cloud will reject a truly unknown tool clearly).
-        return planes.get(name, "control")
+        return self._plane_cache.get(name, "control")
 
     def _result_dict(self, *, body: dict[str, Any]) -> dict[str, Any]:
         result = body.get("result")

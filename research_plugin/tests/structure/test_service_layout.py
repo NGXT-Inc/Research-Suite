@@ -1186,7 +1186,7 @@ class ServiceLayoutTest(unittest.TestCase):
         source = (BACKEND_ROOT / "http_api.py").read_text(encoding="utf-8")
         self.assertIn("self.app.graph_refs.resolve_index", source)
         self.assertEqual(
-            source.count('"ref_index": self.app.graph_refs.resolve_index('), 2
+            source.count('"ref_index": self.app.graph_refs.resolve_index('), 1
         )
         self.assertNotIn("_resolve_graph_refs", source)
         self.assertNotIn("_resolve_one_graph_ref", source)
