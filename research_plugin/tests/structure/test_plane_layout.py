@@ -229,6 +229,35 @@ def _imports_management_key_adapter(path: Path) -> bool:
     return False
 
 
+def _method_name_literal_branches(
+    path: Path, *, class_name: str, method_name: str
+) -> set[str]:
+    tree = ast.parse(path.read_text(encoding="utf-8"))
+    method: ast.FunctionDef | None = None
+    for node in tree.body:
+        if not isinstance(node, ast.ClassDef) or node.name != class_name:
+            continue
+        for item in node.body:
+            if isinstance(item, ast.FunctionDef) and item.name == method_name:
+                method = item
+                break
+    if method is None:
+        raise AssertionError(f"{class_name}.{method_name} not found in {path}")
+    names: set[str] = set()
+    for node in ast.walk(method):
+        if not isinstance(node, ast.Compare):
+            continue
+        if not isinstance(node.left, ast.Name) or node.left.id != "name":
+            continue
+        for op, comparator in zip(node.ops, node.comparators, strict=False):
+            if isinstance(op, ast.Eq):
+                if isinstance(comparator, ast.Constant) and isinstance(
+                    comparator.value, str
+                ):
+                    names.add(comparator.value)
+    return names
+
+
 class ToolPlanePartitionTest(unittest.TestCase):
     def test_every_tool_has_a_plane(self) -> None:
         for name, contract in TOOL_CONTRACTS.items():
@@ -259,6 +288,25 @@ class ToolPlanePartitionTest(unittest.TestCase):
             },
         )
         self.assertEqual(AGGREGATE_TOOL_NAMES, {"sandbox.health", "sandbox.get"})
+
+    def test_daemon_tool_catalogs_use_contract_plane_sets(self) -> None:
+        daemon_mode = BACKEND_ROOT / "composition" / "daemon_mode.py"
+        for path in (daemon_mode, BACKEND_ROOT / "daemon_loopback.py"):
+            with self.subTest(module=path.name):
+                source = path.read_text(encoding="utf-8")
+                self.assertIn("DATA_PLANE_TOOL_NAMES", source)
+                self.assertIn(
+                    "allowed = DATA_PLANE_TOOL_NAMES | AGGREGATE_TOOL_NAMES",
+                    source,
+                )
+                self.assertNotIn("IMPLEMENTED_DATA_TOOL_NAMES", source)
+                self.assertNotIn("IMPLEMENTED_LOOPBACK_DATA_TOOL_NAMES", source)
+        self.assertTrue(
+            DATA_PLANE_TOOL_NAMES
+            <= _method_name_literal_branches(
+                daemon_mode, class_name="DaemonServer", method_name="call_tool"
+            )
+        )
 
 
 class PlaneImportLintTest(unittest.TestCase):

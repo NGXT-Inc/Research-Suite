@@ -44,17 +44,6 @@ from ..utils import ValidationError
 from ..workspace import LocalWorkspace
 
 
-IMPLEMENTED_DATA_TOOL_NAMES = frozenset(
-    {
-        "resource.register_file",
-        "resource.associate",
-        "feed.post",
-        "sandbox.request",
-        "sandbox.sync",
-    }
-)
-
-
 def _ensure_loopback_secret(*, root: Path) -> str:
     """A local auth secret for the daemon's loopback surface (plan Phase 8,
     risk 11). The daemon holds the cloud token + the user private keys behind a
@@ -128,7 +117,7 @@ class DaemonServer:
 
     def list_tools(self) -> list[dict[str, Any]]:
         """The local MCP catalog: data-plane tools plus aggregate enrichers."""
-        allowed = IMPLEMENTED_DATA_TOOL_NAMES | AGGREGATE_TOOL_NAMES
+        allowed = DATA_PLANE_TOOL_NAMES | AGGREGATE_TOOL_NAMES
         return [tool for tool in static_tool_catalog() if tool.get("name") in allowed]
 
     def call_tool(
