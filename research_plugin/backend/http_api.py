@@ -883,14 +883,20 @@ def create_fastapi_app(
     sync_targets_source: Any | None = None,
     cleanup: Any | None = None,
 ) -> FastAPI:
-    # Auth seam (cloud plan Phase 7). ``auth=None`` is local mode: auth OFF, the
-    # implicit LOCAL_PRINCIPAL on every request, CORS wide open, loopback bind
-    # enforced by http_server — byte-identical to before this phase. An injected
-    # AuthService flips on mandatory bearer auth and origin-restricted CORS
-    # (control mode). Every existing caller passes neither, so nothing changes.
+    # HTTP surface seam (cloud plan Phase 7). ``auth=None`` is local mode:
+    # auth OFF, the implicit LOCAL_PRINCIPAL on every request, CORS wide open,
+    # loopback bind enforced by http_server, and local data-plane routes
+    # exposed. An injected AuthService currently builds the hosted-control
+    # surface: mandatory bearer auth, restricted CORS, and no local data-plane
+    # routes.
     if (app is None) == (router is None):
         raise ValueError("provide exactly one of app or router")
-    surface = HttpSurfacePolicy.for_auth_present(auth is not None)
+    surface = HttpSurfacePolicy.for_surface(
+        require_bearer_auth=auth is not None,
+        restrict_cors=auth is not None,
+        hosted_control=auth is not None,
+        expose_local_data_plane=auth is None,
+    )
     api = (
         ResearchHttpApi(app=app, expose_local_data_plane=surface.expose_local_data_plane)
         if app is not None

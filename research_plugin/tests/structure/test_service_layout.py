@@ -859,15 +859,24 @@ class ServiceLayoutTest(unittest.TestCase):
         policy_source = (BACKEND_ROOT / "http_policy.py").read_text(encoding="utf-8")
 
         self.assertNotIn("class _HttpSurfacePolicy", source)
-        self.assertIn(
-            "surface = HttpSurfacePolicy.for_auth_present(auth is not None)",
-            source,
-        )
+        self.assertIn("surface = HttpSurfacePolicy.for_surface(", source)
+        for decision in (
+            "require_bearer_auth=auth is not None",
+            "restrict_cors=auth is not None",
+            "hosted_control=auth is not None",
+            "expose_local_data_plane=auth is None",
+        ):
+            with self.subTest(decision=decision):
+                self.assertIn(decision, source)
         self.assertIn("class HttpSurfacePolicy", policy_source)
+        self.assertIn("def for_surface(", policy_source)
+        self.assertNotIn("for_auth_present", source)
+        self.assertNotIn("for_auth_present", policy_source)
         self.assertNotIn("auth_required", source)
         for field_name in (
             "require_bearer_auth",
             "restrict_cors",
+            "hosted_control",
             "expose_local_data_plane",
             "accept_repo_root_context",
             "allow_data_plane_http",

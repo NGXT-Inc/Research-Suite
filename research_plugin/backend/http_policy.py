@@ -25,18 +25,25 @@ class HttpSurfacePolicy:
     release_uses_final_pull: bool
 
     @classmethod
-    def for_auth_present(cls, auth_present: bool) -> "HttpSurfacePolicy":
+    def for_surface(
+        cls,
+        *,
+        require_bearer_auth: bool,
+        restrict_cors: bool,
+        hosted_control: bool,
+        expose_local_data_plane: bool,
+    ) -> "HttpSurfacePolicy":
         return cls(
-            require_bearer_auth=auth_present,
-            restrict_cors=auth_present,
-            hosted_control=auth_present,
-            expose_local_data_plane=not auth_present,
-            accept_repo_root_context=not auth_present,
-            allow_data_plane_http=not auth_present,
-            allow_data_plane_tool_calls=not auth_present,
-            use_hosted_tool_policies=auth_present,
-            enforce_project_scope=auth_present,
-            release_uses_final_pull=not auth_present,
+            require_bearer_auth=require_bearer_auth,
+            restrict_cors=restrict_cors,
+            hosted_control=hosted_control,
+            expose_local_data_plane=expose_local_data_plane,
+            accept_repo_root_context=expose_local_data_plane,
+            allow_data_plane_http=expose_local_data_plane,
+            allow_data_plane_tool_calls=expose_local_data_plane,
+            use_hosted_tool_policies=hosted_control,
+            enforce_project_scope=require_bearer_auth,
+            release_uses_final_pull=expose_local_data_plane,
         )
 
     def data_plane_http_capabilities(self) -> dict[str, bool]:
