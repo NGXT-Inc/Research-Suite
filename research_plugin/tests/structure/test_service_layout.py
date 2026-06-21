@@ -1090,6 +1090,7 @@ class ServiceLayoutTest(unittest.TestCase):
             {"hashlib", "hmac", "secrets"},
         )
         sensitive_paths = (
+            BACKEND_ROOT / "composition" / "daemon_mode.py",
             BACKEND_ROOT / "services" / "identity.py",
             BACKEND_ROOT / "services" / "reviews.py",
             BACKEND_ROOT / "state" / "store.py",
@@ -1097,6 +1098,7 @@ class ServiceLayoutTest(unittest.TestCase):
         for path in sensitive_paths:
             with self.subTest(module=path.relative_to(BACKEND_ROOT).as_posix()):
                 self.assertNotIn("hashlib", _import_module_names(path))
+                self.assertNotIn("secrets", _import_module_names(path))
                 self.assertIn("secret_tokens", _import_module_names(path))
 
         for path in (

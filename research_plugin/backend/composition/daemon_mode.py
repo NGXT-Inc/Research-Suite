@@ -40,6 +40,7 @@ from ..dataplane.resource_artifacts import LocalResourceArtifactReader
 from ..dataplane.resource_observer import LocalResourceObserver
 from ..execution import build_sandbox_backend
 from ..sandbox_autosync import run_auto_sync_target
+from ..secret_tokens import mint_secret
 from ..services import sandbox_views
 from ..utils import ValidationError
 from ..workspace import LocalWorkspace
@@ -52,8 +53,6 @@ def _ensure_loopback_secret(*, root: Path) -> str:
     process from driving it. Minimal but real; unix-socket bind is the Phase 9
     hardening upgrade.
     """
-    import secrets
-
     path = root / "daemon_secret"
     try:
         existing = path.read_text(encoding="utf-8").strip()
@@ -61,7 +60,7 @@ def _ensure_loopback_secret(*, root: Path) -> str:
             return existing
     except OSError:
         pass
-    token = secrets.token_urlsafe(32)
+    token = mint_secret(prefix="", nbytes=32)
     try:
         path.parent.mkdir(parents=True, exist_ok=True)
         path.write_text(token, encoding="utf-8")

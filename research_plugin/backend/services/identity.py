@@ -6,8 +6,8 @@ an ``Authorization: Bearer`` token that resolves to a ``Principal`` —
 one implicit tenant ('local') and the principal is ``LOCAL_PRINCIPAL``, so this
 whole module is dormant in local mode and load-bearing only in control mode.
 
-Token hashing rationale (deliberate, documented): API tokens are HIGH-ENTROPY
-bearer secrets minted with ``secrets.token_urlsafe`` — not user-chosen
+Token hashing rationale (deliberate, documented): API tokens are high-entropy
+bearer secrets minted with the shared ``mint_secret`` helper, not user-chosen
 passwords. A slow password hash (bcrypt/argon2) defends low-entropy secrets
 against offline brute force; that threat does not apply here, because guessing a
 256-bit random token is infeasible regardless of hash speed. A fast
