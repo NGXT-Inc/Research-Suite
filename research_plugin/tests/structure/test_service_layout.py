@@ -863,6 +863,13 @@ class ServiceLayoutTest(unittest.TestCase):
             with self.subTest(field_name=field_name):
                 self.assertIn(field_name, source)
 
+    def test_http_transport_centralizes_project_scope_gate(self) -> None:
+        source = (BACKEND_ROOT / "http_api.py").read_text(encoding="utf-8")
+
+        self.assertIn("def require_project_scope(", source)
+        self.assertEqual(source.count(".store.require_project_id("), 1)
+        self.assertGreaterEqual(source.count("require_project_scope("), 5)
+
     def test_hosted_tool_call_metadata_uses_policy_table(self) -> None:
         source = (BACKEND_ROOT / "http_api.py").read_text(encoding="utf-8")
         from backend.http_api import HOSTED_CONTROL_TOOL_POLICIES

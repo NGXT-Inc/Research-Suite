@@ -984,6 +984,18 @@ def create_fastapi_app(
             else None
         )
 
+    def require_project_scope(
+        *, target: ResearchHttpApi, project_id: str, principal: Any
+    ) -> None:
+        if not surface.enforce_project_scope:
+            return
+        with target.app.store.transaction() as conn:
+            target.app.store.require_project_id(
+                conn=conn,
+                project_id=project_id,
+                tenant_id=getattr(principal, "tenant_id", "") or "",
+            )
+
     def route_call_tool(
         *,
         name: str,
@@ -1018,12 +1030,11 @@ def create_fastapi_app(
             # the pull; reapers and local/daemon calls still use the full path.
             request = SandboxReleaseInput.model_validate(arguments)
             target = api_for_project(request.project_id)
-            with target.app.store.transaction() as conn:
-                target.app.store.require_project_id(
-                    conn=conn,
-                    project_id=request.project_id,
-                    tenant_id=getattr(principal, "tenant_id", "") or "",
-                )
+            require_project_scope(
+                target=target,
+                project_id=request.project_id,
+                principal=principal,
+            )
             return target._present(
                 target.app.sandboxes.release(
                     experiment_id=request.experiment_id,
@@ -1077,12 +1088,11 @@ def create_fastapi_app(
             and name in PROJECT_SCOPED_TOOL_NAMES
             and arguments.get("project_id")
         ):
-            with api.app.store.transaction() as conn:
-                api.app.store.require_project_id(
-                    conn=conn,
-                    project_id=str(arguments["project_id"]),
-                    tenant_id=getattr(principal, "tenant_id", "") or "",
-                )
+            require_project_scope(
+                target=api,
+                project_id=str(arguments["project_id"]),
+                principal=principal,
+            )
         if surface.enforce_project_scope and name == "sandbox.get":
             experiment_id = str(arguments.get("experiment_id") or "")
             project_id = str(arguments.get("project_id") or "") or None
@@ -1146,25 +1156,13 @@ def create_fastapi_app(
     def require_daemon_project(request: Request, project_id: str) -> ResearchHttpApi:
         principal = require_daemon_principal(request)
         target = api_for_project(project_id)
-        if surface.enforce_project_scope:
-            with target.app.store.transaction() as conn:
-                target.app.store.require_project_id(
-                    conn=conn,
-                    project_id=project_id,
-                    tenant_id=getattr(principal, "tenant_id", "") or "",
-                )
+        require_project_scope(target=target, project_id=project_id, principal=principal)
         return target
 
     def require_http_project(request: Request, project_id: str) -> ResearchHttpApi:
         target = api_for_project(project_id)
-        if surface.enforce_project_scope:
-            principal = getattr(request.state, "principal", LOCAL_PRINCIPAL)
-            with target.app.store.transaction() as conn:
-                target.app.store.require_project_id(
-                    conn=conn,
-                    project_id=project_id,
-                    tenant_id=getattr(principal, "tenant_id", "") or "",
-                )
+        principal = getattr(request.state, "principal", LOCAL_PRINCIPAL)
+        require_project_scope(target=target, project_id=project_id, principal=principal)
         return target
 
     def visible_project_ids(principal: Any) -> set[str]:
@@ -1721,13 +1719,11 @@ def create_fastapi_app(
     # the feed package plus this one line.
     def app_for_feed(project_id: str, request: Request) -> ResearchPluginApp:
         target = api_for_project(project_id)
-        if surface.enforce_project_scope:
-            with target.app.store.transaction() as conn:
-                target.app.store.require_project_id(
-                    conn=conn,
-                    project_id=project_id,
-                    tenant_id=getattr(request.state.principal, "tenant_id", "") or "",
-                )
+        require_project_scope(
+            target=target,
+            project_id=project_id,
+            principal=getattr(request.state, "principal", LOCAL_PRINCIPAL),
+        )
         return target.app
 
     register_feed_routes(http, app_for=app_for_feed)
