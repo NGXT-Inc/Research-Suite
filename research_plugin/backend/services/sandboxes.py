@@ -48,8 +48,6 @@ rows; the HTTP layer shapes the UI responses from `get_row`/`rows`/
 from __future__ import annotations
 
 import contextlib
-import threading
-import time
 from pathlib import Path
 from typing import Any
 
@@ -64,7 +62,6 @@ from ..utils import (
     PermissionDeniedError,
     ResearchPluginError,
     ValidationError,
-    now_iso,
 )
 from ..sandbox_backend import (
     BackendUnavailableError,
@@ -78,7 +75,7 @@ from ..ports.sandbox_lifecycle import ExperimentTransitions
 from ..ports.sandbox_worker import SandboxWorker
 from ..ports.task_channel import TaskChannel
 from . import sandbox_views
-from .metrics_records import MetricsSnapshotStore
+from .sandbox_metrics import SandboxMetrics
 from .transcript_cache import TranscriptCache
 from .sandbox_daemons import SandboxDaemons
 from .sandbox_provisioner import SandboxProvisioner
@@ -87,8 +84,6 @@ from ..sandbox_support import (
     ACTIVE_SANDBOX_STATUSES,
     DEFAULT_REQUEST_WAIT_SECONDS,
     DEFAULT_STALE_PROVISION_SECONDS,
-    METRICS_CACHE_TTL_SECONDS,
-    METRICS_PERSIST_TTL_SECONDS,
     PARACHUTE_MAX_OBJECT_BYTES,
     PARACHUTE_TTL_SECONDS,
     encode_dashboards,
@@ -166,18 +161,18 @@ class SandboxService:
             request_wait_seconds,
             DEFAULT_REQUEST_WAIT_SECONDS,
         )
-        # Short-TTL cache of live-usage samples, keyed by sandbox_id.
-        self._metrics_cache: dict[str, tuple[float, dict[str, Any] | None]] = {}
-        self._metrics_lock = threading.Lock()
-        # Durable per-experiment metrics snapshots (results outlive the VM):
-        # the daemon-owned file cache, kept as-is, plus the control-plane
-        # record (plan Phase 5) so reviews/UI see metrics without the user
-        # machine online.
-        self.metrics_archive = metrics_archive
-        self.metrics_records = MetricsSnapshotStore(store=store)
-        self._metrics_persisted_at: dict[str, float] = {}
-
         self.registry = SandboxRegistry(store=store)
+        self.metrics = SandboxMetrics(
+            registry=self.registry,
+            backend=sandbox_backend,
+            worker=self.worker,
+            mgmt_keys=self.mgmt_keys,
+            metrics_archive=metrics_archive,
+            store=store,
+        )
+        # Backward-compatible public handles used by tests and thin UI helpers.
+        self.metrics_archive = self.metrics.metrics_archive
+        self.metrics_records = self.metrics.metrics_records
         # Data-plane work that deserves a record (tunnel came up) reports
         # through the registry's event stream.
         self.worker.set_event_sink(self.registry.emit_event)
@@ -226,7 +221,7 @@ class SandboxService:
             control_view=self.control_view,
             sync_row=self._sync_row,
             final_pull=self._final_pull_row,
-            persist_metrics=self._persist_metrics_row,
+            persist_metrics=self.metrics.persist_row,
             parachute=self._parachute_row,
         )
         self.daemons.start()
@@ -514,7 +509,7 @@ class SandboxService:
                 final_result = {}
         if was_active:
             # Last chance to read MLflow: the server dies with the VM.
-            self._persist_metrics_row(
+            self.metrics.persist_row(
                 row=row,
                 force=True,
                 snapshot=final_result.get("metrics_snapshot"),
@@ -711,7 +706,7 @@ class SandboxService:
                 if daemon_metrics_snapshot_provided
                 else result.get("metrics_snapshot")
             )
-            self._persist_metrics_row(
+            self.metrics.persist_row(
                 row=row,
                 force=True,
                 snapshot=snapshot if isinstance(snapshot, dict) else None,
@@ -766,143 +761,18 @@ class SandboxService:
         project_id: str,
         snapshot: dict[str, Any] | None,
     ) -> dict[str, Any]:
-        row = self.registry.fetch_scoped(
+        return self.metrics.record_daemon_metrics(
             experiment_id=experiment_id,
             project_id=project_id,
+            snapshot=snapshot,
         )
-        self._persist_metrics_row(
-            row=row,
-            force=True,
-            snapshot=snapshot if isinstance(snapshot, dict) else None,
-            snapshot_provided=True,
-        )
-        return {"experiment_id": experiment_id, "recorded": isinstance(snapshot, dict)}
 
     def results_metrics(
         self, *, experiment_id: str, project_id: str | None = None
     ) -> dict[str, Any]:
-        """Archived MLflow metrics for an experiment.
-
-        Served first from the control-plane record (plan Phase 5) — it works
-        long after the sandbox is terminated AND without the user's machine
-        online. Pre-record experiments fall back to the daemon's file cache,
-        then to the pulled-mlflow.db backfill, converging into the record so
-        the next read is record-served. ``available=False`` means nothing was
-        ever captured (no MLflow runs existed, or the sandbox predates
-        archiving).
-        """
-        status = "none"
-        row: dict[str, Any] | None = None
-        try:
-            row = self.registry.fetch_scoped(
-                experiment_id=experiment_id, project_id=project_id
-            )
-            status = str(row.get("status") or "none")
-        except NotFoundError:
-            if self.registry.exists(experiment_id=experiment_id):
-                raise  # exists under another project — a real scope error
-        data = self.metrics_records.load(experiment_id=experiment_id)
-        from_record = data is not None
-        if data is None:
-            data = self.metrics_archive.load(experiment_id=experiment_id)
-        if data is None:
-            # Lazy backfill: the MLflow backend store lives inside the synced
-            # workspace, so the rsync pull usually captured mlflow.db even for
-            # sandboxes that died before REST archiving existed.
-            snapshot = self.worker.capture_metrics_fallback(
-                experiment_id=experiment_id,
-                name=self.registry.experiment_name(experiment_id=experiment_id),
-            )
-            if snapshot is not None:
-                with contextlib.suppress(OSError):
-                    self.metrics_archive.persist(experiment_id=experiment_id, snapshot=snapshot)
-                data = self.metrics_archive.load(experiment_id=experiment_id)
-        if data is not None and not from_record and row is not None:
-            with contextlib.suppress(Exception):
-                self.metrics_records.record(
-                    experiment_id=experiment_id,
-                    project_id=str(row.get("project_id") or ""),
-                    snapshot=data,
-                )
-        if data is None:
-            return {
-                "experiment_id": experiment_id,
-                "available": False,
-                "sandbox_status": status,
-                "hint": (
-                    "No archived metrics yet — they are captured from the "
-                    "sandbox's MLflow on sync and right before release."
-                ),
-            }
-        return {
-            "experiment_id": experiment_id,
-            "available": True,
-            "sandbox_status": status,
-            **data,
-        }
-
-    def _persist_metrics_row(
-        self,
-        *,
-        row: dict[str, Any],
-        force: bool = False,
-        snapshot: dict[str, Any] | None = None,
-        snapshot_provided: bool = False,
-    ) -> None:
-        """Best-effort: archive the sandbox's MLflow metrics on the daemon's disk.
-
-        The MLflow server dies with the VM; this snapshot is what makes results
-        outlive it. Called throttled from the auto-sync loop and forced on
-        explicit sync / release / reap (before terminate). Never raises, and
-        never overwrites an existing archive with emptiness — an unreachable
-        tunnel at release time just keeps the last good snapshot.
-        """
-        try:
-            experiment_id = str(row.get("experiment_id") or "")
-            if not experiment_id:
-                return
-            now = time.monotonic()
-            last = self._metrics_persisted_at.get(experiment_id)
-            if not force and last is not None and now - last < METRICS_PERSIST_TTL_SECONDS:
-                return
-            if not snapshot_provided:
-                snapshot = self.worker.capture_metrics_snapshot(
-                    row=row,
-                    name=self.registry.experiment_name(experiment_id=experiment_id),
-                )
-            if not isinstance(snapshot, dict):
-                return
-            snapshot = dict(snapshot)
-            snapshot.pop("base_url", None)
-            self._metrics_persisted_at[experiment_id] = now
-            path = self.metrics_archive.persist(
-                experiment_id=experiment_id, snapshot=snapshot
-            )
-            # The same snapshot also lands as a control-plane record (plan
-            # Phase 5), so metrics survive the VM *and* the user's machine.
-            self.metrics_records.record(
-                experiment_id=experiment_id,
-                project_id=str(row.get("project_id") or ""),
-                snapshot=snapshot,
-            )
-            if force:
-                self.registry.emit_event(
-                    project_id=str(row.get("project_id") or ""),
-                    event_type="sandbox.metrics_persisted",
-                    experiment_id=experiment_id,
-                    payload={
-                        "sandbox_id": row.get("sandbox_id", ""),
-                        # Logical key (the archive filename), never an absolute
-                        # local path: event payloads are cloud-bound rows.
-                        "path": path.name,
-                        "runs": sum(
-                            len(e.get("runs") or [])
-                            for e in snapshot.get("experiments") or []
-                        ),
-                    },
-                )
-        except Exception:  # noqa: BLE001 — archiving must never block sync/release
-            return
+        return self.metrics.results_metrics(
+            experiment_id=experiment_id, project_id=project_id
+        )
 
     def health(self) -> dict[str, Any]:
         health = self.backend.health()
@@ -944,65 +814,9 @@ class SandboxService:
         return self.backend.health()
 
     def sample_metrics(self, *, experiment_id: str, project_id: str | None = None) -> dict[str, Any]:
-        """Sample live in-container usage (CPU/RAM/GPU) for a running sandbox.
-
-        Read-only and best-effort: returns ``available: False`` (never raises)
-        when there is no sandbox, it is not running, or the sampler came back
-        empty (e.g. a CPU-only image without nvidia-smi). The row's *reserved*
-        gpu/cpu/memory ride along so the UI can frame used-vs-reserved.
-        """
-        try:
-            row = self.registry.fetch_scoped(
-                experiment_id=experiment_id, project_id=project_id
-            )
-        except NotFoundError:
-            return {"experiment_id": experiment_id, "status": "none", "available": False, "metrics": None}
-        status = row.get("status")
-        sandbox_id = str(row.get("sandbox_id") or "")
-        base: dict[str, Any] = {
-            "experiment_id": experiment_id,
-            "sandbox_id": sandbox_id,
-            "status": status,
-            "reserved": {
-                "gpu": row.get("gpu") or "",
-                "cpu": row.get("cpu"),
-                "memory_mib": row.get("memory"),
-                "instance_type": row.get("instance_type") or "",
-                "region": row.get("region") or "",
-            },
-        }
-        if status not in ACTIVE_SANDBOX_STATUSES or not sandbox_id:
-            return {**base, "available": False, "metrics": None}
-        metrics = self._sample_metrics_cached(
-            experiment_id=experiment_id, sandbox_id=sandbox_id, row=row
+        return self.metrics.sample_metrics(
+            experiment_id=experiment_id, project_id=project_id
         )
-        return {**base, "available": metrics is not None, "metrics": metrics, "sampled_at": now_iso()}
-
-    def _sample_metrics_cached(
-        self, *, experiment_id: str, sandbox_id: str, row: dict[str, Any]
-    ) -> dict[str, Any] | None:
-        now = time.monotonic()
-        with self._metrics_lock:
-            cached = self._metrics_cache.get(sandbox_id)
-            if cached is not None and now - cached[0] < METRICS_CACHE_TTL_SECONDS:
-                return cached[1]
-        try:
-            metrics = self.backend.sample_metrics(
-                sandbox_id=sandbox_id,
-                # Stored endpoint + the per-sandbox MANAGEMENT key (plan
-                # Phase 5), for backends that sample over SSH (Lambda Labs).
-                # Modal ignores these (control-plane exec). The user key is
-                # data-plane-only.
-                ssh_host=str(row.get("ssh_host") or ""),
-                ssh_port=int(row.get("ssh_port") or 0),
-                ssh_user=str(row.get("ssh_user") or ""),
-                key_path=str(self.mgmt_keys.key_path(experiment_id=experiment_id)),
-            )
-        except Exception:  # noqa: BLE001 — metrics are best-effort
-            metrics = None
-        with self._metrics_lock:
-            self._metrics_cache[sandbox_id] = (time.monotonic(), metrics)
-        return metrics
 
     # ---------- workflow / home helpers ----------
 
