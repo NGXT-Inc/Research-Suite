@@ -244,7 +244,7 @@ class InProcessControlPlaneViewTest(unittest.TestCase):
 
     def test_sync_targets_only_requires_running_row_source(self) -> None:
         class _Rows:
-            def list_running_rows(self) -> list[dict[str, object]]:
+            def list_running_sync_rows(self) -> list[dict[str, object]]:
                 return [
                     {
                         "experiment_id": "exp_1",

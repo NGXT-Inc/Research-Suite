@@ -20,6 +20,7 @@ from urllib import error as urllib_error
 from urllib.request import Request, urlopen
 
 from ..control_client import ControlPlaneUnreachableError, HttpControlPlaneClient
+from ..ports.sandbox_sync import SyncTarget
 
 
 class HttpControlPlaneView:
@@ -45,7 +46,7 @@ class HttpControlPlaneView:
 
     # ---- sync targets (the ControlPlaneView poll) ----
 
-    def sync_targets(self, *, tenant_id: str | None = None) -> list[dict[str, Any]]:
+    def sync_targets(self, *, tenant_id: str | None = None) -> list[SyncTarget]:
         _ = tenant_id  # tenant scope is enforced by the daemon bearer identity.
         body = self._request(
             method="GET",
@@ -56,7 +57,13 @@ class HttpControlPlaneView:
             return []
         # The cloud sends provider-portable row facts + the lease-backed
         # session; the worker reads its own local key path by experiment_id.
-        return [t for t in targets if isinstance(t, dict) and t.get("session")]
+        return [
+            SyncTarget(row=target["row"], session=target["session"])
+            for target in targets
+            if isinstance(target, dict)
+            and isinstance(target.get("row"), dict)
+            and isinstance(target.get("session"), dict)
+        ]
 
     # ---- task long-poll + ack ----
 

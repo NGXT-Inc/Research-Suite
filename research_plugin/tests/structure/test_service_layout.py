@@ -2,8 +2,9 @@ from __future__ import annotations
 
 import ast
 import unittest
+from inspect import Parameter, signature as inspect_signature
 from pathlib import Path
-from typing import get_type_hints, is_typeddict
+from typing import Any, Protocol, get_type_hints, is_typeddict
 
 from tests.paths import BACKEND_ROOT, DOMAIN_ROOT, PLUGIN_ROOT, PORTS_ROOT, SERVICES_ROOT
 
@@ -189,6 +190,77 @@ class ServiceLayoutTest(unittest.TestCase):
             "def sync_targets(self, *, tenant_id: str | None = None)",
             (PORTS_ROOT / "sandbox_sync.py").read_text(encoding="utf-8"),
         )
+        sandbox_sync_path = PORTS_ROOT / "sandbox_sync.py"
+        sandbox_sync_source = sandbox_sync_path.read_text(encoding="utf-8")
+        self.assertIn("class RunningSandboxSyncRow", sandbox_sync_source)
+        self.assertIn("class SyncTarget", sandbox_sync_source)
+        self.assertIn("class RunningSandboxRows", sandbox_sync_source)
+        self.assertEqual(
+            _class_method_names(sandbox_sync_path, "ControlPlaneView"),
+            {"sync_targets"},
+        )
+        self.assertEqual(
+            _class_method_names(sandbox_sync_path, "RunningSandboxRows"),
+            {"list_running_sync_rows"},
+        )
+        self.assertEqual(
+            _class_method_names(sandbox_sync_path, "SyncSessionIssuer"),
+            {"grant"},
+        )
+        from backend.ports.sandbox_sync import (
+            ControlPlaneView,
+            RunningSandboxRows,
+            RunningSandboxSyncRow,
+            SyncSessionIssuer,
+            SyncTarget,
+        )
+
+        for protocol in (ControlPlaneView, RunningSandboxRows, SyncSessionIssuer):
+            self.assertIn(Protocol, protocol.__mro__)
+        self.assertTrue(is_typeddict(RunningSandboxSyncRow))
+        self.assertEqual(
+            get_type_hints(RunningSandboxSyncRow),
+            {
+                "experiment_id": str,
+                "tenant_id": str | None,
+                "sandbox_id": str | None,
+                "ssh_host": str | None,
+                "ssh_port": int | None,
+                "ssh_user": str | None,
+                "sync_dir": str | None,
+                "workdir": str | None,
+                "sandbox_data_dir": str | None,
+                "unsynced_dir": str | None,
+            },
+        )
+        self.assertTrue(is_typeddict(SyncTarget))
+        self.assertEqual(get_type_hints(SyncTarget)["row"], RunningSandboxSyncRow)
+        self.assertEqual(get_type_hints(SyncTarget)["session"], dict[str, Any])
+        self.assertEqual(
+            get_type_hints(RunningSandboxRows.list_running_sync_rows)["return"],
+            list[RunningSandboxSyncRow],
+        )
+        self.assertEqual(
+            get_type_hints(ControlPlaneView.sync_targets)["return"],
+            list[SyncTarget],
+        )
+        grant_params = inspect_signature(SyncSessionIssuer.grant).parameters
+        self.assertEqual(
+            list(grant_params),
+            [
+                "self",
+                "experiment_id",
+                "sandbox_id",
+                "ssh_host",
+                "ssh_port",
+                "ssh_user",
+                "experiment_dir",
+                "data_dir",
+            ],
+        )
+        for name in list(grant_params)[1:]:
+            self.assertEqual(grant_params[name].kind, Parameter.KEYWORD_ONLY)
+        self.assertEqual(grant_params["data_dir"].default, "")
         project_reader_source = (PORTS_ROOT / "project_readers.py").read_text(
             encoding="utf-8"
         )
@@ -295,6 +367,16 @@ class ServiceLayoutTest(unittest.TestCase):
         daemon_imports = _import_segments(SERVICES / "sandbox_daemons.py")
         self.assertNotIn("experiments", daemon_imports)
         self.assertNotIn("sandbox_provisioner", daemon_imports)
+
+    def test_sync_sessions_use_running_sandbox_row_port(self) -> None:
+        source = _source("sync_sessions.py")
+        imports = _import_segments(SERVICES / "sync_sessions.py")
+
+        self.assertIn("sandbox_sync", imports)
+        self.assertIn("registry: RunningSandboxRows", source)
+        self.assertIn("list_running_sync_rows", source)
+        self.assertNotIn("list_running_rows", source)
+        self.assertNotIn("class RunningSandboxRows", source)
 
     def test_resource_service_records_observations_without_local_observer(self) -> None:
         source = _source("resources.py")

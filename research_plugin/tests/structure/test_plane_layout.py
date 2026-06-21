@@ -16,6 +16,7 @@ import subprocess
 import sys
 import unittest
 from pathlib import Path
+from typing import get_type_hints
 
 from backend.contracts import (
     AGGREGATE_TOOL_NAMES,
@@ -193,6 +194,13 @@ class PlaneImportLintTest(unittest.TestCase):
         for name in ("sync_sessions.py", "sandbox_views.py"):
             with self.subTest(module=name):
                 self.assertNotIn("execution", _import_segments(SERVICES_ROOT / name))
+        source = (SERVICES_ROOT / "sync_sessions.py").read_text(encoding="utf-8")
+        imports = _import_segments(SERVICES_ROOT / "sync_sessions.py")
+        self.assertIn("sandbox_sync", imports)
+        self.assertIn("registry: RunningSandboxRows", source)
+        self.assertIn("list_running_sync_rows", source)
+        self.assertNotIn("list_running_rows", source)
+        self.assertNotIn("class RunningSandboxRows", source)
 
     def test_sandbox_services_use_backend_port_not_execution_package(self) -> None:
         # Record/control sandbox services depend on the provider-neutral port,
@@ -290,6 +298,17 @@ for name in (
         for path in sorted((BACKEND_ROOT / "dataplane").glob("*.py")):
             with self.subTest(module=path.name):
                 self.assertNotIn("services", _import_segments(path))
+
+    def test_remote_control_view_uses_sync_target_port(self) -> None:
+        imports = _import_segments(BACKEND_ROOT / "dataplane" / "remote_view.py")
+        self.assertIn("sandbox_sync", imports)
+        from backend.dataplane.remote_view import HttpControlPlaneView
+        from backend.ports.sandbox_sync import SyncTarget
+
+        self.assertEqual(
+            get_type_hints(HttpControlPlaneView.sync_targets)["return"],
+            list[SyncTarget],
+        )
 
     def test_project_overview_does_not_import_mutation_services(self) -> None:
         # project.current is a read-side control projection. Keep it decoupled

@@ -26,7 +26,7 @@ from __future__ import annotations
 
 import posixpath
 from datetime import UTC, datetime
-from typing import Any, Protocol
+from typing import Any
 
 from ..domain.sync_contract import (
     ARTIFACTS_TO_KEEP_DIRNAME,
@@ -43,6 +43,7 @@ from ..domain.sync_contract import (
 from ..state.store import StateStore, row_to_dict
 from ..utils import PermissionDeniedError, ResearchPluginError, new_id, now_iso
 from ..sandbox_support import iso_after, parse_iso
+from ..ports.sandbox_sync import RunningSandboxRows, RunningSandboxSyncRow, SyncTarget
 
 
 # TRANSFER_CONTRACT_VERSION pins the shared transfer rules (rsync excludes +
@@ -57,11 +58,6 @@ DEFAULT_LEASE_TTL_SECONDS = 120
 # the expiry parachute (plan Phase 5, decision 5) fires when the pull fails
 # or a split-mode daemon misses the deadline.
 DEFAULT_FINAL_PULL_DEADLINE_SECONDS = 120
-
-
-class RunningSandboxRows(Protocol):
-    def list_running_rows(self) -> list[dict[str, Any]]:
-        ...
 
 
 def build_sync_session(
@@ -349,7 +345,9 @@ class SyncSessionService:
             lease=lease,
         )
 
-    def grant_for_row(self, *, row: dict[str, Any], name: str = "") -> dict[str, Any]:
+    def grant_for_row(
+        self, *, row: RunningSandboxSyncRow | dict[str, Any], name: str = ""
+    ) -> dict[str, Any]:
         """Grant a session from a sandboxes row's provider-portable facts."""
         experiment_id = str(row.get("experiment_id") or "")
         return self.grant(
@@ -389,17 +387,17 @@ class InProcessControlPlaneView:
         self.registry = registry
         self.sessions = sessions
 
-    def sync_targets(self, *, tenant_id: str | None = None) -> list[dict[str, Any]]:
+    def sync_targets(self, *, tenant_id: str | None = None) -> list[SyncTarget]:
         tenant_id = (tenant_id or "").strip()
-        targets: list[dict[str, Any]] = []
-        for row in self.registry.list_running_rows():
+        targets: list[SyncTarget] = []
+        for row in self.registry.list_running_sync_rows():
             if tenant_id and str(row.get("tenant_id") or "") != tenant_id:
                 continue
             try:
                 session = self.sessions.grant_for_row(row=row)
             except ResearchPluginError:
                 continue  # leased to another client — not ours to sync
-            targets.append({"row": row, "session": session})
+            targets.append(SyncTarget(row=row, session=session))
         return targets
 
 
