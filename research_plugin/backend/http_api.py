@@ -20,6 +20,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse, Response
 
 from . import __version__
+from .admin_http import register_admin_routes
 from .app import ResearchPluginApp
 from .version import CLIENT_VERSION_HEADER, MIN_PROXY_VERSION, is_below_floor, meta
 from .contracts import DATA_PLANE_TOOL_NAMES, PROJECT_SCOPED_TOOL_NAMES, SandboxReleaseInput
@@ -1914,31 +1915,14 @@ def create_fastapi_app(
                 ref=payload.get("ref"),
             )
 
-    # ---- cloud cleanup sweep trigger (cloud plan Phase 9) ----
-    # A scheduling SEAM, not a scheduler: a managed cron / sidecar tick POSTs
-    # here to run one idempotent cleanup pass (orphan VMs, blob TTL GC, lease
-    # expiry, stale-provision reap). Control-mode only (cleanup injected) and
-    # principal-gated by the middleware above. No body; returns the per-sweep
-    # counts so the caller can log/alert.
-    if cleanup is not None:
-        @http.post("/api/admin/cleanup")
-        def admin_cleanup(request: Request) -> dict[str, Any]:
-            require_admin_principal(request)
-            return {"cleaned": cleanup.run_all().as_dict()}
-
-        # RED-ish per-tenant counters (cloud plan Phase 9). Control-mode admin
-        # read; principal-gated by the middleware. Tenants inspect their own
-        # usage; an explicit admin client can inspect any tenant. Reuses the
-        # events table + the generation ledger — no new audit store.
-        @http.get("/api/admin/tenants/{tenant_id}/counters")
-        def admin_tenant_counters(
-            tenant_id: str, request: Request
-        ) -> dict[str, Any]:
-            from .observability import TenantCounters
-
-            require_tenant_or_admin(request, tenant_id)
-            assert api is not None
-            return TenantCounters(store=api.app.store).for_tenant(tenant_id=tenant_id)
+    # Control-admin routes: optional cleanup trigger plus tenant counters.
+    register_admin_routes(
+        http,
+        store=api.app.store if api is not None else None,
+        cleanup=cleanup,
+        require_admin=require_admin_principal,
+        require_tenant_or_admin=require_tenant_or_admin,
+    )
 
     if sync_targets_source is not None:
         @http.get("/api/daemon/sync-targets")

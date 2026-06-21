@@ -1181,6 +1181,19 @@ class ControlModeAuthTest(unittest.TestCase):
         self.assertEqual(ok.json()["cleaned"], {"ok": True})
         self.assertEqual(cleanup.calls, 1)
 
+    def test_admin_routes_are_absent_without_cleanup_service(self) -> None:
+        admin_token = self.auth.mint_token(tenant_id="ops", client_id="admin")
+        headers = {"Authorization": f"Bearer {admin_token}"}
+
+        cleanup = self.client.post("/api/admin/cleanup", headers=headers)
+        self.assertEqual(cleanup.status_code, 404, cleanup.text)
+
+        counters = self.client.get(
+            "/api/admin/tenants/acme/counters",
+            headers=headers,
+        )
+        self.assertEqual(counters.status_code, 404, counters.text)
+
     def test_control_mcp_catalog_hides_data_plane_tools(self) -> None:
         resp = self.client.get(
             "/mcp/tools", headers={"Authorization": f"Bearer {self.token}"}

@@ -955,6 +955,27 @@ class ServiceLayoutTest(unittest.TestCase):
                     source,
                 )
 
+    def test_admin_http_routes_are_lifted_out_of_main_factory(self) -> None:
+        source = (BACKEND_ROOT / "http_api.py").read_text(encoding="utf-8")
+        admin_source = (BACKEND_ROOT / "admin_http.py").read_text(encoding="utf-8")
+
+        self.assertEqual(
+            _import_module_names(BACKEND_ROOT / "admin_http.py"),
+            {"collections.abc", "typing", "fastapi", "observability"},
+        )
+        self.assertIn("register_admin_routes(", source)
+        self.assertIn('"/api/admin/cleanup"', admin_source)
+        self.assertIn('"/api/admin/tenants/{tenant_id}/counters"', admin_source)
+        self.assertNotIn('"/api/admin/cleanup"', source)
+        self.assertNotIn('"/api/admin/tenants/{tenant_id}/counters"', source)
+        self.assertNotIn("TenantCounters", source)
+        self.assertIn("store=api.app.store", source)
+        self.assertNotIn("app=api.app", source)
+        self.assertNotIn("app.", admin_source)
+        self.assertIn("cleanup.run_all().as_dict()", admin_source)
+        self.assertIn("require_admin(request)", admin_source)
+        self.assertIn("require_tenant_or_admin(request, tenant_id)", admin_source)
+
     def test_transport_delegates_submitted_resource_blob_reads_to_service(self) -> None:
         source = (BACKEND_ROOT / "http_api.py").read_text(encoding="utf-8")
 
