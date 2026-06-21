@@ -21,7 +21,7 @@ from backend.execution.backends.lambda_labs.sandbox_backend import (
     build_user_data,
 )
 from backend.execution.backends.modal.sandbox_backend import BOOT_SCRIPT
-from backend.services.sandbox_mgmt_keys import LocalMgmtKeyStore
+from backend.state.mgmt_keys import LocalMgmtKeyStore
 from tests.fakes import FakeRsyncSyncer
 
 

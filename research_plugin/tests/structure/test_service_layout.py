@@ -384,9 +384,7 @@ class ServiceLayoutTest(unittest.TestCase):
         self.assertNotIn(
             "sandbox_mgmt_keys", _import_segments(SERVICES / "sandboxes.py")
         )
-        self.assertNotIn(
-            "ports.mgmt_keys", _import_module_names(SERVICES / "sandbox_mgmt_keys.py")
-        )
+        self.assertFalse((SERVICES / "sandbox_mgmt_keys.py").exists())
         self.assertNotIn("class QuotaAdmission", _source("sandboxes.py"))
         self.assertNotIn("class ControlPlaneView", _source("sandbox_daemons.py"))
         self.assertNotIn("class SyncSessionIssuer", _source("sandbox_provisioner.py"))

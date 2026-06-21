@@ -14,6 +14,7 @@ import ast
 import os
 import subprocess
 import sys
+import tempfile
 import unittest
 from pathlib import Path
 from typing import get_type_hints
@@ -26,15 +27,6 @@ from backend.contracts import (
 )
 from tests.paths import BACKEND_ROOT, DOMAIN_ROOT, PORTS_ROOT, SERVICES_ROOT
 
-
-# The only services modules allowed to spawn local processes (ssh/rsync/
-# ssh-keygen/tunnels). Everything else in services/ must stay cloud-servable.
-# sandbox_mgmt_keys is control-plane property (plan Phase 5) but mints keys
-# with ssh-keygen — a process the control VM runs itself, never user-machine
-# IO.
-SUBPROCESS_ALLOWED = {
-    "sandbox_mgmt_keys.py",
-}
 
 # Record halves that must be servable from a cloud control plane: no local
 # processes, no rsync/conn machinery, no dataplane worker.
@@ -130,6 +122,113 @@ def _top_level_import_segments(path: Path) -> set[str]:
     return segments
 
 
+def _call_name(node: ast.AST) -> str:
+    if isinstance(node, ast.Name):
+        return node.id
+    if isinstance(node, ast.Attribute):
+        owner = _call_name(node.value)
+        return f"{owner}.{node.attr}" if owner else node.attr
+    return ""
+
+
+def _import_aliases(tree: ast.AST) -> dict[str, str]:
+    aliases: dict[str, str] = {}
+    for node in ast.walk(tree):
+        if isinstance(node, ast.Import):
+            for alias in node.names:
+                aliases[alias.asname or alias.name.split(".", 1)[0]] = alias.name
+        elif isinstance(node, ast.ImportFrom) and node.module:
+            for alias in node.names:
+                aliases[alias.asname or alias.name] = f"{node.module}.{alias.name}"
+    return aliases
+
+
+def _resolve_call_name(name: str, aliases: dict[str, str]) -> str:
+    if not name:
+        return ""
+    parts = name.split(".", 1)
+    head = aliases.get(parts[0], parts[0])
+    return f"{head}.{parts[1]}" if len(parts) == 2 else head
+
+
+def _literal_args(node: ast.Call) -> list[str]:
+    values: list[str] = []
+    for arg in node.args:
+        if isinstance(arg, ast.Constant) and isinstance(arg.value, str):
+            values.append(arg.value)
+    return values
+
+
+def _process_spawn_references(path: Path) -> set[str]:
+    tree = ast.parse(path.read_text(encoding="utf-8"))
+    aliases = _import_aliases(tree)
+    references: set[str] = set()
+    spawn_calls = {
+        "asyncio.create_subprocess_exec",
+        "asyncio.create_subprocess_shell",
+        "os.execl",
+        "os.execle",
+        "os.execlp",
+        "os.execlpe",
+        "os.execv",
+        "os.execve",
+        "os.execvp",
+        "os.execvpe",
+        "os.popen",
+        "os.posix_spawn",
+        "os.posix_spawnp",
+        "os.spawnl",
+        "os.spawnle",
+        "os.spawnlp",
+        "os.spawnlpe",
+        "os.spawnv",
+        "os.spawnve",
+        "os.spawnvp",
+        "os.spawnvpe",
+        "os.system",
+        "subprocess.call",
+        "subprocess.check_call",
+        "subprocess.check_output",
+        "subprocess.Popen",
+        "subprocess.run",
+    }
+    for node in ast.walk(tree):
+        if isinstance(node, ast.Import):
+            for alias in node.names:
+                if alias.name == "subprocess":
+                    references.add("import subprocess")
+        elif isinstance(node, ast.ImportFrom):
+            if node.module == "subprocess":
+                references.add("from subprocess import ...")
+        elif isinstance(node, ast.Call):
+            name = _resolve_call_name(_call_name(node.func), aliases)
+            if name in spawn_calls:
+                references.add(name)
+            if name == "__import__" and "subprocess" in _literal_args(node):
+                references.add("__import__('subprocess')")
+            if name == "importlib.import_module" and "subprocess" in _literal_args(node):
+                references.add("importlib.import_module('subprocess')")
+    return references
+
+
+def _imports_management_key_adapter(path: Path) -> bool:
+    tree = ast.parse(path.read_text(encoding="utf-8"))
+    for node in ast.walk(tree):
+        if isinstance(node, ast.Import):
+            for alias in node.names:
+                if alias.name.endswith("state.mgmt_keys"):
+                    return True
+        elif isinstance(node, ast.ImportFrom) and node.module:
+            module = node.module
+            if module.endswith("state.mgmt_keys"):
+                return True
+            if module.endswith("state") and any(
+                alias.name == "mgmt_keys" for alias in node.names
+            ):
+                return True
+    return False
+
+
 class ToolPlanePartitionTest(unittest.TestCase):
     def test_every_tool_has_a_plane(self) -> None:
         for name, contract in TOOL_CONTRACTS.items():
@@ -163,12 +262,51 @@ class ToolPlanePartitionTest(unittest.TestCase):
 
 
 class PlaneImportLintTest(unittest.TestCase):
+    def test_process_spawn_lint_catches_alias_forms(self) -> None:
+        source = """
+import os as ops
+from os import system as run_cmd
+from asyncio import create_subprocess_exec
+from importlib import import_module as load
+
+ops.popen("cmd")
+run_cmd("cmd")
+create_subprocess_exec("cmd")
+load("subprocess")
+"""
+        with tempfile.TemporaryDirectory() as tmp:
+            path = Path(tmp) / "service.py"
+            path.write_text(source, encoding="utf-8")
+            self.assertEqual(
+                _process_spawn_references(path),
+                {
+                    "os.popen",
+                    "os.system",
+                    "asyncio.create_subprocess_exec",
+                    "importlib.import_module('subprocess')",
+                },
+            )
+
+    def test_management_key_adapter_lint_catches_import_forms(self) -> None:
+        cases = (
+            "import backend.state.mgmt_keys\n",
+            "from backend.state import mgmt_keys\n",
+            "from ..state.mgmt_keys import LocalMgmtKeyStore\n",
+        )
+        with tempfile.TemporaryDirectory() as tmp:
+            for index, source in enumerate(cases):
+                path = Path(tmp) / f"service_{index}.py"
+                path.write_text(source, encoding="utf-8")
+                with self.subTest(source=source.strip()):
+                    self.assertTrue(_imports_management_key_adapter(path))
+
     def test_only_sandbox_io_modules_spawn_processes(self) -> None:
         for path in sorted(SERVICES_ROOT.glob("*.py")):
-            if path.name in SUBPROCESS_ALLOWED:
-                continue
             with self.subTest(module=path.name):
-                self.assertNotIn("subprocess", _imports(path))
+                self.assertFalse(
+                    _process_spawn_references(path),
+                    f"{path.name} references process-spawn APIs",
+                )
 
     def test_control_modules_import_no_local_io(self) -> None:
         # Hard from Phase 3: the record halves must be provably IO-free so the
@@ -385,6 +523,20 @@ for name in (
         ):
             self.assertNotIn(forbidden, source)
 
+    def test_management_key_store_is_adapter_not_service(self) -> None:
+        # The service layer depends on the MgmtKeyStore port only. The local
+        # filesystem/ssh-keygen implementation belongs to composition-state
+        # wiring, not services/.
+        self.assertFalse((SERVICES_ROOT / "sandbox_mgmt_keys.py").exists())
+        for path in sorted(SERVICES_ROOT.glob("*.py")):
+            with self.subTest(module=path.name):
+                self.assertFalse(_imports_management_key_adapter(path))
+                self.assertNotIn("LocalMgmtKeyStore", path.read_text(encoding="utf-8"))
+        imports = _import_segments(BACKEND_ROOT / "state" / "mgmt_keys.py")
+        self.assertIn("subprocess", imports)
+        self.assertNotIn("services", imports)
+        self.assertIn("mgmt_keys", _import_segments(BACKEND_ROOT / "local_runtime.py"))
+
     def test_app_keeps_local_runtime_module_import_lazy(self) -> None:
         # Importing backend.app should not import backend.local_runtime itself.
         # Other local/data collaborators still need their own extraction chunks.
@@ -406,6 +558,7 @@ for name in (
     "backend.dataplane.sandbox_conn",
     "backend.execution.ssh_rsync",
     "backend.services.sandbox_conn",
+    "backend.state.mgmt_keys",
 ):
     if name in sys.modules:
         raise SystemExit(f"{name} loaded")
