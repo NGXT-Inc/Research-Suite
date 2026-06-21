@@ -177,7 +177,7 @@ class SandboxService:
             mgmt_keys=self.mgmt_keys,
             tasks=task_channel,
             worker=self.worker,
-            tenant_for_project=lambda project_id: self._tenant_for_project(
+            tenant_for_project=lambda project_id: self.registry.tenant_for_project(
                 project_id=project_id
             ),
         )
@@ -338,7 +338,7 @@ class SandboxService:
         #     is already past this gate — only fresh procurement is governed.
         self.quotas.check_admission(
             request=AdmissionRequest(
-                tenant_id=self._tenant_for_project(project_id=project_id),
+                tenant_id=self.registry.tenant_for_project(project_id=project_id),
                 time_limit_seconds=int(time_limit),
                 price_usd_per_hour=self._price_for_instance(
                     instance_type=instance_type, region=region
@@ -969,7 +969,7 @@ class SandboxService:
                     "row": fresh,
                     "name": self.registry.experiment_name(experiment_id=experiment_id),
                 },
-                tenant_id=self._tenant_for_project(project_id=str(fresh.get("project_id") or "")),
+                tenant_id=self.registry.tenant_for_project(project_id=str(fresh.get("project_id") or "")),
             )
         except Exception:  # noqa: BLE001 — refresh must never break the caller
             pass
@@ -1005,7 +1005,7 @@ class SandboxService:
                 "skip_if_busy": bool(skip_if_busy),
                 "row": row,
             },
-            tenant_id=str(row.get("tenant_id") or self._tenant_for_project(project_id=str(row.get("project_id") or ""))),
+            tenant_id=str(row.get("tenant_id") or self.registry.tenant_for_project(project_id=str(row.get("project_id") or ""))),
         )
         if not result.get("skipped"):
             self._report_pull(row=row, session=session, result=result)
@@ -1026,7 +1026,7 @@ class SandboxService:
             task_type="final_pull",
             payload={"session": session, "name": name, "row": row},
             deadline=iso_after(seconds=DEFAULT_FINAL_PULL_DEADLINE_SECONDS),
-            tenant_id=str(row.get("tenant_id") or self._tenant_for_project(project_id=str(row.get("project_id") or ""))),
+            tenant_id=str(row.get("tenant_id") or self.registry.tenant_for_project(project_id=str(row.get("project_id") or ""))),
         )
         if not result.get("skipped"):
             self._report_pull(row=row, session=session, result=result)
@@ -1106,12 +1106,6 @@ class SandboxService:
 
     def _local_sync_dir(self, *, experiment_id: str) -> Path:
         return self.worker.local_experiment_dir(
-            experiment_id=experiment_id,
-            name=self.registry.experiment_name(experiment_id=experiment_id),
-        )
-
-    def _pulled_mlflow_db_path(self, *, experiment_id: str) -> Path:
-        return self.worker.pulled_mlflow_db_path(
             experiment_id=experiment_id,
             name=self.registry.experiment_name(experiment_id=experiment_id),
         )
@@ -1206,17 +1200,6 @@ class SandboxService:
         )
 
     # ---------- backend introspection ----------
-
-    def _tenant_for_project(self, *, project_id: str) -> str:
-        """The owning tenant of a project (cloud plan Phase 7), 'local' default."""
-        conn = self.store.connect()
-        try:
-            row = conn.execute(
-                "SELECT tenant_id FROM projects WHERE id = ?", (project_id,)
-            ).fetchone()
-        finally:
-            conn.close()
-        return str(row["tenant_id"]) if row is not None else "local"
 
     def _tenant_for_experiment(self, *, experiment_id: str) -> str:
         conn = self.store.connect()

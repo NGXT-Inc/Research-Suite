@@ -8,7 +8,7 @@ from pathlib import Path, PurePosixPath
 from typing import Any, Mapping
 
 from ....env import env_int
-from ...errors import BackendValidationError
+from ....sandbox_backend import BackendValidationError
 from ...sync_dirs import DEFAULT_DATA_DIR, DEFAULT_REMOTE_ROOT, SESSIONS_DIRNAME
 
 

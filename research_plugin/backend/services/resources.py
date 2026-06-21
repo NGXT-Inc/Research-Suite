@@ -930,17 +930,3 @@ class ResourceService:
             assoc["target_type"] = external_reflection_target_type(assoc.get("target_type"))
         data["associations"] = associations
         return data
-
-    def _get_version(
-        self, *, conn: Connection, project_id: str, resource_id: str, version_id: str
-    ) -> dict[str, Any]:
-        resource = conn.execute("SELECT id FROM resources WHERE id = ? AND project_id = ?", (resource_id, project_id)).fetchone()
-        if resource is None:
-            raise NotFoundError(f"resource not found in project {project_id}: {resource_id}")
-        row = conn.execute(
-            "SELECT * FROM resource_versions WHERE id = ? AND resource_id = ? AND project_id = ?",
-            (version_id, resource_id, project_id),
-        ).fetchone()
-        if row is None:
-            raise NotFoundError(f"resource version not found: {version_id}")
-        return self._hydrate_version(row=row, conn=conn)

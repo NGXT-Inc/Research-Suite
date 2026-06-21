@@ -8,7 +8,7 @@ import shlex
 import time
 from typing import Any
 
-from ...errors import BackendUnavailableError
+from ....sandbox_backend import BackendUnavailableError
 
 
 # Retryable errors while Modal releases a prior sandbox filesystem operation.

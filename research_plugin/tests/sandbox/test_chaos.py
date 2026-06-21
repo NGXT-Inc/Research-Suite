@@ -24,7 +24,7 @@ from pathlib import Path
 from backend.app import ResearchPluginApp
 from backend.config import MGMT_KEY_PATH_ENV_VAR, MGMT_PUBLIC_KEY_ENV_VAR
 from backend.execution.backends.fake import FakeSandboxBackend
-from backend.execution.types import BackendCapabilities
+from backend.sandbox_backend import BackendCapabilities
 from backend.services.cleanup import CleanupService
 from backend.services.sync_sessions import LeaseService
 from backend.utils import PermissionDeniedError

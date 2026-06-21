@@ -14,8 +14,6 @@ or live content.
 
 from __future__ import annotations
 
-from typing import Any
-
 from ..state.blobs import BlobStore
 from ..state.store import Connection
 from ..utils import NotFoundError, WorkflowError
@@ -109,33 +107,3 @@ def pinned_text_for_version(
         raise WorkflowError(
             f"{what} ({path}) is not valid UTF-8 text"
         ) from exc
-
-
-def pinned_version_row(
-    *,
-    conn: Connection,
-    target_type: str,
-    target_id: str,
-    role: str,
-    attempt_index: int,
-) -> dict[str, Any] | None:
-    """The newest current-attempt association row for ``role`` (or None)."""
-    row = conn.execute(
-        """
-        SELECT a.version_id, r.path, r.project_id
-        FROM resource_associations a
-        JOIN resources r ON r.id = a.resource_id
-        WHERE a.target_type = ? AND a.target_id = ? AND a.role = ?
-          AND a.attempt_index = ? AND r.deleted = 0
-        ORDER BY a.created_seq DESC
-        LIMIT 1
-        """,
-        (target_type, target_id, role, attempt_index),
-    ).fetchone()
-    if row is None:
-        return None
-    return {
-        "version_id": str(row["version_id"]) if row["version_id"] else None,
-        "path": str(row["path"]),
-        "project_id": str(row["project_id"]),
-    }

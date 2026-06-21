@@ -286,7 +286,7 @@ class SandboxProvisioner:
                             detail=f"waiting for remote workspace (attempt {attempt}/{attempts})",
                         ),
                     },
-                    tenant_id=self._tenant_for_project(project_id=project_id),
+                    tenant_id=self.registry.tenant_for_project(project_id=project_id),
                 )
             except Exception:
                 self._terminate_quietly(sandbox_id=provisioned.sandbox_id)
@@ -457,16 +457,6 @@ class SandboxProvisioner:
         if sandbox_name is not None:
             fields["sandbox_name"] = sandbox_name
         self.registry.upsert(experiment_id=experiment_id, **fields)
-
-    def _tenant_for_project(self, *, project_id: str) -> str:
-        conn = self.registry.store.connect()
-        try:
-            row = conn.execute(
-                "SELECT tenant_id FROM projects WHERE id = ?", (project_id,)
-            ).fetchone()
-        finally:
-            conn.close()
-        return str(row["tenant_id"]) if row is not None else "local"
 
     def reap_stale_provisions(
         self, *, now: datetime, deadline_seconds: float

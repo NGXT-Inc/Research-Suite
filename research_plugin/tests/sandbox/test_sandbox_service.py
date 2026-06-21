@@ -12,7 +12,7 @@ from unittest.mock import MagicMock, patch
 from backend.app import ResearchPluginApp
 from backend.http_api import ResearchHttpApi
 from backend.execution.backends.fake import FakeSandboxBackend
-from backend.execution.types import SandboxRequest
+from backend.sandbox_backend import SandboxRequest
 from backend.utils import NotFoundError, PermissionDeniedError, ValidationError
 from tests.fakes import FakeProcess, FakeRsyncSyncer, write_fake_mlflow_db
 
@@ -587,7 +587,7 @@ class SandboxServiceTest(unittest.TestCase):
         # but the rsync pull captured its mlflow.db. The first read extracts
         # the archive from that file and persists it.
         exp_id = self._experiment()
-        db_path = self.app.sandboxes._pulled_mlflow_db_path(experiment_id=exp_id)
+        db_path = self.app.sandboxes.worker.pulled_mlflow_db_path(experiment_id=exp_id, name=self.app.sandboxes.registry.experiment_name(experiment_id=exp_id))
         write_fake_mlflow_db(db_path)
         result = self.app.sandboxes.results_metrics(
             experiment_id=exp_id, project_id=self.project_id
@@ -927,7 +927,7 @@ class SandboxServiceTest(unittest.TestCase):
 
     def _require_hardware_selection(self) -> None:
         """Flip the fake backend into Lambda-style bundled-hardware behavior."""
-        from backend.execution.types import BackendCapabilities
+        from backend.sandbox_backend import BackendCapabilities
 
         self.backend.capabilities = BackendCapabilities(
             name="fake",

@@ -6,8 +6,8 @@ import unittest
 from pathlib import Path
 from unittest import mock
 
-from backend.execution.errors import BackendUnavailableError, BackendValidationError
-from backend.execution.types import SandboxRequest
+from backend.sandbox_backend import BackendUnavailableError, BackendValidationError
+from backend.sandbox_backend import SandboxRequest
 from backend.execution.backends.modal.config import ModalConfig
 from backend.execution.backends.modal.sandbox_backend import ModalSandboxBackend
 from tests.fakes import FakeProcess

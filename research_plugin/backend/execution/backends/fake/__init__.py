@@ -10,14 +10,14 @@ from pathlib import Path
 from urllib.parse import urlsplit
 from urllib.request import url2pathname
 
-from ...errors import BackendUnavailableError
+from ....sandbox_backend import BackendUnavailableError
 from ...sync_dirs import DEFAULT_DATA_DIR, remote_experiment_dir
 from ...transfer_spec import (
     build_parachute_script,
     is_excluded_relpath,
     max_size_bytes_for,
 )
-from ...types import (
+from ....sandbox_backend import (
     BackendCapabilities,
     OnCreated,
     OnPhase,

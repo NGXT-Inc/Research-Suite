@@ -474,9 +474,6 @@ class ServiceLayoutTest(unittest.TestCase):
         self.assertIn(Protocol, SynthesisExperimentWriter.__mro__)
         self.assertIn(Protocol, SynthesisProjectWriter.__mro__)
 
-    def test_reflection_policy_service_module_is_a_compatibility_shim(self) -> None:
-        self.assertEqual(_import_modules("reflection_policy.py"), {"domain"})
-
     def test_sandbox_lifecycle_workers_use_ports_not_concrete_services(self) -> None:
         self.assertNotIn(
             "experiments", _import_segments(SERVICES / "sandbox_provisioner.py")

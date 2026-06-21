@@ -17,7 +17,7 @@ from pathlib import Path
 
 from backend.app import ResearchPluginApp
 from backend.execution.backends.fake import FakeSandboxBackend
-from backend.execution.types import BackendCapabilities
+from backend.sandbox_backend import BackendCapabilities
 from backend.services.cleanup import CleanupService
 from tests.fakes import FakeRsyncSyncer
 

@@ -43,6 +43,17 @@ class SandboxRegistry:
         finally:
             conn.close()
 
+    def tenant_for_project(self, *, project_id: str) -> str:
+        """The owning tenant of a project (cloud plan Phase 7), 'local' default."""
+        conn = self.store.connect()
+        try:
+            row = conn.execute(
+                "SELECT tenant_id FROM projects WHERE id = ?", (project_id,)
+            ).fetchone()
+        finally:
+            conn.close()
+        return str(row["tenant_id"]) if row is not None else "local"
+
     def fetch_scoped(
         self,
         *,
