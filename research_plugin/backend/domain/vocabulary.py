@@ -29,6 +29,9 @@ EXPERIMENT_ACTIVE_PROCESS_STATUSES = frozenset({"provisioning", "running"})
 
 RESOURCE_TARGET_TYPES = frozenset({"experiment", "reflection", "claim", "review", "attempt"})
 
+LOCAL_TENANT_ID = "local"
+LOCAL_CLIENT_ID = "local"
+
 PROJECT_GRAPH_ROLE = "project_graph"
 LEGACY_PROJECT_GRAPH_ROLE = "graph"
 PROJECT_GRAPH_ROLES = (PROJECT_GRAPH_ROLE, LEGACY_PROJECT_GRAPH_ROLE)

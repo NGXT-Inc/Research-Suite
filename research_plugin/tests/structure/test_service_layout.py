@@ -62,6 +62,30 @@ def _class_method_names(path: Path, class_name: str) -> set[str]:
     raise AssertionError(f"{class_name} not found in {path}")
 
 
+def _assigned_names(path: Path) -> set[str]:
+    tree = ast.parse(path.read_text(encoding="utf-8"))
+    names: set[str] = set()
+
+    def collect(target: ast.expr) -> None:
+        if isinstance(target, ast.Name):
+            names.add(target.id)
+        elif isinstance(target, (ast.Tuple, ast.List)):
+            for item in target.elts:
+                collect(item)
+
+    for node in ast.walk(tree):
+        targets: list[ast.expr] = []
+        if isinstance(node, ast.Assign):
+            targets = list(node.targets)
+        elif isinstance(node, ast.AnnAssign):
+            targets = [node.target]
+        elif isinstance(node, ast.AugAssign):
+            targets = [node.target]
+        for target in targets:
+            collect(target)
+    return names
+
+
 VOCABULARY_NAMES = {
     "CLAIM_CONFIDENCES",
     "CLAIM_STATUSES",
@@ -74,6 +98,8 @@ VOCABULARY_NAMES = {
     "LEGACY_REFLECTION_DOC_ROLE",
     "LEGACY_REFLECTION_LENS_DOC_ROLE",
     "LEGACY_RESOURCE_ROLES",
+    "LOCAL_CLIENT_ID",
+    "LOCAL_TENANT_ID",
     "PROJECT_GRAPH_ROLE",
     "PROJECT_GRAPH_ROLES",
     "REFLECTION_LENS_DOC_ROLE",
@@ -428,6 +454,8 @@ class ServiceLayoutTest(unittest.TestCase):
     def test_review_service_uses_permission_port(self) -> None:
         imports = _import_segments(SERVICES / "reviews.py")
         self.assertNotIn("permissions", imports)
+        self.assertNotIn("identity", imports)
+        self.assertIn("domain", imports)
         self.assertIn("review_targets", imports)
         source = _source("reviews.py")
         self.assertIn("permissions: ReviewPolicy", source)
@@ -545,6 +573,22 @@ class ServiceLayoutTest(unittest.TestCase):
         for name in ("project_overview.py", "workflow_views.py", "syntheses.py"):
             with self.subTest(module=name):
                 self.assertNotIn("workflow_gates", _import_segments(SERVICES / name))
+
+    def test_identity_constants_are_domain_vocabulary(self) -> None:
+        from backend.domain.vocabulary import LOCAL_CLIENT_ID, LOCAL_TENANT_ID
+        from backend.services.identity import LOCAL_PRINCIPAL
+
+        self.assertEqual(LOCAL_TENANT_ID, "local")
+        self.assertEqual(LOCAL_CLIENT_ID, "local")
+        self.assertEqual(LOCAL_PRINCIPAL.tenant_id, LOCAL_TENANT_ID)
+        self.assertEqual(LOCAL_PRINCIPAL.client_id, LOCAL_CLIENT_ID)
+        self.assertFalse(
+            {"LOCAL_TENANT_ID", "LOCAL_CLIENT_ID"}
+            & _assigned_names(SERVICES / "identity.py")
+        )
+        self.assertIn("domain.vocabulary", _import_module_names(SERVICES / "identity.py"))
+        self.assertNotIn("identity", _import_segments(SERVICES / "reviews.py"))
+        self.assertNotIn("services.identity", _source("reviews.py"))
 
     def test_view_modules_do_not_import_service_state_machines(self) -> None:
         for name in ("experiment_views.py", "workflow_views.py"):

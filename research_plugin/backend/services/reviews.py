@@ -12,13 +12,12 @@ from typing import Any
 from ..utils import NotFoundError, PermissionDeniedError, ValidationError
 from ..utils import new_id
 from ..state.blobs import BlobStore
-from ..domain.vocabulary import GATED_ROLES
+from ..domain.vocabulary import GATED_ROLES, LOCAL_TENANT_ID
 from ..ports.review_targets import (
     ExperimentReviewTarget,
     ReviewPolicy,
     SynthesisReviewTarget,
 )
-from .identity import LOCAL_TENANT_ID
 from ..state.store import StateStore, next_created_seq, row_to_dict
 from ..utils import now_iso
 
@@ -27,9 +26,9 @@ def _hash_capability(capability: str) -> str:
     """Stored form of a reviewer capability (cloud plan Phase 7).
 
     A reviewer capability is a high-entropy one-time token (token_urlsafe), so
-    sha256 is the correct fast hash — same rationale as services.identity's
-    bearer-token hashing. Never store the plaintext; review.start hashes the
-    presented token and compares with hmac.compare_digest.
+    sha256 is the correct fast hash for a random bearer secret. Never store the
+    plaintext; review.start hashes the presented token and compares with
+    hmac.compare_digest.
     """
     return hashlib.sha256(capability.encode("utf-8")).hexdigest()
 

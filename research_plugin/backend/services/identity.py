@@ -28,15 +28,9 @@ import secrets
 from dataclasses import dataclass
 from datetime import UTC, datetime
 
+from ..domain.vocabulary import LOCAL_CLIENT_ID, LOCAL_TENANT_ID
 from ..state.store import BaseStateStore
 from ..utils import now_iso
-
-
-# Local-mode identity: a single implicit tenant, auth off (cloud plan Phase 7).
-# Injected by the principal middleware when auth is not required, so local-mode
-# code paths carry a principal without any token round trip.
-LOCAL_TENANT_ID = "local"
-LOCAL_CLIENT_ID = "local"
 
 
 @dataclass(frozen=True)
