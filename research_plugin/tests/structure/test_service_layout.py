@@ -900,6 +900,57 @@ class ServiceLayoutTest(unittest.TestCase):
         self.assertNotIn("open_synthesis", block)
         self.assertNotIn("latest_published", block)
 
+    def test_http_transport_does_not_own_raw_persistence(self) -> None:
+        path = BACKEND_ROOT / "http_api.py"
+        tree = ast.parse(path.read_text(encoding="utf-8"))
+        parents: dict[ast.AST, ast.AST] = {}
+        for parent in ast.walk(tree):
+            for child in ast.iter_child_nodes(parent):
+                parents[child] = parent
+
+        def enclosing_function(node: ast.AST) -> str | None:
+            parent = parents.get(node)
+            while parent is not None:
+                if isinstance(parent, ast.FunctionDef):
+                    return parent.name
+                parent = parents.get(parent)
+            return None
+
+        def stringish(node: ast.AST) -> str | None:
+            if isinstance(node, ast.Constant) and isinstance(node.value, str):
+                return node.value
+            if isinstance(node, ast.JoinedStr):
+                parts: list[str] = []
+                for value in node.values:
+                    if isinstance(value, ast.Constant) and isinstance(value.value, str):
+                        parts.append(value.value)
+                    else:
+                        parts.append("{}")
+                return "".join(parts)
+            return None
+
+        sql_re = re.compile(
+            r"(?is)^\s*(WITH\b|PRAGMA\b|CREATE\s+TABLE\b|ALTER\s+TABLE\b|DROP\s+TABLE\b|SELECT\b|INSERT\b.+\bINTO\b|UPDATE\b.+\bSET\b|DELETE\b.+\bFROM\b)"
+        )
+        raw_sql: list[tuple[int, str]] = []
+        execute_calls: list[int] = []
+        connect_calls: list[tuple[str, str]] = []
+        for node in ast.walk(tree):
+            text = stringish(node)
+            if text is not None and sql_re.search(text):
+                raw_sql.append((node.lineno, text.strip().splitlines()[0]))
+            if isinstance(node, ast.Call) and isinstance(node.func, ast.Attribute):
+                if node.func.attr == "execute":
+                    execute_calls.append(node.lineno)
+                if node.func.attr == "connect":
+                    connect_calls.append(
+                        (enclosing_function(node) or "<module>", ast.unparse(node.func.value))
+                    )
+
+        self.assertEqual(raw_sql, [])
+        self.assertEqual(execute_calls, [])
+        self.assertEqual(connect_calls, [("project_logic_graph", "self.app.store")])
+
     def test_transport_delegates_graph_ref_resolution_to_service(self) -> None:
         source = (BACKEND_ROOT / "http_api.py").read_text(encoding="utf-8")
         self.assertIn("self.app.graph_refs.resolve_index", source)
