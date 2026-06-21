@@ -10,8 +10,8 @@ from __future__ import annotations
 import hashlib
 import mimetypes
 from pathlib import Path
-from typing import Any
 
+from ..ports.resource_records import ResourceObservation
 from ..utils import NotFoundError, ValidationError
 from .repo_paths import resolve_repo_path
 
@@ -29,7 +29,7 @@ class LocalResourceObserver:
         kind: str = "other",
         title: str = "",
         created_by: str = "codex",
-    ) -> dict[str, Any]:
+    ) -> ResourceObservation:
         rel_path, file_path = self.resolve_repo_file(path=path)
         stat = file_path.stat()
         return {

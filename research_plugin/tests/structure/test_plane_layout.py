@@ -321,6 +321,24 @@ for name in (
         self.assertNotIn("class SandboxWorkflowReader", source)
         self.assertNotIn("class ReflectionWorkflowReader", source)
 
+    def test_resource_service_uses_record_ports(self) -> None:
+        # ResourceService is the control-safe record half. Local observation
+        # belongs to the local composition edge, not to the record service.
+        imports = _import_segments(SERVICES_ROOT / "resources.py")
+        self.assertIn("resource_records", imports)
+        self.assertNotIn("permissions", imports)
+        source = (SERVICES_ROOT / "resources.py").read_text(encoding="utf-8")
+        self.assertIn("permissions: ResourceAssociationPolicy", source)
+        self.assertNotIn("observer: ResourceObserver", source)
+        self.assertNotIn("self.observer", source)
+        self.assertNotIn("def register_file(", source)
+        self.assertNotIn("class ResourceObserver", source)
+        self.assertNotIn("class ResourceAssociationPolicy", source)
+        app_source = (BACKEND_ROOT / "app.py").read_text(encoding="utf-8")
+        self.assertIn("def register_resource_file(", app_source)
+        self.assertIn("resource_register_file=self.register_resource_file", app_source)
+        self.assertIn("self.resource_observer.observe_file", app_source)
+
     def test_reflection_tools_do_not_import_mutation_service(self) -> None:
         # reflection.* is a tool-namespace adapter. It should compose against a
         # narrow protocol instead of importing the internal synthesis mutation

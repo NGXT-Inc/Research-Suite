@@ -6,32 +6,14 @@ import hashlib
 import os
 import sqlite3
 from pathlib import Path
-from typing import Any, Protocol
+from typing import Any
 
 from ..utils import NotFoundError, ValidationError, new_id, now_iso
+from ..ports.resource_records import ResourceAssociationPolicy
 from ..state.blobs import BlobStore
 from ..state.store import StateStore, next_created_seq, row_to_dict, rows_to_dicts
 from ..domain.markdown_images import MARKDOWN_FIGURE_MAX_BYTES, markdown_image_links
 from ..domain.vocabulary import GATED_ROLE_BYTE_CAPS
-
-
-class ResourceObserver(Protocol):
-    def observe_file(
-        self,
-        *,
-        path: str,
-        kind: str = "other",
-        title: str = "",
-        created_by: str = "codex",
-    ) -> dict[str, Any]: ...
-
-
-class ResourceAssociationPolicy(Protocol):
-    def validate_resource_association(self, *, target_type: str, role: str) -> None:
-        ...
-
-    def storage_resource_target_type(self, *, target_type: str) -> str:
-        ...
 
 
 class ResourceService:
@@ -42,68 +24,11 @@ class ResourceService:
         *,
         store: StateStore,
         permissions: ResourceAssociationPolicy,
-        observer: ResourceObserver,
         blobs: BlobStore | None = None,
     ) -> None:
         self.store = store
         self.permissions = permissions
-        # The observer is the local data-plane half of resource.register_file:
-        # path resolution, stat, hashing, and content-type sniffing happen
-        # there; this service only records the supplied observation.
-        self.observer = observer
         self.blobs = blobs
-
-    def register_file(
-        self,
-        *,
-        path: str | None = None,
-        paths: list[str] | None = None,
-        kind: str = "other",
-        title: str = "",
-        created_by: str = "codex",
-        project_id: str | None = None,
-    ) -> dict[str, Any]:
-        """Register/observe one file (``path``) or a batch (``paths``).
-
-        A single ``path`` returns the resolved resource. A ``paths`` batch
-        returns ``{"synced": [...], "count": n}`` so one tool covers both the
-        single-file and changed-files-sweep cases.
-        """
-        if paths:
-            resources = [
-                self._register_one(
-                    path=p, kind=kind, title=title, created_by=created_by, project_id=project_id
-                )
-                for p in paths
-            ]
-            return {"synced": resources, "count": len(resources)}
-        if not path:
-            raise ValidationError(
-                "resource.register_file requires 'path' (a single file) or 'paths' (a batch)"
-            )
-        return self._register_one(
-            path=path, kind=kind, title=title, created_by=created_by, project_id=project_id
-        )
-
-    def _register_one(
-        self,
-        *,
-        path: str,
-        kind: str = "other",
-        title: str = "",
-        created_by: str = "codex",
-        project_id: str | None = None,
-    ) -> dict[str, Any]:
-        observation = self.observer.observe_file(
-            path=path,
-            kind=kind,
-            title=title,
-            created_by=created_by,
-        )
-        return self.record_observation(
-            project_id=project_id,
-            **observation,
-        )
 
     def record_observation(
         self,

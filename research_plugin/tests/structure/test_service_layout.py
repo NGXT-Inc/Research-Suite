@@ -3,7 +3,7 @@ from __future__ import annotations
 import ast
 import unittest
 from pathlib import Path
-from typing import get_type_hints
+from typing import get_type_hints, is_typeddict
 
 from tests.paths import BACKEND_ROOT, DOMAIN_ROOT, PLUGIN_ROOT, PORTS_ROOT, SERVICES_ROOT
 
@@ -166,6 +166,7 @@ class ServiceLayoutTest(unittest.TestCase):
             "project_readers.py": {"typing"},
             "quota_admission.py": {"domain.quota_contract", "typing"},
             "reflection_waves.py": {"typing"},
+            "resource_records.py": {"typing"},
             "review_targets.py": {"typing"},
             "sandbox_lifecycle.py": {"datetime", "typing"},
             "sandbox_sync.py": {"typing"},
@@ -240,6 +241,40 @@ class ServiceLayoutTest(unittest.TestCase):
             _class_method_names(workflow_reader_path, "ReflectionWorkflowReader"),
             {"open_synthesis", "reflection_signal"},
         )
+        resource_record_path = PORTS_ROOT / "resource_records.py"
+        resource_record_source = resource_record_path.read_text(encoding="utf-8")
+        self.assertIn("class ResourceObservation", resource_record_source)
+        self.assertIn("class ResourceObserver", resource_record_source)
+        self.assertIn("class ResourceAssociationPolicy", resource_record_source)
+        self.assertEqual(
+            _class_method_names(resource_record_path, "ResourceObserver"),
+            {"observe_file"},
+        )
+        self.assertEqual(
+            _class_method_names(resource_record_path, "ResourceAssociationPolicy"),
+            {"validate_resource_association", "storage_resource_target_type"},
+        )
+        from backend.ports.resource_records import ResourceObservation, ResourceObserver
+
+        self.assertTrue(is_typeddict(ResourceObservation))
+        self.assertEqual(
+            set(get_type_hints(ResourceObservation)),
+            {
+                "path",
+                "kind",
+                "title",
+                "created_by",
+                "mtime_ns",
+                "ctime_ns",
+                "size_bytes",
+                "content_sha256",
+                "content_type",
+            },
+        )
+        self.assertIs(
+            get_type_hints(ResourceObserver.observe_file)["return"],
+            ResourceObservation,
+        )
 
     def test_reflection_policy_service_module_is_a_compatibility_shim(self) -> None:
         self.assertEqual(_import_modules("reflection_policy.py"), {"domain"})
@@ -261,16 +296,20 @@ class ServiceLayoutTest(unittest.TestCase):
         self.assertNotIn("experiments", daemon_imports)
         self.assertNotIn("sandbox_provisioner", daemon_imports)
 
-    def test_resource_registration_observation_uses_observer_port(self) -> None:
+    def test_resource_service_records_observations_without_local_observer(self) -> None:
         source = _source("resources.py")
-        start = source.index("    def _register_one(")
-        end = source.index("    def record_observation(")
-        register_slice = source[start:end]
+        imports = _import_segments(SERVICES / "resources.py")
 
-        self.assertIn("self.observer.observe_file", register_slice)
-        self.assertNotIn("_resolve_repo_file", register_slice)
-        self.assertNotIn("_content_sha256", register_slice)
-        self.assertNotIn(".stat(", register_slice)
+        self.assertIn("resource_records", imports)
+        self.assertIn("def record_observation(", source)
+        self.assertNotIn("observer: ResourceObserver", source)
+        self.assertNotIn("self.observer", source)
+        self.assertNotIn("observe_file", source)
+        self.assertNotIn("def register_file(", source)
+        self.assertNotIn("def _register_one(", source)
+        self.assertNotIn("_resolve_repo_file", source)
+        self.assertNotIn("def _content_sha256(", source)
+        self.assertNotIn("file_path.stat(", source)
 
     def test_resource_association_uses_submitted_artifact_bytes(self) -> None:
         source = _source("resources.py")
@@ -292,7 +331,17 @@ class ServiceLayoutTest(unittest.TestCase):
         self.assertNotIn("backfill_gated_blobs", source)
 
     def test_resource_service_uses_permission_port(self) -> None:
-        self.assertNotIn("permissions", _import_segments(SERVICES / "resources.py"))
+        source = _source("resources.py")
+        imports = _import_segments(SERVICES / "resources.py")
+
+        self.assertNotIn("permissions", imports)
+        self.assertIn("resource_records", imports)
+        self.assertIn("permissions: ResourceAssociationPolicy", source)
+        self.assertNotIn("class ResourceAssociationPolicy", source)
+
+        from backend.services.resources import ResourceService
+
+        get_type_hints(ResourceService.__init__)
 
     def test_review_service_uses_permission_port(self) -> None:
         imports = _import_segments(SERVICES / "reviews.py")

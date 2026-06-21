@@ -111,7 +111,11 @@ class ToolDispatcherTest(unittest.TestCase):
 
 class ToolHandlerRegistryTest(unittest.TestCase):
     def test_local_handlers_cover_every_contract(self) -> None:
-        handlers = build_local_tool_handlers(**_handler_targets())
+        target = _HandlerTarget()
+        handlers = build_local_tool_handlers(
+            **_handler_targets(),
+            resource_register_file=target.register_file,
+        )
 
         self.assertEqual(set(handlers), set(TOOL_CONTRACTS))
 

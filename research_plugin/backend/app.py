@@ -104,7 +104,6 @@ class ResearchPluginApp:
         self.resources = ResourceService(
             store=self.store,
             permissions=self.permissions,
-            observer=self.resource_observer,
             blobs=self.blobs,
         )
         # One-time local upgrade: capture bytes for gated associations made
@@ -172,6 +171,7 @@ class ResearchPluginApp:
                 experiments=self.experiments,
                 reflections=self.reflections,
                 resources=self.resources,
+                resource_register_file=self.register_resource_file,
                 resource_associate=self.associate_resource,
                 reviews=self.reviews,
                 sandboxes=self.sandboxes,
@@ -207,6 +207,61 @@ class ResearchPluginApp:
             ):
                 backfilled += 1
         return backfilled
+
+    def register_resource_file(
+        self,
+        *,
+        path: str | None = None,
+        paths: list[str] | None = None,
+        kind: str = "other",
+        title: str = "",
+        created_by: str = "codex",
+        project_id: str | None = None,
+    ) -> dict[str, Any]:
+        """Observe local file(s), then submit record-safe observations."""
+        if paths:
+            resources = [
+                self._record_observed_resource(
+                    path=p,
+                    kind=kind,
+                    title=title,
+                    created_by=created_by,
+                    project_id=project_id,
+                )
+                for p in paths
+            ]
+            return {"synced": resources, "count": len(resources)}
+        if not path:
+            raise ValidationError(
+                "resource.register_file requires 'path' (a single file) or 'paths' (a batch)"
+            )
+        return self._record_observed_resource(
+            path=path,
+            kind=kind,
+            title=title,
+            created_by=created_by,
+            project_id=project_id,
+        )
+
+    def _record_observed_resource(
+        self,
+        *,
+        path: str,
+        kind: str = "other",
+        title: str = "",
+        created_by: str = "codex",
+        project_id: str | None = None,
+    ) -> dict[str, Any]:
+        observation = self.resource_observer.observe_file(
+            path=path,
+            kind=kind,
+            title=title,
+            created_by=created_by,
+        )
+        return self.resources.record_observation(
+            project_id=project_id,
+            **observation,
+        )
 
     def associate_resource(
         self,
