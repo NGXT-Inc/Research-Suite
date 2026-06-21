@@ -27,6 +27,7 @@ from datetime import UTC, datetime, timedelta
 from pathlib import Path
 from typing import Any, Iterator
 
+from ..domain.tool_call_stats import by_tool, tool_call_totals
 from ..utils import now_iso
 from .activity import SENSITIVE_KEYS, jsonable, payload_chars
 
@@ -208,20 +209,8 @@ class ToolCallStore:
             ).fetchone()
 
         calls = [dict(r) for r in rows]
-        totals = dict(empty_totals)
-        agg: dict[str, dict[str, Any]] = {}
-        for c in calls:
-            totals["calls"] += 1
-            totals["sent_chars"] += c["sent_chars"]
-            totals["received_chars"] += c["received_chars"]
-            if c["status"] == "error":
-                totals["error_calls"] += 1
-            self._accumulate(agg, c)
-        by_tool = sorted(
-            (self._finalize_bucket(b) for b in agg.values()),
-            key=lambda b: b["received_chars"],
-            reverse=True,
-        )
+        totals = tool_call_totals(calls)
+        tool_rows = by_tool(calls)
 
         calls.sort(key=lambda c: (c.get(sort) if c.get(sort) is not None else 0), reverse=reverse)
         oldest = min((c["ts"] for c in calls), default=None)
@@ -229,7 +218,7 @@ class ToolCallStore:
         capped = self._coverage_capped(ring=ring, scoped=scoped, minutes=minutes)
         return {
             "calls": calls[:limit],
-            "by_tool": by_tool,
+            "by_tool": tool_rows,
             "totals": totals,
             "coverage": {
                 "calls": totals["calls"],
@@ -443,47 +432,6 @@ class ToolCallStore:
         where = (" WHERE " + " AND ".join(clauses)) if clauses else ""
         return where, params
 
-    @staticmethod
-    def _accumulate(agg: dict[str, dict[str, Any]], call: dict[str, Any]) -> None:
-        bucket = agg.setdefault(
-            call["tool"],
-            {
-                "tool": call["tool"],
-                "calls": 0,
-                "error_calls": 0,
-                "sent_chars": 0,
-                "received_chars": 0,
-                "max_received_chars": 0,
-                "max_sent_chars": 0,
-                "_dur_sum": 0,
-                "max_duration_ms": 0,
-                "_recv_samples": [],
-                "last_ts": None,
-            },
-        )
-        bucket["calls"] += 1
-        bucket["error_calls"] += 1 if call["status"] == "error" else 0
-        bucket["sent_chars"] += call["sent_chars"]
-        bucket["received_chars"] += call["received_chars"]
-        bucket["max_received_chars"] = max(bucket["max_received_chars"], call["received_chars"])
-        bucket["max_sent_chars"] = max(bucket["max_sent_chars"], call["sent_chars"])
-        bucket["_dur_sum"] += call["duration_ms"]
-        bucket["max_duration_ms"] = max(bucket["max_duration_ms"], call["duration_ms"])
-        bucket["_recv_samples"].append(call["received_chars"])
-        if bucket["last_ts"] is None or call["ts"] > bucket["last_ts"]:
-            bucket["last_ts"] = call["ts"]
-
-    @staticmethod
-    def _finalize_bucket(bucket: dict[str, Any]) -> dict[str, Any]:
-        count = bucket["calls"] or 1
-        samples = sorted(bucket.pop("_recv_samples"))
-        bucket["avg_received_chars"] = round(bucket["received_chars"] / count)
-        bucket["avg_sent_chars"] = round(bucket["sent_chars"] / count)
-        bucket["avg_duration_ms"] = round(bucket.pop("_dur_sum") / count)
-        bucket["p50_received_chars"] = _percentile(samples, 50)
-        bucket["p95_received_chars"] = _percentile(samples, 95)
-        return bucket
-
     def _coverage_capped(
         self, *, ring: sqlite3.Row | None, scoped: sqlite3.Row | None, minutes: int | None
     ) -> bool:
@@ -502,15 +450,6 @@ class ToolCallStore:
         # Ring is full AND the oldest still-stored matching call is inside the
         # window → there may be matching calls that were already evicted.
         return oldest is None or oldest >= cutoff
-
-
-def _percentile(sorted_values: list[int], q: int) -> int:
-    if not sorted_values:
-        return 0
-    if len(sorted_values) == 1:
-        return sorted_values[0]
-    rank = max(1, -(-q * len(sorted_values) // 100))  # ceil(q/100 * n)
-    return sorted_values[min(rank, len(sorted_values)) - 1]
 
 
 def _parse_ts(value: Any) -> datetime | None:

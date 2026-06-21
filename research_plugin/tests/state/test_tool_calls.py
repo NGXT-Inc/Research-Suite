@@ -6,15 +6,17 @@ import tempfile
 import unittest
 from pathlib import Path
 
-from backend.state.tool_calls import ToolCallStore, _percentile
+from backend.control_runtime import ControlToolCallSink
+from backend.domain.tool_call_stats import percentile
+from backend.state.tool_calls import ToolCallStore
 
 
 class PercentileTest(unittest.TestCase):
-    def test_nearest_rank(self) -> None:
-        self.assertEqual(_percentile([], 95), 0)
-        self.assertEqual(_percentile([42], 95), 42)
-        self.assertEqual(_percentile([1, 2, 3, 4], 50), 2)
-        self.assertEqual(_percentile(list(range(1, 101)), 95), 95)
+    def test_inclusive_quantile(self) -> None:
+        self.assertEqual(percentile([], 95), 0)
+        self.assertEqual(percentile([42], 95), 42)
+        self.assertEqual(percentile([1, 2, 3, 4], 50), 2)
+        self.assertEqual(percentile(list(range(1, 101)), 95), 95)
 
 
 class ToolCallStoreTest(unittest.TestCase):
@@ -167,6 +169,67 @@ class ToolCallStoreTest(unittest.TestCase):
         store.record(tool="t", source="mcp", status="ok", duration_ms=1, arguments={}, result={})
         self.assertEqual(store.stats()["totals"]["calls"], 0)
         self.assertIsNone(store.get(call_id=1))
+
+
+class ToolCallStatsParityTest(unittest.TestCase):
+    def test_local_and_control_rollups_match(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            store = ToolCallStore(db_path=Path(tmp) / "tc.sqlite")
+            control = ControlToolCallSink()
+            for sink in (store, control):
+                sink.record(
+                    tool="experiment.get_state",
+                    source="mcp",
+                    status="ok",
+                    duration_ms=10,
+                    arguments={"project_id": "p"},
+                    result={"blob": "a"},
+                )
+                sink.record(
+                    tool="experiment.get_state",
+                    source="mcp",
+                    status="ok",
+                    duration_ms=30,
+                    arguments={"project_id": "p"},
+                    result={"blob": "b" * 20},
+                )
+                sink.record(
+                    tool="sandbox.request",
+                    source="mcp",
+                    status="error",
+                    duration_ms=40,
+                    arguments={"project_id": "p"},
+                    error="unavailable",
+                    error_code="unavailable",
+                )
+
+            local_stats = store.stats(limit=50)
+            control_stats = control.stats(limit=50)
+            self.assertEqual(control_stats["totals"], local_stats["totals"])
+            self.assertEqual(
+                self._without_last_ts(control_stats["by_tool"]),
+                self._without_last_ts(local_stats["by_tool"]),
+            )
+
+    def test_rollup_helpers_are_single_sourced(self) -> None:
+        backend = Path(__file__).resolve().parents[2] / "backend"
+        for rel_path in ("state/tool_calls.py", "control_runtime.py"):
+            source = (backend / rel_path).read_text(encoding="utf-8")
+            with self.subTest(module=rel_path):
+                self.assertNotIn("def _percentile", source)
+                self.assertNotIn("def _by_tool", source)
+                self.assertNotIn("def _accumulate", source)
+                self.assertNotIn("def _finalize_bucket", source)
+                self.assertIn("domain.tool_call_stats", source)
+
+    @staticmethod
+    def _without_last_ts(rows: list[dict]) -> list[dict]:
+        normalized = []
+        for row in rows:
+            copy = dict(row)
+            copy.pop("last_ts", None)
+            normalized.append(copy)
+        return normalized
 
 
 if __name__ == "__main__":

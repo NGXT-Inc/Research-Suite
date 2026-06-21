@@ -7,6 +7,7 @@ from datetime import UTC, datetime, timedelta
 from pathlib import Path
 from typing import Any
 
+from .domain.tool_call_stats import by_tool, tool_call_totals
 from .state.activity import (
     cap_result,
     effective_source,
@@ -184,12 +185,7 @@ class ControlToolCallSink:
                 project_ids=project_ids,
             )
         ]
-        totals = {
-            "calls": len(calls),
-            "sent_chars": sum(int(row["sent_chars"]) for row in calls),
-            "received_chars": sum(int(row["received_chars"]) for row in calls),
-            "error_calls": sum(1 for row in calls if row["status"] == "error"),
-        }
+        totals = tool_call_totals(calls)
         sortable = {"ts", "received_chars", "sent_chars", "duration_ms", "tool"}
         sort = sort if sort in sortable else "ts"
         calls.sort(
@@ -200,7 +196,7 @@ class ControlToolCallSink:
         visible = [_tool_call_summary(row) for row in calls[:limit]]
         return {
             "calls": visible,
-            "by_tool": _by_tool(calls),
+            "by_tool": by_tool(calls),
             "totals": totals,
             "coverage": {
                 "calls": totals["calls"],
@@ -383,44 +379,3 @@ def _tool_call_summary(row: dict[str, Any]) -> dict[str, Any]:
             "target_id",
         )
     }
-
-
-def _by_tool(calls: list[dict[str, Any]]) -> list[dict[str, Any]]:
-    buckets: dict[str, dict[str, Any]] = {}
-    for call in calls:
-        tool = str(call["tool"])
-        bucket = buckets.setdefault(
-            tool,
-            {
-                "tool": tool,
-                "calls": 0,
-                "error_calls": 0,
-                "sent_chars": 0,
-                "received_chars": 0,
-                "max_received_chars": 0,
-                "_received": [],
-            },
-        )
-        received = int(call["received_chars"])
-        bucket["calls"] += 1
-        bucket["error_calls"] += 1 if call["status"] == "error" else 0
-        bucket["sent_chars"] += int(call["sent_chars"])
-        bucket["received_chars"] += received
-        bucket["max_received_chars"] = max(bucket["max_received_chars"], received)
-        bucket["_received"].append(received)
-    rows = []
-    for bucket in buckets.values():
-        samples = sorted(bucket.pop("_received"))
-        count = int(bucket["calls"] or 1)
-        bucket["avg_received_chars"] = round(bucket["received_chars"] / count)
-        bucket["p50_received_chars"] = _percentile(samples, 50)
-        bucket["p95_received_chars"] = _percentile(samples, 95)
-        rows.append(bucket)
-    return sorted(rows, key=lambda row: row["received_chars"], reverse=True)
-
-
-def _percentile(sorted_values: list[int], q: int) -> int:
-    if not sorted_values:
-        return 0
-    index = round((q / 100) * (len(sorted_values) - 1))
-    return sorted_values[max(0, min(index, len(sorted_values) - 1))]
