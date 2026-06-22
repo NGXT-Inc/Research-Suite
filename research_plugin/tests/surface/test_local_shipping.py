@@ -180,9 +180,12 @@ class LocalShippingTest(unittest.TestCase):
         manifest = json.loads((self.install_dir / ".codex-plugin" / "plugin.json").read_text())
         mcp_config = json.loads((self.install_dir / manifest["mcpServers"]).read_text())
         server = mcp_config["mcpServers"]["research-plugin"]
+        command = Path(server["command"])
+        if not command.is_absolute():
+            command = self.install_dir / command
         env = {**self._clean_env(), **server.get("env", {}), **(extra_env or {})}
         return subprocess.Popen(
-            [server["command"], *server.get("args", [])],
+            [str(command), *server.get("args", [])],
             cwd=self.research_repo,
             env=env,
             stdin=subprocess.PIPE,
@@ -237,6 +240,7 @@ class LocalShippingTest(unittest.TestCase):
         mcp_config = json.loads((self.install_dir / manifest["mcpServers"]).read_text())
         command = mcp_config["mcpServers"]["research-plugin"]["command"]
         command_path = Path(command)
+        self.assertFalse(command_path.is_absolute(), "Codex MCP launcher must be plugin-relative")
         if not command_path.is_absolute():
             command_path = self.install_dir / command_path
         self.assertTrue(command_path.exists())

@@ -160,6 +160,7 @@ export RESEARCH_PLUGIN_EXECUTION_BACKEND=fake
 
 ## Documentation
 
+- [docs/startup.txt](docs/startup.txt) - terse local-mode command sequence
 - [docs/STARTUP_CHEATSHEET.md](docs/STARTUP_CHEATSHEET.md) - local startup flow
 - [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) - backend and mode architecture
 - [docs/CLIENTS.md](docs/CLIENTS.md) - Claude Code, Codex, Cursor, Gemini CLI, OpenCode

@@ -9,7 +9,7 @@ is stdlib-only. Each client gets a thin adapter on top of the same `bin/`,
 | Client | Adapter | MCP registration | Skills | Reviewer subagents |
 |---|---|---|---|---|
 | Claude Code | `.claude-plugin/plugin.json` + `.mcp.json` | `${CLAUDE_PLUGIN_ROOT}` launcher path; cwd = project root | `skills/` auto-discovered | `agents/` auto-discovered (`research-plugin:` namespace) |
-| Codex | `.codex-plugin/plugin.json` + `.mcp.codex.json` | absolute launcher path; cwd = project root | `skills/` via manifest | spawned via review skills |
+| Codex | `.codex-plugin/plugin.json` + `.mcp.codex.json` | plugin-relative launcher path; cwd = project root | `skills/` via manifest | spawned via review skills |
 | Cursor | `.cursor-plugin/plugin.json` + `mcp.json` | `${workspaceFolder}` env var (cwd is NOT the workspace) | `skills/` auto-discovered (Agent Skills standard) | `agents/` auto-discovered |
 | Gemini CLI | `gemini-extension.json` + `GEMINI.md` | `${extensionPath}` launcher, `${workspacePath}` env var | `skills/` auto-discovered (Agent Skills standard) | `agents/` auto-discovered |
 | OpenCode | `clients/opencode/` (installer + agents + config example) | `opencode.json` `mcp` block; cwd = project root by default | symlinked into `~/.config/opencode/skills/` | symlinked into `~/.config/opencode/agents/` |
