@@ -1,0 +1,118 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1200" height="1010" viewBox="0 0 1200 1010" font-family="Segoe UI, Helvetica, Arial, sans-serif">
+  <defs>
+    <marker id="arrow" markerWidth="10" markerHeight="10" refX="7" refY="3" orient="auto" markerUnits="strokeWidth">
+      <path d="M0,0 L7,3 L0,6 Z" fill="#475569"/>
+    </marker>
+  </defs>
+
+  <rect x="0" y="0" width="1200" height="1010" fill="#ffffff"/>
+
+  <!-- Title -->
+  <text x="600" y="38" text-anchor="middle" font-size="24" font-weight="700" fill="#0f172a">research_plugin backend — highest-level logical components</text>
+  <text x="600" y="62" text-anchor="middle" font-size="13" fill="#64748b">A strictly acyclic seven-layer stack inside the HTTP daemon. Imports point downward, toward stable pure leaves.</text>
+
+  <!-- Actors -->
+  <rect x="150" y="84" width="430" height="50" rx="8" fill="#f1f5f9" stroke="#94a3b8"/>
+  <text x="365" y="106" text-anchor="middle" font-size="14" font-weight="600" fill="#334155">AI Agent — Codex / Claude Code / Cursor / Gemini</text>
+  <text x="365" y="124" text-anchor="middle" font-size="11" fill="#64748b">via stateless MCP stdio proxy  →  /mcp/* tools</text>
+
+  <rect x="640" y="84" width="410" height="50" rx="8" fill="#f1f5f9" stroke="#94a3b8"/>
+  <text x="845" y="106" text-anchor="middle" font-size="14" font-weight="600" fill="#334155">Browser UI</text>
+  <text x="845" y="124" text-anchor="middle" font-size="11" fill="#64748b">via HTTP  →  /api/* read model</text>
+
+  <!-- entry arrows -->
+  <line x1="365" y1="134" x2="365" y2="183" stroke="#475569" stroke-width="1.6" marker-end="url(#arrow)"/>
+  <line x1="845" y1="134" x2="845" y2="183" stroke="#475569" stroke-width="1.6" marker-end="url(#arrow)"/>
+
+  <!-- Daemon container -->
+  <rect x="40" y="150" width="1120" height="668" rx="12" fill="none" stroke="#cbd5e1" stroke-width="1.5" stroke-dasharray="6 5"/>
+  <text x="58" y="172" font-size="12" font-weight="700" fill="#94a3b8" letter-spacing="1">HTTP DAEMON PROCESS  ·  backend/</text>
+
+  <!-- L1 Transport -->
+  <rect x="70" y="184" width="1060" height="78" rx="8" fill="#dbeafe" stroke="#3b82f6"/>
+  <text x="86" y="206" font-size="14" font-weight="700" fill="#1e40af">1 · TRANSPORT</text>
+  <text x="232" y="206" font-size="11" fill="#1e40af">HTTP / MCP edge — the only outward-facing surface</text>
+  <text x="86" y="228" font-size="12" fill="#1e3a8a">http_server · http_api (/api/* UI) · mcp_http (/mcp/* tools) · daemon_http · admin_http · feed_http</text>
+  <text x="86" y="248" font-size="12" fill="#1e3a8a">tools/:  TOOL_CONTRACTS  «single source of truth for routing + plane»  ·  tool_facade  ·  tool_handlers</text>
+
+  <line x1="600" y1="262" x2="600" y2="282" stroke="#475569" stroke-width="1.6" marker-end="url(#arrow)"/>
+
+  <!-- L2 Composition -->
+  <rect x="70" y="283" width="1060" height="66" rx="8" fill="#cffafe" stroke="#06b6d4"/>
+  <text x="86" y="305" font-size="14" font-weight="700" fill="#0e7490">2 · COMPOSITION</text>
+  <text x="246" y="305" font-size="11" fill="#0e7490">wiring / mode dispatch — the only mode-aware layer</text>
+  <rect x="800" y="291" width="322" height="22" rx="6" fill="#ecfeff" stroke="#06b6d4"/>
+  <text x="961" y="306" text-anchor="middle" font-size="11" fill="#0e7490">RESEARCH_PLUGIN_MODE = local · control · daemon</text>
+  <text x="86" y="333" font-size="12" fill="#155e75">config.resolve_mode · build_local_app | control_mode | daemon_mode · app · control/ runtime · daemon/ router</text>
+
+  <line x1="600" y1="349" x2="600" y2="369" stroke="#475569" stroke-width="1.6" marker-end="url(#arrow)"/>
+
+  <!-- L3 Services -->
+  <rect x="70" y="370" width="1060" height="100" rx="8" fill="#dcfce7" stroke="#22c55e"/>
+  <text x="86" y="392" font-size="14" font-weight="700" fill="#15803d">3 · SERVICES</text>
+  <text x="216" y="392" font-size="11" fill="#15803d">orchestration / business logic (the thickest layer)</text>
+  <text x="86" y="416" font-size="12" fill="#14532d">Research model:  projects · claims · experiments · reviews · syntheses · workflow   (+ read projections, graph_refs)</text>
+  <text x="86" y="438" font-size="12" fill="#14532d">Sandbox subsystem:  registry · provisioner · daemons · metrics · parachute · sync_sessions</text>
+  <text x="86" y="458" font-size="12" fill="#14532d">Feed  ·  permissions · quotas · cleanup · identity</text>
+
+  <line x1="600" y1="470" x2="600" y2="490" stroke="#475569" stroke-width="1.6" marker-end="url(#arrow)"/>
+
+  <!-- L4 Adapters -->
+  <rect x="70" y="491" width="1060" height="118" rx="8" fill="#ffedd5" stroke="#f97316"/>
+  <text x="86" y="513" font-size="14" font-weight="700" fill="#c2410c">4 · ADAPTERS</text>
+  <text x="226" y="513" font-size="11" fill="#c2410c">IO — three sibling sub-tiers, reached only through ports</text>
+
+  <rect x="86" y="523" width="332" height="74" rx="6" fill="#fff7ed" stroke="#fb923c"/>
+  <text x="252" y="543" text-anchor="middle" font-size="12" font-weight="700" fill="#9a3412">STATE</text>
+  <text x="252" y="563" text-anchor="middle" font-size="10.5" fill="#7c2d12">SQLite / Postgres store ·</text>
+  <text x="252" y="579" text-anchor="middle" font-size="10.5" fill="#7c2d12">blobs (local / S3) · activity log</text>
+
+  <rect x="434" y="523" width="332" height="74" rx="6" fill="#fff7ed" stroke="#fb923c"/>
+  <text x="600" y="543" text-anchor="middle" font-size="12" font-weight="700" fill="#9a3412">DATA PLANE</text>
+  <text x="600" y="563" text-anchor="middle" font-size="10.5" fill="#7c2d12">rsync · file observation ·</text>
+  <text x="600" y="579" text-anchor="middle" font-size="10.5" fill="#7c2d12">SSH key custody  (local FS only)</text>
+
+  <rect x="782" y="523" width="332" height="74" rx="6" fill="#fff7ed" stroke="#fb923c"/>
+  <text x="948" y="543" text-anchor="middle" font-size="12" font-weight="700" fill="#9a3412">EXECUTION</text>
+  <text x="948" y="563" text-anchor="middle" font-size="10.5" fill="#7c2d12">SandboxBackend port →</text>
+  <text x="948" y="579" text-anchor="middle" font-size="10.5" fill="#7c2d12">Lambda Labs (default) · Modal · fake</text>
+
+  <line x1="600" y1="609" x2="600" y2="629" stroke="#475569" stroke-width="1.6" marker-end="url(#arrow)"/>
+
+  <!-- L5 Ports -->
+  <rect x="70" y="630" width="1060" height="54" rx="8" fill="#f3e8ff" stroke="#a855f7"/>
+  <text x="86" y="652" font-size="14" font-weight="700" fill="#7e22ce">5 · PORTS</text>
+  <text x="186" y="652" font-size="11" fill="#7e22ce">Protocol seams — dependency inversion, ≥2 implementations across modes</text>
+  <text x="86" y="674" font-size="12" fill="#6b21a8">SandboxWorker · MgmtKeyStore · TaskChannel · MetricsArchive · ResourceObserver · QuotaAdmission · ReviewPolicy · …</text>
+
+  <line x1="600" y1="684" x2="600" y2="704" stroke="#475569" stroke-width="1.6" marker-end="url(#arrow)"/>
+
+  <!-- L6 Domain -->
+  <rect x="70" y="705" width="1060" height="80" rx="8" fill="#e0e7ff" stroke="#6366f1"/>
+  <text x="86" y="727" font-size="14" font-weight="700" fill="#4338ca">6 · DOMAIN</text>
+  <text x="206" y="727" font-size="11" fill="#4338ca">pure policy leaves — no IO, minimal imports (AST-enforced)</text>
+  <text x="86" y="749" font-size="12" fill="#3730a3">workflow_gates · synthesis_gates · review_gates  «derived from one GATE_TABLE»  ·  vocabulary · reflection_policy</text>
+  <text x="86" y="769" font-size="12" fill="#3730a3">graph_lint · resource_selection · review_snapshot · quota_contract · sync_contract  (stdlib + ..utils only)</text>
+
+  <!-- External resources -->
+  <line x1="252" y1="818" x2="252" y2="850" stroke="#475569" stroke-width="1.4" marker-end="url(#arrow)"/>
+  <line x1="600" y1="818" x2="600" y2="850" stroke="#475569" stroke-width="1.4" marker-end="url(#arrow)"/>
+  <line x1="948" y1="818" x2="948" y2="850" stroke="#475569" stroke-width="1.4" marker-end="url(#arrow)"/>
+
+  <rect x="120" y="851" width="264" height="58" rx="8" fill="#f8fafc" stroke="#94a3b8"/>
+  <text x="252" y="876" text-anchor="middle" font-size="12" font-weight="600" fill="#475569">Record store</text>
+  <text x="252" y="894" text-anchor="middle" font-size="11" fill="#64748b">SQLite / Postgres</text>
+
+  <rect x="468" y="851" width="264" height="58" rx="8" fill="#f8fafc" stroke="#94a3b8"/>
+  <text x="600" y="876" text-anchor="middle" font-size="12" font-weight="600" fill="#475569">Blob store</text>
+  <text x="600" y="894" text-anchor="middle" font-size="11" fill="#64748b">local dir / S3</text>
+
+  <rect x="816" y="851" width="264" height="58" rx="8" fill="#f8fafc" stroke="#94a3b8"/>
+  <text x="948" y="876" text-anchor="middle" font-size="12" font-weight="600" fill="#475569">Cloud GPU sandboxes</text>
+  <text x="948" y="894" text-anchor="middle" font-size="11" fill="#64748b">Lambda / Modal — SSH + rsync</text>
+
+  <!-- Footer -->
+  <text x="600" y="945" text-anchor="middle" font-size="11.5" fill="#475569">▼  Dependencies point downward only — strictly acyclic (Tarjan-verified), import bans machine-enforced in tests/structure/.</text>
+  <text x="600" y="965" text-anchor="middle" font-size="11.5" fill="#475569">Runtime split: a stateless MCP stdio proxy fronts this daemon; in cloud mode the same code separates into a CONTROL plane</text>
+  <text x="600" y="983" text-anchor="middle" font-size="11.5" fill="#475569">(records · gates · quotas · auth) and a DATA plane (rsync · keys · file IO) — the cloud never sees the user's local filesystem.</text>
+</svg>
