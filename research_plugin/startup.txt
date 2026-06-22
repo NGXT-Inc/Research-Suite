@@ -22,7 +22,8 @@ curl -s http://127.0.0.1:8787/api/projects
 cd /path/to/research/repo
 codex
 
-# Plugin refresh, only after changing manifests/MCP config/skills/agents
+# Plugin refresh, only after changing manifests/MCP config/skills/agents.
+# Root marketplace files are local-only generated state and are gitignored.
 codex plugin marketplace add "$RESEARCH_SUITE"
 codex plugin remove research-plugin@research-suite-local
 codex plugin add research-plugin@research-suite-local

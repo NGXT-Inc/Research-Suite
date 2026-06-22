@@ -1,8 +1,0 @@
-import os, socket
-from pathlib import Path
-x = 100
-artifact = Path(os.environ["NL_ARTIFACT_DIR"]) / "remote_metric.txt"
-artifact.parent.mkdir(parents=True, exist_ok=True)
-artifact.write_text(f"host={socket.gethostname()} x={x}\n", encoding="utf-8")
-print("updated remote host", socket.gethostname())
-print("updated artifact", artifact)

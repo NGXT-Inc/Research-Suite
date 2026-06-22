@@ -47,10 +47,11 @@ export RESEARCH_PLUGIN=/Users/guraltoo/Documents/dev/proj/experiments/Papyrus/re
 
 ## One-Time Plugin Setup
 
-Register the local plugin marketplace from the parent Papyrus repo:
+Register the local plugin marketplace from the parent repo. Marketplace cache
+files at the repo root are local development state and are not tracked.
 
 ```bash
-codex plugin marketplace add /Users/guraltoo/Documents/dev/proj/experiments/Papyrus
+codex plugin marketplace add /Users/guraltoo/Documents/dev/proj/experiments/research-suite
 ```
 
 Then open Codex in the target research repo:

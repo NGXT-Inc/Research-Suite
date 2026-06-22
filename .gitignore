@@ -12,3 +12,10 @@ research_plugin/.versioning_real_user_project/
 **/.env.*
 
 logs/
+
+# Root-local development and agent workspace files.
+/.agents/
+/.claude/
+/.claude-plugin/
+/.codex/
+/tmp/

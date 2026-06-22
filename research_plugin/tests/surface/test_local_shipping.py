@@ -244,17 +244,6 @@ class LocalShippingTest(unittest.TestCase):
         env = mcp_config["mcpServers"]["research-plugin"].get("env", {})
         self.assertEqual(env["RESEARCH_PLUGIN_DAEMON_URL"], "http://127.0.0.1:8787")
 
-    def test_root_marketplace_points_at_current_plugin(self) -> None:
-        repo_root = self.source_plugin.parent
-        marketplace = json.loads((repo_root / ".agents" / "plugins" / "marketplace.json").read_text())
-        entries = marketplace["plugins"]
-        entry = next(item for item in entries if item["name"] == "research-plugin")
-        plugin_dir = (repo_root / entry["source"]["path"]).resolve()
-        self.assertEqual(plugin_dir, self.source_plugin.resolve())
-        manifest = json.loads((plugin_dir / ".codex-plugin" / "plugin.json").read_text())
-        self.assertTrue(manifest["version"].startswith(f"{BACKEND_VERSION}+"))
-        self.assertEqual(entry["policy"]["installation"], "AVAILABLE")
-
     def test_http_launcher_rejects_explicit_repo(self) -> None:
         proc = subprocess.run(
             [

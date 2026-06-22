@@ -163,27 +163,24 @@ All activity (UI calls and Codex MCP tool calls) flows through the same daemon
 process, so terminal-side `--activity-stderr` and `/api/activity` both see
 everything. The JSONL file still works as a cross-tool tail.
 
-For local Codex plugin development, register the parent repo marketplace:
+For local Codex plugin development, register a local marketplace source that
+points at this plugin. Any root-level marketplace files under the parent repo
+are generated local development state and are intentionally not tracked.
 
 ```bash
-codex plugin marketplace add /Users/guraltoo/Documents/dev/proj/experiments/Papyrus
+codex plugin marketplace add /path/to/research-suite
 ```
 
-```text
-.agents/plugins/marketplace.json
-```
-
-It points to `./research_plugin`. After installation, plugin state is stored in
-the active research repo at `.research_plugin/state.sqlite`, not beside the
-plugin code.
+After installation, plugin state is stored in the active research repo at
+`.research_plugin/state.sqlite`, not beside the plugin code.
 
 ### Use with Claude Code
 
-The plugin ships as a Claude Code marketplace plugin. The marketplace lives at
-the repo root (`../.claude-plugin/marketplace.json`); the plugin manifest lives
-at `.claude-plugin/plugin.json` inside this directory. Skills, subagents, and
-the MCP server config (`.mcp.json` with `${CLAUDE_PLUGIN_ROOT}` path placeholder)
-all sit at plugin root and are auto-discovered by Claude Code.
+The plugin ships as a Claude Code plugin. The plugin manifest lives at
+`.claude-plugin/plugin.json` inside this directory. Skills, subagents, and the
+MCP server config (`.mcp.json` with `${CLAUDE_PLUGIN_ROOT}` path placeholder)
+all sit at plugin root and are auto-discovered by Claude Code. Root-level
+marketplace files are local development state, not tracked product files.
 
 **End-user install** (inside Claude Code):
 
