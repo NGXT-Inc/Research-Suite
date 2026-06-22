@@ -51,7 +51,6 @@ Start the backend:
 
 ```bash
 /Users/guraltoo/Documents/dev/proj/experiments/Papyrus/research_plugin/bin/research-plugin-http \
-  --repo /path/to/research-repo \
   --host 127.0.0.1 \
   --port 8787
 ```

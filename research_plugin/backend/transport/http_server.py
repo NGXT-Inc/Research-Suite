@@ -226,8 +226,6 @@ def main() -> int:
     parser = argparse.ArgumentParser()
     parser.add_argument("--host", default=os.environ.get("RESEARCH_PLUGIN_HTTP_HOST", "127.0.0.1"))
     parser.add_argument("--port", type=int, default=int(os.environ.get("RESEARCH_PLUGIN_HTTP_PORT", "8787")))
-    parser.add_argument("--repo", default=os.environ.get("RESEARCH_PLUGIN_REPO_ROOT"))
-    parser.add_argument("--store", default=os.environ.get("RESEARCH_PLUGIN_STORE", ".research_plugin/state.sqlite"))
     parser.add_argument(
         "--registry-store",
         default=os.environ.get(
@@ -257,18 +255,8 @@ def main() -> int:
     if args.activity_stderr:
         os.environ["RESEARCH_PLUGIN_ACTIVITY_STDERR"] = "1"
 
-    app: ResearchPluginApp | None = None
-    router: ProjectRouter | None = None
-    if args.repo:
-        repo_root = Path(args.repo).resolve()
-        db_path = Path(args.store)
-        if not db_path.is_absolute():
-            db_path = repo_root / db_path
-        app = ResearchPluginApp(repo_root=repo_root, db_path=db_path)
-        server = make_http_server(app=app, host=args.host, port=args.port)
-    else:
-        router = ProjectRouter(registry_db_path=Path(args.registry_store))
-        server = make_http_server(router=router, host=args.host, port=args.port)
+    router = ProjectRouter(registry_db_path=Path(args.registry_store))
+    server = make_http_server(router=router, host=args.host, port=args.port)
     host, port = server.server_address
     print(f"research_plugin HTTP API listening on http://{host}:{port}", flush=True)
     try:
@@ -277,10 +265,7 @@ def main() -> int:
         pass
     finally:
         server.server_close()
-        if app is not None:
-            app.shutdown()
-        if router is not None:
-            router.shutdown()
+        router.shutdown()
     return 0
 
 

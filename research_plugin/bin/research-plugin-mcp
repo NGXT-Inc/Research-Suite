@@ -38,8 +38,7 @@ else
   esac
 fi
 
-# No RESEARCH_PLUGIN_STORE export: the stdio proxy never opens SQLite — state
-# paths are an HTTP-daemon concern (see bin/research-plugin-http).
+# No state-path export: the stdio proxy never opens SQLite.
 # No Modal env here either: the proxy only forwards tool calls to the HTTP
 # daemon over HTTP. Credentials are a daemon-only concern.
 

@@ -106,12 +106,11 @@ each project to that project's local directory:
 /path/to/research_plugin/bin/research-plugin-http --host 127.0.0.1 --port 8787
 ```
 
-The legacy single-repo mode is still available with
-`--repo /path/to/research-repo`. In shared mode, the UI creates a project by
-providing a directory; that directory owns its own `.research_plugin/state.sqlite`,
-sync state, sandbox keys, and files. The backend stores only a small global
-registry that maps project ids to directories. The mapping is one-to-one: one
-project per directory, and one directory per project.
+The UI creates a project by providing a directory; that directory owns its own
+`.research_plugin/state.sqlite`, sync state, sandbox keys, and files. The
+backend stores only a small global registry that maps project ids to
+directories. The mapping is one-to-one: one project per directory, and one
+directory per project.
 
 Then Codex (or any other caller) can launch the stdio MCP proxy from inside
 the research repo. The MCP proxy stays project-local: it forwards the repo root
@@ -146,8 +145,7 @@ python3 scripts/dev_http_reload.py \
 
 The reload helper watches the plugin backend source and starts the same shared
 multi-project backend as `research-plugin-http`. If port `8787` is already
-occupied, stop the existing HTTP process or use another port. Pass `--repo
-/path/to/research-repo` only for the legacy single-repo backend.
+occupied, stop the existing HTTP process or use another port.
 
 Activity is also appended to:
 
@@ -320,10 +318,9 @@ RESEARCH_PLUGIN_REPO_ROOT=$PWD
 ```
 
 The MCP proxy uses that to locate `.research_plugin/daemon.json`. Set
-`RESEARCH_PLUGIN_DAEMON_URL` to override discovery entirely. State paths
-(`RESEARCH_PLUGIN_STORE` and `RESEARCH_PLUGIN_REGISTRY_STORE`) are only consumed
-by the HTTP daemon — pass them to `research-plugin-http`, not to the MCP
-launcher.
+`RESEARCH_PLUGIN_DAEMON_URL` to override discovery entirely. The project state
+path is derived from the project directory; `RESEARCH_PLUGIN_REGISTRY_STORE` is
+only consumed by the HTTP daemon for its machine-level project registry.
 
 ```bash
 /path/to/research_plugin/bin/research-plugin-http --port 8787

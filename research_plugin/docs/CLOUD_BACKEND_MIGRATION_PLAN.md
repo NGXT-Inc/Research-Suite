@@ -184,7 +184,7 @@ then the record layer becomes cloud-grade (6–7), and only then does a network 
   `_drop_columns`, autoindex rebuild, `store.py:399-503`) as the SQLite legacy-convergence step; move the
   destructive `DROP TABLE IF EXISTS jobs` (`store.py:235`) out of the every-boot SCHEMA constant.
 - New `tests/structure/test_plane_layout.py` (AST import-lint pattern from `test_service_layout.py`),
-  advisory at first; launcher hygiene (`bin/research-plugin-mcp` vestigial `RESEARCH_PLUGIN_STORE` export).
+  advisory at first; launcher hygiene (MCP proxy has no state-path export).
 
 **Local mode:** byte-identical behavior. **Exit:** plane annotations complete; tool listing side-effect
 free; ledger exists.

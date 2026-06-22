@@ -37,8 +37,6 @@ def port_in_use(host: str, port: int) -> bool:
 def server_command(
     *,
     launcher: Path,
-    research_repo: Path | None,
-    store_path: Path | None,
     registry_store_path: Path,
     host: str,
     port: int,
@@ -58,10 +56,6 @@ def server_command(
         "--registry-store",
         str(registry_store_path),
     ]
-    if research_repo is not None:
-        command.extend(["--repo", str(research_repo)])
-    if store_path is not None:
-        command.extend(["--store", str(store_path)])
     if activity_stderr:
         command.append("--activity-stderr")
     return command
@@ -69,8 +63,6 @@ def server_command(
 
 def start_server(
     plugin_root: Path,
-    research_repo: Path | None,
-    store_path: Path | None,
     registry_store_path: Path,
     host: str,
     port: int,
@@ -79,17 +71,11 @@ def start_server(
 ) -> subprocess.Popen:
     env = os.environ.copy()
     env["RESEARCH_PLUGIN_REGISTRY_STORE"] = str(registry_store_path)
-    if research_repo is not None:
-        env["RESEARCH_PLUGIN_REPO_ROOT"] = str(research_repo)
-    if store_path is not None:
-        env["RESEARCH_PLUGIN_STORE"] = str(store_path)
     env.setdefault("PYTHONDONTWRITEBYTECODE", "1")
     # PYTHONPATH and python interpreter are set by bin/research-plugin-http.
     launcher = plugin_root / "bin" / "research-plugin-http"
     command = server_command(
         launcher=launcher,
-        research_repo=research_repo,
-        store_path=store_path,
         registry_store_path=registry_store_path,
         host=host,
         port=port,
@@ -97,7 +83,7 @@ def start_server(
     )
     return subprocess.Popen(
         command,
-        cwd=research_repo or plugin_root,
+        cwd=plugin_root,
         env=env,
     )
 
@@ -117,8 +103,6 @@ def main() -> int:
     parser = argparse.ArgumentParser()
     parser.add_argument("--host", default="127.0.0.1")
     parser.add_argument("--port", type=int, default=8787)
-    parser.add_argument("--repo", default=None, help="Optional legacy single-repo target. Omit for shared multi-project mode.")
-    parser.add_argument("--store", default=None, help="SQLite state path for legacy --repo mode. Defaults to <repo>/.research_plugin/state.sqlite.")
     parser.add_argument(
         "--registry-store",
         default=os.environ.get(
@@ -132,27 +116,12 @@ def main() -> int:
     args = parser.parse_args()
 
     plugin_root = Path(__file__).resolve().parents[1]
-    research_repo = Path(args.repo).resolve() if args.repo else None
-    if research_repo is not None and not research_repo.exists():
-        print(f"Target research repo does not exist: {research_repo}", file=sys.stderr)
-        return 2
-    store_path = None
-    if research_repo is not None:
-        store_path = Path(args.store).resolve() if args.store else research_repo / ".research_plugin" / "state.sqlite"
-    elif args.store:
-        print("--store is only valid with legacy --repo mode", file=sys.stderr)
-        return 2
     registry_store_path = Path(args.registry_store).expanduser().resolve()
     watch_root = plugin_root / "backend"
 
     print(f"Watching {watch_root}")
-    if research_repo is None:
-        print("Mode: shared multi-project")
-        print(f"Registry store: {registry_store_path}")
-    else:
-        print("Mode: legacy single-repo")
-        print(f"Research repo: {research_repo}")
-        print(f"State store: {store_path}")
+    print("Mode: shared multi-project")
+    print(f"Registry store: {registry_store_path}")
     print(f"HTTP API: http://{args.host}:{args.port}")
 
     if port_in_use(args.host, args.port):
@@ -166,8 +135,6 @@ def main() -> int:
     snapshot = iter_watched_files(watch_root)
     proc = start_server(
         plugin_root,
-        research_repo,
-        store_path,
         registry_store_path,
         args.host,
         args.port,
@@ -189,8 +156,6 @@ def main() -> int:
                     return 2
                 proc = start_server(
                     plugin_root,
-                    research_repo,
-                    store_path,
                     registry_store_path,
                     args.host,
                     args.port,
@@ -206,8 +171,6 @@ def main() -> int:
                     return 2
                 proc = start_server(
                     plugin_root,
-                    research_repo,
-                    store_path,
                     registry_store_path,
                     args.host,
                     args.port,

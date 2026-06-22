@@ -7,7 +7,7 @@ without provisioning a real, paid VM). Never touches the user's live project or
 its :8787 daemon.
 
 Usage:
-    .venv/bin/python scripts/_reflection_daemon.py --repo /tmp/rp-reflection/proj --port 9911
+    .venv/bin/python scripts/_reflection_daemon.py --project-dir /tmp/rp-reflection/proj --port 9911
 """
 
 from __future__ import annotations
@@ -46,12 +46,12 @@ class NoopRsyncSyncer:
 
 def main() -> int:
     parser = argparse.ArgumentParser()
-    parser.add_argument("--repo", required=True)
+    parser.add_argument("--project-dir", required=True)
     parser.add_argument("--host", default="127.0.0.1")
     parser.add_argument("--port", type=int, default=9911)
     args = parser.parse_args()
 
-    repo_root = Path(args.repo).resolve()
+    repo_root = Path(args.project_dir).resolve()
     repo_root.mkdir(parents=True, exist_ok=True)
     db_path = repo_root / ".research_plugin" / "state.sqlite"
 

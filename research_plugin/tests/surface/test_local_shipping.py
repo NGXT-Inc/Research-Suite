@@ -43,7 +43,6 @@ class LocalShippingTest(unittest.TestCase):
     def _clean_env(self) -> dict[str, str]:
         env = os.environ.copy()
         env.pop("RESEARCH_PLUGIN_REPO_ROOT", None)
-        env.pop("RESEARCH_PLUGIN_STORE", None)
         env["RESEARCH_PLUGIN_PYTHON"] = sys.executable
         return env
 
@@ -193,7 +192,7 @@ class LocalShippingTest(unittest.TestCase):
         )
 
     def _start_http_daemon(self):
-        """Spin up the HTTP daemon for the research repo on a free port."""
+        """Spin up the shared HTTP daemon on a free port."""
         return subprocess.Popen(
             [
                 str(self.install_dir / "bin" / "research-plugin-http"),
@@ -256,8 +255,8 @@ class LocalShippingTest(unittest.TestCase):
         self.assertTrue(manifest["version"].startswith(f"{BACKEND_VERSION}+"))
         self.assertEqual(entry["policy"]["installation"], "AVAILABLE")
 
-    def test_http_launcher_accepts_explicit_repo(self) -> None:
-        proc = subprocess.Popen(
+    def test_http_launcher_rejects_explicit_repo(self) -> None:
+        proc = subprocess.run(
             [
                 str(self.install_dir / "bin" / "research-plugin-http"),
                 "--repo",
@@ -269,22 +268,13 @@ class LocalShippingTest(unittest.TestCase):
             ],
             cwd=self.root,
             env=self._clean_env(),
-            stdout=subprocess.PIPE,
-            stderr=subprocess.PIPE,
+            capture_output=True,
             text=True,
+            timeout=10,
         )
-        self.addCleanup(self._stop_process, proc)
-        line = proc.stdout.readline()
-        match = re.search(r"http://[^ ]+", line)
-        self.assertIsNotNone(match, line)
-        base = match.group(0).strip()
-
-        health = self._fetch_json(base + "/health")
-        self.assertTrue(health["ok"])
-        project = self._fetch_json(base + "/api/projects", method="POST", body={"name": "HTTP Shipping Smoke"})
-        home = self._fetch_json(base + f"/api/projects/{project['id']}/home")
-        self.assertEqual(home["project"]["name"], "HTTP Shipping Smoke")
-        self.assertTrue((self.research_repo / ".research_plugin" / "state.sqlite").exists())
+        self.assertNotEqual(proc.returncode, 0)
+        self.assertIn("unrecognized arguments: --repo", proc.stderr)
+        self.assertFalse((self.research_repo / ".research_plugin" / "state.sqlite").exists())
         self.assertFalse((self.install_dir / ".research_plugin").exists())
 
     def _submit_review(self, proc, exp_id: str, role: str, verdict: str, notes: str) -> None:

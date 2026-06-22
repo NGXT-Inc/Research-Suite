@@ -24,8 +24,7 @@ research_plugin/bin/research-plugin-http --host 127.0.0.1 --port 8787
 
 In shared mode, `POST /api/projects` supplies the directory for each project and
 the daemon routes project-scoped requests to that directory's isolated
-`.research_plugin/state.sqlite`. The legacy single-repo mode is still available
-with `--repo /path/to/research-repo`.
+`.research_plugin/state.sqlite`.
 
 For auto-reload while editing backend code:
 
@@ -39,12 +38,7 @@ python3 scripts/dev_http_reload.py \
 
 The HTTP launcher uses code from the installed plugin and runs the shared
 multi-project backend. Project state is stored in each project directory after
-the UI creates or selects that project. Pass `--repo /path/to/research-repo`
-only for the legacy single-repo backend. The default legacy store path is:
-
-```text
-/path/to/research-repo/.research_plugin/state.sqlite
-```
+the UI creates or selects that project.
 
 Activity is appended as JSONL beside the state DB:
 

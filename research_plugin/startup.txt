@@ -1,21 +1,36 @@
-cd research_plugin
-python3 scripts/dev_http_reload.py --host 127.0.0.1 --port 8787
+# Local-mode quick start
 
-# Backend development loop
-# Most backend Python changes should be picked up by the reload daemon above.
-# Reinstall the plugin only after changing packaging, manifests, MCP config,
-# skills, or agents.
+export RESEARCH_SUITE=/Users/guraltoo/Documents/dev/proj/experiments/research-suite
+export RESEARCH_PLUGIN="$RESEARCH_SUITE/research_plugin"
 
-# Codex plugin refresh
-codex plugin marketplace add /Users/guraltoo/Documents/dev/proj/experiments/research-suite
+# One-time setup
+cd "$RESEARCH_PLUGIN"
+python3 -m venv .venv
+. .venv/bin/activate
+python -m pip install -r requirements.txt
+
+# Start the shared local daemon for all local research repos.
+cd "$RESEARCH_PLUGIN"
+python3 scripts/dev_http_reload.py --host 127.0.0.1 --port 8787 --activity-stderr
+
+# Smoke checks from another terminal
+curl -s http://127.0.0.1:8787/health
+curl -s http://127.0.0.1:8787/api/projects
+
+# Open the agent from any research repo. The shared daemon can route many
+# project directories.
+cd /path/to/research/repo
+codex
+
+# Plugin refresh, only after changing manifests/MCP config/skills/agents
+codex plugin marketplace add "$RESEARCH_SUITE"
 codex plugin remove research-plugin@research-suite-local
 codex plugin add research-plugin@research-suite-local
 
-# Claude Code plugin refresh
-claude plugin marketplace add /Users/guraltoo/Documents/dev/proj/experiments/research-suite
+claude plugin marketplace add "$RESEARCH_SUITE"
 claude plugin marketplace update research-suite
 claude plugin uninstall --keep-data research-plugin@research-suite
 claude plugin install research-plugin@research-suite
 
-# Claude Code direct source mode for local development
-claude --plugin-dir /Users/guraltoo/Documents/dev/proj/experiments/research-suite/research_plugin
+# Optional live activity after a project exists
+tail -f /path/to/research/repo/.research_plugin/activity.jsonl

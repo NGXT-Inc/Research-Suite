@@ -140,8 +140,6 @@ python3 scripts/dev_http_reload.py \
   --activity-stderr
 ```
 
-Pass `--repo "$RESEARCH_REPO"` only for the legacy single-repo backend.
-
 One-shot mode without auto-reload:
 
 ```bash
