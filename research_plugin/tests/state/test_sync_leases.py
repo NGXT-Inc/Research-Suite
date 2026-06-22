@@ -1,6 +1,6 @@
 """Sync leases: the exclusive per-experiment byte-movement authority.
 
-Phase 4 of docs/CLOUD_BACKEND_MIGRATION_PLAN.md (fixed decision 8): exclusive
+The sync authority model from docs/CONTROL_DATA_PLANE_SPLIT.md: exclusive
 acquire, same-holder renewal, TTL + takeover, lease-checked completion
 reports, lease visibility in the agent views, and the local-mode guarantee
 that a single implicit holder never changes the agent surface.

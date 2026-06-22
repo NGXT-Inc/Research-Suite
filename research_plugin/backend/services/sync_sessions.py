@@ -1,6 +1,6 @@
 """Sync sessions, leases, and the control-plane view of sync targets.
 
-Phase 4 of docs/CLOUD_BACKEND_MIGRATION_PLAN.md (fixed decision 8): every
+The sync authority model from docs/CONTROL_DATA_PLANE_SPLIT.md: every
 sandbox byte movement — the initial push, periodic syncs, the final pull — is
 authorized by an exclusive per-experiment **lease** and described by a
 **sync session** the data-plane worker executes. The lease lives in the record

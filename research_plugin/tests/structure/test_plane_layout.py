@@ -1,11 +1,11 @@
 """Plane-boundary lints for the control/data split.
 
-Phases 0–3 of docs/CLOUD_BACKEND_MIGRATION_PLAN.md: every tool contract
-carries a plane, the three route sets partition the registry exactly, and the
-modules that must stay cloud-servable do not grow local-process or local-path
-dependencies. Hard from Phase 3: control modules cannot import subprocess,
-the rsync/conn machinery, or the dataplane package, and the record store does
-not know where the repository checkout lives.
+The split architecture in docs/CONTROL_DATA_PLANE_SPLIT.md requires every tool
+contract carries a plane, the three route sets partition the registry exactly,
+and the modules that must stay cloud-servable do not grow local-process or
+local-path dependencies. Hard from Phase 3: control modules cannot import
+subprocess, the rsync/conn machinery, or the dataplane package, and the record
+store does not know where the repository checkout lives.
 """
 
 from __future__ import annotations
@@ -290,7 +290,7 @@ class ToolPlanePartitionTest(unittest.TestCase):
         self.assertFalse(DATA_PLANE_TOOL_NAMES & AGGREGATE_TOOL_NAMES)
 
     def test_data_and_aggregate_assignments_are_pinned(self) -> None:
-        # The routing table of CLOUD_BACKEND_MIGRATION_PLAN.md §3.3. Changing
+        # The routing table from docs/CONTROL_DATA_PLANE_SPLIT.md. Changing
         # these is changing where a tool is served in split mode — do it in the
         # phase diff that moves the behavior, not casually.
         self.assertEqual(

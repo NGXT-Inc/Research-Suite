@@ -41,8 +41,8 @@ running on the default port.
 Replace this path with the research repo you want to work inside:
 
 ```bash
-export RESEARCH_REPO=/Users/guraltoo/Documents/dev/proj/research_work/research_system_test_1
-export RESEARCH_PLUGIN=/Users/guraltoo/Documents/dev/proj/experiments/Papyrus/research_plugin
+export RESEARCH_REPO=/path/to/research-repo
+export RESEARCH_PLUGIN=/path/to/research-suite/research_plugin
 ```
 
 ## One-Time Plugin Setup
@@ -51,7 +51,7 @@ Register the local plugin marketplace from the parent repo. Marketplace cache
 files at the repo root are local development state and are not tracked.
 
 ```bash
-codex plugin marketplace add /Users/guraltoo/Documents/dev/proj/experiments/research-suite
+codex plugin marketplace add /path/to/research-suite
 ```
 
 Then open Codex in the target research repo:
@@ -67,7 +67,7 @@ Inside Codex:
 /plugins
 ```
 
-Install or enable `research-plugin` from `Papyrus Local Plugins`.
+Install or enable `research-plugin` from the configured local marketplace.
 
 ### Host prerequisite: a modern rsync (macOS)
 

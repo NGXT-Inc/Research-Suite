@@ -1,6 +1,6 @@
 """Central mode/config resolution for the backend.
 
-The cloud split (docs/CLOUD_BACKEND_MIGRATION_PLAN.md) gives the backend three
+The cloud split (docs/CONTROL_DATA_PLANE_SPLIT.md) gives the backend three
 process roles selected by ``RESEARCH_PLUGIN_MODE``:
 
 - ``local``  — today's topology: one process binds the control plane and the

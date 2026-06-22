@@ -1,6 +1,6 @@
 # Local-mode quick start
 
-export RESEARCH_SUITE=/Users/guraltoo/Documents/dev/proj/experiments/research-suite
+export RESEARCH_SUITE=/path/to/research-suite
 export RESEARCH_PLUGIN="$RESEARCH_SUITE/research_plugin"
 
 # One-time setup
@@ -25,8 +25,8 @@ codex
 # Plugin refresh, only after changing manifests/MCP config/skills/agents.
 # Root marketplace files are local-only generated state and are gitignored.
 codex plugin marketplace add "$RESEARCH_SUITE"
-codex plugin remove research-plugin@research-suite-local
-codex plugin add research-plugin@research-suite-local
+codex plugin remove research-plugin@research-suite
+codex plugin add research-plugin@research-suite
 
 claude plugin marketplace add "$RESEARCH_SUITE"
 claude plugin marketplace update research-suite

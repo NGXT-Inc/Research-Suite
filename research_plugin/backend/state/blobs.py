@@ -1,7 +1,7 @@
 """Content-addressed blob storage for gated artifacts and recovery objects.
 
-Decision 7 of docs/CLOUD_BACKEND_MIGRATION_PLAN.md: one sha256-keyed,
-namespace-scoped store shared by artifact submissions (gated-role bytes
+The split storage model from docs/CONTROL_DATA_PLANE_SPLIT.md uses one
+sha256-keyed, namespace-scoped store shared by artifact submissions (gated-role bytes
 captured at resource.associate), report figures, metrics snapshots, and the
 expiry parachute. The local implementation is a plain directory under
 ``.research_plugin/blobs/``; the cloud implementation (S3, Phase 8) implements

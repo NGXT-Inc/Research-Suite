@@ -21,7 +21,7 @@ class ContractModel(BaseModel):
 
 
 # Which plane serves a tool once the backend splits into a cloud control plane
-# and a local data-plane daemon (docs/CLOUD_BACKEND_MIGRATION_PLAN.md §3.3).
+# and a local data-plane daemon (docs/CONTROL_DATA_PLANE_SPLIT.md).
 # "control" = record/gate/lifecycle work, cloud-servable. "data" = touches the
 # local filesystem or local processes, must run on the user's machine.
 # "aggregate" = merges both planes' answers. In local mode one process serves

@@ -1,6 +1,6 @@
 """Pinned-artifact loading: association → version → blob bytes.
 
-Decision 6 of docs/CLOUD_BACKEND_MIGRATION_PLAN.md (Phase 2): workflow gates
+The pinned-artifact rule from docs/CONTROL_DATA_PLANE_SPLIT.md: workflow gates
 lint the bytes that were SUBMITTED at ``resource.associate`` — pinned to a
 version and stored in the blob store — never the live working tree. Fixing a
 gated artifact therefore means fix the file and re-associate it; editing the

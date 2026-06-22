@@ -1,7 +1,7 @@
 # Operating the control plane
 
-**Status:** current (cloud backend migration Phase 9) · the operational
-companion to `docs/CLOUD_BACKEND_MIGRATION_PLAN.md`.
+**Status:** current · the operational companion to
+`docs/CONTROL_DATA_PLANE_SPLIT.md`.
 
 This is the run-the-cloud guide: modes, environment, the cleanup jobs, the
 version floor, cost governance, observability, and the reference deploy. Local

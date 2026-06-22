@@ -29,7 +29,7 @@ the daemon routes project-scoped requests to that directory's isolated
 For auto-reload while editing backend code:
 
 ```bash
-cd /Users/guraltoo/Documents/dev/proj/experiments/Papyrus/research_plugin
+cd /path/to/research-suite/research_plugin
 python3 scripts/dev_http_reload.py \
   --host 127.0.0.1 \
   --port 8787 \

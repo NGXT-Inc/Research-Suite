@@ -4,6 +4,8 @@
 
 # Local dev artifacts
 .venv/
+.codex/
+AGENTS.md
 __pycache__/
 *.pyc
 .pytest_cache/

@@ -16,7 +16,8 @@ class PluginSkillTest(unittest.TestCase):
         self.assertGreater(len(skill_paths), 0)
         script = (
             "require 'yaml'; "
-            "ARGV.each { |p| front = File.read(p).split(/^---\\s*$/, 3)[1]; "
+            "ARGV.each { |p| "
+            "front = File.read(p, encoding: 'UTF-8').split(/^---\\s*$/, 3)[1]; "
             "raise \"missing frontmatter: #{p}\" unless front; "
             "data = YAML.safe_load(front); "
             "raise \"missing name: #{p}\" unless data['name']; "
@@ -41,7 +42,8 @@ class PluginSkillTest(unittest.TestCase):
         )
         script = (
             "require 'yaml'; "
-            "ARGV.each { |p| front = File.read(p).split(/^---\\s*$/, 3)[1]; "
+            "ARGV.each { |p| "
+            "front = File.read(p, encoding: 'UTF-8').split(/^---\\s*$/, 3)[1]; "
             "raise \"missing frontmatter: #{p}\" unless front; "
             "data = YAML.safe_load(front); "
             "raise \"missing description: #{p}\" unless data['description']; "

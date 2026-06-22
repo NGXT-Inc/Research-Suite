@@ -86,14 +86,12 @@ The same code base runs in three process roles selected by
 - **`daemon`** — the slim user-machine **data plane**: rsync, key custody, file
   observation. It dials the control plane over HTTP (the cloud never dials in).
 
-The split is built end-to-end (cloud backend migration Phases 0–9). The
-load-bearing rule — *the cloud cannot see a user's local filesystem* — is what
-puts file IO (rsync/ssh) on the daemon and everything else (orchestration,
-records, credentials, authz, cost governance) on the control plane. The phased
-record is **`docs/CLOUD_BACKEND_MIGRATION_PLAN.md`**; the module-by-module
-assignment is in **`docs/CONTROL_DATA_PLANE_SPLIT.md`** (now marked
-implemented); operating the control plane (modes, env, cleanup jobs, version
-floor, deploy) is **`docs/CONTROL_PLANE_OPERATIONS.md`**.
+The split is built end-to-end. The load-bearing rule — *the cloud cannot see a
+user's local filesystem* — is what puts file IO (rsync/ssh) on the daemon and
+everything else (orchestration, records, credentials, authz, cost governance)
+on the control plane. The module-by-module assignment is in
+**`docs/CONTROL_DATA_PLANE_SPLIT.md`**; operating the control plane (modes, env,
+cleanup jobs, version floor, deploy) is **`docs/CONTROL_PLANE_OPERATIONS.md`**.
 
 ## Ownership
 
