@@ -94,11 +94,7 @@ export default function Events() {
     <div className="page-stage">
       <header className="page-header page-header--lg">
         <h1 className="page-title">Append-only event log</h1>
-        <p className="page-summary">
-          Every accepted mutation lands here. Click a target ID to jump to its
-          detail page; filter by category or by event type to focus on
-          workflow surprises.
-        </p>
+        <p className="page-summary">Every accepted mutation, newest first.</p>
       </header>
 
       <div className="events-filter-bar">

@@ -1,4 +1,5 @@
 import { Link } from 'react-router-dom';
+import { useProjectStore, projectPath } from '../store/useProjectStore';
 
 /**
  * Shared graph-model helpers — normalize the figure and logic/synthesis graph
@@ -88,13 +89,13 @@ export function EdgeList({ outgoing, labelById }) {
 export function LogicRef({ refString, resolution }) {
   const r = resolution || { resolved: false, type: 'unknown' };
   if (r.type === 'resource' && r.resolved) {
-    return <Link className="gnode-ref" to={`/resources/${r.resource_id}`}>{r.kind || 'resource'} · {r.title || r.path} →</Link>;
+    return <Link className="gnode-ref" to={projectPath(useProjectStore.getState().projectId, `/resources/${r.resource_id}`)}>{r.kind || 'resource'} · {r.title || r.path} →</Link>;
   }
   if (r.type === 'claim' && r.resolved) {
-    return <Link className="gnode-ref" to={`/claims/${r.claim_id}`}>claim · {r.statement} →</Link>;
+    return <Link className="gnode-ref" to={projectPath(useProjectStore.getState().projectId, `/claims/${r.claim_id}`)}>claim · {r.statement} →</Link>;
   }
   if (r.type === 'experiment' && r.resolved) {
-    return <Link className="gnode-ref" to={`/experiments/${r.experiment_id}`}>experiment · {r.intent} →</Link>;
+    return <Link className="gnode-ref" to={projectPath(useProjectStore.getState().projectId, `/experiments/${r.experiment_id}`)}>experiment · {r.intent} →</Link>;
   }
   if (r.type === 'review' && r.resolved) {
     return <span className="gnode-ref gnode-ref--static">review · {String(r.role || '').replace(/_/g, ' ')} · {r.verdict}</span>;
@@ -105,9 +106,9 @@ export function LogicRef({ refString, resolution }) {
 // Figure ref → detail-page link, mirroring FigurePanel's destinations.
 export function figureRefLink(node) {
   const ref = node.ref || {};
-  if (ref.kind === 'resource' && ref.id) return <Link className="gnode-ref" to={`/resources/${ref.id}`}>open resource →</Link>;
-  if (ref.kind === 'resource_group') return <Link className="gnode-ref" to="/resources">open resources →</Link>;
-  if (ref.kind === 'claim' && ref.id) return <Link className="gnode-ref" to={`/claims/${ref.id}`}>open claim →</Link>;
+  if (ref.kind === 'resource' && ref.id) return <Link className="gnode-ref" to={projectPath(useProjectStore.getState().projectId, `/resources/${ref.id}`)}>open resource →</Link>;
+  if (ref.kind === 'resource_group') return <Link className="gnode-ref" to={projectPath(useProjectStore.getState().projectId, '/resources')}>open resources →</Link>;
+  if (ref.kind === 'claim' && ref.id) return <Link className="gnode-ref" to={projectPath(useProjectStore.getState().projectId, `/claims/${ref.id}`)}>open claim →</Link>;
   return null;
 }
 

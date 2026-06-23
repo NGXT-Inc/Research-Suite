@@ -1,5 +1,5 @@
 import { useNavigate } from 'react-router-dom';
-import { useProjectStore } from '../store/useProjectStore';
+import { useProjectStore, projectPath } from '../store/useProjectStore';
 import ObjId from '../components/ObjId';
 
 /**
@@ -12,28 +12,23 @@ export default function MobileProjects() {
   const navigate = useNavigate();
   const projects = useProjectStore(s => s.projects);
   const projectId = useProjectStore(s => s.projectId);
-  const setProjectId = useProjectStore(s => s.setProjectId);
-  const refreshHome = useProjectStore(s => s.refreshHome);
 
+  // URL drives the active project; <ProjectScope> mirrors it into the store.
   function switchTo(pid) {
-    if (pid !== projectId) {
-      setProjectId(pid);
-      refreshHome();
-    }
-    navigate('/');
+    navigate(projectPath(pid));
   }
 
   return (
     <div className="page-stage">
       <header className="page-header">
         <h1 className="page-title">Projects</h1>
-        <p className="page-summary">Tap to switch. Create or rename a project from the desktop app or CLI.</p>
+        <p className="page-summary">Tap to switch.</p>
       </header>
 
       {projects.length === 0 ? (
         <div className="empty-state">
           <h2>No projects yet</h2>
-          <p>Create one from the desktop app or the <span className="mono">research_plugin</span> CLI; it'll appear here.</p>
+          <p>Create one from desktop or CLI.</p>
         </div>
       ) : (
         <div className="mcard-list">

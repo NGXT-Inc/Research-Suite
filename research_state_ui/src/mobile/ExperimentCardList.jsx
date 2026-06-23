@@ -1,6 +1,6 @@
 import { useMemo, useState } from 'react';
 import { Link } from 'react-router-dom';
-import { useProjectStore, selectExperiments } from '../store/useProjectStore';
+import { useProjectStore, selectExperiments, useProjectHref } from '../store/useProjectStore';
 import StatusPill from '../components/StatusPill';
 import { SkeletonCards } from './Skeleton';
 import { expName } from '../utils/experiment';
@@ -78,7 +78,6 @@ export default function ExperimentCardList() {
       {rows.length === 0 ? (
         <div className="empty-state">
           <h2>No experiments{filter !== 'all' ? ` in ${filter.replace(/_/g, ' ')}` : ' yet'}</h2>
-          {filter === 'all' && <p>The agent creates one to test a claim.</p>}
         </div>
       ) : (
         <div className="mcard-list">
@@ -90,6 +89,7 @@ export default function ExperimentCardList() {
 }
 
 function ExperimentCard({ experiment: e }) {
+  const px = useProjectHref();
   const status = (e.status || 'planned').toLowerCase();
   const created = fmtDayTime(e.created_at);
   const settled = isTerminal(status);
@@ -99,7 +99,7 @@ function ExperimentCard({ experiment: e }) {
   const claimCount = Array.isArray(e.tested_claims) ? e.tested_claims.length : 0;
 
   return (
-    <Link to={`/experiments/${e.id}`} className="mcard">
+    <Link to={px(`/experiments/${e.id}`)} className="mcard">
       <div className="mcard-head">
         <span className="mcard-glyph" style={{ color: outcomeColor(outcome) }} aria-hidden="true">
           {outcomeGlyph(outcome)}

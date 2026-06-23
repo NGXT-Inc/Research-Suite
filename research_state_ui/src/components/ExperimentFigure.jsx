@@ -9,6 +9,7 @@ import ResourceContentView from './ResourceContentView';
 import { layoutFigure, FIG_NODE_W } from '../utils/figureLayout';
 import { TERMINAL_STATUSES } from '../utils/experiment';
 import { usePanelWidth } from '../store/usePanelWidth';
+import { useProjectHref } from '../store/useProjectStore';
 
 const TYPE_GLYPH = {
   attempt: '◇',
@@ -122,6 +123,7 @@ function toFlow(figure) {
 }
 
 function FigurePanel({ projectId, node, onClose }) {
+  const px = useProjectHref();
   const ref = node.ref || {};
   const meta = node.meta || {};
 
@@ -150,7 +152,7 @@ function FigurePanel({ projectId, node, onClose }) {
               dedupeTitle={node.label}
             />
           </div>
-          <Link className="btn btn--sm" to={`/resources/${ref.id}`}>Open in resources →</Link>
+          <Link className="btn btn--sm" to={px(`/resources/${ref.id}`)}>Open in resources →</Link>
         </>
       )}
 
@@ -159,14 +161,14 @@ function FigurePanel({ projectId, node, onClose }) {
           <div className="fig-panel-meta">
             {meta.count} additional files ({(meta.roles || []).join(', ')}) associated with this attempt.
           </div>
-          <Link className="btn btn--sm" to="/resources">Open resources →</Link>
+          <Link className="btn btn--sm" to={px('/resources')}>Open resources →</Link>
         </>
       )}
 
       {ref.kind === 'claim' && (
         <>
           <div className="fig-panel-meta">{node.label}</div>
-          <Link className="btn btn--sm" to={`/claims/${ref.id}`}>Open claim →</Link>
+          <Link className="btn btn--sm" to={px(`/claims/${ref.id}`)}>Open claim →</Link>
         </>
       )}
 

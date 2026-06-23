@@ -128,13 +128,7 @@ export default function ProjectSynthesisPanel({ projectId }) {
       <section className="section" id="project-synthesis">
         <div className="section-title">Project synthesis</div>
         <div className="empty-state empty-state--compact">
-          <p>
-            No project synthesis yet. When enough experiments have finished, the
-            agent runs a reflection wave (the{' '}
-            <span className="mono">project-reflection</span> skill): five lenses
-            read the project, the agent distills them into a 16-node project
-            logic graph, and a reviewer checks the story before it publishes here.
-          </p>
+          <p>No synthesis yet.</p>
         </div>
         {signal?.hint && <div className="syn-hint">{signal.hint}</div>}
       </section>
@@ -185,7 +179,7 @@ export default function ProjectSynthesisPanel({ projectId }) {
         <div className="empty-state empty-state--compact">
           <p>
             {isOpen
-              ? "Project graph isn't written yet — the lenses are still reflecting. It appears here the moment the agent associates it."
+              ? "Project graph isn't written yet."
               : 'This wave published no project graph.'}
           </p>
         </div>

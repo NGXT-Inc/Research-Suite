@@ -1,4 +1,5 @@
 import { Link } from 'react-router-dom';
+import { useProjectStore, projectPath } from '../store/useProjectStore';
 import ObjId from './ObjId';
 import { PARACHUTE_CHIPS } from '../utils/parachute';
 import { expName } from '../utils/experiment';
@@ -18,13 +19,14 @@ function shortTime(iso) {
  */
 function targetHref(targetType, targetId) {
   if (!targetId) return null;
+  const pid = useProjectStore.getState().projectId;
   switch (targetType) {
-    case 'experiment': return `/experiments/${targetId}`;
-    case 'claim':      return `/claims/${targetId}`;
+    case 'experiment': return projectPath(pid, `/experiments/${targetId}`);
+    case 'claim':      return projectPath(pid, `/claims/${targetId}`);
     case 'project':    return `/projects`;
-    case 'resource':   return `/resources`;
-    case 'review':     return `/reviews`;
-    case 'sandbox':    return `/experiments/${targetId}#execution`;
+    case 'resource':   return projectPath(pid, `/resources`);
+    case 'review':     return projectPath(pid, `/reviews`);
+    case 'sandbox':    return projectPath(pid, `/experiments/${targetId}#execution`);
     default:           return null;
   }
 }

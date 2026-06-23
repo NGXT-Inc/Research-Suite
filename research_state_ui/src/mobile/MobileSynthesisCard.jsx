@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react';
 import { Link } from 'react-router-dom';
 import { api } from '../api';
+import { useProjectHref } from '../store/useProjectStore';
 
 /**
  * MobileSynthesisCard — the project synthesis at a glance on the Now screen.
@@ -12,6 +13,7 @@ import { api } from '../api';
  * non-navigating card. docs/MOBILE_UX_REVIEW.md §4.2.
  */
 export default function MobileSynthesisCard({ projectId }) {
+  const px = useProjectHref();
   const [meta, setMeta] = useState(null);
 
   useEffect(() => {
@@ -60,7 +62,7 @@ export default function MobileSynthesisCard({ projectId }) {
     <section className="section">
       <div className="section-title">Synthesis</div>
       {hasAnyWave ? (
-        <Link to="/synthesis" className="mcard">{inner}</Link>
+        <Link to={px('/synthesis')} className="mcard">{inner}</Link>
       ) : (
         <div className="mcard" aria-disabled="true">{inner}</div>
       )}

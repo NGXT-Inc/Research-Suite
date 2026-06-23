@@ -2,6 +2,7 @@ import { useEffect, useMemo, useState } from 'react';
 import { useNavigate, useParams } from 'react-router-dom';
 import {
   useProjectStore,
+  useProjectHref,
   selectResources,
   selectExperiments,
   selectHasLocalDataPlaneHttp,
@@ -18,6 +19,7 @@ const ROLES = ['plan', 'code', 'config', 'input', 'result', 'note', 'model'];
 export default function Resources() {
   const { resourceId } = useParams();
   const navigate = useNavigate();
+  const px = useProjectHref();
   const projectId = useProjectStore(s => s.projectId);
   const refreshHome = useProjectStore(s => s.refreshHome);
   const resources = useProjectStore(selectResources);
@@ -42,7 +44,7 @@ export default function Resources() {
           onAssociated={refreshHome}
           onDeleted={async () => {
             await refreshHome();
-            navigate('/resources');
+            navigate(px('/resources'));
           }}
         />
       ) : (
@@ -51,22 +53,7 @@ export default function Resources() {
             <div className="page-head-row">
               <div>
                 <h1 className="page-title">Files we use or produce</h1>
-                <p className="page-summary">
-                  {hasLocalDataPlane ? (
-                    <>
-                      Pick a file from the sidebar to preview it here. A resource is a regular file in
-                      the local repo — the backend stores a pointer + observed version token
-                      (<span className="mono">path + mtime_ns + size_bytes</span>) and serves content
-                      directly from disk.
-                    </>
-                  ) : (
-                    <>
-                      Pick a resource from the sidebar to inspect submitted metadata and available
-                      captured content. Local file registration, association, and raw disk reads run
-                      through the data-plane daemon.
-                    </>
-                  )}
-                </p>
+                <p className="page-summary">Pick a file from the sidebar to preview it here.</p>
               </div>
               <div className="page-actions">
                 <button
@@ -85,12 +72,6 @@ export default function Resources() {
             </div>
           </header>
 
-          {!hasLocalDataPlane && (
-            <div className="empty-state empty-state--compact">
-              <p>File registration and association run through the local data-plane daemon.</p>
-            </div>
-          )}
-
           {showRegister && hasLocalDataPlane && (
             <RegisterForm
               projectId={projectId}
@@ -102,7 +83,6 @@ export default function Resources() {
           {resources.length === 0 ? (
             <div className="empty-state">
               <h2>No resources registered yet</h2>
-              <p>Register a repo file to associate it with experiments and reviews.</p>
             </div>
           ) : (
             <div className="explorer-hint">
@@ -211,7 +191,7 @@ function PreviewPanel({
             </div>
             {deleteError && <div className="error-message">{deleteError}</div>}
             {!hasLocalDataPlane && (
-              <div className="empty">Local file actions require the data-plane daemon.</div>
+              <div className="empty">Unavailable in this mode.</div>
             )}
             {associating && hasLocalDataPlane && (
               <div className="file-strip-associate">

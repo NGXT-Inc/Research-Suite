@@ -131,11 +131,17 @@ export const useProjectStore = create((set, get) => ({
         api.listSandboxes(pid).catch(() => ({ sandboxes: [] })),
         api.listEvents(pid, 500).catch(() => ({ events: [] })),
       ]);
+      // Drop the write if the active project changed while this fetch was in
+      // flight, so a late response for the previous project can't clobber the
+      // one the URL now points at (the project id lives in the URL; switching
+      // leaves the prior poll outstanding).
+      if (get().projectId !== pid) return null;
       const sandboxes = Array.isArray(sandboxesResp?.sandboxes) ? sandboxesResp.sandboxes : [];
       const events = Array.isArray(eventsResp?.events) ? eventsResp.events : [];
       set({ home, sandboxes, events, lastSyncedAt: Date.now(), lastSyncError: null });
       return home;
     } catch (err) {
+      if (get().projectId !== pid) return null;
       set({ lastSyncError: err.message });
       return null;
     }
@@ -176,3 +182,29 @@ export const selectHasLocalDataPlaneHttp = (s) =>
   s.serverMeta?.capabilities?.local_data_plane_http !== false;
 export const selectIsHostedControl = (s) =>
   s.serverMeta?.mode === 'control' || s.serverMeta?.capabilities?.hosted_control === true;
+
+/**
+ * Project-scoped routing. The active project id lives in the URL under
+ * `/p/<projectId>/…`; <ProjectScope> in App.jsx mirrors it into the store, so
+ * every component keeps reading `projectId` from the store unchanged.
+ *
+ * projectPath('proj_1', '/claims')  -> '/p/proj_1/claims'
+ * projectPath('proj_1')             -> '/p/proj_1'
+ * Builds an absolute in-app path; sub is a route under the project root.
+ */
+export function projectPath(projectId, sub = '') {
+  if (!projectId) return sub || '/';
+  if (!sub || sub === '/') return `/p/${projectId}`;
+  return `/p/${projectId}${sub.startsWith('/') ? sub : `/${sub}`}`;
+}
+
+/**
+ * Hook returning a prefixer bound to the active project: `const px =
+ * useProjectHref()` then `to={px('/claims')}`. Use inside components; for plain
+ * helper functions that cannot call hooks, use
+ * `projectPath(useProjectStore.getState().projectId, …)` instead.
+ */
+export function useProjectHref() {
+  const projectId = useProjectStore((s) => s.projectId);
+  return (sub = '') => projectPath(projectId, sub);
+}

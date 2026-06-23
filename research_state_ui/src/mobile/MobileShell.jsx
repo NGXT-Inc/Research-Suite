@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react';
 import { NavLink, Link, useLocation } from 'react-router-dom';
-import { useProjectStore, selectStats, selectSandboxes, selectActiveExperiments, selectReviewRequests } from '../store/useProjectStore';
+import { useProjectStore, useProjectHref, selectStats, selectSandboxes, selectActiveExperiments, selectReviewRequests } from '../store/useProjectStore';
 import { useTheme } from '../store/useTheme';
 import ProjectSwitcher from '../components/ProjectSwitcher';
 import { setSurfaceOverride } from '../store/useViewport';
@@ -42,6 +42,7 @@ export default function MobileShell({ children, onRefresh }) {
   const reviewRequests = useProjectStore(selectReviewRequests);
   const [sheetOpen, setSheetOpen] = useState(false);
   const { distance, refreshing } = usePullToRefresh(onRefresh);
+  const px = useProjectHref();
   // 10s tick so the "synced Xs" label and staleness stay honest even when
   // polling has stopped delivering new store state (unreachable daemon).
   const [now, setNow] = useState(Date.now());
@@ -86,16 +87,16 @@ export default function MobileShell({ children, onRefresh }) {
       <main className="mshell-main">{children}</main>
 
       <nav className="mnav" aria-label="Primary">
-        <NavLink to="/feed" className={({ isActive }) => 'mnav-tab' + (isActive ? ' active' : '')}>
+        <NavLink to={px('/feed')} className={({ isActive }) => 'mnav-tab' + (isActive ? ' active' : '')}>
           <IconFeed className="mnav-glyph" />
           Feed
         </NavLink>
-        <NavLink to="/" end className={({ isActive }) => 'mnav-tab' + (isActive ? ' active' : '')}>
+        <NavLink to={px('')} end className={({ isActive }) => 'mnav-tab' + (isActive ? ' active' : '')}>
           <IconNow className="mnav-glyph" />
           Now
           {attentionCount > 0 && <span className="mnav-badge">{attentionCount}</span>}
         </NavLink>
-        <NavLink to="/experiments" className={({ isActive }) => 'mnav-tab' + (isActive ? ' active' : '')}>
+        <NavLink to={px('/experiments')} className={({ isActive }) => 'mnav-tab' + (isActive ? ' active' : '')}>
           <IconExperiments className="mnav-glyph" />
           Experiments
         </NavLink>
@@ -136,6 +137,7 @@ function MoreSheet({ open, onClose, onRefresh }) {
   const lastSyncError = useProjectStore(s => s.lastSyncError);
   const sandboxes = useProjectStore(selectSandboxes);
   const runningSandboxes = sandboxes.filter(s => s.status === 'running').length;
+  const px = useProjectHref();
 
   const footer = (
     <>
@@ -153,16 +155,16 @@ function MoreSheet({ open, onClose, onRefresh }) {
       <ProjectSwitcher />
 
       <div className="msheet-section">Browse</div>
-      <SheetLink to="/claims" label="Claims" count={stats.claims ?? home?.claims?.length ?? 0} />
-      <SheetLink to="/reviews" label="Reviews" count={stats.open_reviews ?? stats.reviews ?? 0} />
-      <SheetLink to="/resources" label="Resources" count={stats.resources ?? 0} />
-      <SheetLink to="/sandboxes" label="Sandboxes" count={runningSandboxes ? `${runningSandboxes} running` : null} />
+      <SheetLink to={px('/claims')} label="Claims" count={stats.claims ?? home?.claims?.length ?? 0} />
+      <SheetLink to={px('/reviews')} label="Reviews" count={stats.open_reviews ?? stats.reviews ?? 0} />
+      <SheetLink to={px('/resources')} label="Resources" count={stats.resources ?? 0} />
+      <SheetLink to={px('/sandboxes')} label="Sandboxes" count={runningSandboxes ? `${runningSandboxes} running` : null} />
       <SheetLink to="/projects" label="Projects" />
 
       <div className="msheet-section">Forensics</div>
-      <SheetLink to="/events" label="Events" />
-      <SheetLink to="/activity" label="Traffic & Tool I/O" />
-      <SheetLink to="/visual/dag" label="Logic DAG" note="desktop recommended" />
+      <SheetLink to={px('/events')} label="Events" />
+      <SheetLink to={px('/activity')} label="Traffic & Tool I/O" />
+      <SheetLink to={px('/visual/dag')} label="Logic DAG" note="desktop recommended" />
 
       {lastSyncError && (
         <div className="error-message" style={{ marginTop: 10, fontSize: 11 }}>{lastSyncError}</div>

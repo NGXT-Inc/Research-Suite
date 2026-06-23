@@ -1,6 +1,6 @@
 import { useState } from 'react';
 import { Link } from 'react-router-dom';
-import { useProjectStore, selectExperiments, selectSandboxes, selectEventsAll } from '../store/useProjectStore';
+import { useProjectStore, useProjectHref, selectExperiments, selectSandboxes, selectEventsAll } from '../store/useProjectStore';
 import { api } from '../api';
 import ObjId from '../components/ObjId';
 import StatusPill from '../components/StatusPill';
@@ -62,7 +62,6 @@ export default function SandboxCardList() {
       {rows.length === 0 ? (
         <div className="empty-state">
           <h2>No sandboxes</h2>
-          <p>The agent provisions one with <span className="mono">sandbox.request</span> once an experiment is ready to run.</p>
         </div>
       ) : (
         <div className="mcard-list">
@@ -83,6 +82,7 @@ export default function SandboxCardList() {
 }
 
 function SandboxCard({ sandbox: s, experiment, parachute, open, onToggle }) {
+  const px = useProjectHref();
   const projectId = useProjectStore(st => st.projectId);
   const chip = parachute ? PARACHUTE_CHIPS[parachute] : null;
   const refreshHome = useProjectStore(st => st.refreshHome);
@@ -140,7 +140,7 @@ function SandboxCard({ sandbox: s, experiment, parachute, open, onToggle }) {
         <button type="button" className="btn btn--sm" onClick={onToggle} aria-expanded={open}>
           {open ? 'Hide details ▾' : 'Details & terminal ▸'}
         </button>
-        <Link to={`/experiments/${s.experiment_id}`} className="btn btn--sm btn--ghost">
+        <Link to={px(`/experiments/${s.experiment_id}`)} className="btn btn--sm btn--ghost">
           Open experiment →
         </Link>
         {dashboards.map(([name, url]) => (
@@ -168,9 +168,7 @@ function SandboxCard({ sandbox: s, experiment, parachute, open, onToggle }) {
               ⚠ {expName(experiment)} is RUNNING on this sandbox — releasing terminates the VM under it.
             </div>
           )}
-          <div style={{ marginBottom: 10 }}>
-            Terminate this sandbox? A final sync runs first; the VM and everything outside the experiment folder are gone after that.
-          </div>
+          <div style={{ marginBottom: 10 }}>Terminate this sandbox?</div>
           <SlideToConfirm busy={busy} onConfirm={release} label="Slide to release" busyLabel="Releasing…" />
           <div className="mconfirm-actions" style={{ marginTop: 8 }}>
             <button type="button" className="btn btn--sm btn--ghost" onClick={() => setConfirming(false)} disabled={busy}>

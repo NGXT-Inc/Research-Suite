@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react';
 import { useNavigate, useParams } from 'react-router-dom';
-import { useProjectStore, selectResources } from '../store/useProjectStore';
+import { useProjectStore, selectResources, useProjectHref } from '../store/useProjectStore';
 import FileTree from '../components/FileTree';
 import ResourceContentView from '../components/ResourceContentView';
 import ObjId from '../components/ObjId';
@@ -14,6 +14,7 @@ import { formatBytes } from '../utils/format';
 export default function MobileResources() {
   const { resourceId } = useParams();
   const navigate = useNavigate();
+  const px = useProjectHref();
   const projectId = useProjectStore(s => s.projectId);
   const resources = useProjectStore(selectResources);
   const [treeOpen, setTreeOpen] = useState(!resourceId);
@@ -49,7 +50,7 @@ export default function MobileResources() {
               <FileTree
                 resources={resources}
                 selectedId={resourceId || null}
-                onSelect={(r) => navigate(`/resources/${r.id}`)}
+                onSelect={(r) => navigate(px(`/resources/${r.id}`))}
               />
             )}
           </div>

@@ -88,7 +88,7 @@ export default function MobileGraphSection({ projectId, experimentId, experiment
 
       {!view ? (
         <div className="empty-state empty-state--compact">
-          <p>No graph yet — appears as the run progresses.</p>
+          <p>No graph yet.</p>
         </div>
       ) : (
         <GraphOutline nodes={model.nodes} edges={model.edges} renderDetail={renderDetail} />

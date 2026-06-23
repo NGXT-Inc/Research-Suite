@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react';
 import { Link } from 'react-router-dom';
-import { useProjectStore, selectExperiments } from '../store/useProjectStore';
+import { useProjectStore, selectExperiments, useProjectHref } from '../store/useProjectStore';
 import { api } from '../api';
 import ObjId from '../components/ObjId';
 import StatusPill from '../components/StatusPill';
@@ -18,6 +18,7 @@ import { expName } from '../utils/experiment';
 export default function Reviews() {
   const projectId = useProjectStore(s => s.projectId);
   const experiments = useProjectStore(selectExperiments);
+  const px = useProjectHref();
   const [queue, setQueue] = useState(null);
   const [error, setError] = useState(null);
 
@@ -51,13 +52,7 @@ export default function Reviews() {
   return (
     <div className="page-stage">
       <header className="page-header page-header--lg">
-        <h1 className="page-title">Design & experiment review history</h1>
-        <p className="page-summary">
-          Reviewers (separate Codex sub-agents) submit verdicts through MCP. This page
-          displays both open review requests and the durable history. Failed and
-          needs-changes reviews stay visible — they are the load-bearing context for
-          the next attempt.
-        </p>
+        <h1 className="page-title">Review history</h1>
       </header>
 
       <section className="section">
@@ -81,7 +76,7 @@ export default function Reviews() {
                   </div>
                   <div className="list-row-aside">
                     <StatusPill value={req.status || 'requested'} />
-                    {exp && <Link to={`/experiments/${exp.id}`} className="btn btn--sm btn--ghost">Open →</Link>}
+                    {exp && <Link to={px(`/experiments/${exp.id}`)} className="btn btn--sm btn--ghost">Open →</Link>}
                   </div>
                 </div>
               );
@@ -105,7 +100,7 @@ export default function Reviews() {
                       {exp ? <span style={{ fontWeight: 600 }}>{expName(exp)}</span> : <ObjId id={eid} accent />}
                       {exp && <span style={{ fontSize: 'var(--text-base)' }}>{exp.intent}</span>}
                     </div>
-                    {exp && <Link to={`/experiments/${eid}`} className="btn btn--sm btn--ghost">Open experiment →</Link>}
+                    {exp && <Link to={px(`/experiments/${eid}`)} className="btn btn--sm btn--ghost">Open experiment →</Link>}
                   </div>
                   <div className="stack stack--sm">
                     {reviews.map(r => <ReviewCard key={r.id || r.created_at} review={r} />)}

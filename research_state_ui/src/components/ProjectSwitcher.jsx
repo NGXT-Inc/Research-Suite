@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { useProjectStore } from '../store/useProjectStore';
+import { useProjectStore, projectPath } from '../store/useProjectStore';
 import ObjId from './ObjId';
 
 // Left-to-Right Mark: prepended to the repo path so the rtl left-truncation in
@@ -20,8 +20,6 @@ export default function ProjectSwitcher() {
   const navigate = useNavigate();
   const projects = useProjectStore(s => s.projects);
   const projectId = useProjectStore(s => s.projectId);
-  const setProjectId = useProjectStore(s => s.setProjectId);
-  const refreshHome = useProjectStore(s => s.refreshHome);
   const [open, setOpen] = useState(false);
   const ref = useRef(null);
 
@@ -42,8 +40,8 @@ export default function ProjectSwitcher() {
   function pick(pid) {
     setOpen(false);
     if (pid === projectId) return;
-    setProjectId(pid);
-    refreshHome();
+    // URL drives the active project; <ProjectScope> mirrors it into the store.
+    navigate(projectPath(pid));
   }
 
   return (

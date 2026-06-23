@@ -1,6 +1,6 @@
 import { useMemo, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { useProjectStore, selectExperiments, selectClaims } from '../store/useProjectStore';
+import { useProjectStore, selectExperiments, selectClaims, useProjectHref } from '../store/useProjectStore';
 import { api } from '../api';
 import ObjId from '../components/ObjId';
 import StatusPill from '../components/StatusPill';
@@ -96,7 +96,6 @@ export default function Experiments() {
       {rows.length === 0 ? (
         <div className="empty-state">
           <h2>No experiments yet</h2>
-          <p>Create one to test a claim.</p>
         </div>
       ) : (
         <ExperimentTable
@@ -130,6 +129,7 @@ function WhenCell({ parts, title }) {
 
 function ExperimentTable({ rows, sortKey, sortDir, onSort }) {
   const navigate = useNavigate();
+  const px = useProjectHref();
   return (
     <div className="expt-scroll">
       <div className="expt" role="table" aria-label="Experiments">
@@ -165,8 +165,8 @@ function ExperimentTable({ rows, sortKey, sortDir, onSort }) {
               className="expt-row"
               role="row"
               tabIndex={0}
-              onClick={() => navigate(`/experiments/${e.id}`)}
-              onKeyDown={ev => { if (ev.key === 'Enter') navigate(`/experiments/${e.id}`); }}
+              onClick={() => navigate(px(`/experiments/${e.id}`))}
+              onKeyDown={ev => { if (ev.key === 'Enter') navigate(px(`/experiments/${e.id}`)); }}
             >
               <div className="expt-main">
                 <div className="expt-title" title={title}>{title}</div>

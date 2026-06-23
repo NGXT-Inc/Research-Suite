@@ -1,6 +1,6 @@
 import { useMemo, useState } from 'react';
 import { Link } from 'react-router-dom';
-import { useProjectStore, selectClaims, selectExperiments } from '../store/useProjectStore';
+import { useProjectStore, useProjectHref, selectClaims, selectExperiments } from '../store/useProjectStore';
 import { expName } from '../utils/experiment';
 import { SkeletonCards } from './Skeleton';
 
@@ -107,8 +107,9 @@ function ConfidenceDots({ level }) {
 }
 
 function ClaimCard({ claim, linked }) {
+  const px = useProjectHref();
   return (
-    <Link to={`/claims/${claim.id}`} className="mcard">
+    <Link to={px(`/claims/${claim.id}`)} className="mcard">
       <div className="mcard-title" style={{ marginBottom: 6 }}>{claim.statement}</div>
       <div className="mcard-meta">
         <ConfidenceDots level={claim.confidence} />

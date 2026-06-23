@@ -8,6 +8,7 @@ import DetailPanelShell from './DetailPanelShell';
 import { layoutFigure, FIG_NODE_W } from '../utils/figureLayout';
 import { TERMINAL_STATUSES } from '../utils/experiment';
 import { usePanelWidth } from '../store/usePanelWidth';
+import { useProjectHref } from '../store/useProjectStore';
 
 // Node `kind` is the agent's own vocabulary — there is no fixed taxonomy, so
 // each kind gets an accent color by order of first appearance, used as the
@@ -104,24 +105,25 @@ function toFlow(graph) {
  * gray text — refs are the agent's free-form pointers, never an error.
  */
 function NodeRef({ refString, resolution }) {
+  const px = useProjectHref();
   const r = resolution || { resolved: false, type: 'unknown' };
   if (r.type === 'resource' && r.resolved) {
     return (
-      <Link className="lgr-ref" to={`/resources/${r.resource_id}`}>
+      <Link className="lgr-ref" to={px(`/resources/${r.resource_id}`)}>
         <span className="fig-node-type">{r.kind || 'resource'}</span> {r.title || r.path} →
       </Link>
     );
   }
   if (r.type === 'claim' && r.resolved) {
     return (
-      <Link className="lgr-ref" to={`/claims/${r.claim_id}`}>
+      <Link className="lgr-ref" to={px(`/claims/${r.claim_id}`)}>
         <span className="fig-node-type">claim</span> {r.statement} →
       </Link>
     );
   }
   if (r.type === 'experiment' && r.resolved) {
     return (
-      <Link className="lgr-ref" to={`/experiments/${r.experiment_id}`}>
+      <Link className="lgr-ref" to={px(`/experiments/${r.experiment_id}`)}>
         <span className="fig-node-type">experiment</span> {r.intent} →
       </Link>
     );
@@ -320,23 +322,13 @@ export default function LogicGraph({
         </div>
       </div>
       {problems.length > 0 && !needsResubmit && (
-        <div className="lgr-problems">
-          graph has envelope problems — the agent must fix these before {problemsGate}: {problems.join('; ')}
-        </div>
+        <div className="lgr-problems">Graph problems: {problems.join('; ')}</div>
       )}
       {needsResubmit && (
-        <div className="lgr-broken">
-          The graph file{payload?.path ? ` (${payload.path})` : ''} was associated
-          but has no submitted content — re-associate it (role 'graph') to render
-          the story here.
-        </div>
+        <div className="lgr-broken">Graph file has no submitted content.</div>
       )}
       {broken && (
-        <div className="lgr-broken">
-          The graph file{payload?.path ? ` (${payload.path})` : ''} exists but
-          cannot be drawn yet — once the problems above are fixed and the file
-          is synced, the story renders here.
-        </div>
+        <div className="lgr-broken">Graph can't be rendered yet.</div>
       )}
       {hasStory && (
       <div

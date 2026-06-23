@@ -1,25 +1,53 @@
-import { useState } from 'react';
+import { useState, useRef, useEffect } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
-import { useProjectStore, selectHasLocalDataPlaneHttp } from '../store/useProjectStore';
+import { useProjectStore, projectPath, selectHasLocalDataPlaneHttp } from '../store/useProjectStore';
+import LogicGraphHero from '../components/LogicGraphHero';
+
+// Grow a textarea to fit its content so the summary can run to a few lines
+// without an inner scrollbar breaking the minimal underline look.
+function autoGrow(el) {
+  if (!el) return;
+  el.style.height = 'auto';
+  el.style.height = `${el.scrollHeight}px`;
+}
 
 /**
- * CreateProject — usable both as bootstrap (no projects yet) and as an
- * in-shell route at /projects/new.
+ * CreateProject — the single new-project flow, used both as bootstrap (no
+ * projects yet, rendered bare) and as the in-shell route at /projects/new.
+ * A two-step logic-graph hero either way.
  *
  * Props:
- *   bootstrap: bool. When true, omits the "← Projects" back link and the
- *              sidebar isn't there anyway; the layout adapts.
+ *   bootstrap: bool. When true, drops the "← Projects" cancel link (there's
+ *              nowhere to go back to) and tweaks the name placeholder.
  */
 export default function CreateProject({ bootstrap = false }) {
   const navigate = useNavigate();
   const createProject = useProjectStore(s => s.createProject);
-  const projects = useProjectStore(s => s.projects);
   const hasLocalDataPlane = useProjectStore(selectHasLocalDataPlaneHttp);
   const [name, setName] = useState('');
   const [summary, setSummary] = useState('');
   const [repoRoot, setRepoRoot] = useState('');
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState(null);
+  // Bootstrap is a two-step flow: 0 = name the project, 1 = describe it.
+  const [step, setStep] = useState(0);
+  const summaryRef = useRef(null);
+
+  // Re-fit the summary box when entering step 1 (its value may be preserved
+  // from an earlier visit via the back-to-rename control). Defer one frame so
+  // the measurement runs after layout settles, not during the entry transition.
+  useEffect(() => {
+    if (step !== 1) return;
+    const id = requestAnimationFrame(() => autoGrow(summaryRef.current));
+    return () => cancelAnimationFrame(id);
+  }, [step]);
+
+  function advance(e) {
+    e.preventDefault();
+    if (!name.trim()) return;
+    setError(null);
+    setStep(1);
+  }
 
   async function submit(e) {
     e.preventDefault();
@@ -27,12 +55,12 @@ export default function CreateProject({ bootstrap = false }) {
     setBusy(true);
     setError(null);
     try {
-      await createProject({
+      const row = await createProject({
         name: name.trim(),
         summary: summary.trim(),
         repo_root: hasLocalDataPlane ? repoRoot.trim() : '',
       });
-      navigate('/');
+      navigate(projectPath(row.id));
     } catch (err) {
       setError(err.message);
     } finally {
@@ -40,82 +68,80 @@ export default function CreateProject({ bootstrap = false }) {
     }
   }
 
+  // One create flow for every project — first-run or from inside the app.
+  // Step 0: name it (the hook). Step 1: describe it — directory if local, summary.
+  // Both steps speak the same minimal language: a forming logic graph behind a
+  // single underline field and one "→" to proceed.
   return (
-    <div className="page-stage" style={{ maxWidth: 560 }}>
-      <header className="page-header page-header--lg">
-        <div className="page-eyebrow">
-          {!bootstrap && <Link to="/projects">Projects</Link>}
-          {!bootstrap && ' · '}
-          {bootstrap ? 'Research State · research_plugin v0.0001' : 'New'}
-        </div>
-        <h1 className="page-title">{bootstrap ? 'No project yet' : 'New project'}</h1>
-        <p className="page-summary">
-          {bootstrap
-            ? hasLocalDataPlane
-              ? <>Create the first project by choosing the local directory that will own its files and <code className="mono">.research_plugin/state.sqlite</code>.</>
-              : <>Create the first hosted project. Local file observation is handled by the data-plane daemon, not this browser.</>
-            : hasLocalDataPlane
-              ? <>Add another research project by selecting the local directory that owns its files, claims, experiments, resources, and review history.</>
-              : <>Add another hosted project. Files can be observed later through a connected local data-plane daemon.</>}
-        </p>
-      </header>
+    <div className="boot-hero">
+      <div className="boot-hero__field">
+        <LogicGraphHero />
+      </div>
 
-      <form className="form-card" onSubmit={submit}>
-        <div className="form-row">
-          <label className="label" htmlFor="proj-name">Name</label>
-          <input
-            id="proj-name"
-            className="input"
-            value={name}
-            onChange={e => setName(e.target.value)}
-            placeholder="Toy Length Classifier"
-            autoFocus
-            required
-          />
-        </div>
-        {hasLocalDataPlane ? (
-          <div className="form-row">
-            <label className="label" htmlFor="proj-dir">Directory path</label>
+      {!bootstrap && (
+        <Link to="/projects" className="boot-exit">
+          <span aria-hidden="true">←</span> Projects
+        </Link>
+      )}
+
+      {step === 0 ? (
+        <form className="boot-create" onSubmit={advance} key="name">
+          <div className="boot-create__field">
             <input
-              id="proj-dir"
-              className="input"
-              value={repoRoot}
-              onChange={e => setRepoRoot(e.target.value)}
-              placeholder="/absolute/path/to/research-project"
+              className="boot-create__input"
+              value={name}
+              onChange={e => setName(e.target.value)}
+              placeholder={bootstrap ? 'Name your first project' : 'Name your project'}
+              autoFocus
               required
             />
+            <button
+              type="submit"
+              className="boot-create__go"
+              aria-label="Continue"
+              disabled={!name.trim()}
+            >
+              →
+            </button>
           </div>
-        ) : null}
-        <div className="form-row">
-          <label className="label" htmlFor="proj-summary">Summary</label>
-          <textarea
-            id="proj-summary"
-            className="textarea"
-            value={summary}
-            onChange={e => setSummary(e.target.value)}
-            placeholder="What is this project about? (optional)"
-          />
-        </div>
-        {error && <div className="error-message">{error}</div>}
-        <div className="form-actions">
-          {!bootstrap && (
-            <Link to="/projects" className="btn btn--ghost">Cancel</Link>
-          )}
-          <button
-            type="submit"
-            className="btn btn--primary"
-            disabled={busy || !name.trim() || (hasLocalDataPlane && !repoRoot.trim())}
-          >
-            {busy ? 'Creating…' : 'Create project'}
+        </form>
+      ) : (
+        <form className="boot-create" onSubmit={submit} key="details">
+          <button type="button" className="boot-back" onClick={() => setStep(0)} title="Rename">
+            <span aria-hidden="true">←</span> {name}
           </button>
-        </div>
-      </form>
-
-      {!bootstrap && projects.length > 0 && (
-        <p className="faint" style={{ marginTop: 18, fontSize: 'var(--text-xs)' }}>
-          You have {projects.length} project{projects.length === 1 ? '' : 's'} already.
-          Use the sidebar to switch between them.
-        </p>
+          {hasLocalDataPlane && (
+            <input
+              className="boot-create__input boot-create__input--dir"
+              value={repoRoot}
+              onChange={e => setRepoRoot(e.target.value)}
+              placeholder="/path/to/project directory"
+              autoFocus
+              required
+            />
+          )}
+          <div className="boot-create__field boot-create__field--grow">
+            <textarea
+              ref={summaryRef}
+              rows={1}
+              className="boot-create__input boot-create__input--summary"
+              value={summary}
+              onChange={e => { setSummary(e.target.value); autoGrow(e.target); }}
+              onKeyDown={e => { if (e.key === 'Enter' && (e.metaKey || e.ctrlKey)) submit(e); }}
+              placeholder="Brief summary to set the context."
+              autoFocus={!hasLocalDataPlane}
+            />
+            <button
+              type="submit"
+              className="boot-create__go"
+              aria-label="Create project"
+              disabled={busy || !name.trim() || (hasLocalDataPlane && !repoRoot.trim())}
+            >
+              →
+            </button>
+          </div>
+          {error && <div className="boot-create__error">{error}</div>}
+        </form>
       )}
     </div>
   );

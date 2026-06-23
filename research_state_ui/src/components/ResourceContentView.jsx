@@ -232,7 +232,7 @@ function LocalFileUnavailable({ path }) {
     <ContentUnavailable
       content={{
         reason: 'content_unavailable_in_this_mode',
-        detail: `${path || 'This file'} lives on the local data-plane daemon.`,
+        detail: `${path || 'This file'} is unavailable in this mode.`,
       }}
     />
   );

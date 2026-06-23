@@ -1,6 +1,7 @@
 import { Link } from 'react-router-dom';
 import {
   useProjectStore,
+  useProjectHref,
   selectProject,
   selectStats,
   selectClaims,
@@ -27,6 +28,7 @@ const SOON_MS = 30 * 60 * 1000;
  * a successful glance.
  */
 export default function NowScreen() {
+  const px = useProjectHref();
   const project = useProjectStore(selectProject);
   const stats = useProjectStore(selectStats);
   const claims = useProjectStore(selectClaims);
@@ -56,9 +58,9 @@ export default function NowScreen() {
       items.push({
         key: `sbx-${s.experiment_id}`,
         danger: left <= 5 * 60 * 1000,
-        to: `/sandboxes`,
+        to: px(`/sandboxes`),
         title: `Sandbox expiring ${left <= 0 ? 'now' : `in ${fmtDuration(left)}`}`,
-        sub: `${exp ? expName(exp) : s.experiment_id}${s.gpu ? ` · ${s.gpu}` : ''} — final sync runs before termination`,
+        sub: `${exp ? expName(exp) : s.experiment_id}${s.gpu ? ` · ${s.gpu}` : ''}`,
         pill: 'running',
       });
     }
@@ -69,7 +71,7 @@ export default function NowScreen() {
     const wf = e.workflow || {};
     items.push({
       key: `rev-${e.id}`,
-      to: `/experiments/${e.id}`,
+      to: px(`/experiments/${e.id}`),
       title: expName(e),
       sub: wf.next_action && wf.next_action !== 'none'
         ? `next: ${wf.next_action}`
@@ -87,7 +89,7 @@ export default function NowScreen() {
     const exp = r.target_type === 'experiment' ? expById[r.target_id] : null;
     items.push({
       key: `req-${r.id}`,
-      to: exp ? `/experiments/${exp.id}` : '/reviews',
+      to: exp ? px(`/experiments/${exp.id}`) : px('/reviews'),
       title: `${(r.role || 'review').replace(/_/g, ' ')} ${r.status || 'requested'}`,
       sub: exp ? expName(exp) : r.target_id,
       pill: r.status || 'requested',
@@ -105,10 +107,10 @@ export default function NowScreen() {
       )}
 
       <div className="mcounts">
-        <CountPill to="/claims" label="Claims" value={stats.claims ?? claims.length} />
-        <CountPill to="/experiments" label="Experiments" value={stats.experiments ?? experiments.length} />
-        <CountPill to="/reviews" label="Reviews" value={stats.open_reviews ?? stats.reviews ?? 0} />
-        <CountPill to="/sandboxes" label="Running" value={running.length} accent={running.length > 0} />
+        <CountPill to={px('/claims')} label="Claims" value={stats.claims ?? claims.length} />
+        <CountPill to={px('/experiments')} label="Experiments" value={stats.experiments ?? experiments.length} />
+        <CountPill to={px('/reviews')} label="Reviews" value={stats.open_reviews ?? stats.reviews ?? 0} />
+        <CountPill to={px('/sandboxes')} label="Running" value={running.length} accent={running.length > 0} />
       </div>
 
       <section className="section">
@@ -138,7 +140,7 @@ export default function NowScreen() {
           <div className="section-title">In flight</div>
           <div className="mcard-list">
             {inFlight.map(e => (
-              <Link key={e.id} to={`/experiments/${e.id}`} className="mcard">
+              <Link key={e.id} to={px(`/experiments/${e.id}`)} className="mcard">
                 <div className="mcard-head">
                   <div className="mcard-title">{expName(e)}</div>
                   <StatusPill value={e.status} />
@@ -164,7 +166,7 @@ export default function NowScreen() {
               const up = s.requested_at ? now - Date.parse(s.requested_at) : null;
               const left = s.expires_at ? Date.parse(s.expires_at) - now : null;
               return (
-                <Link key={s.experiment_id} to={`/experiments/${s.experiment_id}`} className="mcard">
+                <Link key={s.experiment_id} to={px(`/experiments/${s.experiment_id}`)} className="mcard">
                   <div className="mcard-head">
                     <div className="mcard-title">{exp ? expName(exp) : s.experiment_id}</div>
                     <StatusPill value={s.status} />
@@ -184,7 +186,7 @@ export default function NowScreen() {
       <section className="section">
         <div className="cluster--between" style={{ marginBottom: 12 }}>
           <div className="section-title" style={{ marginBottom: 0 }}>Recent</div>
-          <Link to="/events" className="btn btn--sm btn--ghost">Timeline →</Link>
+          <Link to={px('/events')} className="btn btn--sm btn--ghost">Timeline →</Link>
         </div>
         <EventTimeline events={events} limit={8} experiments={experiments} />
       </section>

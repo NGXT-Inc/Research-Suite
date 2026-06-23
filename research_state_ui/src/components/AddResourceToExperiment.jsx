@@ -44,9 +44,7 @@ export default function AddResourceToExperiment({
   if (!hasLocalDataPlane) {
     return (
       <div className="form-card" style={{ marginBottom: 14 }}>
-        <div className="empty">
-          Resource registration and association require the local data-plane daemon.
-        </div>
+        <div className="empty">Registration unavailable in this mode.</div>
         <div className="form-actions" style={{ marginTop: 10 }}>
           <button type="button" className="btn btn--ghost btn--sm" onClick={onCancel}>Cancel</button>
         </div>
@@ -192,8 +190,7 @@ function AssociateExisting({ projectId, experimentId, candidates, defaultRole, o
   if (candidates.length === 0) {
     return (
       <div className="empty">
-        No unassociated resources. Register a new file instead, or visit{' '}
-        the Resources page to manage older registrations.
+        No unassociated resources.
         <div className="form-actions" style={{ marginTop: 10 }}>
           <button type="button" className="btn btn--ghost btn--sm" onClick={onCancel}>Cancel</button>
         </div>

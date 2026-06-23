@@ -3,6 +3,7 @@ import { Link, useParams } from 'react-router-dom';
 import { api } from '../api';
 import {
   useProjectStore,
+  useProjectHref,
   selectResources,
   selectHasLocalDataPlaneHttp,
 } from '../store/useProjectStore';
@@ -44,6 +45,7 @@ function deriveActionButtons(workflow) {
 
 export default function ExperimentDetail() {
   const { experimentId } = useParams();
+  const px = useProjectHref();
   const projectId = useProjectStore(s => s.projectId);
   const refreshHome = useProjectStore(s => s.refreshHome);
   const allProjectResources = useProjectStore(selectResources);
@@ -103,7 +105,7 @@ export default function ExperimentDetail() {
     return (
       <div className="page-stage">
         <div className="error-message">{error}</div>
-        <Link className="btn" to="/experiments" style={{ marginTop: 12 }}>← Experiments</Link>
+        <Link className="btn" to={px('/experiments')} style={{ marginTop: 12 }}>← Experiments</Link>
       </div>
     );
   }
@@ -196,7 +198,7 @@ export default function ExperimentDetail() {
       {/* ─────────────  ORIENTATION  ────────────────────────────────── */}
       <header className="exp-orient">
         <div className="page-eyebrow">
-          <Link to="/experiments">Experiments</Link>
+          <Link to={px('/experiments')}>Experiments</Link>
           {' · '}<span className="exp-orient-attempt">attempt {currentAttempt}</span>
         </div>
         <h1 className="page-title exp-title-name">{expName(experiment)}</h1>

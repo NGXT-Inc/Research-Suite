@@ -21,14 +21,7 @@ export default function MobileProjectCreateNotice({ bootstrap = false }) {
         <h1 className="page-title">{bootstrap ? 'No project yet' : 'New project'}</h1>
       </header>
       <div className="empty-state">
-        <p>
-          Creating a project needs a local directory on the machine running the
-          daemon — a path you can't pick from a phone.
-        </p>
-        <p>
-          Create it from the desktop app or the <span className="mono">research_plugin</span> CLI;
-          it'll appear here automatically.
-        </p>
+        <p>Create a project from desktop or CLI.</p>
         {!bootstrap && (
           <Link to="/projects" className="btn" style={{ marginTop: 12 }}>← Projects</Link>
         )}

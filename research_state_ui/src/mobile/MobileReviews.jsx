@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react';
 import { Link } from 'react-router-dom';
-import { useProjectStore, selectExperiments } from '../store/useProjectStore';
+import { useProjectStore, selectExperiments, useProjectHref } from '../store/useProjectStore';
 import { api } from '../api';
 import ObjId from '../components/ObjId';
 import StatusPill from '../components/StatusPill';
@@ -16,6 +16,7 @@ import { SkeletonCards } from './Skeleton';
 export default function MobileReviews() {
   const projectId = useProjectStore(s => s.projectId);
   const experiments = useProjectStore(selectExperiments);
+  const px = useProjectHref();
   const [queue, setQueue] = useState(null);
   const [error, setError] = useState(null);
 
@@ -63,7 +64,7 @@ export default function MobileReviews() {
             {openRequests.map(req => {
               const exp = expById[req.target_id];
               return (
-                <Link key={req.id} to={exp ? `/experiments/${exp.id}` : '/reviews'} className="mcard mcard--attn">
+                <Link key={req.id} to={exp ? px(`/experiments/${exp.id}`) : px('/reviews')} className="mcard mcard--attn">
                   <div className="mcard-head">
                     <div className="mcard-title">{(req.role || 'review').replace(/_/g, ' ')}</div>
                     <StatusPill value={req.status || 'requested'} />
@@ -91,7 +92,7 @@ export default function MobileReviews() {
                 <div key={eid}>
                   <div className="cluster--between" style={{ marginBottom: 8 }}>
                     {exp
-                      ? <Link to={`/experiments/${eid}`} style={{ fontWeight: 600 }}>{expName(exp)}</Link>
+                      ? <Link to={px(`/experiments/${eid}`)} style={{ fontWeight: 600 }}>{expName(exp)}</Link>
                       : <ObjId id={eid} accent />}
                   </div>
                   <div className="stack stack--sm">

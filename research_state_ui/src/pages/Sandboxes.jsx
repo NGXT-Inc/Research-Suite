@@ -81,11 +81,7 @@ export default function Sandboxes() {
           empty={(
             <div className="empty-state">
               <h2>No sandboxes</h2>
-              <p>
-                {sandboxes.length === 0
-                  ? 'The agent provisions one with sandbox.request once an experiment is ready_to_run.'
-                  : `No ${filterStatus} sandboxes.`}
-              </p>
+              {sandboxes.length > 0 && <p>{`No ${filterStatus} sandboxes.`}</p>}
             </div>
           )}
         />

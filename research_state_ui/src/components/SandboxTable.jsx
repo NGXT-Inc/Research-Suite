@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useState } from 'react';
 import { Link } from 'react-router-dom';
+import { useProjectHref } from '../store/useProjectStore';
 import SandboxTerminal from './SandboxTerminal';
 import { expName } from '../utils/experiment';
 import { fmtDuration } from '../utils/format';
@@ -82,6 +83,7 @@ export default function SandboxTable({ sandboxes, experiments, events, projectId
 }
 
 function SandboxRow({ sandbox, experiment, projectId, now, parachute, open, onToggle }) {
+  const px = useProjectHref();
   const s = sandbox;
   const live = s.status === 'running';
   const chip = parachute ? PARACHUTE_CHIPS[parachute] : null;
@@ -126,8 +128,8 @@ function SandboxRow({ sandbox, experiment, projectId, now, parachute, open, onTo
         </span>
         <span className="sbxt-ep mono" title={endpoint || ''}>{endpoint || '—'}</span>
         <span className="sbxt-links" onClick={(e) => e.stopPropagation()}>
-          <Link to={`/experiments/${s.experiment_id}#execution`} className="sbxt-link">open ↗</Link>
-          <DashboardChips dashboards={s.dashboards} />
+          <Link to={px(`/experiments/${s.experiment_id}#execution`)} className="sbxt-link">open ↗</Link>
+          <DashboardChips dashboards={s.dashboards} mlflow={s.mlflow} />
         </span>
       </div>
       {open && (
@@ -139,11 +141,18 @@ function SandboxRow({ sandbox, experiment, projectId, now, parachute, open, onTo
   );
 }
 
-function DashboardChips({ dashboards }) {
-  if (!dashboards) return null;
+function DashboardChips({ dashboards, mlflow }) {
+  const centralMlflowUrl = mlflow?.configured
+    ? (mlflow.dashboard_url || mlflow.tracking_uri)
+    : '';
+  if (!dashboards && !centralMlflowUrl) return null;
   const entries = [
-    dashboards.mlflow && { key: 'mlflow', label: 'MLflow', url: dashboards.mlflow },
-    dashboards.tensorboard && { key: 'tensorboard', label: 'TB', url: dashboards.tensorboard },
+    (centralMlflowUrl || dashboards?.mlflow) && {
+      key: 'mlflow',
+      label: 'MLflow',
+      url: centralMlflowUrl || dashboards?.mlflow,
+    },
+    dashboards?.tensorboard && { key: 'tensorboard', label: 'TB', url: dashboards.tensorboard },
   ].filter(Boolean);
   if (entries.length === 0) return null;
   return (

@@ -53,7 +53,7 @@ export default function ResultsMetricsPanel({ projectId, experimentId, refreshKe
     <section className="results-metrics">
       <div className="results-metrics-head">
         <span className="results-metrics-title">Recorded results</span>
-        <span className="results-metrics-sub">durable · survives sandbox teardown</span>
+        <span className="results-metrics-sub">durable</span>
       </div>
       {experiments.map((exp, ei) => (
         (Array.isArray(exp.runs) ? exp.runs : []).map((run, ri) => {

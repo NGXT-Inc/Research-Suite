@@ -10,9 +10,8 @@ import TerminalLog from './TerminalLog';
  * over MCP) and runs commands over SSH itself; this panel only *observes*:
  *   - sandbox status + SSH connection details (read-only, copyable);
  *   - a live transcript of every command + output recorded in the sandbox;
- *   - **MLflow** (port 5000) and **TensorBoard** (port 6006) dashboards
- *     surfaced as provider URLs or daemon-owned local SSH forwards — rendered as
- *     `<iframe>` tabs sitting next to "Terminal" so the user can watch
+ *   - centralized **MLflow** and sandbox **TensorBoard** dashboards rendered as
+ *     `<iframe>` tabs next to "Terminal" so the user can watch
  *     loss curves, gradients, and TB scalars live without ever opening a
  *     separate tab. Tabs only appear when the row exposes a URL for them.
  *
@@ -204,10 +203,7 @@ export default function SandboxTerminal({ projectId, experimentId, readOnly = fa
           {error && <div className="error-message">{error}</div>}
 
           {!hasPanel ? (
-            <div className="sbx-empty">
-              No sandbox for this experiment yet. The agent provisions one with{' '}
-              <span className="mono">sandbox.request</span> and then runs commands over SSH.
-            </div>
+            <div className="sbx-empty">No sandbox yet.</div>
           ) : isProvisioning ? (
             <div className="sbx-provisioning">
               <span className="log-tail-live-dot" title="provisioning" />
@@ -216,7 +212,7 @@ export default function SandboxTerminal({ projectId, experimentId, readOnly = fa
                   Provisioning{sandbox.phase ? ` · ${sandbox.phase}` : ''}
                 </div>
                 <div className="sbx-provisioning-detail">
-                  {sandbox.detail || 'Setting up the sandbox (sync → create → SSH)…'}
+                  {sandbox.detail || 'Setting up…'}
                 </div>
               </div>
             </div>
@@ -224,9 +220,6 @@ export default function SandboxTerminal({ projectId, experimentId, readOnly = fa
             <div className="sbx-failed">
               <div className="sbx-failed-title">Provisioning failed</div>
               <div className="sbx-failed-detail mono">{sandbox.error || 'unknown error'}</div>
-              <div className="sbx-failed-hint">
-                The agent can call <span className="mono">sandbox.request</span> to retry.
-              </div>
             </div>
           ) : (
             <>
@@ -253,8 +246,8 @@ export default function SandboxTerminal({ projectId, experimentId, readOnly = fa
 
 /**
  * SandboxPanelTabs — switches between the terminal transcript and the in-sandbox
- * observability dashboards (MLflow + TensorBoard). The dashboard URLs come from
- * the row's `dashboards` map (provider URLs or daemon-owned local SSH forwards).
+ * observability dashboards (central MLflow + TensorBoard). Dashboard URLs come
+ * from `sandbox.mlflow` and the row's provider/local `dashboards` map.
  * A tab whose URL is empty is hidden; if the currently-active tab disappears
  * (sandbox released, tunnel relocation lost the URL temporarily), we fall back
  * to Terminal so the panel never goes blank.
@@ -271,12 +264,17 @@ function SandboxPanelTabs({
   readOnly = false,
 }) {
   const dashboards = sandbox?.dashboards || {};
-  // readOnly (mobile) drops the MLflow/TensorBoard iframe tabs: those URLs are
-  // usually 127.0.0.1 SSH forwards owned by the desktop and never load on the
-  // phone — see docs/MOBILE_UX_REVIEW.md §1.5.
+  const centralMlflowUrl = sandbox?.mlflow?.configured
+    ? (sandbox.mlflow.dashboard_url || sandbox.mlflow.tracking_uri)
+    : '';
+  const dashboardUrls = {
+    ...dashboards,
+    ...(centralMlflowUrl ? { mlflow: centralMlflowUrl } : {}),
+  };
+  // readOnly drops sandbox-local dashboard tabs; central MLflow remains usable.
   const availableTabs = readOnly
-    ? PANEL_TABS.filter((t) => t.key === 'terminal')
-    : PANEL_TABS.filter((t) => t.key === 'terminal' || dashboards[t.key]);
+    ? PANEL_TABS.filter((t) => t.key === 'terminal' || (t.key === 'mlflow' && centralMlflowUrl))
+    : PANEL_TABS.filter((t) => t.key === 'terminal' || dashboardUrls[t.key]);
   const effectiveTab = availableTabs.some((t) => t.key === activeTab)
     ? activeTab
     : 'terminal';
@@ -300,7 +298,7 @@ function SandboxPanelTabs({
             onClick={() => setActiveTab(tab.key)}
             title={
               tab.key === 'mlflow'
-                ? 'MLflow tracking server (port 5000) — runs, metrics, params, artifacts'
+                ? 'Centralized MLflow — runs, metrics, params, artifacts'
                 : tab.key === 'tensorboard'
                 ? 'TensorBoard (port 6006) — scalars and event-file visualizations'
                 : 'Recorded SSH command transcript'
@@ -323,7 +321,7 @@ function SandboxPanelTabs({
             {showRaw ? 'formatted' : 'raw'}
           </button>
         )}
-        {effectiveTab !== 'terminal' && dashboards[effectiveTab] && (
+        {effectiveTab !== 'terminal' && dashboardUrls[effectiveTab] && (
           <>
             <button
               type="button"
@@ -334,7 +332,7 @@ function SandboxPanelTabs({
               full screen
             </button>
             <a
-              href={dashboards[effectiveTab]}
+              href={dashboardUrls[effectiveTab]}
               target="_blank"
               rel="noreferrer noopener"
               className="sbx-term-toggle"
@@ -356,7 +354,7 @@ function SandboxPanelTabs({
       ) : (
         <SandboxDashboardFrame
           name={effectiveTab}
-          url={dashboards[effectiveTab]}
+          url={dashboardUrls[effectiveTab]}
           fullscreen={dashFullscreen}
           onExitFullscreen={() => setDashFullscreen(false)}
         />
@@ -377,9 +375,7 @@ function SandboxTerminalPane({ transcript, termMeta, isLive, showRaw }) {
       {transcript == null ? (
         <div className="log-tail-empty">Loading transcript…</div>
       ) : transcript.trim() === '' ? (
-        <div className="log-tail-empty">
-          No commands recorded yet. Output appears here as the agent runs commands over SSH.
-        </div>
+        <div className="log-tail-empty">No commands recorded yet.</div>
       ) : (
         <TerminalLog text={transcript} live={isLive} raw={showRaw} meta={termMeta} />
       )}
@@ -388,8 +384,8 @@ function SandboxTerminalPane({ transcript, termMeta, isLive, showRaw }) {
 }
 
 /**
- * SandboxDashboardFrame — embeds an MLflow or TensorBoard dashboard served from
- * inside the sandbox. The iframe is sandboxed (allow-scripts + same-origin) but
+ * SandboxDashboardFrame — embeds central MLflow or sandbox TensorBoard.
+ * The iframe is sandboxed (allow-scripts + same-origin) but
  * not allowed top-navigation or forms, so a malicious page inside the iframe
  * can't redirect the user away. The wrapper key includes the URL so a tunnel
  * relocation forces a clean reload rather than reusing a now-404 src.
@@ -449,10 +445,7 @@ function SandboxDashboardFrame({ name, url, fullscreen = false, onExitFullscreen
 
   if (!url) {
     return (
-      <div className="log-tail-empty">
-        No {name} dashboard URL on this sandbox yet. The dashboard server
-        comes up shortly after SSH; refreshes on the next poll.
-      </div>
+      <div className="log-tail-empty">No {name} dashboard yet.</div>
     );
   }
   const title = name === 'mlflow' ? 'MLflow tracking UI' : 'TensorBoard';

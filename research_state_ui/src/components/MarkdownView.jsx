@@ -17,7 +17,6 @@ function FigureImg({ src, alt, title }) {
       <span className="figure-missing">
         <span>Figure not available</span>
         <span className="figure-missing-name">{filename}</span>
-        <span>not in the submitted set — re-associate the report to include it</span>
       </span>
     );
   }

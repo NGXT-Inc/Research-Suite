@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useState } from 'react';
 import { Link, useParams } from 'react-router-dom';
 import { api } from '../api';
-import { useProjectStore, selectResources } from '../store/useProjectStore';
+import { useProjectStore, selectResources, useProjectHref } from '../store/useProjectStore';
 import FSMStrip from '../components/FSMStrip';
 import GateBanner from '../components/GateBanner';
 import PlanSpotlight from '../components/PlanSpotlight';
@@ -37,6 +37,7 @@ function defaultSegment(status) {
  */
 export default function MobileExperimentDetail() {
   const { experimentId } = useParams();
+  const px = useProjectHref();
   const projectId = useProjectStore(s => s.projectId);
   const allProjectResources = useProjectStore(selectResources);
 
@@ -87,7 +88,7 @@ export default function MobileExperimentDetail() {
     return (
       <div className="page-stage">
         <div className="error-message">{error}</div>
-        <Link className="btn" to="/experiments" style={{ marginTop: 12 }}>← Experiments</Link>
+        <Link className="btn" to={px('/experiments')} style={{ marginTop: 12 }}>← Experiments</Link>
       </div>
     );
   }
@@ -127,7 +128,7 @@ export default function MobileExperimentDetail() {
     <div className="page-stage">
       <header className="page-header">
         <div className="page-eyebrow">
-          <Link to="/experiments">Experiments</Link>
+          <Link to={px('/experiments')}>Experiments</Link>
           {' · '}attempt {currentAttempt}
         </div>
         <h1 className="page-title">{expName(experiment)}</h1>

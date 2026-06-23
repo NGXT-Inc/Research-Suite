@@ -1,7 +1,7 @@
 import { useEffect, useState } from 'react';
 import { Link, useParams } from 'react-router-dom';
 import { api } from '../api';
-import { useProjectStore, selectExperiments } from '../store/useProjectStore';
+import { useProjectStore, selectExperiments, useProjectHref } from '../store/useProjectStore';
 import ObjId from '../components/ObjId';
 import StatusPill from '../components/StatusPill';
 import KvList from '../components/KvList';
@@ -9,6 +9,7 @@ import { expName } from '../utils/experiment';
 
 export default function ClaimDetail() {
   const { claimId } = useParams();
+  const px = useProjectHref();
   const projectId = useProjectStore(s => s.projectId);
   const experiments = useProjectStore(selectExperiments);
   const [claim, setClaim] = useState(null);
@@ -32,7 +33,7 @@ export default function ClaimDetail() {
     return (
       <div className="page-stage">
         <div className="error-message">{error}</div>
-        <Link className="btn" to="/claims" style={{ marginTop: 12 }}>← Claims</Link>
+        <Link className="btn" to={px('/claims')} style={{ marginTop: 12 }}>← Claims</Link>
       </div>
     );
   }
@@ -44,7 +45,7 @@ export default function ClaimDetail() {
     <div className="page-stage">
       <header className="page-header page-header--lg">
         <div className="page-eyebrow">
-          <Link to="/claims">Claims</Link> · <ObjId id={claim.id} className="page-eyebrow-id" />
+          <Link to={px('/claims')}>Claims</Link> · <ObjId id={claim.id} className="page-eyebrow-id" />
         </div>
         <h1 className="page-title page-title--statement">{claim.statement}</h1>
         <div className="cluster">
@@ -69,7 +70,7 @@ export default function ClaimDetail() {
         ) : (
           <div className="list card card--flush">
             {linkedExperiments.map(e => (
-              <Link key={e.id} to={`/experiments/${e.id}`} className="list-row">
+              <Link key={e.id} to={px(`/experiments/${e.id}`)} className="list-row">
                 <div className="list-row-main">
                   <div className="list-row-title">{e.intent}</div>
                   <div className="list-row-sub">

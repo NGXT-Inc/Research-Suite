@@ -37,7 +37,7 @@ export default function PdfView({ projectId, resourceId, path }) {
         className="pdf-view-frame"
         loading="lazy"
       />
-      <div className="content-truncated-note">If the PDF does not load, the bytes may be unavailable in this mode — <a href={url} target="_blank" rel="noreferrer">open raw</a>.</div>
+      <div className="content-truncated-note"><a href={url} target="_blank" rel="noreferrer">Open raw</a></div>
     </>
   );
 }

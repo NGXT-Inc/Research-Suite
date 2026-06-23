@@ -1,6 +1,6 @@
 import { useMemo, useState } from 'react';
 import { Link } from 'react-router-dom';
-import { useProjectStore, selectClaims, selectExperiments } from '../store/useProjectStore';
+import { useProjectStore, selectClaims, selectExperiments, useProjectHref } from '../store/useProjectStore';
 import { api } from '../api';
 import { expName } from '../utils/experiment';
 
@@ -48,9 +48,7 @@ export default function Claims() {
         <div className="page-head-row">
           <div>
             <h1 className="page-title">What we think</h1>
-            <p className="page-summary">
-              Claims are the durable statements about your domain. Experiments test them; reviews accept or weaken them.
-            </p>
+            <p className="page-summary">Durable statements about the domain.</p>
           </div>
           <div className="page-actions">
             <button className="btn btn--primary" onClick={() => setShowForm(v => !v)}>
@@ -83,7 +81,7 @@ export default function Claims() {
       {filtered.length === 0 ? (
         <div className="empty-state">
           <h2>No claims yet</h2>
-          <p>{filter === 'all' ? 'Create one to get started.' : `No claims with status "${filter}".`}</p>
+          {filter !== 'all' && <p>{`No claims with status "${filter}".`}</p>}
         </div>
       ) : (
         <div className="claim-feed">
@@ -101,9 +99,10 @@ export default function Claims() {
 }
 
 function ClaimEntry({ claim, linkedExperiments }) {
+  const px = useProjectHref();
   return (
     <article className="claim-entry">
-      <Link to={`/claims/${claim.id}`} className="claim-entry-statement">
+      <Link to={px(`/claims/${claim.id}`)} className="claim-entry-statement">
         {claim.statement}
       </Link>
 
@@ -119,7 +118,7 @@ function ClaimEntry({ claim, linkedExperiments }) {
             const cat = categorize(e.status);
             return (
               <li key={e.id}>
-                <Link to={`/experiments/${e.id}`} className="claim-exp-line">
+                <Link to={px(`/experiments/${e.id}`)} className="claim-exp-line">
                   <span className={`claim-exp-mark claim-exp-mark--${cat}`} aria-hidden="true">
                     {cat === 'success' ? '✓' : cat === 'against' ? '✗' : '·'}
                   </span>

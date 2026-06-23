@@ -1,7 +1,7 @@
 import { lazy, Suspense, useCallback, useEffect, useMemo, useState } from 'react';
 import { Link } from 'react-router-dom';
 import { api } from '../api';
-import { useProjectStore, selectProject } from '../store/useProjectStore';
+import { useProjectStore, selectProject, useProjectHref } from '../store/useProjectStore';
 import ResourceContentView from '../components/ResourceContentView';
 import ReviewCard from '../components/ReviewCard';
 import GraphOutline from './GraphOutline';
@@ -39,6 +39,7 @@ function shortDate(iso) {
 export default function MobileSynthesisScreen() {
   const project = useProjectStore(selectProject);
   const projectId = project?.id;
+  const px = useProjectHref();
 
   const [data, setData] = useState(null);
   const [graph, setGraph] = useState(null);
@@ -104,7 +105,7 @@ export default function MobileSynthesisScreen() {
   const header = (
     <header className="page-header msyn-head">
       <div className="page-eyebrow">
-        <Link to="/">Now</Link>
+        <Link to={px('')}>Now</Link>
         {wave && waves.length > 1 && <> · wave {selectedIndex + 1} of {waves.length}</>}
       </div>
       <h1 className="page-title">Project synthesis</h1>
@@ -116,7 +117,7 @@ export default function MobileSynthesisScreen() {
       <div className="page-stage">
         {header}
         <div className="empty-state empty-state--compact">
-          <p>No reflection waves yet. They appear once enough experiments finish.</p>
+          <p>No reflection waves yet.</p>
         </div>
         {signal?.hint && <div className="syn-hint">{signal.hint}</div>}
       </div>

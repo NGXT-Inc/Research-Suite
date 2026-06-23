@@ -1,10 +1,11 @@
 import { useEffect } from 'react';
-import { Routes, Route, Navigate, Link, useSearchParams } from 'react-router-dom';
-import { useProjectStore, selectActiveExperiments, selectSandboxes } from './store/useProjectStore';
+import { Routes, Route, Navigate, Link, Outlet, useParams, useSearchParams } from 'react-router-dom';
+import { useProjectStore, projectPath, useProjectHref, selectActiveExperiments, selectSandboxes } from './store/useProjectStore';
 import { usePolling } from './store/usePolling';
 import { useViewport } from './store/useViewport';
 import Sidebar from './components/Sidebar';
 import CompatBanner from './components/CompatBanner';
+import LogicGraphHero from './components/LogicGraphHero';
 import MobileShell from './mobile/MobileShell';
 import NowScreen from './mobile/NowScreen';
 import ExperimentCardList from './mobile/ExperimentCardList';
@@ -32,10 +33,56 @@ import Debug from './pages/Debug';
 import VisualDag from './pages/VisualDag';
 
 // /debug merged into /activity. Preserve ?tool= (v6 <Navigate> drops search).
+// Lives under /p/:projectId, so redirect into the same project's /activity.
 function DebugRedirect() {
+  const px = useProjectHref();
   const [sp] = useSearchParams();
   const q = sp.toString();
-  return <Navigate to={`/activity${q ? `?${q}` : ''}`} replace />;
+  return <Navigate to={`${px('/activity')}${q ? `?${q}` : ''}`} replace />;
+}
+
+/**
+ * Layout for the /p/:projectId subtree. The URL is the source of truth for the
+ * active project: mirror the route param into the store (so every consumer that
+ * reads `projectId` keeps working untouched), and bounce unknown/stale ids to
+ * the active project. Holds a frame while syncing so children never fetch the
+ * previous project.
+ */
+function ProjectScope() {
+  const { projectId: routePid } = useParams();
+  const projects = useProjectStore(s => s.projects);
+  const storePid = useProjectStore(s => s.projectId);
+  const setProjectId = useProjectStore(s => s.setProjectId);
+  const known = projects.some(p => p.id === routePid);
+
+  // Mirror the URL's project into the store. usePolling re-kicks an immediate
+  // refresh whenever projectId changes, so we deliberately don't fetch here —
+  // that avoids a double load, and refreshHome's identity guard drops any poll
+  // still in flight for the project we just left.
+  useEffect(() => {
+    if (known && routePid && routePid !== storePid) {
+      setProjectId(routePid);
+    }
+  }, [known, routePid, storePid, setProjectId]);
+
+  if (!known) {
+    const fallback = storePid || projects[0]?.id;
+    return fallback
+      ? <Navigate to={projectPath(fallback)} replace />
+      : <FullPageStatus>Selecting project…</FullPageStatus>;
+  }
+  if (routePid !== storePid) return <FullPageStatus>Loading project…</FullPageStatus>;
+  return <Outlet />;
+}
+
+// Root ("/") and anything unmatched land on the active project's home.
+function RootRedirect() {
+  const storePid = useProjectStore(s => s.projectId);
+  const projects = useProjectStore(s => s.projects);
+  const target = storePid || projects[0]?.id;
+  return target
+    ? <Navigate to={projectPath(target)} replace />
+    : <FullPageStatus>Selecting project…</FullPageStatus>;
 }
 
 export default function App() {
@@ -96,55 +143,68 @@ export default function App() {
       <MobileShell onRefresh={refreshHome}>
         <CompatBanner />
         <Routes>
-          <Route path="/" element={<NowScreen />} />
-          <Route path="/feed" element={<Feed />} />
+          {/* Global project picker (unscoped) */}
           <Route path="/projects" element={<MobileProjects />} />
           <Route path="/projects/new" element={<MobileProjectCreateNotice />} />
-          <Route path="/claims" element={<MobileClaims />} />
-          <Route path="/claims/:claimId" element={<ClaimDetail />} />
-          <Route path="/experiments" element={<ExperimentCardList />} />
-          <Route path="/experiments/:experimentId" element={<MobileExperimentDetail />} />
-          <Route path="/synthesis" element={<MobileSynthesisScreen />} />
-          <Route path="/resources" element={<MobileResources />} />
-          <Route path="/resources/:resourceId" element={<MobileResources />} />
-          <Route path="/reviews" element={<MobileReviews />} />
-          <Route path="/events" element={<Events />} />
-          <Route path="/sandboxes" element={<SandboxCardList />} />
-          <Route path="/activity" element={<Debug />} />
-          <Route path="/debug" element={<DebugRedirect />} />
-          <Route path="/visual/dag" element={<MobileDagNotice />} />
-          <Route path="*" element={<Navigate to="/" replace />} />
+          {/* Project-scoped surface */}
+          <Route path="/p/:projectId" element={<ProjectScope />}>
+            <Route index element={<NowScreen />} />
+            <Route path="feed" element={<Feed />} />
+            <Route path="claims" element={<MobileClaims />} />
+            <Route path="claims/:claimId" element={<ClaimDetail />} />
+            <Route path="experiments" element={<ExperimentCardList />} />
+            <Route path="experiments/:experimentId" element={<MobileExperimentDetail />} />
+            <Route path="synthesis" element={<MobileSynthesisScreen />} />
+            <Route path="resources" element={<MobileResources />} />
+            <Route path="resources/:resourceId" element={<MobileResources />} />
+            <Route path="reviews" element={<MobileReviews />} />
+            <Route path="events" element={<Events />} />
+            <Route path="sandboxes" element={<SandboxCardList />} />
+            <Route path="activity" element={<Debug />} />
+            <Route path="debug" element={<DebugRedirect />} />
+            <Route path="visual/dag" element={<MobileDagNotice />} />
+          </Route>
+          <Route path="/" element={<RootRedirect />} />
+          <Route path="*" element={<RootRedirect />} />
         </Routes>
       </MobileShell>
     );
   }
 
   return (
-    <div className="shell">
-      <Sidebar onRefresh={refreshHome} />
-      <main className="shell-main">
-        <CompatBanner />
+    <>
+      <div className="app-bg" aria-hidden="true"><LogicGraphHero /></div>
+      <div className="shell">
+        <Sidebar onRefresh={refreshHome} />
+        <main className="shell-main">
+          <CompatBanner />
         <Routes>
-          <Route path="/" element={<Home />} />
-          <Route path="/feed" element={<Feed />} />
+          {/* Global project picker (unscoped) */}
           <Route path="/projects" element={<Projects />} />
           <Route path="/projects/new" element={<CreateProject />} />
-          <Route path="/claims" element={<Claims />} />
-          <Route path="/claims/:claimId" element={<ClaimDetail />} />
-          <Route path="/experiments" element={<Experiments />} />
-          <Route path="/experiments/:experimentId" element={<ExperimentDetail />} />
-          <Route path="/resources" element={<Resources />} />
-          <Route path="/resources/:resourceId" element={<Resources />} />
-          <Route path="/reviews" element={<Reviews />} />
-          <Route path="/events" element={<Events />} />
-          <Route path="/sandboxes" element={<Sandboxes />} />
-          <Route path="/activity" element={<Debug />} />
-          <Route path="/debug" element={<DebugRedirect />} />
-          <Route path="/visual/dag" element={<VisualDag />} />
-          <Route path="*" element={<Navigate to="/" replace />} />
+          {/* Project-scoped surface */}
+          <Route path="/p/:projectId" element={<ProjectScope />}>
+            <Route index element={<Home />} />
+            <Route path="feed" element={<Feed />} />
+            <Route path="claims" element={<Claims />} />
+            <Route path="claims/:claimId" element={<ClaimDetail />} />
+            <Route path="experiments" element={<Experiments />} />
+            <Route path="experiments/:experimentId" element={<ExperimentDetail />} />
+            <Route path="resources" element={<Resources />} />
+            <Route path="resources/:resourceId" element={<Resources />} />
+            <Route path="reviews" element={<Reviews />} />
+            <Route path="events" element={<Events />} />
+            <Route path="sandboxes" element={<Sandboxes />} />
+            <Route path="activity" element={<Debug />} />
+            <Route path="debug" element={<DebugRedirect />} />
+            <Route path="visual/dag" element={<VisualDag />} />
+          </Route>
+          <Route path="/" element={<RootRedirect />} />
+          <Route path="*" element={<RootRedirect />} />
         </Routes>
-      </main>
-    </div>
+        </main>
+      </div>
+    </>
   );
 }
 
@@ -152,6 +212,7 @@ export default function App() {
 // rendering an illegible chart (see docs/MOBILE_PLAN.md — deferred until
 // the desktop canvas redesign settles what it absorbs).
 function MobileDagNotice() {
+  const px = useProjectHref();
   return (
     <div className="page-stage">
       <header className="page-header">
@@ -160,7 +221,7 @@ function MobileDagNotice() {
       </header>
       <div className="empty-state">
         <p>The interactive lineage map is hover-driven and sized for a wide canvas. Open it on desktop, or browse the same evidence per experiment.</p>
-        <Link to="/experiments" className="btn" style={{ marginTop: 12 }}>Experiments →</Link>
+        <Link to={px('/experiments')} className="btn" style={{ marginTop: 12 }}>Experiments →</Link>
       </div>
     </div>
   );

@@ -5,7 +5,7 @@ import JsonView from '../components/JsonView';
 import ObjId from '../components/ObjId';
 import { tsToTime } from '../utils/format';
 import { expName } from '../utils/experiment';
-import { useProjectStore, selectExperiments } from '../store/useProjectStore';
+import { useProjectStore, selectExperiments, useProjectHref } from '../store/useProjectStore';
 
 /**
  * Traffic & Tool I/O — the merged MCP tool-call view (route /activity).
@@ -272,11 +272,7 @@ export default function Debug() {
         <div className="page-head-row">
           <div>
             <h1 className="page-title">Traffic &amp; Tool I/O</h1>
-            <p className="page-summary">
-              Every MCP tool call in this project — a <strong>live</strong> stream plus a
-              per-tool rollup. Watch traffic as it happens, rank the offenders by bytes
-              returned, and open any call for its request and response.
-            </p>
+            <p className="page-summary">Every MCP tool call in this project.</p>
           </div>
           <div className="page-actions">
             <span className="cluster" style={{ fontSize: 'var(--text-xs)', color: 'var(--muted)' }}>
@@ -334,7 +330,6 @@ export default function Debug() {
       ) : allCalls.length === 0 ? (
         <div className="empty-state">
           <h2>No tool calls</h2>
-          <p>Adjust the filters, or wait for the agent to make MCP tool calls in this project.</p>
         </div>
       ) : (
         <>
@@ -428,10 +423,12 @@ export default function Debug() {
 }
 
 function StreamRow({ call, expById, open, onToggle, onFilterTool }) {
+  const px = useProjectHref();
   const ok = call.status !== 'error';
   const slow = call.duration_ms >= SLOW_CALL_MS;
   const heavy = call.received_chars >= HOT_RECEIVED_CHARS;
-  const href = call.target_type ? targetHref(call.target_type, call.target_id) : null;
+  const rawHref = call.target_type ? targetHref(call.target_type, call.target_id) : null;
+  const href = rawHref ? px(rawHref) : null;
   const exp = call.target_type === 'experiment' ? expById[call.target_id] : null;
   return (
     <div

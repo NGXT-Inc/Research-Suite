@@ -2,6 +2,7 @@ import { useEffect, useRef, useState } from 'react';
 import { Link } from 'react-router-dom';
 import { feedApi } from './feedApi';
 import { fmtAgo } from '../utils/format';
+import { useProjectHref } from '../store/useProjectStore';
 
 // Load a feed media path through an authenticated fetch and expose it as a
 // blob: object URL. Needed because hosted control mode serves feed bytes behind
@@ -50,6 +51,7 @@ function hostOf(url) {
  * linking to the entity it is about. Deliberately low-chrome — content first.
  */
 export default function PostCard({ post, projectId, onView }) {
+  const px = useProjectHref();
   const cardRef = useRef(null);
   const viewedRef = useRef(false);
 
@@ -140,7 +142,7 @@ export default function PostCard({ post, projectId, onView }) {
       {post.ref && (
         <footer className="postcard-foot">
           {ref ? (
-            <Link className="postcard-ref" to={ref.to}>↗ {ref.label}</Link>
+            <Link className="postcard-ref" to={px(ref.to)}>↗ {ref.label}</Link>
           ) : (
             <span className="postcard-ref postcard-ref--static">↗ {post.ref}</span>
           )}

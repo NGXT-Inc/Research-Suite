@@ -109,7 +109,6 @@ export default function Feed() {
       {status === 'ready' && posts.length === 0 && (
         <div className="feed-empty">
           <p className="feed-empty-title">No posts yet</p>
-          <p className="feed-empty-sub">The agents haven't shared anything here yet. Their aha-moments will show up as they work.</p>
         </div>
       )}
       {posts.length > 0 && (

@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react';
 import { NavLink, useLocation, useNavigate } from 'react-router-dom';
-import { useProjectStore, selectStats, selectResources, selectSandboxes } from '../store/useProjectStore';
+import { useProjectStore, useProjectHref, selectStats, selectResources, selectSandboxes } from '../store/useProjectStore';
 import { CLIENT_VERSION } from '../api';
 import { useTheme } from '../store/useTheme';
 import ProjectSwitcher from './ProjectSwitcher';
@@ -33,12 +33,13 @@ export default function Sidebar({ onRefresh }) {
   const runningSandboxes = sandboxes.filter(s => s.status === 'running').length;
   const location = useLocation();
   const navigate = useNavigate();
+  const px = useProjectHref();
   // Sidebar lives outside the <Routes> tree, so useParams() returns {}.
   // Parse the resourceId out of the path ourselves so deep-links highlight
-  // the selected file in the tree.
-  const resMatch = location.pathname.match(/^\/resources\/(.+?)\/?$/);
+  // the selected file in the tree. Paths are project-scoped: /p/<id>/resources/<rid>.
+  const resMatch = location.pathname.match(/\/resources\/([^/]+)\/?$/);
   const resourceId = resMatch ? resMatch[1] : null;
-  const onResourcesPath = location.pathname.startsWith('/resources');
+  const onResourcesPath = /\/resources(\/|$)/.test(location.pathname);
 
   // Sidebar tree state: which top-level "drawer" sections are expanded.
   // For now only Resources is expandable, but the pattern leaves room for
@@ -69,17 +70,17 @@ export default function Sidebar({ onRefresh }) {
       <ProjectSwitcher />
 
       <nav className="sidebar-nav">
-        <NavLink to="/" end className={({ isActive }) => 'sidebar-link' + (isActive ? ' active' : '')}>
+        <NavLink to={px('')} end className={({ isActive }) => 'sidebar-link' + (isActive ? ' active' : '')}>
           Home
         </NavLink>
-        <NavLink to="/feed" className={({ isActive }) => 'sidebar-link' + (isActive ? ' active' : '')}>
+        <NavLink to={px('/feed')} className={({ isActive }) => 'sidebar-link' + (isActive ? ' active' : '')}>
           Feed
         </NavLink>
-        <NavLink to="/claims" className={({ isActive }) => 'sidebar-link' + (isActive ? ' active' : '')}>
+        <NavLink to={px('/claims')} className={({ isActive }) => 'sidebar-link' + (isActive ? ' active' : '')}>
           <span>Claims</span>
           <span className="sidebar-link-count">{stats.claims ?? home?.claims?.length ?? 0}</span>
         </NavLink>
-        <NavLink to="/experiments" className={({ isActive }) => 'sidebar-link' + (isActive ? ' active' : '')}>
+        <NavLink to={px('/experiments')} className={({ isActive }) => 'sidebar-link' + (isActive ? ' active' : '')}>
           <span>Experiments</span>
           <span className="sidebar-link-count">{stats.experiments ?? home?.experiments?.length ?? 0}</span>
         </NavLink>
@@ -108,17 +109,17 @@ export default function Sidebar({ onRefresh }) {
               <FileTree
                 resources={resources}
                 selectedId={resourceId || null}
-                onSelect={(r) => navigate(`/resources/${r.id}`)}
+                onSelect={(r) => navigate(px(`/resources/${r.id}`))}
               />
             )}
           </div>
         )}
 
-        <NavLink to="/reviews" className={({ isActive }) => 'sidebar-link' + (isActive ? ' active' : '')}>
+        <NavLink to={px('/reviews')} className={({ isActive }) => 'sidebar-link' + (isActive ? ' active' : '')}>
           <span>Reviews</span>
           <span className="sidebar-link-count">{stats.open_reviews ?? stats.reviews ?? 0}</span>
         </NavLink>
-        <NavLink to="/sandboxes" className={({ isActive }) => 'sidebar-link' + (isActive ? ' active' : '')}>
+        <NavLink to={px('/sandboxes')} className={({ isActive }) => 'sidebar-link' + (isActive ? ' active' : '')}>
           <span>Sandboxes</span>
           {runningSandboxes > 0 && (
             <span className="sidebar-link-count sidebar-link-count--live" title={`${runningSandboxes} running`}>
@@ -128,15 +129,15 @@ export default function Sidebar({ onRefresh }) {
         </NavLink>
       </nav>
 
-      <NavLink to="/visual/dag" className={({ isActive }) => 'sidebar-link' + (isActive ? ' active' : '')}>
+      <NavLink to={px('/visual/dag')} className={({ isActive }) => 'sidebar-link' + (isActive ? ' active' : '')}>
         Logic DAG
       </NavLink>
 
       <div className="sidebar-section">Activity</div>
-      <NavLink to="/events" className={({ isActive }) => 'sidebar-link' + (isActive ? ' active' : '')}>
+      <NavLink to={px('/events')} className={({ isActive }) => 'sidebar-link' + (isActive ? ' active' : '')}>
         Events
       </NavLink>
-      <NavLink to="/activity" className={({ isActive }) => 'sidebar-link' + (isActive ? ' active' : '')}>
+      <NavLink to={px('/activity')} className={({ isActive }) => 'sidebar-link' + (isActive ? ' active' : '')}>
         Traffic &amp; Tool I/O
       </NavLink>
       <NavLink to="/projects" className={({ isActive }) => 'sidebar-link' + (isActive ? ' active' : '')}>

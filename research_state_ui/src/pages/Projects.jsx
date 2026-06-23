@@ -1,6 +1,6 @@
 import { useState } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
-import { useProjectStore } from '../store/useProjectStore';
+import { useProjectStore, projectPath } from '../store/useProjectStore';
 import ObjId from '../components/ObjId';
 
 /**
@@ -12,19 +12,12 @@ export default function Projects() {
   const navigate = useNavigate();
   const projects = useProjectStore(s => s.projects);
   const projectId = useProjectStore(s => s.projectId);
-  const setProjectId = useProjectStore(s => s.setProjectId);
-  const refreshHome = useProjectStore(s => s.refreshHome);
   const patchProject = useProjectStore(s => s.patchProject);
   const loadProjects = useProjectStore(s => s.loadProjects);
 
+  // URL drives the active project; <ProjectScope> mirrors it into the store.
   function switchTo(pid) {
-    if (pid === projectId) {
-      navigate('/');
-      return;
-    }
-    setProjectId(pid);
-    refreshHome();
-    navigate('/');
+    navigate(projectPath(pid));
   }
 
   return (
@@ -34,10 +27,7 @@ export default function Projects() {
           <div>
             {/* "Projects" already labels the active sidebar nav item — lead with
                 the description instead of echoing it. */}
-            <p className="page-summary page-summary--lead">
-              Every research project known to this backend. Each project owns a local directory
-              with its own files, claims, experiments, resources, and review history.
-            </p>
+            <p className="page-summary page-summary--lead">Every project on this backend.</p>
           </div>
           <div className="page-actions">
             <button className="btn btn--ghost" onClick={() => loadProjects()}>Refresh</button>
@@ -49,7 +39,6 @@ export default function Projects() {
       {projects.length === 0 ? (
         <div className="empty-state">
           <h2>No projects yet</h2>
-          <p>Create your first project to start tracking claims and experiments.</p>
           <div style={{ marginTop: 18 }}>
             <Link className="btn btn--primary" to="/projects/new">+ New project</Link>
           </div>
@@ -151,7 +140,7 @@ function ProjectCard({ project, isActive, onSwitch, onRename }) {
             <div className="cluster" style={{ flexShrink: 0 }}>
               <button className="btn btn--sm btn--ghost" onClick={startEditing}>Edit</button>
               {isActive
-                ? <Link to="/" className="btn btn--sm">Open →</Link>
+                ? <Link to={projectPath(project.id)} className="btn btn--sm">Open →</Link>
                 : <button className="btn btn--sm btn--primary" onClick={onSwitch}>Switch →</button>}
             </div>
           </div>

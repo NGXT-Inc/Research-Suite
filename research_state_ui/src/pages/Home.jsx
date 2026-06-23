@@ -2,6 +2,7 @@ import { useEffect, useState } from 'react';
 import { Link } from 'react-router-dom';
 import {
   useProjectStore,
+  useProjectHref,
   selectProject,
   selectStats,
   selectActiveExperiments,
@@ -17,6 +18,7 @@ import ProjectSynthesisPanel from '../components/ProjectSynthesisPanel';
 import { expName } from '../utils/experiment';
 
 export default function Home() {
+  const px = useProjectHref();
   const project = useProjectStore(selectProject);
   const stats = useProjectStore(selectStats);
   const activeExperiments = useProjectStore(selectActiveExperiments);
@@ -81,7 +83,7 @@ export default function Home() {
           </div>
           {activeExp && (
             <Link
-              to={`/experiments/${activeExp.id}`}
+              to={px(`/experiments/${activeExp.id}`)}
               className="active-exp-card active-exp-card--bounded"
             >
               <div className="intent-lead">{expName(activeExp)}</div>
@@ -110,7 +112,7 @@ export default function Home() {
           projectId={project.id}
           empty={(
             <div className="empty-state empty-state--compact">
-              <p>No sandboxes yet. The agent provisions one per experiment with <span className="mono">sandbox.request</span> and runs it over SSH.</p>
+              <p>No sandboxes yet.</p>
             </div>
           )}
         />

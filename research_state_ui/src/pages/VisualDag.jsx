@@ -2,6 +2,7 @@ import { useMemo, useState } from 'react';
 import { Link } from 'react-router-dom';
 import {
   useProjectStore,
+  useProjectHref,
   selectClaims,
   selectExperiments,
   selectEventsAll,
@@ -117,12 +118,7 @@ export default function VisualDag() {
     <div className="page-stage">
       <header className="page-header page-header--lg">
         <h1 className="page-title">What we tried, in what order, with what result</h1>
-        <p className="page-summary">
-          Top-down view of every claim, the approaches we tried for it, every
-          attempt in the chain, and where each chain landed. Reading
-          top-to-bottom answers "what did we try, in what order, with what
-          result?" Click any claim to focus on its sub-tree.
-        </p>
+        <p className="page-summary">Every claim, its attempts, and where each landed.</p>
       </header>
 
       <section className="section">
@@ -168,7 +164,6 @@ export default function VisualDag() {
         {dag.nodes.length === 0 ? (
           <div className="empty-state">
             <h2>Nothing to chart yet</h2>
-            <p>Add a claim and an experiment to start branching.</p>
           </div>
         ) : (
           <div className="vd-canvas-wrap">
@@ -580,6 +575,7 @@ function ClaimChips({ x, y, summary }) {
 }
 
 function HoverInfo({ node, summary }) {
+  const px = useProjectHref();
   let title, body, sub, link;
   if (node.kind === 'claim') {
     title = 'Claim';
@@ -587,12 +583,12 @@ function HoverInfo({ node, summary }) {
     sub = summary
       ? `${summary.tested} approach${summary.tested === 1 ? '' : 'es'} · ${summary.attempts} attempt${summary.attempts === 1 ? '' : 's'} of effort · status ${node.status || 'active'}`
       : `status ${node.status || 'active'}`;
-    link = `/claims/${node.ref.id}`;
+    link = px(`/claims/${node.ref.id}`);
   } else if (node.kind === 'experiment') {
     title = `Approach · ${outcomeLabel(node.outcome)}`;
     body = node.ref.intent || expName(node.ref);
     sub = `status ${node.status} · ${node.attempt_index} attempt${node.attempt_index === 1 ? '' : 's'} so far`;
-    link = `/experiments/${node.ref.id}`;
+    link = px(`/experiments/${node.ref.id}`);
   } else if (node.kind === 'attempt') {
     title = node.isFinal
       ? `Final attempt · v${node.attempt} · ${outcomeLabel(node.outcome)}`
@@ -601,7 +597,7 @@ function HoverInfo({ node, summary }) {
     sub = node.isFinal
       ? 'The chain landed here.'
       : 'An earlier revision — work moved on after this attempt.';
-    link = `/experiments/${node.ref.id}`;
+    link = px(`/experiments/${node.ref.id}`);
   } else if (node.kind === 'outcome') {
     title = `${node.label} bucket`;
     body = `${node.experimentCount} approach${node.experimentCount === 1 ? '' : 'es'} for this claim landed here.`;

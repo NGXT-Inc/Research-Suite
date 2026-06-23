@@ -452,12 +452,17 @@ input, textarea, select { font-family: inherit; font-size: inherit; color: inher
 .shell {
   display: flex;
   min-height: 100vh;
+  /* Sit above the fixed .app-bg ambient graph. */
+  position: relative;
+  z-index: 1;
 }
 .sidebar {
   width: var(--sidebar-w);
   flex-shrink: 0;
   border-right: 1px solid var(--line-soft);
-  background: var(--bg);
+  /* Transparent so the ambient graph runs continuously from here into the main
+     column — one unbroken backdrop rather than a graph that starts at the divider. */
+  background: transparent;
   padding: 18px 14px;
   position: sticky;
   top: 0;
@@ -4436,3 +4441,237 @@ button.review-stepper-version:hover {
 .compat-banner-btn { font-size: var(--text-xs); padding: 2px 8px; border-radius: var(--radius-sm); border: 1px solid currentColor; background: transparent; color: inherit; cursor: pointer; }
 .compat-banner-dismiss { font-size: var(--text-md); line-height: 1; padding: 0 4px; border: 0; background: transparent; color: inherit; cursor: pointer; opacity: .7; }
 .compat-banner-dismiss:hover { opacity: 1; }
+
+/* --- DS: BOOTSTRAP HERO (first-run empty state) ----------------------------
+   A forming logic graph behind the create-project "seed" form. The graph is
+   decorative; legibility is protected by a centre-clearing radial mask and a
+   translucent, blurred form card floating above the field. */
+.boot-hero {
+  position: relative;
+  min-height: 100vh;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: var(--space-8) var(--space-5);
+  overflow: hidden;
+}
+.boot-hero__field {
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  opacity: 0.85;
+  /* Soften a clearing behind the text/form so it stays crisp, but keep enough of
+     the graph's mid-structure visible that it reads as a connected web, not dots. */
+  -webkit-mask-image: radial-gradient(135% 105% at 50% 44%, transparent 20%, #000 52%);
+  mask-image: radial-gradient(135% 105% at 50% 44%, transparent 20%, #000 52%);
+}
+.boot-graph { width: 100%; height: 100%; }
+
+/* Ambient backdrop for the regular app — the onboarding logic graph reused as a
+   fixed, far fainter, calmer texture behind real content. Sits below the shell
+   (z-index:-1) and never intercepts input. */
+.app-bg {
+  position: fixed;
+  inset: 0;
+  /* z-index:0 (not -1) so it paints above the opaque html/body/#root base
+     background; .shell is lifted to z-index:1 to sit above it. */
+  z-index: 0;
+  pointer-events: none;
+  /* Light-on-light reads fainter, so light gets a touch more presence than dark. */
+  opacity: 0.34;
+  /* Depth without motion: a strong depth-of-field blur + slight scale push the
+     network several layers back so it reads as a still, recessed texture rather
+     than something competing for attention. No parallax, no pulse. */
+  filter: blur(4px);
+  transform: scale(1.06);
+  /* Let the network recede into the dark at the far corners. */
+  -webkit-mask-image: radial-gradient(140% 135% at 50% 42%, #000 58%, transparent 100%);
+  mask-image: radial-gradient(140% 135% at 50% 42%, #000 58%, transparent 100%);
+}
+html[data-theme="dark"] .app-bg { opacity: 0.22; }
+/* Quieter than onboarding: drop the travelling pulses and expanding rings, and
+   slow the breathing so it stays a near-still, unobtrusive texture. The soft node
+   glow is kept — it lets faint dots read without being harsh. */
+.app-bg .boot-edge--flow,
+.app-bg .boot-node__halo { display: none; }
+/* Fully static — no breathing, no glow flicker. Just a still graph. */
+.app-bg .boot-node__dot { animation: none; filter: none; }
+.app-bg .boot-edge { opacity: 0.8; }
+
+/* Foreground: the single action. One line — name the project — and nothing else
+   competing with it. The graph behind supplies all the context. */
+.boot-create {
+  position: relative;
+  z-index: 1;
+  width: 100%;
+  max-width: 430px;
+  animation: boot-rise var(--motion-base) both;
+}
+.boot-create__field {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  border-bottom: 1.5px solid var(--muted);
+  transition: border-color var(--motion-fast), box-shadow var(--motion-fast);
+}
+.boot-create__field:focus-within {
+  border-color: var(--active);
+  box-shadow: 0 1.5px 0 0 var(--active);
+}
+.boot-create__input {
+  flex: 1;
+  min-width: 0;
+  background: transparent;
+  border: 0;
+  outline: 0;
+  color: var(--text);
+  font-family: inherit;
+  font-size: 23px;
+  font-weight: 440;
+  letter-spacing: -0.015em;
+  padding: 11px 2px;
+}
+/* This placeholder is the only on-screen instruction — keep it legible, not ghosted. */
+.boot-create__input::placeholder { color: var(--muted); opacity: 1; }
+.boot-create__input--summary {
+  font-size: 20px;
+  line-height: 1.45;
+  resize: none;
+  overflow: hidden;
+  display: block;
+  /* Rest at ~3 lines so the field reads as multi-line; autoGrow won't shrink
+     below this floor and grows past it as the summary runs long. */
+  min-height: 5.1em;
+}
+/* Keep the "→" anchored to the last line as the summary grows. */
+.boot-create__field--grow { align-items: flex-end; }
+/* Local-only directory line: a quiet mono underline above the summary. */
+.boot-create__input--dir {
+  width: 100%;
+  margin-bottom: 22px;
+  padding: 9px 2px;
+  border-bottom: 1.5px solid var(--muted);
+  font-family: var(--font-mono);
+  font-size: 14px;
+  color: var(--text);
+  transition: border-color var(--motion-fast);
+}
+.boot-create__input--dir::placeholder { color: var(--faint); font-family: var(--font-mono); }
+.boot-create__input--dir:focus { border-color: var(--active); }
+.boot-create__go {
+  flex: none;
+  width: 36px;
+  height: 36px;
+  display: grid;
+  place-items: center;
+  border: 0;
+  border-radius: var(--radius-pill);
+  background: transparent;
+  color: var(--muted);
+  font-size: 19px;
+  line-height: 1;
+  cursor: pointer;
+  transition: color var(--motion-fast), background var(--motion-fast), transform var(--motion-fast);
+}
+.boot-create__go:not(:disabled) { color: var(--supports); }
+.boot-create__go:not(:disabled):hover { background: rgba(var(--supports-rgb), 0.12); transform: translateX(2px); }
+.boot-create__go:disabled { opacity: 0.6; cursor: default; }
+.boot-create__error { color: var(--refutes); font-size: var(--text-sm); margin-top: 10px; }
+
+/* Step 1 (details) keeps step 0's minimal language: underline fields, no boxes.
+   The chosen name leads as a quiet back-to-rename eyebrow so the summary field
+   stays the visual focus. */
+.boot-back {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  margin: 0 0 22px;
+  padding: 0;
+  background: transparent;
+  border: 0;
+  cursor: pointer;
+  font-family: inherit;
+  font-size: 14px;
+  font-weight: 500;
+  letter-spacing: 0.01em;
+  color: var(--muted);
+  transition: color var(--motion-fast);
+}
+.boot-back > span { font-size: 16px; line-height: 1; transition: transform var(--motion-fast); }
+.boot-back:hover { color: var(--text); }
+.boot-back:hover > span { transform: translateX(-3px); }
+
+/* Cancel affordance when creating from inside the app (not first-run). */
+.boot-exit {
+  position: absolute;
+  top: var(--space-5);
+  left: var(--space-5);
+  z-index: 2;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font-size: var(--text-sm);
+  color: var(--muted);
+  text-decoration: none;
+  transition: color var(--motion-fast);
+}
+.boot-exit:hover { color: var(--text); }
+
+/* Graph primitives. Nodes stay anchored to their coordinates — edges connect the
+   same points, so only opacity/scale animate (never position) and the wiring
+   always lines up. */
+.boot-edge {
+  fill: none;
+  stroke: var(--faint);
+  stroke-width: 1.1;
+  opacity: 0.55;
+}
+.boot-edge--flow {
+  stroke: var(--active);
+  stroke-width: 1.6;
+  opacity: 0;
+  stroke-dasharray: 0.12 0.88;
+  animation: boot-flow 5.5s linear infinite;
+}
+.boot-node__dot {
+  opacity: 0.9;
+  filter: drop-shadow(0 0 5px currentColor);
+  animation: boot-pulse 5s ease-in-out infinite;
+}
+.boot-node__halo {
+  fill: none;
+  stroke: currentColor;
+  stroke-width: 1.2;
+  opacity: 0;
+  transform-box: fill-box;
+  transform-origin: center;
+  animation: boot-ripple 4.5s ease-out infinite;
+}
+
+@keyframes boot-rise {
+  from { opacity: 0; transform: translateY(10px); }
+  to   { opacity: 1; transform: none; }
+}
+@keyframes boot-flow {
+  0%   { stroke-dashoffset: 1; opacity: 0; }
+  12%  { opacity: 0.85; }
+  60%  { opacity: 0.85; }
+  100% { stroke-dashoffset: 0; opacity: 0; }
+}
+@keyframes boot-pulse {
+  0%, 100% { opacity: 0.55; }
+  50%      { opacity: 1; }
+}
+@keyframes boot-ripple {
+  0%   { opacity: 0.5; transform: scale(1); }
+  70%  { opacity: 0;   transform: scale(3); }
+  100% { opacity: 0;   transform: scale(3); }
+}
+@media (prefers-reduced-motion: reduce) {
+  .boot-create,
+  .boot-edge--flow,
+  .boot-node__dot,
+  .boot-node__halo { animation: none; }
+  .boot-edge--flow { display: none; }
+  .boot-create { opacity: 1; transform: none; }
+}
