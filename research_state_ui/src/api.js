@@ -9,10 +9,13 @@
 // (localStorage 'rsui:apiBase' — handy for pointing the UI at a working-tree
 // daemon on another port; the backend allows cross-origin reads), then the
 // same-origin default (Vite dev proxy / production co-hosting).
-const BASE =
+// Strip any trailing slash so a configured base like "https://host/" doesn't
+// produce a double slash ("https://host//api/...") — which the API 404s.
+const BASE = (
   import.meta.env.VITE_API_BASE
   || (typeof localStorage !== 'undefined' && localStorage.getItem('rsui:apiBase'))
-  || '';
+  || ''
+).replace(/\/+$/, '');
 
 // The UI build's wire version, stamped on every request as X-RP-Client-Version
 // (the cloud control plane reads it for the compat handshake; local mode
