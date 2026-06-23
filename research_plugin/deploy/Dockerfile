@@ -31,6 +31,7 @@ WORKDIR /app
 COPY pyproject.toml README.md ./
 COPY backend ./backend
 COPY mcp_server ./mcp_server
+COPY research_plugin_shared ./research_plugin_shared
 RUN pip install ".[control]"
 
 # Run as a non-root user (the control plane never needs root; it holds no user

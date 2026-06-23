@@ -1,7 +1,8 @@
 # Build-context excludes for the control-plane image (plan Phase 9). Keep the
 # context small and never copy secrets, local state, the UI, or test fixtures
-# into the image. The Dockerfile copies only backend/, mcp_server/, pyproject,
-# and README explicitly, so this is belt-and-suspenders.
+# into the image. The Dockerfile copies only backend/, mcp_server/,
+# research_plugin_shared/, pyproject, and README explicitly, so this is
+# belt-and-suspenders.
 
 # Secrets / local config — NEVER in an image.
 .env
