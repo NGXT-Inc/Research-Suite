@@ -113,7 +113,7 @@ class ControlReaperRecoveryTest(unittest.TestCase):
         self._drain_threads = getattr(self, "_drain_threads", [])
         self._drain_threads.append(t)
 
-    def _seed_expired_running_sandbox(self, app) -> tuple[str, str]:
+    def _seed_expired_running_sandbox(self, app) -> tuple[str, str, str]:
         # Seed a running, already-expired sandbox row directly (the provision
         # handshake is exercised elsewhere; here we test crash recovery of an
         # existing running row). The registry is the cloud's row authority.
@@ -126,8 +126,10 @@ class ControlReaperRecoveryTest(unittest.TestCase):
             conn.execute(
                 "UPDATE experiments SET status = 'running' WHERE id = ?", (exp_id,)
             )
+        sandbox_uid = "uid_recovery"
         app.sandboxes.registry.upsert(
             experiment_id=exp_id,
+            sandbox_uid=sandbox_uid,
             project_id=project_id,
             sandbox_id="sb-recovery",
             status="running",
@@ -137,12 +139,12 @@ class ControlReaperRecoveryTest(unittest.TestCase):
             sync_dir="/workspace/reaper-recovery",
             expires_at="2000-01-01T00:00:00Z",
         )
-        return project_id, exp_id
+        return project_id, exp_id, sandbox_uid
 
     def test_control_restart_resumes_reaping_of_running_rows(self) -> None:
         self._stop_drain = None  # reset per test
         first, _q = self._build()
-        project_id, exp_id = self._seed_expired_running_sandbox(first)
+        project_id, exp_id, sandbox_uid = self._seed_expired_running_sandbox(first)
         first.shutdown()
         self._apps.remove(first)
 
@@ -163,7 +165,12 @@ class ControlReaperRecoveryTest(unittest.TestCase):
             == "ready_to_run"
         )
         sandbox = restarted.call_tool(
-            "sandbox.get", {"project_id": project_id, "experiment_id": exp_id}
+            "sandbox.get",
+            {
+                "project_id": project_id,
+                "experiment_id": exp_id,
+                "sandbox_uid": sandbox_uid,
+            },
         )
         self.assertEqual(sandbox["status"], "terminated")
 

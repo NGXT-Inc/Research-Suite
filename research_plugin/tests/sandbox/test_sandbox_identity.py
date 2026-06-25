@@ -57,6 +57,37 @@ class SandboxIdentityTest(unittest.TestCase):
         finally:
             conn.close()
 
+    def _seed_row(self, *, experiment_id: str, sandbox_uid: str, status: str, seq: int) -> None:
+        now = "2026-01-01T00:00:00Z"
+        with self.app.store.transaction() as conn:
+            conn.execute(
+                """
+                INSERT INTO sandboxes (
+                  sandbox_uid, experiment_id, project_id, status,
+                  created_at, updated_at, created_seq
+                )
+                VALUES (?, ?, ?, ?, ?, ?, ?)
+                """,
+                (sandbox_uid, experiment_id, self.project_id, status, now, now, seq),
+            )
+
+    def test_experiment_read_prefers_running_then_newest_of_any(self) -> None:
+        # An older provisioning sibling must NOT shadow a newer terminal row when
+        # nothing is running: reads resolve running -> newest-of-any.
+        exp = self._experiment("multi")
+        self._seed_row(experiment_id=exp, sandbox_uid="uid_old", status="provisioning", seq=1)
+        self._seed_row(experiment_id=exp, sandbox_uid="uid_new", status="failed", seq=2)
+        self.assertEqual(
+            self.app.sandboxes.registry.load_row(experiment_id=exp)["sandbox_uid"],
+            "uid_new",
+        )
+        # A running row always wins, regardless of recency.
+        self._seed_row(experiment_id=exp, sandbox_uid="uid_run", status="running", seq=3)
+        self.assertEqual(
+            self.app.sandboxes.registry.load_row(experiment_id=exp)["sandbox_uid"],
+            "uid_run",
+        )
+
     def test_sandbox_uid_is_unique_and_stable_across_upserts(self) -> None:
         exp_a = self._experiment("exp-a")
         exp_b = self._experiment("exp-b")
@@ -66,7 +97,9 @@ class SandboxIdentityTest(unittest.TestCase):
         uid_b = str(self.app.sandboxes.registry.load_row(experiment_id=exp_b)["sandbox_uid"])
 
         self.assertNotEqual(uid_a, uid_b)
-        self.app.sandboxes.registry.upsert(experiment_id=exp_a, detail="refreshed")
+        self.app.sandboxes.registry.upsert(
+            experiment_id=exp_a, sandbox_uid=uid_a, detail="refreshed"
+        )
         self.assertEqual(
             self.app.sandboxes.registry.load_row(experiment_id=exp_a)["sandbox_uid"],
             uid_a,

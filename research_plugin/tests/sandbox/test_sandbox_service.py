@@ -1019,8 +1019,10 @@ class SandboxServiceTest(unittest.TestCase):
         project_id = self.app.projects.create(
             name="Tenant Sandbox", tenant_id="tenant_a"
         )["id"]
+        sandbox_uid = "uid_tenant"
         self.app.sandboxes.registry.upsert(
             experiment_id="exp_tenant",
+            sandbox_uid=sandbox_uid,
             project_id=project_id,
             status="failed",
             sandbox_id="sbx_tenant",
@@ -1031,6 +1033,7 @@ class SandboxServiceTest(unittest.TestCase):
         with self.assertRaises(NotFoundError):
             self.app.sandboxes.get(
                 experiment_id="exp_tenant",
+                sandbox_uid=sandbox_uid,
                 project_id=project_id,
                 tenant_id="tenant_b",
                 include_data_plane_enrichment=False,
@@ -1038,12 +1041,14 @@ class SandboxServiceTest(unittest.TestCase):
         with self.assertRaises(ValidationError):
             self.app.sandboxes.get(
                 experiment_id="exp_tenant",
+                sandbox_uid=sandbox_uid,
                 tenant_id="tenant_b",
                 include_data_plane_enrichment=False,
             )
 
         got = self.app.sandboxes.get(
             experiment_id="exp_tenant",
+            sandbox_uid=sandbox_uid,
             project_id=project_id,
             tenant_id="tenant_a",
             include_data_plane_enrichment=False,

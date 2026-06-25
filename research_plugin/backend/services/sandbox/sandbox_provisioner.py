@@ -174,6 +174,9 @@ class SandboxProvisioner:
         Idempotent: a second request during provisioning attaches to the same
         job rather than starting a duplicate.
         """
+        sandbox_uid = str(sandbox_uid or req.sandbox_uid or "").strip()
+        if not sandbox_uid:
+            sandbox_uid = self.registry.new_sandbox_uid()
         job_key = self._job_key(
             experiment_id=experiment_id,
             sandbox_uid=sandbox_uid if create_new else "",
@@ -301,7 +304,7 @@ class SandboxProvisioner:
             now = now_iso()
             self.registry.upsert(
                 experiment_id=experiment_id,
-                sandbox_uid=sandbox_uid or None,
+                sandbox_uid=sandbox_uid,
                 project_id=project_id,
                 status="running",
                 sandbox_id=provisioned.sandbox_id,
@@ -403,10 +406,13 @@ class SandboxProvisioner:
         create_new: bool = False,
     ) -> None:
         now = now_iso()
+        sandbox_uid = str(req.sandbox_uid or sandbox_uid or "").strip()
+        if not sandbox_uid:
+            sandbox_uid = self.registry.new_sandbox_uid()
         writer = self.registry.create_sandbox if create_new else self.registry.upsert
         writer(
             experiment_id=experiment_id,
-            sandbox_uid=sandbox_uid or None,
+            sandbox_uid=sandbox_uid,
             project_id=project_id,
             status="provisioning",
             phase="starting",
@@ -456,7 +462,7 @@ class SandboxProvisioner:
         if sandbox_name is not None:
             fields["sandbox_name"] = sandbox_name
         self.registry.upsert(
-            experiment_id=experiment_id, sandbox_uid=sandbox_uid or None, **fields
+            experiment_id=experiment_id, sandbox_uid=sandbox_uid, **fields
         )
 
     def reap_stale_provisions(
@@ -582,7 +588,7 @@ class SandboxProvisioner:
         self, *, experiment_id: str, project_id: str, sandbox_uid: str = ""
     ) -> None:
         self.registry.mark_terminated(
-            experiment_id=experiment_id, sandbox_uid=sandbox_uid or None
+            experiment_id=experiment_id, sandbox_uid=sandbox_uid
         )
         self.registry.emit_event(
             project_id=project_id,
@@ -602,7 +608,7 @@ class SandboxProvisioner:
         self.registry.mark_failed(
             experiment_id=experiment_id,
             error=error,
-            sandbox_uid=sandbox_uid or None,
+            sandbox_uid=sandbox_uid,
         )
         self.registry.emit_event(
             project_id=project_id,

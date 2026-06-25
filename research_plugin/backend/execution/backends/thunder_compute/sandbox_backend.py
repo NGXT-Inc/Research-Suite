@@ -16,19 +16,8 @@ from backend.execution.vm_bootstrap import (
     build_bootstrap_core,
 )
 from backend.execution.vm_ssh import (
-    SshInputRunner,
-    SshRunner,
-    read_transcript_via_mgmt_ssh,
-    run_parachute_via_mgmt_ssh,
-    run_ssh,
-    run_ssh_input,
-    run_ssh_parachute,
-    retarget_via_mgmt_ssh,
-    sample_metrics_via_mgmt_ssh,
-    sandbox_tokens,
     ssh_command,
     stderr_detail,
-    write_secrets_via_mgmt_ssh,
 )
 from ....sandbox.sandbox_backend import (
     BackendUnavailableError,
@@ -37,10 +26,10 @@ from ....sandbox.sandbox_backend import (
     OnCreated,
     OnPhase,
     ProvisionedSandbox,
-    SandboxBackendBase,
     SandboxRequest,
 )
 from ...sync_dirs import remote_experiment_dir, remote_root_of, remote_sessions_dir
+from ..vm_ssh_backend import SshInputRunner, SshRunner, VmSshSandboxBackend
 from .catalog import find_option, summarize_specs
 from .client import ThunderComputeClient
 from .config import ThunderSandboxConfig
@@ -60,7 +49,7 @@ THUNDER_APT_PACKAGES: tuple[str, ...] = (
 BootstrapRunner = Callable[[list[str], str, int], "subprocess.CompletedProcess[str]"]
 
 
-class ThunderComputeSandboxBackend(SandboxBackendBase):
+class ThunderComputeSandboxBackend(VmSshSandboxBackend):
     capabilities = BackendCapabilities(
         name="thunder_compute",
         requires_hardware_selection=True,
@@ -77,12 +66,14 @@ class ThunderComputeSandboxBackend(SandboxBackendBase):
         bootstrap_runner: BootstrapRunner | None = None,
         parachute_runner: SshRunner | None = None,
     ) -> None:
+        super().__init__(
+            ssh_runner=ssh_runner,
+            ssh_input_runner=ssh_input_runner,
+            parachute_runner=parachute_runner,
+        )
         self._config = config
         self._client = client
-        self._ssh_runner = ssh_runner or run_ssh
-        self._ssh_input_runner = ssh_input_runner or run_ssh_input
         self._bootstrap_runner = bootstrap_runner or _run_bootstrap
-        self._parachute_runner = parachute_runner or ssh_runner or run_ssh_parachute
 
     @property
     def config(self) -> ThunderSandboxConfig:
@@ -195,113 +186,6 @@ class ThunderComputeSandboxBackend(SandboxBackendBase):
         except Exception:  # noqa: BLE001
             return False
         return True
-
-    def read_transcript(
-        self,
-        *,
-        sandbox_id: str,
-        experiment_id: str,
-        volume_name: str,  # noqa: ARG002
-        workdir: str,
-        tail: int | None = None,
-        ssh_host: str = "",
-        ssh_port: int = 0,
-        ssh_user: str = "",  # noqa: ARG002
-        key_path: str = "",
-    ) -> str:
-        return read_transcript_via_mgmt_ssh(
-            ssh_runner=self._ssh_runner,
-            sandbox_id=sandbox_id,
-            experiment_id=experiment_id,
-            workdir=workdir,
-            remote_root=self.config.remote_root,
-            ssh_host=ssh_host,
-            ssh_port=ssh_port,
-            key_path=key_path,
-            tail=tail,
-        )
-
-    def sample_metrics(
-        self,
-        *,
-        sandbox_id: str,
-        ssh_host: str = "",
-        ssh_port: int = 0,
-        ssh_user: str = "",  # noqa: ARG002
-        key_path: str = "",
-    ) -> dict[str, Any] | None:
-        return sample_metrics_via_mgmt_ssh(
-            ssh_runner=self._ssh_runner,
-            sandbox_id=sandbox_id,
-            ssh_host=ssh_host,
-            ssh_port=ssh_port,
-            key_path=key_path,
-        )
-
-    def run_parachute(
-        self,
-        *,
-        sandbox_id: str,
-        put_url: str,
-        ssh_host: str = "",
-        ssh_port: int = 0,
-        key_path: str = "",
-    ) -> dict[str, Any] | None:
-        return run_parachute_via_mgmt_ssh(
-            ssh_runner=self._parachute_runner,
-            sandbox_id=sandbox_id,
-            put_url=put_url,
-            ssh_host=ssh_host,
-            ssh_port=ssh_port,
-            key_path=key_path,
-        )
-
-    def sandbox_secrets(self) -> dict[str, str]:
-        return sandbox_tokens()
-
-    def write_secrets(
-        self,
-        *,
-        sandbox_id: str,
-        secrets: Mapping[str, str],
-        ssh_host: str = "",
-        ssh_port: int = 0,
-        key_path: str = "",
-    ) -> bool:
-        return write_secrets_via_mgmt_ssh(
-            ssh_runner=self._ssh_input_runner,
-            sandbox_id=sandbox_id,
-            secrets=secrets,
-            ssh_host=ssh_host,
-            ssh_port=ssh_port,
-            key_path=key_path,
-        )
-
-    def retarget(
-        self,
-        *,
-        sandbox_id: str,
-        experiment_id: str,
-        public_key: str,
-        workdir: str,
-        sandbox_data_dir: str,
-        tracking_env: Mapping[str, str],
-        ssh_host: str = "",
-        ssh_port: int = 0,
-        key_path: str = "",
-    ) -> bool:
-        return retarget_via_mgmt_ssh(
-            ssh_runner=self._ssh_input_runner,
-            sandbox_id=sandbox_id,
-            experiment_id=experiment_id,
-            public_key=public_key,
-            workdir=workdir,
-            sandbox_data_dir=sandbox_data_dir or self.config.sandbox_data_dir,
-            tracking_env=tracking_env,
-            ssh_host=ssh_host,
-            ssh_port=ssh_port,
-            key_path=key_path,
-        )
 
     def local_dashboard_ports(self) -> dict[str, int]:
         return dict(DASHBOARD_PORTS)

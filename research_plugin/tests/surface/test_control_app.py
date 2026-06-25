@@ -240,6 +240,7 @@ class ControlAppTest(unittest.TestCase):
             )["id"]
             app.sandboxes.registry.upsert(
                 experiment_id=exp_id,
+                sandbox_uid="uid_control_metrics",
                 project_id=project_id,
                 status="running",
                 sandbox_id="sbx_control",

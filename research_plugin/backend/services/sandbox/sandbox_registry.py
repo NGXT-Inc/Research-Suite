@@ -37,7 +37,9 @@ class SandboxRegistry:
     def load_row(self, *, experiment_id: str) -> dict[str, Any]:
         conn = self.store.connect()
         try:
-            sandbox_uid = self._primary_uid(conn=conn, experiment_id=experiment_id)
+            sandbox_uid = self._primary_uid(
+                conn=conn, experiment_id=experiment_id
+            ) or self._latest_uid(conn=conn, experiment_id=experiment_id)
             if sandbox_uid is None:
                 raise NotFoundError(f"sandbox not found: {experiment_id}")
             row = conn.execute(
@@ -103,7 +105,11 @@ class SandboxRegistry:
                     "SELECT * FROM sandboxes WHERE sandbox_uid = ?", (target_uid,)
                 ).fetchone()
             else:
-                target_uid = self._primary_uid(conn=conn, experiment_id=experiment_id) or ""
+                target_uid = (
+                    self._primary_uid(conn=conn, experiment_id=experiment_id)
+                    or self._latest_uid(conn=conn, experiment_id=experiment_id)
+                    or ""
+                )
                 row = (
                     conn.execute(
                         "SELECT * FROM sandboxes WHERE sandbox_uid = ?", (target_uid,)
@@ -219,21 +225,27 @@ class SandboxRegistry:
         return str(row["name"]) if row is not None and row["name"] else ""
 
     def _primary_uid(self, *, conn: Any, experiment_id: str) -> str | None:
-        """Most recent live sandbox, falling back to newest row for legacy reads."""
+        """Most recent running sandbox for experiment-keyed reads. Callers fall
+        back to _latest_uid, so together they reproduce the prior running →
+        newest-of-any resolution (a lone provisioning row stays reachable)."""
         statuses = tuple(ACTIVE_SANDBOX_STATUSES)
-        if statuses:
-            placeholders = ", ".join("?" for _ in statuses)
-            row = conn.execute(
-                f"""
-                SELECT sandbox_uid FROM sandboxes
-                WHERE experiment_id = ? AND status IN ({placeholders})
-                ORDER BY created_seq DESC
-                LIMIT 1
-                """,
-                (experiment_id, *statuses),
-            ).fetchone()
-            if row is not None and row["sandbox_uid"]:
-                return str(row["sandbox_uid"])
+        if not statuses:
+            return None
+        placeholders = ", ".join("?" for _ in statuses)
+        row = conn.execute(
+            f"""
+            SELECT sandbox_uid FROM sandboxes
+            WHERE experiment_id = ? AND status IN ({placeholders})
+            ORDER BY created_seq DESC
+            LIMIT 1
+            """,
+            (experiment_id, *statuses),
+        ).fetchone()
+        return str(row["sandbox_uid"]) if row is not None and row["sandbox_uid"] else None
+
+    def _latest_uid(self, *, conn: Any, experiment_id: str) -> str | None:
+        """Newest sandbox of any status — the experiment-keyed read fallback when
+        none is running, so terminal/provisioning rows stay reachable."""
         row = conn.execute(
             """
             SELECT sandbox_uid FROM sandboxes
@@ -284,30 +296,18 @@ class SandboxRegistry:
         self,
         *,
         experiment_id: str,
-        sandbox_uid: str | None = None,
+        sandbox_uid: str,
         **fields: Any,
     ) -> None:
         now = now_iso()
         with self.store.transaction() as conn:
-            target_uid = (sandbox_uid or "").strip()
-            exists = (
-                conn.execute(
-                    "SELECT sandbox_uid FROM sandboxes WHERE sandbox_uid = ?",
-                    (target_uid,),
-                ).fetchone()
-                if target_uid
-                else None
-            )
-            if exists is None and not target_uid:
-                primary_uid = self._primary_uid(conn=conn, experiment_id=experiment_id)
-                exists = (
-                    conn.execute(
-                        "SELECT sandbox_uid FROM sandboxes WHERE sandbox_uid = ?",
-                        (primary_uid,),
-                    ).fetchone()
-                    if primary_uid
-                    else None
-                )
+            target_uid = str(sandbox_uid or "").strip()
+            if not target_uid:
+                raise ValueError("sandbox_uid is required")
+            exists = conn.execute(
+                "SELECT sandbox_uid FROM sandboxes WHERE sandbox_uid = ?",
+                (target_uid,),
+            ).fetchone()
             payload = dict(fields)
             if payload.get("project_id") and not payload.get("tenant_id"):
                 tenant_row = conn.execute(
@@ -320,7 +320,7 @@ class SandboxRegistry:
             payload["updated_at"] = now
             if exists is None:
                 payload["experiment_id"] = experiment_id
-                payload["sandbox_uid"] = target_uid or self.new_sandbox_uid()
+                payload["sandbox_uid"] = target_uid
                 payload.setdefault("created_at", now)
                 # Insertion-order column (cloud plan Phase 6): replaces rowid
                 # ordering for the most-recent-first sandbox listings.
@@ -338,10 +338,7 @@ class SandboxRegistry:
                     attached_at=str(payload["created_at"]),
                 )
             else:
-                sandbox_uid = str(exists["sandbox_uid"] or "")
-                if not sandbox_uid:
-                    sandbox_uid = self.new_sandbox_uid()
-                    payload["sandbox_uid"] = sandbox_uid
+                sandbox_uid = str(exists["sandbox_uid"] or target_uid)
                 assignments = ", ".join(f"{key} = ?" for key in payload)
                 conn.execute(
                     f"UPDATE sandboxes SET {assignments} WHERE sandbox_uid = ?",
@@ -510,12 +507,10 @@ class SandboxRegistry:
                     (closed_at, experiment_id),
                 )
 
-    def touch_alive(self, *, experiment_id: str, sandbox_uid: str | None = None) -> None:
+    def touch_alive(self, *, experiment_id: str, sandbox_uid: str) -> None:
         now = now_iso()
         with self.store.transaction() as conn:
-            target_uid = (sandbox_uid or "").strip() or self._primary_uid(
-                conn=conn, experiment_id=experiment_id
-            )
+            target_uid = str(sandbox_uid or "").strip()
             if not target_uid:
                 return
             conn.execute(
@@ -534,15 +529,13 @@ class SandboxRegistry:
         self,
         *,
         experiment_id: str,
-        sandbox_uid: str | None = None,
+        sandbox_uid: str,
         idle_since: str | None,
         snapshot: dict[str, Any],
     ) -> None:
         now = now_iso()
         with self.store.transaction() as conn:
-            target_uid = (sandbox_uid or "").strip() or self._primary_uid(
-                conn=conn, experiment_id=experiment_id
-            )
+            target_uid = str(sandbox_uid or "").strip()
             if not target_uid:
                 return
             conn.execute(
@@ -559,16 +552,12 @@ class SandboxRegistry:
                 ),
             )
 
-    def mark_terminated(
-        self, *, experiment_id: str, sandbox_uid: str | None = None
-    ) -> None:
+    def mark_terminated(self, *, experiment_id: str, sandbox_uid: str) -> None:
         self._mark_terminal(
             experiment_id=experiment_id, sandbox_uid=sandbox_uid, status="terminated"
         )
 
-    def mark_failed(
-        self, *, experiment_id: str, error: str, sandbox_uid: str | None = None
-    ) -> None:
+    def mark_failed(self, *, experiment_id: str, error: str, sandbox_uid: str) -> None:
         self._mark_terminal(
             experiment_id=experiment_id,
             sandbox_uid=sandbox_uid,
@@ -580,7 +569,7 @@ class SandboxRegistry:
         self,
         *,
         experiment_id: str,
-        sandbox_uid: str | None,
+        sandbox_uid: str,
         status: str,
         error: str | None = None,
     ) -> None:
@@ -588,9 +577,7 @@ class SandboxRegistry:
         and spend generation. `error` is set only on the failed path."""
         now = now_iso()
         with self.store.transaction() as conn:
-            target_uid = (sandbox_uid or "").strip() or self._primary_uid(
-                conn=conn, experiment_id=experiment_id
-            )
+            target_uid = str(sandbox_uid or "").strip()
             row = (
                 conn.execute(
                     "SELECT sandbox_id, sandbox_uid FROM sandboxes WHERE sandbox_uid = ?",

@@ -78,7 +78,7 @@ class SandboxParachute:
                 )
             self.registry.upsert(
                 experiment_id=experiment_id,
-                sandbox_uid=sandbox_uid or None,
+                sandbox_uid=sandbox_uid,
                 parachute_state="uploaded",
                 parachute_object_key=f"{stat.namespace}/{stat.sha256}",
                 parachute_sha256=stat.sha256,
@@ -102,7 +102,7 @@ class SandboxParachute:
             with contextlib.suppress(Exception):
                 self.registry.upsert(
                     experiment_id=experiment_id,
-                    sandbox_uid=sandbox_uid or None,
+                    sandbox_uid=sandbox_uid,
                     parachute_state="failed",
                 )
             with contextlib.suppress(Exception):
@@ -145,7 +145,7 @@ class SandboxParachute:
         except Exception as exc:  # noqa: BLE001 - loud failure, no silent loop
             self.registry.upsert(
                 experiment_id=experiment_id,
-                sandbox_uid=sandbox_uid or None,
+                sandbox_uid=sandbox_uid,
                 parachute_state="failed",
             )
             self.registry.emit_event(
@@ -161,7 +161,7 @@ class SandboxParachute:
             return self.registry.get_by_uid(sandbox_uid=sandbox_uid)
         self.registry.upsert(
             experiment_id=experiment_id,
-            sandbox_uid=sandbox_uid or None,
+            sandbox_uid=sandbox_uid,
             parachute_state="restored",
         )
         self.registry.emit_event(

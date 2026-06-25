@@ -85,8 +85,10 @@ class DaemonDiesMidProvisionTest(_Base):
         # A VM was created (billing) but provisioning never completed because
         # the daemon died — the row is wedged before running.
         exp_id = self._experiment()
+        sandbox_uid = "uid_billing"
         self.app.sandboxes.registry.upsert(
             experiment_id=exp_id,
+            sandbox_uid=sandbox_uid,
             project_id=self.project_id,
             sandbox_id="sb-billing",
             status="provisioning",
@@ -101,7 +103,7 @@ class DaemonDiesMidProvisionTest(_Base):
         report = self.cleanup.run_all(now=now)
 
         self.assertEqual(report.stale_provisions_reaped, 1)
-        row = self.app.sandboxes.registry.load_row(experiment_id=exp_id)
+        row = self.app.sandboxes.registry.get_by_uid(sandbox_uid=sandbox_uid)
         self.assertEqual(row["status"], "failed")
         # The billing VM was terminated — no forever-billing orphan.
         self.assertIn("sb-billing", self.backend.terminated)
@@ -139,8 +141,10 @@ class DaemonDiesMidSyncTest(_Base):
         # Release with a final-pull that fails (daemon unreachable) still frees
         # billing AND flags the unreachable state for the UI.
         exp_id = self._experiment()
+        sandbox_uid = "uid_daemon_unreachable"
         self.app.sandboxes.registry.upsert(
             experiment_id=exp_id,
+            sandbox_uid=sandbox_uid,
             project_id=self.project_id,
             sandbox_id="sb-x",
             status="running",
@@ -219,8 +223,10 @@ class ControlRestartTest(unittest.TestCase):
             "experiment.create",
             {"project_id": project_id, "name": "exp-x", "intent": "y"},
         )["id"]
+        sandbox_uid = "uid_dead_restart"
         first.sandboxes.registry.upsert(
             experiment_id=exp_id,
+            sandbox_uid=sandbox_uid,
             project_id=project_id,
             sandbox_id="sb-dead",
             status="running",
@@ -241,7 +247,7 @@ class ControlRestartTest(unittest.TestCase):
         restarted, _backend = self._build()
         cleanup = CleanupService(sandboxes=restarted.sandboxes, blobs=restarted.blobs)
         reaped = cleanup.sweep_orphan_vms()
-        row = restarted.sandboxes.registry.load_row(experiment_id=exp_id)
+        row = restarted.sandboxes.registry.get_by_uid(sandbox_uid=sandbox_uid)
         self.assertEqual(
             row["status"],
             "terminated",

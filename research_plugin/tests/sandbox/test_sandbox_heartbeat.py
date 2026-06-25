@@ -158,12 +158,14 @@ class SandboxHeartbeatMonitorTest(unittest.TestCase):
         self,
         *,
         exp_id: str,
+        sandbox_uid: str,
         sampled_at: datetime,
         idle_since: datetime,
         metrics: dict,
     ) -> None:
         self.app.sandboxes.registry.record_heartbeat(
             experiment_id=exp_id,
+            sandbox_uid=sandbox_uid,
             idle_since=format_iso(idle_since),
             snapshot={"sampled_at": format_iso(sampled_at), "metrics": metrics},
         )
@@ -178,9 +180,14 @@ class SandboxHeartbeatMonitorTest(unittest.TestCase):
         idle = self._request(idle_exp)
         busy = self._request(busy_exp)
         leased = self._request(leased_exp)
-        for exp_id in (idle_exp, busy_exp, leased_exp):
+        for exp_id, sandbox_uid in (
+            (idle_exp, idle["sandbox_uid"]),
+            (busy_exp, busy["sandbox_uid"]),
+            (leased_exp, leased["sandbox_uid"]),
+        ):
             self._seed_heartbeat(
                 exp_id=exp_id,
+                sandbox_uid=str(sandbox_uid),
                 sampled_at=previous_at,
                 idle_since=idle_since,
                 metrics=_sample(),
@@ -201,9 +208,11 @@ class SandboxHeartbeatMonitorTest(unittest.TestCase):
         self.assertNotIn(busy["sandbox_id"], self.backend.terminated)
         self.assertNotIn(leased["sandbox_id"], self.backend.terminated)
         self.assertEqual(
-            self.app.sandboxes.get(project_id=self.project_id, experiment_id=idle_exp)[
-                "status"
-            ],
+            self.app.sandboxes.get(
+                project_id=self.project_id,
+                experiment_id=idle_exp,
+                sandbox_uid=str(idle["sandbox_uid"]),
+            )["status"],
             "terminated",
         )
         self.assertEqual(
@@ -234,6 +243,7 @@ class SandboxHeartbeatMonitorTest(unittest.TestCase):
         now = datetime(2026, 1, 1, 2, 0, tzinfo=UTC)
         self._seed_heartbeat(
             exp_id=exp_id,
+            sandbox_uid=str(created["sandbox_uid"]),
             sampled_at=now - timedelta(seconds=30),
             idle_since=now - timedelta(hours=2),
             metrics=_sample(),

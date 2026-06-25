@@ -68,8 +68,10 @@ class CleanupSweepTest(unittest.TestCase):
 
     def test_orphan_vm_sweep_reaps_a_running_row_whose_vm_is_gone(self) -> None:
         exp_id = self._experiment()
+        sandbox_uid = "uid_gone"
         self.app.sandboxes.registry.upsert(
             experiment_id=exp_id,
+            sandbox_uid=sandbox_uid,
             project_id=self.project_id,
             sandbox_id="sb-gone",
             status="running",
@@ -82,13 +84,14 @@ class CleanupSweepTest(unittest.TestCase):
         self.assertFalse(self.backend.is_alive(sandbox_id="sb-gone"))
         reaped = self.cleanup.sweep_orphan_vms(now=datetime.now(tz=UTC))
         self.assertEqual(reaped, 1)
-        row = self.app.sandboxes.registry.load_row(experiment_id=exp_id)
+        row = self.app.sandboxes.registry.get_by_uid(sandbox_uid=sandbox_uid)
         self.assertEqual(row["status"], "terminated")
 
     def test_orphan_vm_sweep_leaves_a_live_row_running(self) -> None:
         exp_id = self._experiment()
         self.app.sandboxes.registry.upsert(
             experiment_id=exp_id,
+            sandbox_uid="uid_live",
             project_id=self.project_id,
             sandbox_id="sb-live",
             status="running",
@@ -145,9 +148,11 @@ class CleanupSweepTest(unittest.TestCase):
 
     def test_stale_provision_reaped_past_deadline(self) -> None:
         exp_id = self._experiment()
+        sandbox_uid = "uid_wedged"
         started = "2026-01-01T00:00:00Z"
         self.app.sandboxes.registry.upsert(
             experiment_id=exp_id,
+            sandbox_uid=sandbox_uid,
             project_id=self.project_id,
             sandbox_id="sb-wedged",
             status="provisioning",
@@ -160,7 +165,7 @@ class CleanupSweepTest(unittest.TestCase):
         now = datetime(2026, 1, 1, 0, 20, 0, tzinfo=UTC)
         reaped = self.cleanup.sweep_stale_provisions(now=now)
         self.assertEqual(reaped, 1)
-        row = self.app.sandboxes.registry.load_row(experiment_id=exp_id)
+        row = self.app.sandboxes.registry.get_by_uid(sandbox_uid=sandbox_uid)
         self.assertEqual(row["status"], "failed")
         # The billing VM was terminated by cleanup_orphan.
         self.assertIn("sb-wedged", self.backend.terminated)
@@ -172,6 +177,7 @@ class CleanupSweepTest(unittest.TestCase):
         exp_id = self._experiment()
         self.app.sandboxes.registry.upsert(
             experiment_id=exp_id,
+            sandbox_uid="uid_connecting",
             project_id=self.project_id,
             sandbox_id="sb-connecting",
             status="provisioning",
@@ -193,8 +199,10 @@ class CleanupSweepTest(unittest.TestCase):
         # so the reap can only find the VM by its deterministic name
         # (cleanup_orphan -> backend.find_sandbox_id). It must still be killed.
         exp_id = self._experiment()
+        sandbox_uid = "uid_unrecorded"
         self.app.sandboxes.registry.upsert(
             experiment_id=exp_id,
+            sandbox_uid=sandbox_uid,
             project_id=self.project_id,
             sandbox_id="",
             status="provisioning",
@@ -207,7 +215,7 @@ class CleanupSweepTest(unittest.TestCase):
         now = datetime(2026, 1, 1, 0, 20, 0, tzinfo=UTC)
         reaped = self.cleanup.sweep_stale_provisions(now=now)
         self.assertEqual(reaped, 1)
-        row = self.app.sandboxes.registry.load_row(experiment_id=exp_id)
+        row = self.app.sandboxes.registry.get_by_uid(sandbox_uid=sandbox_uid)
         self.assertEqual(row["status"], "failed")
         self.assertIn("sb-unrecorded", self.backend.terminated)
 
@@ -215,6 +223,7 @@ class CleanupSweepTest(unittest.TestCase):
         exp_id = self._experiment()
         self.app.sandboxes.registry.upsert(
             experiment_id=exp_id,
+            sandbox_uid="uid_fresh",
             project_id=self.project_id,
             sandbox_id="sb-fresh",
             status="provisioning",
@@ -238,6 +247,7 @@ class CleanupSweepTest(unittest.TestCase):
         exp_id = self._experiment()
         self.app.sandboxes.registry.upsert(
             experiment_id=exp_id,
+            sandbox_uid="uid_dead_run_all",
             project_id=self.project_id,
             sandbox_id="sb-dead",
             status="running",

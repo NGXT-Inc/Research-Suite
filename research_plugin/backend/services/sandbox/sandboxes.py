@@ -1204,9 +1204,11 @@ class SandboxService:
             return row
         experiment_id = str(row.get("experiment_id"))
         sandbox_uid = str(row.get("sandbox_uid") or "")
+        if not sandbox_uid:
+            return row
         self.registry.upsert(
             experiment_id=experiment_id,
-            sandbox_uid=sandbox_uid or None,
+            sandbox_uid=sandbox_uid,
             dashboards_json=encoded,
         )
         return self.registry.get_by_uid(sandbox_uid=sandbox_uid)
@@ -1240,9 +1242,11 @@ class SandboxService:
             return row  # unchanged — the common case; avoid a needless write
         experiment_id = str(row.get("experiment_id"))
         sandbox_uid = str(row.get("sandbox_uid") or "")
+        if not sandbox_uid:
+            return row
         self.registry.upsert(
             experiment_id=experiment_id,
-            sandbox_uid=sandbox_uid or None,
+            sandbox_uid=sandbox_uid,
             ssh_host=host,
             ssh_port=port,
         )
