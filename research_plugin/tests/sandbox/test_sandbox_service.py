@@ -1092,6 +1092,51 @@ class SandboxServiceTest(unittest.TestCase):
                 experiment_id=exp_id,
                 confirm_retained=True,
             )
+            ssh_procs = [proc for command, proc in procs if command and command[0] == "ssh"]
+            self.assertTrue(ssh_procs)
+            self.assertTrue(all(proc.terminated for proc in ssh_procs))
+
+    def test_standalone_dashboard_tunnels_key_local_state_by_uid(self) -> None:
+        self.backend.default_dashboards = False
+        self.backend.local_dashboard_ports = lambda: {"tensorboard": 6006}  # type: ignore[attr-defined]
+        real_popen = subprocess.Popen
+        procs: list[tuple[list[str], FakeProcess]] = []
+
+        def fake_popen(command, **kwargs):
+            command = list(command)
+            if command and command[0] == "ssh-keygen":
+                return real_popen(command, **kwargs)
+            proc = FakeProcess()
+            procs.append((command, proc))
+            return proc
+
+        class FakeResponse:
+            status_code = 200
+
+        with (
+            patch("backend.dataplane.sandbox_dashboards.subprocess.Popen", side_effect=fake_popen),
+            patch("backend.dataplane.sandbox_dashboards.socket.create_connection", return_value=MagicMock()),
+            patch("backend.dataplane.sandbox_dashboards.httpx.get", return_value=FakeResponse()),
+        ):
+            result = self.call("sandbox.request", project_id=self.project_id)
+
+        uid = result["sandbox_uid"]
+        self.assertEqual(result["experiment_id"], "")
+        self.assertIn("tensorboard", result["dashboards"])
+        self.assertIn(
+            "tensorboard",
+            self.app.worker.state.load(experiment_id=uid)["dashboards_local"],
+        )
+        self.assertEqual(
+            self.app.worker.state.load(experiment_id="")["dashboards_local"],
+            {},
+        )
+        self.call(
+            "sandbox.release",
+            project_id=self.project_id,
+            sandbox_uid=uid,
+            confirm_retained=True,
+        )
 
         ssh_procs = [proc for command, proc in procs if command and command[0] == "ssh"]
         self.assertTrue(ssh_procs)

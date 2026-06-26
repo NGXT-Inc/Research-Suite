@@ -80,8 +80,10 @@ class DashboardTunnels:
         URLs before the worker-local map overlays it.
         """
         experiment_id = str(row.get("experiment_id") or "")
+        sandbox_uid = str(row.get("sandbox_uid") or "")
+        local_key = experiment_id or sandbox_uid
         provider = _provider_dashboards(row=row)
-        local = self.local_state.dashboards_local(experiment_id=experiment_id)
+        local = self.local_state.dashboards_local(experiment_id=local_key)
         merged = encode_dashboards({**provider, **local})
         if merged == (row.get("dashboards_json") or "{}"):
             return row
@@ -100,9 +102,11 @@ class DashboardTunnels:
         if row.get("status") not in ACTIVE_SANDBOX_STATUSES:
             return self.merged_row(row=row)
         experiment_id = str(row.get("experiment_id") or "")
+        sandbox_uid = str(row.get("sandbox_uid") or "")
+        local_key = experiment_id or sandbox_uid
         sandbox_id = str(row.get("sandbox_id") or "")
         ssh_host = str(row.get("ssh_host") or "")
-        key_path = str(self._key_path(experiment_id=experiment_id))
+        key_path = str(self._key_path(experiment_id=local_key))
         if not sandbox_id or not ssh_host or not key_path:
             return self.merged_row(row=row)
         try:
@@ -113,7 +117,7 @@ class DashboardTunnels:
             return self.merged_row(row=row)
 
         provider = _provider_dashboards(row=row)
-        local = self.local_state.dashboards_local(experiment_id=experiment_id)
+        local = self.local_state.dashboards_local(experiment_id=local_key)
         changed = False
         for raw_name, raw_port in ports.items():
             name = str(raw_name)
@@ -148,6 +152,7 @@ class DashboardTunnels:
                 name=name,
                 project_id=str(row.get("project_id") or ""),
                 experiment_id=experiment_id,
+                sandbox_uid=sandbox_uid,
                 sandbox_id=sandbox_id,
                 ssh_host=ssh_host,
                 ssh_port=int(row.get("ssh_port") or 22),
@@ -164,7 +169,7 @@ class DashboardTunnels:
 
         if changed:
             self.local_state.record(
-                experiment_id=experiment_id, dashboards_local=local
+                experiment_id=local_key, dashboards_local=local
             )
         merged = encode_dashboards({**provider, **local})
         if merged == (row.get("dashboards_json") or "{}"):
@@ -209,6 +214,7 @@ class DashboardTunnels:
         name: str,
         project_id: str,
         experiment_id: str,
+        sandbox_uid: str,
         sandbox_id: str,
         ssh_host: str,
         ssh_port: int,
@@ -254,6 +260,7 @@ class DashboardTunnels:
                 experiment_id=experiment_id,
                 payload={
                     "sandbox_id": sandbox_id,
+                    "sandbox_uid": sandbox_uid,
                     "dashboard": name,
                     "local_port": local_port,
                     "remote_port": remote_port,

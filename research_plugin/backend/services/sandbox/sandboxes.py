@@ -1159,12 +1159,6 @@ class SandboxService:
 
     # ---------- paths / conn-file plumbing (delegated to the worker) ----------
 
-    def _local_sync_dir(self, *, experiment_id: str) -> Path:
-        return self.worker.local_experiment_dir(
-            experiment_id=experiment_id,
-            name=self.registry.experiment_name(experiment_id=experiment_id),
-        )
-
     def _ensure_keypair(
         self, *, experiment_id: str = "", local_key: str | None = None
     ) -> tuple[str, Path]:
