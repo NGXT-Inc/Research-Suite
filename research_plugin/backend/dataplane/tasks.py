@@ -1,22 +1,9 @@
-"""The control→data task channel (cloud plan Phase 4, fixed decision 2).
+"""The control→data task channel.
 
-Every "control plane signals the data plane" flow is a **task**: the control
-plane enqueues, the data plane executes and acks. The cloud never dials in —
-in split mode (Phase 8) this channel is the daemon's long-poll task loop; in
-local mode ``InProcessTaskChannel`` degenerates to a synchronous dispatch the
-moment a task is enqueued, preserving today's provision/reap/teardown
-ordering exactly.
-
-Task types: ``sync_pull`` | ``final_pull`` | ``conn_refresh`` | ``teardown`` |
-``parachute_restore``. The last unpacks a reaped sandbox's
-parachute object (plan Phase 5, fixed decision 5) into the experiment's
-local folder through the worker's normal sync-path semantics.
-
-Payloads carry live objects (sync sessions, row dicts, progress callbacks)
-while both planes share one process. Parachute restore is URL-first so the
-control plane never has to load the recovered archive into memory. Deadlines
-are cloud-minted ISO instants the data plane treats as opaque (plan §3.2) —
-unenforced in-process, where the worker is by definition reachable.
+Every "control plane signals the data plane" flow is a task: the control plane
+enqueues, the data plane executes and acks. The channel only handles local
+conn/dashboard maintenance; sandbox file movement is explicit SSH work by the
+agent.
 """
 
 from __future__ import annotations
@@ -28,18 +15,15 @@ from ..utils import ValidationError, new_id
 
 if TYPE_CHECKING:
     # Typing-only: a runtime import would load the local worker stack
-    # (workspace, rsync, dashboard tunnels) and break import-time separation
-    # for `backend.dataplane` as an entry point.
+    # (workspace, dashboard tunnels) and break import-time separation for
+    # `backend.dataplane` as an entry point.
     from .worker import DataPlaneWorker
 
 
 TASK_TYPES: frozenset[str] = frozenset(
     {
-        "sync_pull",
-        "final_pull",
         "conn_refresh",
         "teardown",
-        "parachute_restore",
     }
 )
 
@@ -99,20 +83,6 @@ class InProcessTaskChannel:
 
     def _execute(self, *, task: Task) -> Any:
         payload = task.payload
-        if task.type == "final_pull":
-            result = self.worker.final_pull(
-                session=payload["session"],
-                name=str(payload.get("name") or ""),
-                deadline=task.deadline,
-            )
-            return self._with_metrics_snapshot(result=result, payload=payload)
-        if task.type == "sync_pull":
-            result = self.worker.sync_pull(
-                session=payload["session"],
-                name=str(payload.get("name") or ""),
-                skip_if_busy=bool(payload.get("skip_if_busy")),
-            )
-            return self._with_metrics_snapshot(result=result, payload=payload)
         if task.type == "conn_refresh":
             # Re-render the agent's conn file (and ssh command) for a row
             # whose tunnel endpoint moved.
@@ -136,40 +106,4 @@ class InProcessTaskChannel:
                 ),
             )
             return None
-        # parachute_restore: unpack a reaped sandbox's parachute object into
-        # the experiment's local folder (plan Phase 5). Prefer a read URL so
-        # control does not load the archive before dispatch; inline bytes are
-        # still accepted for old in-process tests and callers.
-        data = payload.get("data")
-        if data is None:
-            url = str(payload.get("get_url") or "")
-            if not url:
-                raise ValidationError("parachute_restore task has no get_url")
-            from urllib.request import urlopen
-
-            with urlopen(url, timeout=120) as response:  # noqa: S310
-                data = response.read()
-        return self.worker.restore_parachute(
-            experiment_id=str(payload["experiment_id"]),
-            data=data,
-            name=str(payload.get("name") or ""),
-        )
-
-    def _with_metrics_snapshot(self, *, result: Any, payload: dict[str, Any]) -> Any:
-        if not isinstance(result, dict):
-            return result
-        result = dict(result)
-        result["metrics_snapshot"] = None
-        if result.get("skipped"):
-            return result
-        row = payload.get("row")
-        if not isinstance(row, dict):
-            return result
-        try:
-            result["metrics_snapshot"] = self.worker.capture_metrics_snapshot(
-                row=row,
-                name=str(payload.get("name") or ""),
-            )
-        except Exception:  # noqa: BLE001 — metrics capture must not fail sync
-            result["metrics_snapshot"] = None
-        return result
+        raise ValidationError(f"unknown task type: {task.type}")

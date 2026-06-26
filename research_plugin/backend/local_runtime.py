@@ -11,7 +11,6 @@ from .dataplane.resource_artifacts import LocalResourceArtifactReader
 from .dataplane.resource_observer import LocalResourceObserver
 from .dataplane.tasks import InProcessTaskChannel
 from .execution import build_sandbox_backend
-from .execution.ssh_rsync import SshRsyncSyncer
 from .sandbox.sandbox_backend import SandboxBackend
 from .state import ActivityLogger, ToolCallStore
 from .state.blobs import BlobStore, LocalDirBlobStore
@@ -38,7 +37,6 @@ def build_local_runtime(
     *,
     repo_root: Path,
     execution_backend: SandboxBackend | None = None,
-    rsync_syncer: SshRsyncSyncer | None = None,
     blobs: BlobStore | None = None,
 ) -> LocalRuntime:
     """Build local filesystem, telemetry, backend, and worker collaborators."""
@@ -59,7 +57,6 @@ def build_local_runtime(
     worker = LocalDataPlaneWorker(
         workspace=workspace,
         backend=execution_backend,
-        rsync_syncer=rsync_syncer,
     )
     return LocalRuntime(
         workspace=workspace,

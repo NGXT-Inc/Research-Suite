@@ -19,7 +19,6 @@ from .tools.tool_handlers import build_local_tool_handlers
 from .utils import ValidationError
 
 if TYPE_CHECKING:
-    from .execution.ssh_rsync import SshRsyncSyncer
     from .local_runtime import LocalRuntime
     from .sandbox.sandbox_backend import SandboxBackend
 
@@ -33,7 +32,6 @@ class ResearchPluginApp:
         repo_root: Path,
         db_path: Path,
         execution_backend: SandboxBackend | None = None,
-        rsync_syncer: SshRsyncSyncer | None = None,
         store: BaseStateStore | None = None,
         blobs: "BlobStore | None" = None,
         storage: StorageLedgerService | None = None,
@@ -51,15 +49,12 @@ class ResearchPluginApp:
             runtime = build_local_runtime(
                 repo_root=repo_root,
                 execution_backend=execution_backend,
-                rsync_syncer=rsync_syncer,
                 blobs=blobs,
             )
-        elif any(
-            value is not None for value in (execution_backend, rsync_syncer, blobs)
-        ):
+        elif any(value is not None for value in (execution_backend, blobs)):
             raise ValueError(
                 "runtime cannot be combined with execution_backend, "
-                "rsync_syncer, or blobs"
+                "or blobs"
             )
         self.workspace = runtime.workspace
         # Store injection (cloud plan Phase 6): the dual-dialect contract
@@ -78,10 +73,10 @@ class ResearchPluginApp:
         # line per tool call / HTTP request to stdout, in control mode only.
         # Dormant (disabled) in local mode, so behavior is byte-identical.
         self.structured_logger = StructuredLogger()
-        # Content-addressed store for gated-artifact bytes (and figures and
-        # parachute objects). Local mode roots it next to the state DB; the
-        # control composition injects an S3BlobStore (Phase 8). Same protocol,
-        # same contract tests, so the rest of the app is blob-impl-blind.
+        # Content-addressed store for gated-artifact bytes and figures. Local
+        # mode roots it next to the state DB; the control composition injects an
+        # S3BlobStore. Same protocol, same contract tests, so the rest of the
+        # app is blob-impl-blind.
         self.blobs = runtime.blobs
         self.storage = storage if storage is not None else StorageLedgerService(
             store=self.store,
@@ -124,9 +119,6 @@ class ResearchPluginApp:
             # the rest of the control state.
             mgmt_keys=runtime.mgmt_keys,
             metrics_archive=self.worker.metrics_archive,
-            lease_client_id=self.worker.client_id(),
-            # Decision 7's one shared blob store also holds parachute objects.
-            blobs=self.blobs,
             quotas=self.quotas,
             mlflow_tracking=self.mlflow_tracking,
             # Split mode (Phase 8): the control composition injects an
@@ -212,7 +204,7 @@ class ResearchPluginApp:
                 )
                 for p in paths
             ]
-            return {"synced": resources, "count": len(resources)}
+            return {"resources": resources, "count": len(resources)}
         if not path:
             raise ValidationError(
                 "resource.register_file requires 'path' (a single file) or 'paths' (a batch)"
@@ -323,7 +315,7 @@ class ResearchPluginApp:
         )
 
     def shutdown(self) -> None:
-        """Best-effort: stop background provisioning jobs and the sync poller."""
+        """Best-effort: stop background provisioning jobs and backend resources."""
         try:
             self.sandboxes.shutdown()
         except Exception:  # noqa: BLE001

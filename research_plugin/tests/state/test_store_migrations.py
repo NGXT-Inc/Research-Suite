@@ -625,11 +625,10 @@ class StoreMigrationTest(unittest.TestCase):
         finally:
             conn.close()
 
-    def test_legacy_db_gains_phase5_columns_and_metrics_records(self) -> None:
-        # Cloud-split Phase 5: the management-key reference and the expiry
-        # parachute record join the sandboxes row, and metrics snapshots gain
-        # a control-plane record table — all via additive convergence on a
-        # pre-Phase-5 database.
+    def test_legacy_db_gains_mgmt_key_and_metrics_records(self) -> None:
+        # Cloud-split Phase 5: the management-key reference joins the sandboxes
+        # row, and metrics snapshots gain a control-plane record table — all
+        # via additive convergence on a pre-Phase-5 database.
         self._seed_legacy_db()
         conn = sqlite3.connect(self.db)
         try:
@@ -642,15 +641,7 @@ class StoreMigrationTest(unittest.TestCase):
         conn = store.connect()
         try:
             columns = self._sandbox_columns(conn)
-            for column in (
-                "mgmt_key_ref",
-                "parachute_state",
-                "parachute_object_key",
-                "parachute_sha256",
-                "parachute_size_bytes",
-                "parachute_expires_at",
-            ):
-                self.assertIn(column, columns)
+            self.assertIn("mgmt_key_ref", columns)
             tables = {
                 str(row["name"])
                 for row in conn.execute(

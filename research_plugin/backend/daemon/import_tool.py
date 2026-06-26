@@ -33,7 +33,7 @@ from ..utils import ValidationError, now_iso
 
 
 # Tables copied verbatim (ids carry over), in FK-safe order. events is handled
-# separately (id re-keyed). Machine-local tables (sandboxes, sync_leases,
+# separately (id re-keyed). Machine-local tables (sandboxes,
 # sandbox_generations, metrics_snapshots) are NOT imported — they are per-VM /
 # per-machine and meaningless in the cloud; the cloud re-provisions.
 _COPY_TABLES = (

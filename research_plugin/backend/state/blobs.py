@@ -1,9 +1,8 @@
-"""Content-addressed blob storage for gated artifacts and recovery objects.
+"""Content-addressed blob storage for gated artifacts and generated objects.
 
 The split storage model from docs/CONTROL_DATA_PLANE_SPLIT.md uses one
 sha256-keyed, namespace-scoped store shared by artifact submissions (gated-role bytes
-captured at resource.associate), report figures, metrics snapshots, and the
-expiry parachute. The local implementation is a plain directory under
+captured at resource.associate), report figures, and metrics snapshots. The local implementation is a plain directory under
 ``.research_plugin/blobs/``; the cloud implementation (S3, Phase 8) implements
 the same protocol behind the same contract tests.
 
@@ -11,12 +10,11 @@ The namespace maps to the project locally and to ``tenant/project`` in the
 cloud — blobs are never deduplicated across namespaces (cross-tenant dedup
 would leak content existence).
 
-Single-use uploads (the parachute PUT, plan Phase 5): ``presign_put`` mints
-an upload target for bytes produced off-process and ``finalize_put`` lands
-them content-addressed, enforcing the size cap and single use. ``presign_get``
-mints the read URL a split-mode daemon uses to restore a parachute object. The
-local implementation's "URL" is a ``file://`` path — honest to the seam, not
-to the transport: real presigned HTTPS URLs arrive with ``S3BlobStore``.
+Single-use uploads: ``presign_put`` mints an upload target for bytes produced
+off-process and ``finalize_put`` lands them content-addressed, enforcing the
+size cap and single use. The local implementation's "URL" is a ``file://`` path
+— honest to the seam, not to the transport: real presigned HTTPS URLs arrive
+with ``S3BlobStore``.
 """
 
 from __future__ import annotations
@@ -85,10 +83,11 @@ class BlobStore(Protocol):
         expires_at: str | None = None,
         content_type: str = "application/octet-stream",
     ) -> dict[str, Any]:
-        """Mint a single-use upload target for bytes produced off-process
-        (the expiry parachute). Returns ``{upload_id, url, max_size_bytes,
-        expires_at}``; the producer PUTs to ``url``, then the control plane
-        calls ``finalize_put``."""
+        """Mint a single-use upload target for bytes produced off-process.
+
+        Returns ``{upload_id, url, max_size_bytes, expires_at}``; the producer
+        PUTs to ``url``, then the control plane calls ``finalize_put``.
+        """
         ...
 
     def finalize_put(self, *, upload_id: str) -> BlobStat:

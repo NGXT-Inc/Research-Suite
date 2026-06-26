@@ -6,9 +6,6 @@ exercises a failure the split design must survive:
 - daemon dies mid-provision  ⇒ the stale-provision reap (Step 2)
   terminates the billing sandbox so a dead daemon never leaves a VM running with
   no owner (risk 8).
-- daemon dies mid-sync        ⇒ the lease-expiry sweep releases the abandoned
-  lease so another client can take the experiment over (risk on multi-client
-  coordination).
 - control restart             ⇒ the crash-recovery scan (Phase 8) resumes the
   reaper, and the cleanup sweeps then reconcile/terminate as expected (risk 6).
 """
@@ -18,7 +15,7 @@ from __future__ import annotations
 import os
 import tempfile
 import unittest
-from datetime import UTC, datetime, timedelta
+from datetime import UTC, datetime
 from pathlib import Path
 
 from backend.app import ResearchPluginApp
@@ -26,9 +23,6 @@ from backend.config import MGMT_KEY_PATH_ENV_VAR, MGMT_PUBLIC_KEY_ENV_VAR
 from backend.execution.backends.fake import FakeSandboxBackend
 from backend.sandbox.sandbox_backend import BackendCapabilities
 from backend.services.cleanup import CleanupService
-from backend.services.sync_sessions import LeaseService
-from backend.utils import PermissionDeniedError
-from tests.fakes import FakeRsyncSyncer
 
 
 def _mounted_mgmt_key_env(root: Path) -> dict[str, str]:
@@ -58,7 +52,6 @@ class _Base(unittest.TestCase):
             repo_root=self.repo,
             db_path=self.repo / ".research_plugin" / "state.sqlite",
             execution_backend=self.backend,
-            rsync_syncer=FakeRsyncSyncer(),
         )
         self.store = self.app.store
         self.cleanup = CleanupService(sandboxes=self.app.sandboxes, blobs=self.app.blobs)
@@ -108,69 +101,6 @@ class DaemonDiesMidProvisionTest(_Base):
         # The billing VM was terminated — no forever-billing orphan.
         self.assertIn("sb-billing", self.backend.terminated)
         self.assertFalse(self.backend.is_alive(sandbox_id="sb-billing"))
-
-
-class DaemonDiesMidSyncTest(_Base):
-    def test_lease_expiry_lets_another_client_take_over(self) -> None:
-        leases: LeaseService = self.app.sandboxes.leases
-        # Client A holds the sync lease, then dies mid-sync (never releases).
-        a = leases.acquire(
-            experiment_id="exp_sync", holder_client_id="client-A", ttl_seconds=120
-        )
-        self.assertEqual(a["holder_client_id"], "client-A")
-        # While A's lease is live, B cannot take over.
-        with self.assertRaises(PermissionDeniedError):
-            leases.acquire(
-                experiment_id="exp_sync", holder_client_id="client-B", ttl_seconds=120
-            )
-
-        # Time passes past A's TTL with A gone; the cleanup sweep releases it.
-        future = datetime.now(tz=UTC) + timedelta(hours=1)
-        released = self.cleanup.sweep_expired_leases(now=future)
-        self.assertEqual(released, 1)
-
-        # Now B takes the experiment over with a fresh lease id (A's reports
-        # would be rejected as stale).
-        b = leases.acquire(
-            experiment_id="exp_sync", holder_client_id="client-B", ttl_seconds=120
-        )
-        self.assertEqual(b["holder_client_id"], "client-B")
-        self.assertNotEqual(b["id"], a["id"])
-
-    def test_release_surfaces_daemon_unreachable(self) -> None:
-        # Release with a final-pull that fails (daemon unreachable) still frees
-        # billing AND flags the unreachable state for the UI.
-        exp_id = self._experiment()
-        sandbox_uid = "uid_daemon_unreachable"
-        self.app.sandboxes.registry.upsert(
-            experiment_id=exp_id,
-            sandbox_uid=sandbox_uid,
-            project_id=self.project_id,
-            sandbox_id="sb-x",
-            status="running",
-            ssh_host="h",
-            ssh_port=22,
-            ssh_user="root",
-            expires_at="2999-01-01T00:00:00Z",
-        )
-        self.backend.alive["sb-x"] = True
-        original = self.app.sandboxes._final_pull_row
-
-        def _boom(*, row):  # noqa: ANN001
-            raise RuntimeError("daemon unreachable")
-
-        self.app.sandboxes._final_pull_row = _boom
-        try:
-            view = self.app.sandboxes.release(
-                experiment_id=exp_id,
-                project_id=self.project_id,
-                confirm_retained=True,
-            )
-        finally:
-            self.app.sandboxes._final_pull_row = original
-        self.assertTrue(view["daemon_unreachable"])
-        # Billing still freed: the VM was terminated despite the failed pull.
-        self.assertIn("sb-x", self.backend.terminated)
 
 
 class ControlRestartTest(unittest.TestCase):

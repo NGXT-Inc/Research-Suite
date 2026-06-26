@@ -3,38 +3,6 @@ from __future__ import annotations
 import sqlite3
 from pathlib import Path
 
-from backend.execution.ssh_rsync import SshRsyncResult
-
-
-class FakeRsyncSyncer:
-    def __init__(
-        self,
-        *,
-        sync_pulled: int = 2,
-        duration_seconds: float = 0.1,
-        command_count: int = 2,
-        sync_stdout: str = "small.txt\n",
-        sync_stderr: str = "",
-    ) -> None:
-        self.sync_pulled = sync_pulled
-        self.duration_seconds = duration_seconds
-        self.command_count = command_count
-        self.sync_stdout = sync_stdout
-        self.sync_stderr = sync_stderr
-        self.calls: list[dict] = []
-
-    def sync(self, **kwargs) -> SshRsyncResult:
-        self.calls.append(dict(kwargs))
-        return SshRsyncResult(
-            pulled=self.sync_pulled,
-            duration_seconds=self.duration_seconds,
-            local_dir=str(kwargs["local_sync_dir"]),
-            remote_dir=str(kwargs["remote_sync_dir"]),
-            command_count=self.command_count,
-            stdout=self.sync_stdout,
-            stderr=self.sync_stderr,
-        )
-
 
 class FakeProcess:
     def __init__(self, stdout: str = "", code: int = 0, *, running: bool = True) -> None:

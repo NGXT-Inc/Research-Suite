@@ -48,15 +48,14 @@ class LocalWorkspace:
 
 
 def local_experiment_dir(*, repo_root: Path, experiment_id: str, name: str = "") -> Path:
-    """The experiment's one local folder — also its sandbox sync root.
+    """The experiment's one local folder.
 
     ``experiments/<name>/`` holds everything the experiment is: plan, code,
     results, report, graph. The folder is named after the experiment's short
     unique name; rows that predate the name requirement fall back to the
-    experiment id. The whole folder is pushed to the sandbox at provisioning,
-    and while a sandbox is live the local copy is a strict mirror of the
-    remote one (pull with --delete: deletions and renames propagate, local
-    edits are overwritten).
+    experiment id. Sandbox files are retained deliberately: copy light files
+    back into this folder over SSH and upload heavy files to durable storage
+    before releasing the VM.
     """
     return repo_root / "experiments" / safe_experiment_dirname(name.strip() or experiment_id)
 

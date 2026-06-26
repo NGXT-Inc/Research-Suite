@@ -9,39 +9,26 @@ paths:
       recorded to the transcript;
   (b) a management-key transcript read (``read_transcript``) works and is
       NOT recorded — the Match-exempt principal replaces the prefix bypass;
-  (c) ``run_parachute`` tars the experiment dir honoring the shared
-      excludes/caps and PUTs it to an ephemeral HTTP server started here
-      (standing in for the presigned URL);
-  (d) the worker's ``parachute_restore`` task lands those bytes in the
-      local experiment folder.
 
 Skipped cleanly when docker is unavailable (a fast ``docker info`` probe).
 The helper image is built once and cached as ``rp-test-sshd:bookworm``;
-container state is shared across the ordered test methods (test_01..test_04).
+container state is shared across the ordered test methods.
 """
 
 from __future__ import annotations
 
-import hashlib
-import io
 import os
 import shutil
 import subprocess
-import tarfile
 import tempfile
-import threading
 import time
 import unittest
-from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 
-from backend.dataplane import InProcessTaskChannel, LocalDataPlaneWorker
-from backend.execution.backends.fake import FakeSandboxBackend
 from backend.execution.backends.lambda_labs.sandbox_backend import (
     LambdaLabsSandboxBackend,
 )
 from backend.execution.vm_bootstrap import build_bootstrap_core
-from backend.workspace import LocalWorkspace
 
 
 IMAGE = "rp-test-sshd:bookworm"
@@ -99,28 +86,10 @@ def _ensure_image() -> None:
         )
 
 
-class _PutHandler(BaseHTTPRequestHandler):
-    """Ephemeral presigned-PUT stand-in: stores each PUT body by path."""
-
-    protocol_version = "HTTP/1.1"
-    received: dict[str, bytes] = {}
-
-    def do_PUT(self) -> None:  # noqa: N802 — BaseHTTPRequestHandler contract
-        length = int(self.headers.get("Content-Length", "0"))
-        type(self).received[self.path] = self.rfile.read(length)
-        self.send_response(201)
-        self.send_header("Content-Length", "0")
-        self.end_headers()
-
-    def log_message(self, *args) -> None:  # noqa: D102 — keep test output clean
-        del args
-
-
 @unittest.skipUnless(HAVE_DOCKER, "docker is not available")
 class VmBootstrapDockerTest(unittest.TestCase):
     container: str = ""
     ssh_port: int = 0
-    parachute_bytes: bytes | None = None
 
     @classmethod
     def setUpClass(cls) -> None:
@@ -281,81 +250,6 @@ class VmBootstrapDockerTest(unittest.TestCase):
         denied = self._ssh(key=self.mgmt_key, user="root", command="true")
         self.assertNotEqual(denied.returncode, 0)
 
-    def test_03_parachute_uploads_with_the_shared_excludes(self) -> None:
-        seed = f"""
-set -euo pipefail
-mkdir -p {WORKDIR}/.git {WORKDIR}/artifacts_to_keep {DATA_DIR}/.rp_runs/run1
-printf 'keep\\n' > {WORKDIR}/results.json
-printf 'gitstuff\\n' > {WORKDIR}/.git/config
-printf 'ckpt\\n' > {WORKDIR}/model.pt
-printf 'weights\\n' > {WORKDIR}/artifacts_to_keep/weights.dat
-printf 'secret-env\\n' > {DATA_DIR}/.rp_runs/run1/env
-truncate -s 101M {WORKDIR}/big.blob
-"""
-        self._exec(seed, check=True)
-        _PutHandler.received.clear()
-        server = ThreadingHTTPServer(("0.0.0.0", 0), _PutHandler)
-        thread = threading.Thread(target=server.serve_forever, daemon=True)
-        thread.start()
-        try:
-            put_url = (
-                f"http://host.docker.internal:{server.server_address[1]}/parachute"
-            )
-            receipt = LambdaLabsSandboxBackend().run_parachute(
-                sandbox_id="docker-vm",
-                put_url=put_url,
-                ssh_host="127.0.0.1",
-                ssh_port=self.ssh_port,
-                key_path=str(self.mgmt_key),
-            )
-        finally:
-            server.shutdown()
-            server.server_close()
-        body = _PutHandler.received.get("/parachute")
-        self.assertIsNotNone(body, "the parachute never PUT its tar")
-        assert body is not None
-        self.assertEqual(receipt["sha256"], hashlib.sha256(body).hexdigest())
-        self.assertEqual(receipt["size_bytes"], len(body))
-        with tarfile.open(fileobj=io.BytesIO(body), mode="r:gz") as tar:
-            names = {member.name.lstrip("./") for member in tar.getmembers()}
-        self.assertIn("results.json", names)
-        self.assertIn("artifacts_to_keep/weights.dat", names)
-        # The shared excludes and size caps held on a real GNU tar.
-        self.assertNotIn("model.pt", names)
-        self.assertNotIn("big.blob", names)
-        self.assertFalse(any(".git" in name.split("/") for name in names))
-        # Scope invariant: the data dir (and its .rp_runs env dumps) never
-        # rides the parachute.
-        self.assertFalse(any(".rp_runs" in name for name in names))
-        type(self).parachute_bytes = body
-
-    def test_04_restore_lands_the_files_in_the_experiment_folder(self) -> None:
-        body = type(self).parachute_bytes
-        if body is None:
-            self.fail("test_03 did not capture a parachute upload")
-        with tempfile.TemporaryDirectory() as repo:
-            worker = LocalDataPlaneWorker(
-                workspace=LocalWorkspace(repo_root=Path(repo)),
-                backend=FakeSandboxBackend(),
-            )
-            channel = InProcessTaskChannel(worker=worker)
-            result = channel.submit(
-                task_type="parachute_restore",
-                payload={
-                    "experiment_id": EXPERIMENT_ID,
-                    "name": EXPERIMENT_ID,
-                    "data": body,
-                },
-            )
-            folder = Path(repo) / "experiments" / EXPERIMENT_ID
-            self.assertEqual((folder / "results.json").read_text(), "keep\n")
-            self.assertEqual(
-                (folder / "artifacts_to_keep" / "weights.dat").read_text(),
-                "weights\n",
-            )
-            self.assertFalse((folder / "model.pt").exists())
-            self.assertFalse((folder / ".git").exists())
-            self.assertGreaterEqual(int(result["restored"]), 2)
 
 
 if __name__ == "__main__":

@@ -128,11 +128,12 @@ class ExperimentService:
             state = self.get_state(experiment_id=experiment_id, conn=conn)
             state["folder"] = experiment_folder_rel(experiment_id=experiment_id, name=name)
             state["folder_guidance"] = (
-                f"Use {state['folder']} as the experiment's one folder and sandbox "
-                "sync unit. Data-plane actions create it on demand; work in it "
-                "from the start: plan.md, scripts, configs, and results all live "
-                "there, and everything a run needs must be staged inside it before "
-                "sandbox.request."
+                f"Use {state['folder']} as the experiment's one local folder. "
+                "Data-plane actions create it on demand; work in it from the "
+                "start: plan.md, scripts, configs, retained results, report, "
+                "and graph all live there. Stage anything the sandbox run needs "
+                "inside it before sandbox.request, then explicitly copy out or "
+                "upload results you want to keep."
             )
             return state
 
@@ -688,7 +689,7 @@ class ExperimentService:
                 return None
             return (
                 f"figure {link!r} has no submitted content: make sure the file "
-                f"exists next to {path} (sandbox.sync first if it was produced "
+                f"exists next to {path} (copy it out first if it was produced "
                 "on the sandbox), then re-associate the report to submit it"
             )
 

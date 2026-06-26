@@ -5,7 +5,7 @@ import unittest
 
 from tests.paths import TESTS_ROOT
 
-SHARED_FAKE_NAMES = {"FakeRsyncSyncer", "FakeProcess", "write_fake_mlflow_db"}
+SHARED_FAKE_NAMES = {"FakeProcess", "write_fake_mlflow_db"}
 CONCERN_PACKAGES = {"sandbox", "workflow", "surface", "state", "structure"}
 
 

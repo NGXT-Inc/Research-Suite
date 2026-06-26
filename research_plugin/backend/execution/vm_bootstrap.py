@@ -7,7 +7,6 @@ import shlex
 from typing import Mapping
 
 from .bootstrap_tools import REC_EXEC_CORE
-from .transfer_spec import build_parachute_script
 
 
 SESSIONS_DIR_NAME = ".research_plugin_sessions"
@@ -119,13 +118,10 @@ def build_bootstrap_core(
     tracking_env: Mapping[str, str] | None = None,
     sshd_apply_command: str = "systemctl restart ssh || systemctl restart sshd || service ssh restart || true",
 ) -> str:
-    """Phase 1 VM bootstrap: workspace, SSH keys, rec.sh, dashboards, parachute."""
+    """Phase 1 VM bootstrap: workspace, SSH keys, rec.sh, and dashboards."""
     public_key_b64 = base64.b64encode(public_key.encode("utf-8")).decode("ascii")
     rec_script_b64 = base64.b64encode(REC_SCRIPT.encode("utf-8")).decode("ascii")
     dashboard_script_b64 = base64.b64encode(DASHBOARD_SCRIPT.encode("utf-8")).decode("ascii")
-    parachute_script_b64 = base64.b64encode(
-        build_parachute_script().encode("utf-8")
-    ).decode("ascii")
     env_lines = build_runtime_env(
         experiment_id=experiment_id,
         workdir=workdir,
@@ -175,10 +171,8 @@ cat > /opt/rp/env <<'RP_ENV'
 RP_ENV
 printf '%s' {shlex.quote(rec_script_b64)} | base64 -d > /opt/rp/rec.sh
 printf '%s' {shlex.quote(dashboard_script_b64)} | base64 -d > /opt/rp/start_dashboards.sh
-printf '%s' {shlex.quote(parachute_script_b64)} | base64 -d > /opt/rp/parachute.sh
 chmod +x /opt/rp/rec.sh
 chmod +x /opt/rp/start_dashboards.sh
-chmod +x /opt/rp/parachute.sh
 {mgmt_block}cat > /etc/ssh/sshd_config.d/99-research-plugin.conf <<'RP_SSHD'
 PermitRootLogin prohibit-password
 PubkeyAuthentication yes

@@ -1,14 +1,4 @@
-"""Background sandbox daemons: expiration plus idle reaping.
-
-`SandboxDaemons` owns the long-lived reap thread and its policy (enable gates,
-intervals, and reap composition). The reaper — control-plane work that moves
-cloud-side in split mode — reads rows from `SandboxRegistry` directly,
-terminates via the backend, cleans orphans via the provisioner, and reverts
-experiments only through the workflow engine's system transitions. It reaches
-the facade through injected callables — ``final_pull``, ``persist_metrics``,
-and ``parachute`` — so the facade's swappable rsync syncer, metrics archive,
-and blob store stay where they are.
-"""
+"""Background sandbox daemons: expiration plus idle reaping."""
 
 from __future__ import annotations
 
@@ -40,24 +30,18 @@ class SandboxDaemons:
         backend: SandboxBackend,
         provisioner: ProvisionReaper,
         experiments: ExperimentTransitions,
-        final_pull: Callable[..., dict[str, Any]],
         persist_metrics: Callable[..., None],
-        parachute: Callable[..., None],
         sample_metrics: Callable[..., dict[str, Any]] | None = None,
-        lease_holder: Callable[..., dict[str, Any] | None] | None = None,
         idle_policy: SandboxIdlePolicy | None = None,
     ) -> None:
         self.registry = registry
         self.backend = backend
         self.provisioner = provisioner
         self.experiments = experiments
-        self._final_pull = final_pull
         self._persist_metrics = persist_metrics
-        self._parachute = parachute
         self.heartbeat = SandboxHeartbeatMonitor(
             registry=registry,
             sample_metrics=sample_metrics or (lambda **_kwargs: {}),
-            lease_holder=lease_holder or (lambda **_kwargs: None),
             reap_row=self._reap_row,
             policy=idle_policy,
         )
@@ -147,7 +131,7 @@ class SandboxDaemons:
         """Terminate every running sandbox whose expires_at deadline has passed.
 
         Idempotent and safe to call directly (tests do). Returns how many were
-        reaped. A best-effort final sync runs first so results aren't lost.
+        reaped. A best-effort metrics snapshot runs first.
         """
         now_dt = now or datetime.now(tz=UTC)
         reaped = 0
@@ -183,25 +167,11 @@ class SandboxDaemons:
         payload_extra: dict[str, Any] | None = None,
     ) -> None:
         experiment_id = str(row.get("experiment_id") or "")
-        # Preserve outputs before the kill — same courtesy as release(). The
-        # pull arrives at the worker as a final_pull task with a deadline
-        # (plan Phase 4); when it fails — daemon unreachable or rsync broken
-        # — the parachute rescues the experiment dir over the management
-        # channel instead (plan Phase 5, fixed decision 5). In-process the
-        # local worker is by definition reachable, so the branch is
-        # exercised by injecting a failing final_pull; parachute() itself
-        # never raises (loud sandbox.parachute_failed event) and reaping
-        # always proceeds to terminate — billing protection comes first.
-        final_result: dict[str, Any] = {}
-        try:
-            final_result = self._final_pull(row=row)
-        except Exception:  # noqa: BLE001 — reaping must still terminate
-            self._parachute(row=row)
         self._persist_metrics(
             row=row,
             force=True,
-            snapshot=final_result.get("metrics_snapshot"),
-            snapshot_provided=True,
+            snapshot=None,
+            snapshot_provided=False,
         )
         sandbox_id = str(row.get("sandbox_id") or "")
         stopped = False

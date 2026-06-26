@@ -41,7 +41,6 @@ class ControlApp:
         task_channel: Any,
         mgmt_keys: MgmtKeyStore,
         mlflow_tracking: CentralMlflowService | None = None,
-        lease_client_id: str = "control",
     ) -> None:
         self.workspace = SimpleNamespace(repo_root=repo_root)
         self.store = store
@@ -80,8 +79,6 @@ class ControlApp:
             experiments=self.experiments,
             mgmt_keys=mgmt_keys,
             metrics_archive=ControlMetricsArchive(),
-            lease_client_id=lease_client_id,
-            blobs=self.blobs,
             quotas=self.quotas,
             task_channel=task_channel,
             mlflow_tracking=self.mlflow_tracking,

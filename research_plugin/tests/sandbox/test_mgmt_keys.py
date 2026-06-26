@@ -3,7 +3,7 @@
 Both keys are generated on one machine in local mode, but the separation is
 real and tested here: the user key is data-plane property (rsync, the sbx
 dispatcher), the management key is control-plane property (transcript reads,
-metrics sampling, the parachute), the bootstraps authorize both, and private
+metrics sampling), the bootstraps authorize both, and private
 key material never reaches requests, rows, or rendered bootstrap content.
 """
 
@@ -23,7 +23,6 @@ from backend.execution.backends.modal.sandbox_backend import BOOT_SCRIPT
 from backend.state.managed_mgmt_keys import MountedMgmtKeyStore
 from backend.state.mgmt_keys import LocalMgmtKeyStore
 from backend.utils import ValidationError
-from tests.fakes import FakeRsyncSyncer
 
 
 class LocalMgmtKeyStoreTest(unittest.TestCase):
@@ -131,7 +130,6 @@ class DualKeyProvisionTest(unittest.TestCase):
             repo_root=self.repo,
             db_path=self.repo / ".research_plugin" / "state.sqlite",
             execution_backend=self.backend,
-            rsync_syncer=FakeRsyncSyncer(),
         )
         self.project_id = self.call("project.create", name="Mgmt Keys")["id"]
 

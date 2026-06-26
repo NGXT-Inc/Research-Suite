@@ -269,8 +269,8 @@ def build_blob_store(
     so local installs never need it); otherwise a ``LocalDirBlobStore`` rooted
     at the configured dir or ``default_root``. Same protocol + contract tests
     either way, so callers stay blob-impl-blind. The control profile MUST set a
-    bucket — its "presign" must be a real HTTPS PUT a sandbox VM can reach (a
-    LocalDirBlobStore loopback token cannot, breaking the parachute).
+    bucket so off-process uploads use reachable HTTPS URLs instead of local
+    loopback tokens.
     """
     bucket = resolve_blob_bucket(env)
     if bucket:

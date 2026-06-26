@@ -20,7 +20,6 @@ from pathlib import Path
 from backend.app import ResearchPluginApp
 from backend.execution.backends.fake import FakeSandboxBackend
 from backend.utils import NotFoundError, PermissionDeniedError
-from tests.fakes import FakeRsyncSyncer
 
 
 class TenancyTest(unittest.TestCase):
@@ -31,7 +30,6 @@ class TenancyTest(unittest.TestCase):
             repo_root=self.repo,
             db_path=self.repo / ".research_plugin" / "state.sqlite",
             execution_backend=FakeSandboxBackend(),
-            rsync_syncer=FakeRsyncSyncer(),
         )
         self.store = self.app.store
         # Two projects, re-homed to two distinct tenants (bootstrap default is

@@ -22,7 +22,6 @@ from backend.execution.backends.fake import FakeSandboxBackend
 from backend.transport.http_api import create_fastapi_app
 from backend.transport.http_policy import HttpSurfacePolicy
 from backend.utils import ValidationError
-from tests.fakes import FakeRsyncSyncer
 
 
 def _mounted_mgmt_key_env(root: Path) -> dict[str, str]:
@@ -113,7 +112,6 @@ class LocalModeParityTest(unittest.TestCase):
             repo_root=self.repo,
             db_path=self.repo / ".research_plugin" / "state.sqlite",
             execution_backend=FakeSandboxBackend(),
-            rsync_syncer=FakeRsyncSyncer(),
         )
         self.client = TestClient(create_fastapi_app(self.app))
 
@@ -171,7 +169,6 @@ class HostedControlSurfaceTest(unittest.TestCase):
             repo_root=self.repo,
             db_path=self.repo / ".research_plugin" / "state.sqlite",
             execution_backend=FakeSandboxBackend(),
-            rsync_syncer=FakeRsyncSyncer(),
         )
         self.client = TestClient(
             create_fastapi_app(self.app, surface_policy=_hosted_surface()),
@@ -341,7 +338,7 @@ class HostedControlSurfaceTest(unittest.TestCase):
         from backend.dataplane.http_channel import HttpTaskQueue
 
         queue = HttpTaskQueue()
-        queue.enqueue(task_type="final_pull", payload={"session": {"experiment_id": "exp_a"}})
+        queue.enqueue(task_type="conn_refresh", payload={"row": {"experiment_id": "exp_a"}})
         client = TestClient(
             create_fastapi_app(
                 self.app,
@@ -353,7 +350,7 @@ class HostedControlSurfaceTest(unittest.TestCase):
 
         polled = client.get("/api/daemon/tasks?wait=0")
         self.assertEqual(polled.status_code, 200, polled.text)
-        self.assertEqual(polled.json()["task"]["type"], "final_pull")
+        self.assertEqual(polled.json()["task"]["type"], "conn_refresh")
 
 
 class SecretStoreCredentialsTest(unittest.TestCase):
@@ -432,7 +429,6 @@ class VersionHandshakeTest(unittest.TestCase):
             repo_root=self.repo,
             db_path=self.repo / ".research_plugin" / "state.sqlite",
             execution_backend=FakeSandboxBackend(),
-            rsync_syncer=FakeRsyncSyncer(),
         )
         self.client = TestClient(
             create_fastapi_app(self.app, surface_policy=_hosted_surface()),
@@ -518,7 +514,6 @@ class ModeCompositionTest(unittest.TestCase):
         self.addCleanup(server.shutdown)
         paths = {getattr(r, "path", "") for r in server.fastapi_app.routes}
         self.assertIn("/api/daemon/tasks", paths)
-        self.assertIn("/api/daemon/sync-targets", paths)
         self.assertIn("/mcp/call", paths)
         client = TestClient(server.fastapi_app, raise_server_exceptions=False)
         self.assertEqual(client.get("/api/projects").status_code, 200)

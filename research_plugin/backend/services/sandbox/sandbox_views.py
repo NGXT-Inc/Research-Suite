@@ -22,7 +22,7 @@ from __future__ import annotations
 import shlex
 from typing import Any
 
-from ...domain.sync_contract import DEFAULT_DATA_DIR, remote_experiment_dir
+from ...domain.sandbox_paths import DEFAULT_DATA_DIR, remote_experiment_dir
 from ...sandbox.sandbox_support import (
     ACTIVE_SANDBOX_STATUSES,
     POLL_AFTER_SECONDS,
@@ -31,11 +31,7 @@ from ...sandbox.sandbox_support import (
 
 
 def _folder_contract_note(*, remote_dir: str, local_dir: str) -> str:
-    """The experiment-folder sync contract, told at the moment it matters.
-
-    This is the load-bearing guidance: one folder round-trips, everything else
-    stays on the VM, and pulls happen only when the agent asks.
-    """
+    """The sandbox file durability rule, told at the moment it matters."""
     return (
         f"The sandbox experiment folder is {remote_dir} ($RP_EXPERIMENT_DIR). "
         "Work in it over SSH — scripts, results, report.md, graph.json. "
@@ -71,30 +67,17 @@ def _is_live(*, status: str, ssh: dict[str, Any]) -> bool:
     return bool(ssh.get("host") and ssh.get("port") and status in ACTIVE_SANDBOX_STATUSES)
 
 
-def _lease_facts(lease: dict[str, Any] | None) -> dict[str, Any] | None:
-    """Who is syncing this experiment (plan Phase 4): the lease holder +
-    expiry, so a second client can see why its own syncs are refused and
-    when it can take over. None when no client has ever held the lease."""
-    if lease is None:
-        return None
-    return {
-        "holder_client_id": lease.get("holder_client_id"),
-        "expires_at": lease.get("expires_at"),
-    }
-
-
 def agent_row_facts(
     *,
     row: dict[str, Any],
     env_info: dict[str, Any],
     mlflow: dict[str, object] | None = None,
     reused: bool | None,
-    lease: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
     """Provider-portable half of the agent view — pure row projection.
 
     No conn files, no repo paths: everything here can be served by the cloud
-    row in split mode (the lease record arrives as an argument, like the row).
+    row in split mode.
     The machine-local enrichment (ssh command, key path, local folder, hint
     prose built on them) is merged by ``merge_agent_view``.
     """
@@ -138,9 +121,6 @@ def agent_row_facts(
     }
     if mlflow:
         facts["mlflow"] = mlflow
-    lease_facts = _lease_facts(lease)
-    if lease_facts is not None:
-        facts["sync_lease"] = lease_facts
     if env_info.get("available_tokens"):
         facts["environment"] = env_info
     if status == "provisioning":
@@ -278,10 +258,8 @@ def merge_agent_view(
     return view
 
 
-def agent_summary(
-    *, row: dict[str, Any], lease: dict[str, Any] | None = None
-) -> dict[str, Any]:
-    summary = {
+def agent_summary(*, row: dict[str, Any]) -> dict[str, Any]:
+    return {
         "sandbox_uid": row.get("sandbox_uid"),
         "experiment_id": row.get("experiment_id"),
         "sandbox_id": row.get("sandbox_id"),
@@ -291,10 +269,6 @@ def agent_summary(
         "region": row.get("region") or None,
         "expires_at": row.get("expires_at"),
     }
-    lease_facts = _lease_facts(lease)
-    if lease_facts is not None:
-        summary["sync_lease"] = lease_facts
-    return summary
 
 
 def sandbox_row_view(
@@ -336,8 +310,8 @@ def sandbox_row_view(
         "ssh_port": row.get("ssh_port"),
         "ssh_user": row.get("ssh_user"),
         "workdir": row.get("workdir"),
-        # The experiment's one synced folder on the VM, plus its local mirror.
-        # (Key names kept stable for the UI; `sync_dir` IS the experiment dir.)
+        # Stable API names: `sync_dir` is the remote experiment directory, and
+        # `local_sync_dir` is where explicitly copied files should land.
         "sync_dir": remote_dir,
         "local_sync_dir": local_sync_dir,
         "sandbox_data_dir": data_dir,

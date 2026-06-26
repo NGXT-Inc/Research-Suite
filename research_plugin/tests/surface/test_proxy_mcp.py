@@ -125,7 +125,6 @@ class HttpProxyMcpServerLiveTest(unittest.TestCase):
         self.assertIn("project.current", tool_names)
         self.assertIn("project.create", tool_names)
         self.assertIn("sandbox.request", tool_names)
-        self.assertNotIn("sandbox.sync", tool_names)
         self.assertNotIn("project.list", tool_names)
         workflow_schema = tools["workflow.status_and_next"]["inputSchema"]
         self.assertNotIn("project_id", workflow_schema.get("properties", {}))

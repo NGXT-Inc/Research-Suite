@@ -166,18 +166,6 @@ class SandboxBackend(Protocol):
         """Optionally find an orphan sandbox by experiment. Unsupported backends return None."""
         ...
 
-    def run_parachute(
-        self,
-        *,
-        sandbox_id: str,
-        put_url: str,
-        ssh_host: str = "",
-        ssh_port: int = 0,
-        key_path: str = "",
-    ) -> dict[str, Any] | None:
-        """Optionally run the pre-installed expiry parachute."""
-        ...
-
     def sandbox_secrets(self) -> dict[str, str]:
         """Optionally return post-boot secrets for the backend."""
         ...
@@ -250,18 +238,6 @@ class SandboxBackendBase:
 
     def find_sandbox_id(self, *, experiment_id: str, sandbox_uid: str = "") -> str | None:
         """Unsupported default: no orphan lookup is available."""
-        return None
-
-    def run_parachute(
-        self,
-        *,
-        sandbox_id: str,
-        put_url: str,
-        ssh_host: str = "",
-        ssh_port: int = 0,
-        key_path: str = "",
-    ) -> dict[str, Any] | None:
-        """Unsupported default: no parachute channel is available."""
         return None
 
     def sandbox_secrets(self) -> dict[str, str]:

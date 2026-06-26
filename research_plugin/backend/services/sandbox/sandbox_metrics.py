@@ -117,7 +117,7 @@ class SandboxMetrics:
                 "sandbox_status": status,
                 "hint": (
                     "No archived metrics yet - they are captured from the "
-                    "centralized MLflow server on sync and right before release."
+                    "centralized MLflow server while running and right before release."
                 ),
             }
         return {

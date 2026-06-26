@@ -8,10 +8,8 @@ from ..vm_ssh import (
     SshInputRunner,
     SshRunner,
     read_transcript_via_mgmt_ssh,
-    run_parachute_via_mgmt_ssh,
     run_ssh,
     run_ssh_input,
-    run_ssh_parachute,
     retarget_via_mgmt_ssh,
     sample_metrics_via_mgmt_ssh,
     sandbox_tokens,
@@ -28,11 +26,9 @@ class VmSshSandboxBackend(SandboxBackendBase):
         *,
         ssh_runner: SshRunner | None = None,
         ssh_input_runner: SshInputRunner | None = None,
-        parachute_runner: SshRunner | None = None,
     ) -> None:
         self._ssh_runner = ssh_runner or run_ssh
         self._ssh_input_runner = ssh_input_runner or run_ssh_input
-        self._parachute_runner = parachute_runner or ssh_runner or run_ssh_parachute
 
     def read_transcript(
         self,
@@ -88,33 +84,6 @@ class VmSshSandboxBackend(SandboxBackendBase):
         return sample_metrics_via_mgmt_ssh(
             ssh_runner=self._ssh_runner,
             sandbox_id=sandbox_id,
-            ssh_host=ssh_host,
-            ssh_port=ssh_port,
-            key_path=key_path,
-        )
-
-    def run_parachute(
-        self,
-        *,
-        sandbox_id: str,
-        put_url: str,
-        ssh_host: str = "",
-        ssh_port: int = 0,
-        key_path: str = "",
-    ) -> dict[str, Any] | None:
-        """Run the pre-installed parachute over the management channel.
-
-        SSHes as the management principal with the management key (``key_path``)
-        and executes ``/opt/rp/parachute.sh`` under sudo, so the tar can read
-        every file in the experiment dir regardless of which login wrote it.
-        Raises BackendUnavailableError on any failure so the reaper's parachute
-        branch surfaces it loudly — a lost experiment dir must never fail
-        silently (plan risk 9).
-        """
-        return run_parachute_via_mgmt_ssh(
-            ssh_runner=self._parachute_runner,
-            sandbox_id=sandbox_id,
-            put_url=put_url,
             ssh_host=ssh_host,
             ssh_port=ssh_port,
             key_path=key_path,

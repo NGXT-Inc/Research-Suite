@@ -15,7 +15,6 @@ from backend.daemon.project_router import ProjectRouter
 from backend.execution.backends.fake import FakeSandboxBackend
 from backend.utils import ContentUnavailableError
 from mcp_server.time_utils import now_iso
-from tests.fakes import FakeRsyncSyncer
 
 
 class ResearchPluginHttpApiTest(unittest.TestCase):
@@ -27,7 +26,6 @@ class ResearchPluginHttpApiTest(unittest.TestCase):
             repo_root=self.repo,
             db_path=self.repo / ".research_plugin" / "state.sqlite",
             execution_backend=self.backend,
-            rsync_syncer=FakeRsyncSyncer(sync_pulled=1, sync_stdout="metrics.json\n"),
         )
         self.client = TestClient(create_fastapi_app(self.app))
 
@@ -220,12 +218,6 @@ class ResearchPluginHttpApiTest(unittest.TestCase):
         self.assertEqual(delta["transcript"], "results.json\n")
         self.assertGreater(delta["cursor"], cursor)
 
-        # Pulls are now driven by the daemon/service directly (no sandbox.sync
-        # tool); the internal sync method still mirrors the box back.
-        synced = self.app.sandboxes.sync(project_id=project_id, experiment_id=exp_id)
-        self.assertEqual(synced["sync"]["provider"], "ssh_rsync")
-        self.assertEqual(synced["sync"]["pulled"], 1)
-
         released = self.request("POST", f"/api/projects/{project_id}/experiments/{exp_id}/sandbox/release")
         self.assertEqual(released["status"], "terminated")
 
@@ -233,8 +225,8 @@ class ResearchPluginHttpApiTest(unittest.TestCase):
 
     def test_results_metrics_endpoint_survives_release(self) -> None:
         # The archived-metrics endpoint is what makes results outlive the VM:
-        # empty before any capture, populated after sync, still readable (same
-        # payload) after the sandbox is terminated.
+        # empty before any capture, populated after a daemon metrics report,
+        # still readable (same payload) after the sandbox is terminated.
         project = self.request("POST", "/api/projects", {"name": "Results Project"})
         project_id = project["id"]
         exp = self.request(
@@ -280,8 +272,11 @@ class ResearchPluginHttpApiTest(unittest.TestCase):
                 }
             ],
         }
-        with patch("backend.services.sandbox.sandbox_metrics.snapshot_mlflow", return_value=snapshot):
-            self.app.sandboxes.sync(project_id=project_id, experiment_id=exp_id)
+        self.app.sandboxes.record_daemon_metrics(
+            project_id=project_id,
+            experiment_id=exp_id,
+            snapshot=snapshot,
+        )
         live = self.request("GET", url)
         self.assertTrue(live["available"])
         self.assertEqual(live["sandbox_status"], "running")
@@ -470,7 +465,7 @@ class ResearchPluginHttpApiTest(unittest.TestCase):
 
         self.assertEqual([item["id"] for item in home["active_experiments"]], [running["id"], planned["id"]])
         self.assertEqual(home["active_experiment"]["id"], running["id"])
-        self.assertEqual(home["workflow"]["next_action"], "run_experiment_and_sync_results")
+        self.assertEqual(home["workflow"]["next_action"], "run_experiment_and_retain_results")
         self.assertEqual(home["stats"]["active_experiments"], 2)
         self.assertEqual(home["stats"]["active_processes"], 1)
         self.assertEqual(home["active_processes"][0]["experiment_id"], running["id"])
@@ -1111,7 +1106,6 @@ class ResourceRelFileTest(unittest.TestCase):
             repo_root=self.repo,
             db_path=self.repo / ".research_plugin" / "state.sqlite",
             execution_backend=FakeSandboxBackend(),
-            rsync_syncer=FakeRsyncSyncer(sync_pulled=1, sync_stdout="metrics.json\n"),
         )
         self.client = TestClient(create_fastapi_app(self.app))
         project = self.client.post("/api/projects", json={"name": "Rel"}).json()
@@ -1280,7 +1274,6 @@ class DegradedStatesTest(unittest.TestCase):
             repo_root=self.repo,
             db_path=self.repo / ".research_plugin" / "state.sqlite",
             execution_backend=FakeSandboxBackend(),
-            rsync_syncer=FakeRsyncSyncer(),
         )
         self.client = TestClient(create_fastapi_app(self.app), raise_server_exceptions=False)
 

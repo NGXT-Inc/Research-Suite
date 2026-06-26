@@ -2,11 +2,8 @@
 
 The cloud implementation of the same ``BlobStore`` protocol as
 ``LocalDirBlobStore``, behind the same contract tests (``BlobStoreContractMixin``
-against a dockerized minio). It lands here in Phase 8, not Phase 9, because the
-control entrypoint cannot run on ``LocalDirBlobStore``: that store's "presign" is
-a single-use *loopback* PUT token, unreachable from a sandbox VM — which would
-make the expiry parachute (decision 5) impossible. ``S3BlobStore.presign_put``
-returns a real single-use HTTPS PUT URL the VM can reach.
+against a dockerized minio). ``S3BlobStore.presign_put`` returns a real
+single-use HTTPS PUT URL for off-process producers.
 
 boto3 is imported lazily (gated): the daemon/proxy/local profiles never need it,
 so installing the package is a control-profile concern only.
@@ -131,7 +128,7 @@ class S3BlobStore:
         self._s3.delete_object(Bucket=self.bucket, Key=key)
         return existed
 
-    # ---- single-use presigned uploads (the parachute PUT, real HTTPS) ----
+    # ---- single-use presigned uploads (real HTTPS) ----
 
     def presign_put(
         self,

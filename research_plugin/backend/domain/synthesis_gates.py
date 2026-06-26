@@ -90,7 +90,7 @@ SYNTHESIS_GATE_TABLE: dict[str, ForwardTransition] = {
         name="submit_reflections",
         to_status="synthesizing",
         requires_prose=(
-            "every roster lens must have its own reflection synced & associated "
+            "every roster lens must have its own reflection registered and associated "
             "to this reflection wave (role 'reflection_lens_doc') for the current "
             "attempt, in a file named <lens_id>.md — each reflection document "
             "is authored and submitted by its own subagent"
@@ -127,7 +127,7 @@ SYNTHESIS_GATE_TABLE: dict[str, ForwardTransition] = {
             "the updated project logic graph (role 'project_graph', valid JSON "
             "DAG of at most 16 nodes), a concise reflection document (role "
             "'reflection_doc'), AND a machine-actionable change spec (role "
-            "'change_spec') must be synced & associated to this reflection wave for "
+            "'change_spec') must be registered and associated to this reflection wave for "
             "the current attempt; after approval, publish applies the claim "
             "changes and either stops the project or creates the next "
             "experiment wave"
@@ -136,7 +136,7 @@ SYNTHESIS_GATE_TABLE: dict[str, ForwardTransition] = {
             RoleRequirement(
                 role=PROJECT_GRAPH_ROLE,
                 error=(
-                    "the project logic graph must be synced before "
+                    "the project logic graph must be registered before "
                     "reflection review: update the living project graph (e.g. "
                     "project/logic_graph.json — the current logic state of the "
                     "whole project as a DAG of at most 16 nodes), register it, "
@@ -153,7 +153,7 @@ SYNTHESIS_GATE_TABLE: dict[str, ForwardTransition] = {
             RoleRequirement(
                 role="reflection_doc",
                 error=(
-                    "a concise reflection document must be synced before "
+                    "a concise reflection document must be registered before "
                     "reflection review: write the main agent's short markdown "
                     "reflection on the five lens reflections, register it, "
                     "and associate it with role 'reflection_doc' — see "
@@ -169,7 +169,7 @@ SYNTHESIS_GATE_TABLE: dict[str, ForwardTransition] = {
             RoleRequirement(
                 role="change_spec",
                 error=(
-                    "a change spec must be synced before reflection review: write "
+                    "a change spec must be registered before reflection review: write "
                     "JSON with claim_changes plus a decision of either hard_stop "
                     "or create_experiments (2-3 experiments), register it, and "
                     "associate it with role 'change_spec' — see "

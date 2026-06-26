@@ -10,7 +10,7 @@ from ...utils import format_iso
 
 
 class SandboxIdlePolicy:
-    """Pure idle decision from two usage samples plus lease state."""
+    """Pure idle decision from two usage samples."""
 
     max_cpu_cores = 0.01
     max_gpu_util_pct = 1.0
@@ -23,9 +23,8 @@ class SandboxIdlePolicy:
         current: dict[str, Any],
         previous: dict[str, Any] | None,
         elapsed_seconds: float,
-        lease_held: bool,
     ) -> bool:
-        if lease_held or previous is None or elapsed_seconds <= 0:
+        if previous is None or elapsed_seconds <= 0:
             return False
         # A live SSH session blocks idle; an UNMEASURABLE one (None — e.g. Modal
         # has no sshd, or ss/proc are absent) must not, or such boxes could never
@@ -95,13 +94,11 @@ class SandboxHeartbeatMonitor:
         *,
         registry: Any,
         sample_metrics: Callable[..., dict[str, Any]],
-        lease_holder: Callable[..., dict[str, Any] | None],
         reap_row: Callable[..., None],
         policy: SandboxIdlePolicy | None = None,
     ) -> None:
         self.registry = registry
         self.sample_metrics = sample_metrics
-        self.lease_holder = lease_holder
         self.reap_row = reap_row
         self.policy = policy or SandboxIdlePolicy()
 
@@ -155,7 +152,6 @@ class SandboxHeartbeatMonitor:
             current=metrics,
             previous=previous,
             elapsed_seconds=(now - previous_at).total_seconds(),
-            lease_held=self.lease_holder(experiment_id=experiment_id) is not None,
         )
         next_idle_since = self.policy.next_idle_since(
             idle_since=idle_since, now=now, is_idle=is_idle

@@ -3,29 +3,31 @@
 This backend gives the agent **direct access to a Modal sandbox over SSH**. There
 is no job abstraction: the agent requests a sandbox for an experiment, receives
 SSH connection details, and runs ordinary shell commands itself. The plugin's
-role is to procure, track, sync, and shut down sandboxes while recording what
+role is to procure, track, and shut down sandboxes while recording what
 happened for user visibility.
 
 ## Concepts
 
-- **Experiment** is the unit of execution. An experiment has at most one live
-  sandbox at a time.
+- **Experiment** is the default attachment context. An experiment may have
+  multiple live sandboxes, and a running sandbox can be attached to another
+  ready/running experiment.
 - **Sandbox registry** (`SandboxService`) is the central authority for
-  procurement, status, provider-neutral SSH rsync, and shutdown. It owns the
-  durable `sandboxes` table and the per-experiment SSH keypair.
+  procurement, status, SSH access, and shutdown. It owns the durable
+  `sandboxes` table and the sandbox SSH keypair.
 - **Sandbox backend** (`ModalSandboxBackend`) owns the Modal mechanics: create a
   sandbox, wire SSH, check liveness, terminate, and read the transcript.
-- **Sync contract** is provider-neutral. The one synced location is the
-  experiment's folder `/workspace/<name>` (mirrors the local
-  `experiments/<name>/`); everything else on the VM stays on the VM.
-  `/workspace/data` is the conventional scratch home for datasets/caches.
+- **Workspace convention** is provider-neutral. The experiment's remote work
+  folder is `/workspace/<name>` and `/workspace/data` is the conventional
+  scratch home for datasets/caches. Nothing is copied back automatically:
+  agents explicitly copy light retained files over SSH or upload heavy outputs
+  with storage tools before release.
 
-## Procurement: one sandbox per experiment, reuse-if-alive
+## Procurement: request, reuse, or attach
 
 `sandbox.request(project_id, experiment_id, gpu?, cpu?, memory?, time_limit?)`:
 
-1. Look up the experiment's current sandbox row.
-2. If a row exists and the Modal sandbox is still alive, return its stored SSH
+1. Look up an active sandbox attached to the experiment.
+2. If a matching row exists and the Modal sandbox is still alive, return its stored SSH
    details (`reused: true`).
 3. Otherwise create a fresh sandbox, wire SSH, persist the row, and return the
    new details (`reused: false`).
@@ -61,8 +63,7 @@ sandbox = modal.Sandbox.create(
 host, port = sandbox.tunnels()[22].tcp_socket
 ```
 
-The keypair is generated and owned by the registry, per experiment, under
-`.research_plugin/sandboxes/keys/<experiment_id>`. Daemon and agent share a host,
+The keypair is generated and owned by the registry for the sandbox. Daemon and agent share a host,
 so the registry returns a ready-to-run command:
 
 ```bash
@@ -70,10 +71,11 @@ ssh -i <key_path> -p <port> -o StrictHostKeyChecking=no \
     -o UserKnownHostsFile=/dev/null root@<host> '<your shell command>'
 ```
 
-Use `$RP_EXPERIMENT_DIR` for files that should sync back locally. Use
-`$RP_DATASET_DIR` (or anywhere outside the experiment folder) for large datasets, caches, checkpoints,
-and temporary derived data. Put deliberately preserved large artifacts under
-`$RP_EXPERIMENT_DIR/artifacts_to_keep`.
+Use `$RP_EXPERIMENT_DIR` for scripts, configs, compact outputs, reports, and
+figures that may need to be retained. Use `$RP_DATASET_DIR` (or anywhere
+outside the experiment folder) for large datasets, caches, checkpoints, and
+temporary derived data. Before release, copy light retained files into the
+local experiment folder or upload heavy outputs with storage tools.
 
 Agents should use CPU-only sandboxes for dataset inspection and data engineering
 unless the command needs GPU acceleration. They can request more RAM with
@@ -82,7 +84,7 @@ unless the command needs GPU acceleration. They can request more RAM with
 If the backend env file or process environment contains `HF_TOKEN`, sandbox
 creation passes it through with Modal's `secrets` API. The SSH wrapper exports
 both `HF_TOKEN` and `HUGGING_FACE_HUB_TOKEN` for Hugging Face tooling. The token
-value must not be written into synced files, transcripts, resources, or
+value must not be written into retained files, transcripts, resources, or
 agent-visible API responses.
 
 ## Image additions
@@ -123,11 +125,9 @@ never SSH. MLflow is reached through the backend-owned tracking URI in
 
 ## Shutdown / status
 
-- `sandbox.sync(project_id, experiment_id)` is the deliberate data-plane rsync
-  handoff. `sandbox.release(project_id, experiment_id)` terminates the Modal
-  sandbox and marks the row `terminated`; hosted browser/MCP release skips local
-  final-pull rsync and returns `final_pull_skipped`, while local/reaper release
-  paths may still attempt a best-effort final pull before termination.
+- `sandbox.release(project_id, experiment_id)` terminates the Modal sandbox and
+  marks the row `terminated`. The VM filesystem is ephemeral; agents must copy
+  out or upload any files they want to keep before release.
 - `time_limit` is the Modal sandbox `timeout`; Modal reaps the container when it
   elapses. `sandbox.get` refreshes liveness and reconciles the row to
   `terminated` when Modal says the sandbox is gone.
@@ -138,14 +138,14 @@ never SSH. MLflow is reached through the backend-owned tracking URI in
 
 | Tool | Purpose |
 |------|---------|
-| `sandbox.request` | Procure or reuse the experiment's sandbox; returns SSH details and synced/unsynced paths. |
+| `sandbox.request` | Procure or reuse the experiment's sandbox; returns SSH details and remote/local path guidance. |
 | `sandbox.get` | Current sandbox status + SSH details for the experiment. |
-| `sandbox.sync` | Mirror `$RP_EXPERIMENT_DIR` back to the local experiment folder with SSH rsync. |
 | `sandbox.list` | All experiment sandboxes in the project. |
-| `sandbox.release` | Terminate the experiment's sandbox; run `sandbox.sync` first for deliberate file handoff. |
+| `sandbox.release` | Terminate the experiment's sandbox after confirming needed files were retained. |
 | `sandbox.terminal` | Read the experiment's terminal transcript tail. |
 | `sandbox.health` | Is the execution backend reachable. |
 
 The agent's normal loop is: `sandbox.request` -> run/edit/write files over SSH
-in `$RP_EXPERIMENT_DIR` (heavy files outside it) -> `sandbox.sync` ->
-register/associate local result resources -> transition to review.
+in `$RP_EXPERIMENT_DIR` (heavy files outside it) -> copy light retained files
+out over SSH or upload heavy files to durable storage -> register/associate
+resources -> transition to review.

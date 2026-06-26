@@ -3,7 +3,7 @@
 Behavior is covered by test_sandbox_service.py; this file guards the
 *structure* so the machinery doesn't quietly grow back into the facade:
 the facade owns the public verbs and delegates rows to SandboxRegistry,
-jobs/reconcile to SandboxProvisioner, every local-IO duty (conn files, rsync,
+jobs/reconcile to SandboxProvisioner, every local-IO duty (conn files,
 dashboard tunnels) to the DataPlaneWorker, and the background loops to
 SandboxDaemons.
 """
@@ -29,15 +29,9 @@ from backend.services.sandbox.sandbox_heartbeat import (
     SandboxIdlePolicy,
 )
 from backend.services.sandbox.sandbox_metrics import SandboxMetrics
-from backend.services.sandbox.sandbox_parachute import SandboxParachute
 from backend.services.sandbox.sandbox_provisioner import SandboxProvisioner
 from backend.services.sandbox.sandbox_registry import SandboxRegistry
 from backend.services.sandbox.sandboxes import SandboxService
-from backend.services.sync_sessions import (
-    InProcessControlPlaneView,
-    LeaseService,
-    SyncSessionService,
-)
 from backend.utils import ValidationError
 from tests.paths import SERVICES_ROOT
 
@@ -77,7 +71,6 @@ class SandboxDecompositionTest(unittest.TestCase):
         self.assertIsInstance(service.worker, LocalDataPlaneWorker)
         self.assertIsInstance(service.worker.dashboards, DashboardTunnels)
         self.assertIsInstance(service.metrics, SandboxMetrics)
-        self.assertIsInstance(service.parachute, SandboxParachute)
         self.assertIsInstance(service.daemons, SandboxDaemons)
         self.assertIsInstance(service.daemons.heartbeat, SandboxHeartbeatMonitor)
         self.assertIsInstance(service.daemons.heartbeat.policy, SandboxIdlePolicy)
@@ -92,42 +85,19 @@ class SandboxDecompositionTest(unittest.TestCase):
         self.assertIs(service.daemons.heartbeat.registry, service.registry)
         self.assertIs(service.metrics.registry, service.registry)
         self.assertIs(service.metrics.worker, service.worker)
-        self.assertIs(service.parachute.registry, service.registry)
-        self.assertIs(service.parachute.worker, service.worker)
         self.assertIs(service.worker, self.app.worker)
         # Data-plane work that deserves a record (a tunnel came up) reports
         # through the registry's event stream, not its own writes.
         self.assertIsNotNone(service.worker.dashboards.emit_event)
 
-    def test_facade_wires_the_phase4_seam(self) -> None:
-        # Sync sessions, leases, and the task channel (cloud plan Phase 4):
-        # one lease service backs the session issuer and control-plane view,
-        # and one channel carries explicit control→data signals.
+    def test_facade_wires_the_task_seam(self) -> None:
+        # One channel carries explicit control→data signals: conn refresh and
+        # teardown. It is injected by composition so split mode can swap HTTP in.
         service = self.app.sandboxes
-        self.assertIsInstance(service.leases, LeaseService)
-        self.assertIsInstance(service.sessions, SyncSessionService)
         self.assertIsInstance(service.tasks, InProcessTaskChannel)
-        self.assertIsInstance(service.control_view, InProcessControlPlaneView)
-        self.assertIs(service.sessions.leases, service.leases)
-        self.assertIs(service.control_view.registry, service.registry)
-        self.assertIs(service.control_view.sessions, service.sessions)
         self.assertIs(service.tasks.worker, service.worker)
         self.assertIs(service.metrics_archive, service.worker.metrics_archive)
         self.assertIs(service.quotas, self.app.quotas)
-        # Local composition injects the worker-backed values; the facade itself
-        # must not derive them from worker internals (pinned by source test).
-        self.assertEqual(service.sessions.client_id, service.worker.client_id())
-
-    def test_facade_requires_explicit_lease_client_id(self) -> None:
-        with self.assertRaisesRegex(ValidationError, "lease_client_id is required"):
-            SandboxService(
-                store=self.app.store,
-                sandbox_backend=self.app.execution_backend,
-                worker=self.app.worker,
-                mgmt_keys=self.app.sandboxes.mgmt_keys,
-                metrics_archive=self.app.sandboxes.metrics_archive,
-                lease_client_id="",
-            )
 
     def test_facade_requires_explicit_task_channel(self) -> None:
         with self.assertRaisesRegex(ValidationError, "task_channel is required"):
@@ -137,7 +107,6 @@ class SandboxDecompositionTest(unittest.TestCase):
                 worker=self.app.worker,
                 mgmt_keys=self.app.sandboxes.mgmt_keys,
                 metrics_archive=self.app.sandboxes.metrics_archive,
-                lease_client_id="client",
             )
 
     def test_facade_requires_task_channel_submit(self) -> None:
@@ -148,7 +117,6 @@ class SandboxDecompositionTest(unittest.TestCase):
                 worker=self.app.worker,
                 mgmt_keys=self.app.sandboxes.mgmt_keys,
                 metrics_archive=self.app.sandboxes.metrics_archive,
-                lease_client_id="client",
                 task_channel=object(),
             )
 
@@ -160,7 +128,6 @@ class SandboxDecompositionTest(unittest.TestCase):
                 worker=self.app.worker,
                 mgmt_keys=self.app.sandboxes.mgmt_keys,
                 metrics_archive=self.app.sandboxes.metrics_archive,
-                lease_client_id="client",
                 task_channel=self.app.sandboxes.tasks,
             )
 
@@ -174,7 +141,6 @@ class SandboxDecompositionTest(unittest.TestCase):
                 worker=self.app.worker,
                 mgmt_keys=self.app.sandboxes.mgmt_keys,
                 metrics_archive=self.app.sandboxes.metrics_archive,
-                lease_client_id="client",
                 task_channel=self.app.sandboxes.tasks,
                 experiments=object(),
             )
@@ -187,7 +153,6 @@ class SandboxDecompositionTest(unittest.TestCase):
                 worker=self.app.worker,
                 mgmt_keys=self.app.sandboxes.mgmt_keys,
                 metrics_archive=self.app.sandboxes.metrics_archive,
-                lease_client_id="client",
                 task_channel=self.app.sandboxes.tasks,
                 experiments=self.app.experiments,
             )
@@ -202,7 +167,6 @@ class SandboxDecompositionTest(unittest.TestCase):
                 worker=self.app.worker,
                 mgmt_keys=self.app.sandboxes.mgmt_keys,
                 metrics_archive=self.app.sandboxes.metrics_archive,
-                lease_client_id="client",
                 task_channel=self.app.sandboxes.tasks,
                 experiments=self.app.experiments,
                 quotas=object(),
@@ -215,7 +179,7 @@ class SandboxDecompositionTest(unittest.TestCase):
         # Tunnel subprocesses and MLflow probing live in sandbox_dashboards.
         self.assertNotIn("subprocess", source)
         self.assertNotIn("httpx", source)
-        # Local IO (conn files, rsync, tunnels) lives behind the worker.
+        # Local IO (conn files and tunnels) lives behind the worker.
         self.assertNotIn("SandboxConnFiles", source)
         self.assertNotIn("ssh_rsync", source)
         self.assertNotIn("SshRsyncSyncer", source)
@@ -232,10 +196,6 @@ class SandboxDecompositionTest(unittest.TestCase):
         self.assertNotIn(
             "dataplane.worker",
             _import_modules(FACADE.parent / "sandbox_provisioner.py"),
-        )
-        self.assertNotIn(
-            "sandbox_registry",
-            _import_modules(FACADE.parent.parent / "sync_sessions.py"),
         )
         self.assertNotIn(
             "sync_sessions",
@@ -257,7 +217,7 @@ class SandboxDecompositionTest(unittest.TestCase):
         self.assertNotIn("finalize_put", source)
         self.assertNotIn("run_parachute", source)
         self.assertNotIn("PARACHUTE_", source)
-        self.assertIn("self.parachute.rescue_row", source)
+        self.assertNotIn("self.parachute", source)
         # Row SQL lives in SandboxRegistry. The two conn-scoped view helpers
         # for the workflow layer are the only SELECTs allowed to remain.
         self.assertNotIn("UPDATE sandboxes", source)
@@ -270,11 +230,10 @@ import sys
 import backend.services.sandbox.sandboxes
 for name in (
     "backend.dataplane.tasks",
-    "backend.dataplane.worker",
-    "backend.dataplane.metrics_archive",
-    "backend.dataplane.sandbox_dashboards",
-    "backend.execution.ssh_rsync",
-    "backend.workspace",
+	    "backend.dataplane.worker",
+	    "backend.dataplane.metrics_archive",
+	    "backend.dataplane.sandbox_dashboards",
+	    "backend.workspace",
 ):
     if name in sys.modules:
         raise SystemExit(f"{name} loaded")

@@ -12,7 +12,6 @@ from backend.execution.backends.fake import FakeSandboxBackend
 from backend.services.sandbox.sandbox_daemons import SandboxDaemons
 from backend.services.sandbox.sandbox_heartbeat import SandboxIdlePolicy
 from backend.utils import format_iso
-from tests.fakes import FakeRsyncSyncer
 
 
 def _sample(
@@ -42,7 +41,6 @@ class SandboxIdlePolicyTest(unittest.TestCase):
                 current=_sample(),
                 previous=self.previous,
                 elapsed_seconds=30,
-                lease_held=False,
             )
         )
 
@@ -54,27 +52,24 @@ class SandboxIdlePolicyTest(unittest.TestCase):
                 current=_sample(ssh=None),
                 previous=self.previous,
                 elapsed_seconds=30,
-                lease_held=False,
             )
         )
 
     def test_any_activity_signal_is_not_idle(self) -> None:
         cases = {
-            "network": (_sample(net=100_000), False),
-            "cpu": (_sample(cpu=0.25), False),
-            "gpu": (_sample(gpu=20), False),
-            "ram": (_sample(mem=100_000_000), False),
-            "ssh": (_sample(ssh=1), False),
-            "lease": (_sample(), True),
+            "network": _sample(net=100_000),
+            "cpu": _sample(cpu=0.25),
+            "gpu": _sample(gpu=20),
+            "ram": _sample(mem=100_000_000),
+            "ssh": _sample(ssh=1),
         }
-        for name, (current, lease_held) in cases.items():
+        for name, current in cases.items():
             with self.subTest(signal=name):
                 self.assertFalse(
                     self.policy.is_idle(
                         current=current,
                         previous=self.previous,
                         elapsed_seconds=30,
-                        lease_held=lease_held,
                     )
                 )
 
@@ -117,12 +112,10 @@ class SandboxHeartbeatMonitorTest(unittest.TestCase):
         self._saved = {key: os.environ.get(key) for key in self._ENV}
         os.environ.update(self._ENV)
         self.backend = FakeSandboxBackend()
-        self.rsync = FakeRsyncSyncer()
         self.app = ResearchPluginApp(
             repo_root=self.repo,
             db_path=self.repo / ".research_plugin" / "state.sqlite",
             execution_backend=self.backend,
-            rsync_syncer=self.rsync,
         )
         self.project_id = self.app.call_tool(
             "project.create", {"name": "Heartbeat Project"}
@@ -170,20 +163,17 @@ class SandboxHeartbeatMonitorTest(unittest.TestCase):
             snapshot={"sampled_at": format_iso(sampled_at), "metrics": metrics},
         )
 
-    def test_idle_sandbox_is_reaped_while_busy_or_leased_are_spared(self) -> None:
+    def test_idle_sandbox_is_reaped_while_busy_sandbox_is_spared(self) -> None:
         now = datetime(2026, 1, 1, 2, 0, tzinfo=UTC)
         previous_at = now - timedelta(seconds=30)
         idle_since = now - timedelta(hours=1)
         idle_exp = self._experiment("idle")
         busy_exp = self._experiment("busy")
-        leased_exp = self._experiment("leased")
         idle = self._request(idle_exp)
         busy = self._request(busy_exp)
-        leased = self._request(leased_exp)
         for exp_id, sandbox_uid in (
             (idle_exp, idle["sandbox_uid"]),
             (busy_exp, busy["sandbox_uid"]),
-            (leased_exp, leased["sandbox_uid"]),
         ):
             self._seed_heartbeat(
                 exp_id=exp_id,
@@ -194,19 +184,12 @@ class SandboxHeartbeatMonitorTest(unittest.TestCase):
             )
         self.backend.metrics[idle["sandbox_id"]] = _sample()
         self.backend.metrics[busy["sandbox_id"]] = _sample(cpu=0.5)
-        self.backend.metrics[leased["sandbox_id"]] = _sample()
-        self.app.sandboxes.leases.acquire(
-            experiment_id=leased_exp,
-            holder_client_id="other-client",
-            ttl_seconds=3600,
-        )
 
         reaped = self.app.sandboxes.reap_idle(now=now, threshold_seconds=3600)
 
         self.assertEqual(reaped, 1)
         self.assertIn(idle["sandbox_id"], self.backend.terminated)
         self.assertNotIn(busy["sandbox_id"], self.backend.terminated)
-        self.assertNotIn(leased["sandbox_id"], self.backend.terminated)
         self.assertEqual(
             self.app.sandboxes.get(
                 project_id=self.project_id,
@@ -221,12 +204,6 @@ class SandboxHeartbeatMonitorTest(unittest.TestCase):
             ],
             "running",
         )
-        self.assertEqual(
-            self.app.sandboxes.get(
-                project_id=self.project_id, experiment_id=leased_exp
-            )["status"],
-            "running",
-        )
         events = self.app.store.recent_events(project_id=self.project_id)["events"]
         idle_events = [
             event
@@ -235,7 +212,6 @@ class SandboxHeartbeatMonitorTest(unittest.TestCase):
         ]
         self.assertEqual(len(idle_events), 1)
         self.assertEqual(idle_events[0]["payload"]["idle_seconds"], 3600)
-        self.assertTrue(self.rsync.calls)
 
     def test_zero_threshold_disables_idle_reaping(self) -> None:
         exp_id = self._experiment("disabled")
@@ -264,9 +240,7 @@ class SandboxHeartbeatEnvTest(unittest.TestCase):
             backend=FakeSandboxBackend(),
             provisioner=object(),  # type: ignore[arg-type]
             experiments=object(),  # type: ignore[arg-type]
-            final_pull=lambda **_kwargs: {},
             persist_metrics=lambda **_kwargs: None,
-            parachute=lambda **_kwargs: None,
         )
 
     def test_idle_threshold_zero_or_empty_disables_idle_reaping(self) -> None:

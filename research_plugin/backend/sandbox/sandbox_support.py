@@ -49,20 +49,13 @@ POLL_AFTER_SECONDS = 30
 # drill-in terminal (which both poll ~3s) don't double-exec into a sandbox.
 METRICS_CACHE_TTL_SECONDS = 2.0
 # Archiving MLflow metrics sweeps the whole REST surface, so dashboard polling
-# is throttled to this cadence. Explicit sync/release/reap bypass the throttle.
+# is throttled to this cadence. Explicit release/reap bypass the throttle.
 METRICS_PERSIST_TTL_SECONDS = 60.0
 # How often the reaper checks for sandboxes past their expires_at deadline and
 # terminates them. Needed because Lambda VMs (unlike Modal sandboxes) have no
 # server-side lifetime enforcement, so without this an expired VM bills forever.
 DEFAULT_REAPER_INTERVAL_SECONDS = 30.0
 DEFAULT_SANDBOX_IDLE_SECONDS = 3600.0
-# Expiry parachute (plan Phase 5, fixed decision 5). The TTL is the blob
-# store's backstop: an unclaimed parachute object (daemon never reconnected)
-# is swept after this long instead of living forever. The object cap bounds
-# the presigned PUT — generous, since the tar's per-file caps already bound
-# the realistic size (5 GiB artifacts + 100 MiB everything else).
-PARACHUTE_TTL_SECONDS = 7 * 24 * 60 * 60
-PARACHUTE_MAX_OBJECT_BYTES = 10 * 1024 * 1024 * 1024
 
 # Static dispatcher dropped at `.research_plugin/sbx`. It resolves the
 # per-experiment connection file the registry regenerates on every request and

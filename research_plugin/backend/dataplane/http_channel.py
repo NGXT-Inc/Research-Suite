@@ -1,13 +1,11 @@
-"""The HTTP sibling of the in-process task channel (cloud plan Phase 8).
+"""The HTTP sibling of the in-process task channel.
 
 Fixed decision 2: every "cloud signals daemon" flow is a daemon-initiated
 long-poll task channel — the cloud NEVER dials in. This module has both sides:
 
 - ``HttpTaskQueue`` lives in the control plane. It enqueues tasks (the same
   types as the in-process channel) and serves them to a daemon that
-  long-polls; the daemon POSTs acks/results back. Payloads are JSON-serializable
-  (the parachute bytes become a presigned GET the daemon downloads, per the
-  Phase 4 note), unlike the in-process channel which may keep live objects.
+  long-polls; the daemon POSTs acks/results back. Payloads are JSON-serializable.
 
 - ``HttpTaskChannel`` is the control-plane-facing handle that mirrors
   ``InProcessTaskChannel.submit`` but ENQUEUES instead of executing inline and
@@ -19,7 +17,7 @@ long-poll task channel — the cloud NEVER dials in. This module has both sides:
   to the same worker-dispatch ``_execute`` shape the in-process channel uses,
   so task semantics are identical across the seam.
 
-Deadlines are cloud-minted ISO instants the daemon treats as opaque (§3.2).
+Deadlines are cloud-minted ISO instants the daemon treats as opaque.
 """
 
 from __future__ import annotations
@@ -34,24 +32,14 @@ from ..utils import PermissionDeniedError, ValidationError, new_id
 from .tasks import TASK_TYPES
 
 
-IN_PROCESS_ONLY_PAYLOAD_FIELDS: dict[str, frozenset[str]] = {
-    "parachute_restore": frozenset({"data"}),
-}
-
-
 def _wire_payload(*, task_type: str, payload: dict[str, Any]) -> dict[str, Any]:
     """Return a JSON payload for the HTTP path.
 
-    Phase 5 leaves in-process ``parachute_restore`` bytes in local payloads.
-    That field is intentionally local-only. Everything else must be JSON
-    serializable so new cross-plane leaks fail at enqueue instead of silently
-    disappearing before the daemon sees the task.
+    Everything must be JSON serializable so new cross-plane leaks fail at
+    enqueue instead of silently disappearing before the daemon sees the task.
     """
-    local_only = IN_PROCESS_ONLY_PAYLOAD_FIELDS.get(task_type, frozenset())
     safe: dict[str, Any] = {}
     for key, value in payload.items():
-        if key in local_only:
-            continue
         try:
             json.dumps(value, allow_nan=False)
         except (TypeError, ValueError):
@@ -65,8 +53,7 @@ def _wire_payload(*, task_type: str, payload: dict[str, Any]) -> dict[str, Any]:
 # How long the cloud holds a long-poll open before returning empty (the daemon
 # immediately re-polls). Bounded so a daemon shutdown is observed promptly.
 DEFAULT_LONG_POLL_SECONDS = 25.0
-# How long the control-plane submitter waits for a daemon to execute a task
-# before giving up (e.g. so a final_pull can fall through to the parachute).
+# How long the control-plane submitter waits for a daemon to execute a task.
 DEFAULT_TASK_RESULT_SECONDS = 120.0
 
 
@@ -176,9 +163,8 @@ class HttpTaskQueue:
         self, *, task: _PendingTask, timeout_seconds: float = DEFAULT_TASK_RESULT_SECONDS
     ) -> Any:
         if not task.done.wait(timeout=timeout_seconds):
-            # The daemon did not finish in budget. Surface it so the caller can
-            # fall through (a final_pull → parachute branch); drop it from
-            # waiting so a late daemon doesn't pick up a dead task.
+            # The daemon did not finish in budget. Drop it from waiting so a
+            # late daemon doesn't pick up a dead task.
             with self._cond:
                 self._waiting = [t for t in self._waiting if t.id != task.id]
                 self._in_flight.pop(task.id, None)
@@ -200,7 +186,7 @@ class HttpTaskChannel:
     Mirrors ``InProcessTaskChannel.submit`` so SandboxService is channel-blind:
     it enqueues on the HttpTaskQueue and blocks (bounded) for the daemon's
     result. A timeout/failure raises, matching the in-process channel's
-    re-raise so the reaper's final_pull→parachute branch fires identically.
+    re-raise behavior.
     """
 
     def __init__(

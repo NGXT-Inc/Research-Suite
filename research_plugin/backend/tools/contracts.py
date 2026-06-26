@@ -34,7 +34,6 @@ class ToolContract:
     input_model: type[ContractModel]
     description: str
     plane: ToolPlane = "control"
-    hosted_control_skip_final_pull: bool = False
     hosted_control_sandbox_lookup: bool = False
 
 
@@ -566,7 +565,7 @@ TOOL_CONTRACTS: dict[str, ToolContract] = {
         description=(
             "Get one experiment state. Includes 'allowed_transitions': the "
             "transitions available from the current status, each with what it "
-            "'requires' (e.g. a synced plan resource, a passing review)."
+            "'requires' (e.g. a registered plan resource, a passing review)."
         ),
     ),
     "experiment.transition": ToolContract(
@@ -750,11 +749,10 @@ TOOL_CONTRACTS: dict[str, ToolContract] = {
         input_model=SandboxRequestInput,
         description=(
             "Procure (reuse or create) the experiment's sandbox and return SSH "
-            "details plus runtime guidance for the synced folder, expiry, and "
+            "details plus runtime guidance for the remote work folder, expiry, and "
             "centralized MLflow tracking plus sandbox TensorBoard observability. "
-            "A fresh sandbox starts with the experiment's local folder "
-            "(experiments/<name>/) pushed to it, so put anything the run needs "
-            "in that folder first. On Thunder Compute or Lambda Labs, omit instance_type to "
+            "Put anything the run needs in experiments/<name>/ before provisioning. "
+            "On Thunder Compute or Lambda Labs, omit instance_type to "
             "receive a live menu of available machines to pick from."
         ),
         plane="data",
@@ -800,7 +798,6 @@ TOOL_CONTRACTS: dict[str, ToolContract] = {
             "the box yourself over SSH, storage.put_object for heavy ones), then "
             "re-call with confirm_retained=true to actually terminate."
         ),
-        hosted_control_skip_final_pull=True,
     ),
     "sandbox.terminal": ToolContract(
         input_model=SandboxTerminalInput,

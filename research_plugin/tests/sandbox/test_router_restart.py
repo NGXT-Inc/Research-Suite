@@ -18,7 +18,6 @@ from pathlib import Path
 from backend.execution.backends.fake import FakeSandboxBackend
 from backend.sandbox.sandbox_backend import BackendCapabilities
 from backend.daemon.project_router import ProjectRouter
-from tests.fakes import FakeRsyncSyncer
 
 
 def _reaper_capable_backend_factory(_repo: Path) -> FakeSandboxBackend:
@@ -70,12 +69,6 @@ class RouterRestartReaperTest(unittest.TestCase):
         project = router.create_project(repo_root=self.repo_active, name="Active")
         router.create_project(repo_root=self.repo_idle, name="Idle")
         app = router.app_for_project(project["id"])
-        app.sandboxes.worker.rsync_syncer = FakeRsyncSyncer(
-            sync_pulled=0,
-            duration_seconds=0.0,
-            command_count=1,
-            sync_stdout="",
-        )
         exp_id = app.call_tool(
             "experiment.create",
             {"project_id": project["id"], "name": "restart-coverage", "intent": "restart coverage"},
@@ -112,12 +105,6 @@ class RouterRestartReaperTest(unittest.TestCase):
 
         # What the reaper thread will do on its next tick: terminate the
         # expired sandbox and put the experiment back where the agent can act.
-        app.sandboxes.worker.rsync_syncer = FakeRsyncSyncer(
-            sync_pulled=0,
-            duration_seconds=0.0,
-            command_count=1,
-            sync_stdout="",
-        )
         self.assertEqual(app.sandboxes.reap_expired(), 1)
         sandbox = app.call_tool(
             "sandbox.get", {"project_id": project_id, "experiment_id": exp_id}

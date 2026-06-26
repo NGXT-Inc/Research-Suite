@@ -2,10 +2,10 @@
 
 The cloud blob store (plan Phase 8) implements the identical BlobStore protocol
 as LocalDirBlobStore, so artifact submission, figures, metrics, and the
-parachute all work in the cloud unchanged. We run the existing
+worker uploads all work in the cloud unchanged. We run the existing
 ``BlobStoreContractMixin`` against a real S3-compatible server (minio) so the
-parachute's presign_put is a real single-use HTTPS PUT — the thing a sandbox VM
-can actually reach. Skips cleanly when docker or boto3 is unavailable.
+presign_put path is a real single-use HTTPS PUT — the thing a sandbox VM can
+actually reach. Skips cleanly when docker or boto3 is unavailable.
 """
 
 from __future__ import annotations

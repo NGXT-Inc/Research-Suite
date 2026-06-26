@@ -7,12 +7,11 @@ full research loop THROUGH the proxy:
 
   project.current/create → claim → experiment → plan associate (bytes to the
   cloud blob store) → design review → sandbox.request (FakeSandboxBackend) →
-  explicit sync under lease → results/report/graph associate →
-  experiment review → complete → release.
+  sandbox.request → results/report/graph associate → experiment review →
+  complete → release.
 
-Asserts: the cloud holds the records + blobs; explicit sync runs on the daemon
-worker; repo_root NEVER reached the cloud; killing the daemon mid-run exercises
-the parachute (FakeSandboxBackend parachute path).
+Asserts: the cloud holds the records + blobs; sandbox request/get enrichment
+runs through the daemon; repo_root NEVER reached the cloud.
 
 Wiring choice (documented per the plan's allowance): the daemon and cloud share
 one record store + blob store, while resource observations still cross daemon
@@ -20,7 +19,7 @@ loopback → daemon server → control HTTP endpoints. The CONTROL calls and TAS
 CHANNEL also cross the HTTP boundary (the cloud is a separate uvicorn
 process-boundary the proxy dials; the daemon long-polls it). This in-process
 two-app wiring keeps the test stable while proving the routing, identity
-stripping, HTTP handshake, resource byte submission, and parachute seams.
+stripping, HTTP handshake, and resource byte submission seams.
 
 Docker is not required (the backend is FakeSandboxBackend); the test skips only
 if uvicorn cannot bind.
@@ -34,7 +33,6 @@ import threading
 import time
 import unittest
 from pathlib import Path
-from unittest.mock import patch
 
 from fastapi.testclient import TestClient
 
@@ -53,7 +51,6 @@ from backend.state import StateStore
 from backend.state.blobs import LocalDirBlobStore
 from backend.utils import ValidationError
 from mcp_server.proxy import HttpProxyMcpServer, ProxyConfig
-from tests.fakes import FakeRsyncSyncer
 
 VALID_PLAN = (
     "## Summary\nSplit-mode smoke plan.\n\n"
@@ -75,26 +72,6 @@ VALID_GRAPH = (
     '{"id": "out", "kind": "outcome", "label": "Met at 0.72"}],'
     ' "edges": [{"from": "obj", "to": "out", "label": "confirmed by"}]}\n'
 )
-SPLIT_METRICS = {
-    "source": "mlflow",
-    "base_url": "http://127.0.0.1:5000",
-    "experiments": [
-        {
-            "experiment_id": "1",
-            "name": "smoke",
-            "runs": [
-                {
-                    "run_id": "r1",
-                    "run_name": "seed_0",
-                    "status": "FINISHED",
-                    "params": {},
-                    "metrics": {"accuracy": {"last": 0.72}},
-                    "history": {"accuracy": [[1, 0.72]]},
-                }
-            ],
-        }
-    ],
-}
 _PNG = bytes.fromhex(
     "89504e470d0a1a0a0000000d4948445200000001000000010806000000"
     "1f15c4890000000d49444154789c6360000002000100ffff03000006000557bff8a40000000049454e44ae426082"
@@ -137,7 +114,6 @@ class DaemonResourceForwardingTest(unittest.TestCase):
         self.assertIn("resource.associate", names)
         self.assertIn("sandbox.get", names)
         self.assertIn("sandbox.request", names)
-        self.assertNotIn("sandbox.sync", names)
         self.assertIn("feed.post", names)
 
     def test_daemon_stop_stops_mlflow_reverse_tunnels(self) -> None:
@@ -181,7 +157,7 @@ class DaemonResourceForwardingTest(unittest.TestCase):
                 self.removed_conn.append(experiment_id)
 
         worker = _Worker()
-        execute = build_daemon_executor(worker=worker, control=object())
+        execute = build_daemon_executor(worker=worker)
 
         execute(
             "teardown",
@@ -371,7 +347,6 @@ class PrivateSplitProxyTest(unittest.TestCase):
             repo_root=root / "cloud-staging",
             db_path=root / "cloud" / "state.sqlite",
             execution_backend=FakeSandboxBackend(),
-            rsync_syncer=FakeRsyncSyncer(),
         )
         from backend.transport.http_api import create_fastapi_app
 
@@ -481,7 +456,6 @@ class SplitModeSmokeTest(unittest.TestCase):
             store=self.store,
             blobs=self.blobs,
             execution_backend=FakeSandboxBackend(),
-            rsync_syncer=FakeRsyncSyncer(),
             task_channel=HttpTaskChannel(queue=self.task_queue, result_timeout_seconds=3.0),
         )
         from backend.transport.http_api import create_fastapi_app
@@ -489,24 +463,22 @@ class SplitModeSmokeTest(unittest.TestCase):
         cloud_fastapi = create_fastapi_app(
             app=self.cloud_app,
             task_queue=self.task_queue,
-            sync_targets_source=self.cloud_app.sandboxes.control_view,
         )
         self.cloud = _HttpServerThread(fastapi_app=cloud_fastapi)
 
         # ---- the daemon data plane (worker + task loop over HTTP) ----
-        # Shares the store/blobs but owns the checkout + the rsync worker.
+        # Shares the store/blobs but owns the checkout + local SSH files.
         from backend.workspace import LocalWorkspace
 
         self.daemon_worker = LocalDataPlaneWorker(
             workspace=LocalWorkspace(repo_root=self.repo),
             backend=FakeSandboxBackend(),
-            rsync_syncer=self.daemon_rsync(),
         )
         self.control_client = HttpControlPlaneClient(base_url=self.cloud.url)
         view = HttpControlPlaneView(
             control=self.control_client, worker=self.daemon_worker, client_id="daemon-1"
         )
-        executor = build_daemon_executor(worker=self.daemon_worker, control=self.control_client)
+        executor = build_daemon_executor(worker=self.daemon_worker)
         self.task_loop = DaemonTaskLoop(
             poll=view.poll_task,
             ack=lambda **kw: view.ack_task(**kw),
@@ -536,12 +508,6 @@ class SplitModeSmokeTest(unittest.TestCase):
             )
         )
 
-    def daemon_rsync(self) -> FakeRsyncSyncer:
-        # Each daemon-side worker gets its own fake rsync; both record their
-        # push/pull calls so we can assert the DAEMON (not the cloud) moved the
-        # bytes. The cloud worker is never invoked for rsync.
-        return FakeRsyncSyncer()
-
     def _daemon_loopback_server(self, *, root: Path):
         # A loopback app that serves /local/route + /mcp/*. Resource tools use
         # the production DaemonServer implementation; sandbox tools stay on the
@@ -561,9 +527,9 @@ class SplitModeSmokeTest(unittest.TestCase):
 
             @staticmethod
             def call_tool(*, name: str, arguments: dict, context: dict):
-                # Request/sync/get now use the production daemon path; release
+                # Request/get use the production daemon path; release
                 # and other control-only sandbox tools still hit the cloud app.
-                if name in {"sandbox.request", "sandbox.sync", "sandbox.get"}:
+                if name in {"sandbox.request", "sandbox.get"}:
                     return daemon_server.call_tool(
                         name=name, arguments=arguments, context=context
                     )
@@ -662,8 +628,7 @@ class SplitModeSmokeTest(unittest.TestCase):
         self._call("experiment.transition", project_id=project_id,
                    experiment_id=exp_id, transition="start_running")
 
-        # sandbox.request provisions the sandbox; explicit sandbox.sync below is
-        # the only rsync path.
+        # sandbox.request provisions the sandbox through the daemon path.
         self._call("sandbox.request", project_id=project_id, experiment_id=exp_id)
         self._await(lambda: self._call(
             "sandbox.get", project_id=project_id, experiment_id=exp_id
@@ -675,33 +640,6 @@ class SplitModeSmokeTest(unittest.TestCase):
         self.assertTrue(got["ssh"]["raw_command"].startswith("ssh -i "))
         self.assertIn(got["ssh"]["key_path"], got["ssh"]["raw_command"])
 
-        # sync under lease (data plane), then results/report/graph. Metrics
-        # capture is patched on the DAEMON worker only; if control captures
-        # through its own worker, no archived metrics will appear here.
-        # sandbox.sync is no longer an MCP tool routed through the proxy; the
-        # daemon's data-plane sync handler (DaemonServer.call_tool) still drives
-        # the rsync pull + metrics capture, so exercise it directly here.
-        with patch.object(
-            self.daemon_worker,
-            "capture_metrics_snapshot",
-            return_value=dict(SPLIT_METRICS),
-        ) as capture_metrics:
-            self.daemon_server.call_tool(
-                name="sandbox.sync",
-                arguments={"experiment_id": exp_id},
-                context={"repo_root": str(self.repo)},
-            )
-        capture_metrics.assert_called_once()
-        archived_metrics = self.cloud_app.sandboxes.results_metrics(
-            experiment_id=exp_id,
-            project_id=project_id,
-        )
-        self.assertTrue(archived_metrics["available"])
-        self.assertNotIn("base_url", archived_metrics)
-        self.assertEqual(
-            archived_metrics["experiments"][0]["runs"][0]["metrics"]["accuracy"]["last"],
-            0.72,
-        )
         self._associate(project_id=project_id, exp_id=exp_id,
                         path="experiments/smoke/results.json", role="result",
                         body='{"accuracy": 0.72}\n')
@@ -714,6 +652,30 @@ class SplitModeSmokeTest(unittest.TestCase):
         self._pass_review(project_id=project_id, exp_id=exp_id, role="experiment_reviewer")
         self._call("experiment.transition", project_id=project_id, experiment_id=exp_id,
                    transition="complete", evidence={"conclusion": "0.72 beats 0.6; supported."})
+
+        self.control_client.submit_sandbox_metrics(
+            {
+                "project_id": project_id,
+                "experiment_id": exp_id,
+                "metrics_snapshot": {
+                    "source": "smoke",
+                    "experiments": [
+                        {
+                            "name": "split-smoke",
+                            "runs": [
+                                {
+                                    "run_name": "seed_0",
+                                    "status": "FINISHED",
+                                    "params": {},
+                                    "metrics": {"accuracy": {"last": 0.72}},
+                                    "history": {"accuracy": [[1, 0.72]]},
+                                }
+                            ],
+                        }
+                    ],
+                },
+            }
+        )
 
         # release (control surface) — terminates the sandbox.
         self._call(
@@ -749,8 +711,6 @@ class SplitModeSmokeTest(unittest.TestCase):
             any(self.blobs.stat(namespace=project_id, sha256=str(v["content_sha256"]))
                 for v in versions)
         )
-        # The daemon (not the cloud) moved the bytes: its worker's rsync ran.
-        self.assertTrue(self.daemon_worker.rsync_syncer.calls)
         # repo_root never reached the cloud: no cloud-side event payload carries
         # an absolute checkout path.
         events = self.cloud_app.store.connect().execute(
@@ -759,47 +719,6 @@ class SplitModeSmokeTest(unittest.TestCase):
         checkout = str(self.repo)
         for e in events:
             self.assertNotIn(checkout, str(e["payload_json"]))
-
-    def test_daemon_death_midrun_exercises_the_parachute(self) -> None:
-        project = self._call("project.create", name="Parachute Smoke")
-        project_id = project["id"]
-        self.links.link(repo_root=str(self.repo), project_id=project_id)
-        self.proxy._project_id = None
-        exp = self._call("experiment.create", project_id=project_id, name="para",
-                         intent="parachute path")
-        exp_id = exp["id"]
-        self._associate(project_id=project_id, exp_id=exp_id,
-                        path="experiments/para/plan.md", role="plan", body=VALID_PLAN)
-        self._call("experiment.transition", project_id=project_id,
-                   experiment_id=exp_id, transition="submit_design")
-        self._pass_review(project_id=project_id, exp_id=exp_id, role="design_reviewer")
-        self._call("experiment.transition", project_id=project_id,
-                   experiment_id=exp_id, transition="mark_ready_to_run")
-        self._call("experiment.transition", project_id=project_id,
-                   experiment_id=exp_id, transition="start_running")
-        self._call("sandbox.request", project_id=project_id, experiment_id=exp_id)
-        self._await(lambda: self._call(
-            "sandbox.get", project_id=project_id, experiment_id=exp_id
-        ).get("status") == "running")
-
-        # Kill the daemon mid-run: stop the task loop so the cloud's final_pull
-        # task can never be executed, forcing the reaper's parachute branch.
-        self.task_loop.stop()
-        # Make the FakeSandboxBackend's parachute succeed so we can assert the
-        # object lands on the row (the Phase 5 parachute path over the mgmt
-        # channel; the daemon is unreachable, so the cloud rescues directly).
-        backend = self.cloud_app.execution_backend
-        with self.cloud_app.store.transaction() as c:
-            c.execute("UPDATE sandboxes SET expires_at=? WHERE experiment_id=?",
-                      ("2000-01-01T00:00:00Z", exp_id))
-        # The final_pull task will time out (no daemon), so reaping falls through
-        # to the parachute. Run a reap directly.
-        self.cloud_app.sandboxes.reap_expired()
-        row = self.cloud_app.sandboxes.registry.load_row(experiment_id=exp_id)
-        # Either parachuted (object recorded) or parachute_failed — both are the
-        # loud Phase 5 surface; the row never silently stays running.
-        self.assertIn(row.get("parachute_state"), {"uploaded", "failed"})
-        self.assertNotEqual(row.get("status"), "running")
 
     def _await(self, predicate, timeout: float = 15.0) -> None:
         deadline = time.monotonic() + timeout

@@ -26,7 +26,6 @@ from backend.control.control_client import HttpControlPlaneClient
 from backend.execution.backends.fake import FakeSandboxBackend
 from backend.transport.http_server import make_http_server
 from mcp_server.daemon_marker import marker_path
-from tests.fakes import FakeRsyncSyncer
 
 # Artifact bodies that satisfy the gate lints (plan spine, report spine +
 # metrics table, graph envelope), so the loop exercises gates as passes.
@@ -100,7 +99,6 @@ def in_process_harness() -> ClientHarness:
         repo_root=repo,
         db_path=repo / ".research_plugin" / "state.sqlite",
         execution_backend=FakeSandboxBackend(),
-        rsync_syncer=FakeRsyncSyncer(),
     )
     return ClientHarness(
         client=InProcessControlPlaneClient(app=app),
@@ -126,7 +124,6 @@ def http_harness() -> ClientHarness:
         repo_root=repo,
         db_path=repo / ".research_plugin" / "state.sqlite",
         execution_backend=FakeSandboxBackend(),
-        rsync_syncer=FakeRsyncSyncer(),
     )
     server = make_http_server(app, "127.0.0.1", 0)
     host, port = server.server_address

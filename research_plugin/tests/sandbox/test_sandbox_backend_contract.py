@@ -32,7 +32,6 @@ BACKEND_METHODS = (
     "dashboard_urls",
     "local_dashboard_ports",
     "find_sandbox_id",
-    "run_parachute",
     "sandbox_secrets",
     "write_secrets",
     "retarget",
@@ -87,9 +86,7 @@ class SandboxBackendContractTest(unittest.TestCase):
             backend=backend,
             provisioner=object(),  # type: ignore[arg-type]
             experiments=object(),  # type: ignore[arg-type]
-            final_pull=lambda **_kwargs: {},
             persist_metrics=lambda **_kwargs: None,
-            parachute=lambda **_kwargs: None,
         )
 
     def test_backend_classes_expose_full_contract_surface(self) -> None:
@@ -115,7 +112,6 @@ class SandboxBackendContractTest(unittest.TestCase):
         self.assertIsNone(backend.dashboard_urls(sandbox_id="sb"))
         self.assertEqual(backend.local_dashboard_ports(), {})
         self.assertIsNone(backend.find_sandbox_id(experiment_id="exp"))
-        self.assertIsNone(backend.run_parachute(sandbox_id="sb", put_url="file:///x"))
         self.assertFalse(
             backend.retarget(
                 sandbox_id="sb",

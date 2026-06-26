@@ -1,12 +1,12 @@
-"""Daemon (slim local data-plane) composition (cloud plan Phase 8, §3.4).
+"""Daemon (slim local data-plane) composition.
 
 A user-machine process that holds the SSH keys, conn files, and repo↔project
-links, and moves bytes for the cloud. It runs:
+links. It runs:
 
-- a ``LocalDataPlaneWorker`` (rsync pulls, conn files, dashboards),
+- a ``LocalDataPlaneWorker`` (conn files, dashboards),
 - an ``HttpControlPlaneClient`` upstream to the cloud,
 - a ``DaemonTaskLoop`` long-polling the cloud for data-plane tasks
-  (sync_pull | final_pull | conn_refresh | teardown | parachute_restore),
+  (conn_refresh | teardown),
 - a small loopback HTTP surface for the proxy (local data-plane tool subset +
   GET /local/route for the repo→project mapping + local UI byte endpoints).
 
@@ -154,8 +154,6 @@ class DaemonServer:
             return self._request_sandbox(arguments=arguments, context=context)
         if name == "sandbox.attach":
             return self._attach_sandbox(arguments=arguments, context=context)
-        if name == "sandbox.sync":
-            return self._sync_sandbox(arguments=arguments, context=context)
         if name == "sandbox.get":
             return self._sandbox_get_enrichment(arguments=arguments, context=context)
         if name not in (DATA_PLANE_TOOL_NAMES | AGGREGATE_TOOL_NAMES):
@@ -190,15 +188,6 @@ class DaemonServer:
             name=name,
             use_sandbox_uid_command=bool(arguments.get("additional")),
         )
-
-    def _sync_sandbox(
-        self, *, arguments: dict[str, Any], context: dict[str, Any]
-    ) -> dict[str, Any]:
-        _repo_root, project_id = self._linked_scope(context=context)
-        payload = dict(arguments)
-        payload["project_id"] = project_id
-        payload["experiment_id"] = self._required_arg(arguments, "experiment_id")
-        return self.control.sync_sandbox(payload)
 
     def _attach_sandbox(
         self, *, arguments: dict[str, Any], context: dict[str, Any]
@@ -340,7 +329,7 @@ class DaemonServer:
                 )
                 for path in paths
             ]
-            return {"synced": resources, "count": len(resources)}
+            return {"resources": resources, "count": len(resources)}
         path = arguments.get("path")
         if not path:
             raise ValidationError(
@@ -456,59 +445,14 @@ class DaemonServer:
             raise ValidationError(f"{key} is required")
         return str(value)
 
-def build_daemon_executor(*, worker: LocalDataPlaneWorker, control: HttpControlPlaneClient):
+def build_daemon_executor(*, worker: LocalDataPlaneWorker):
     """The daemon's task dispatch: (type, payload, deadline) -> result.
 
     Same worker-dispatch shape as InProcessTaskChannel._execute, but reads
-    JSON payloads. parachute_restore downloads bytes from a presigned GET URL
-    (the in-process channel carried the bytes inline); everything else carries
-    serializable session/row dicts already.
+    JSON payloads from the control-plane queue.
     """
-    from urllib.request import urlopen
-
-    def _relativize(result: Any) -> Any:
-        # The cloud receives the daemon's task RESULT over the wire; a machine
-        # path must never enter a cloud-bound row (§3.2). The daemon knows its
-        # own repo_root, so it relativizes local_dir before acking — the cloud
-        # then stores the logical spelling, not an absolute checkout path.
-        if isinstance(result, dict) and result.get("local_dir"):
-            result = dict(result)
-            result["local_dir"] = worker.repo_relative(result["local_dir"])
-        return result
-
-    def _with_metrics_snapshot(result: Any, payload: dict[str, Any]) -> Any:
-        result = _relativize(result)
-        if not isinstance(result, dict):
-            return result
-        result = dict(result)
-        result["metrics_snapshot"] = None
-        if result.get("skipped"):
-            return result
-        row = payload.get("row")
-        if not isinstance(row, dict):
-            return result
-        try:
-            result["metrics_snapshot"] = worker.capture_metrics_snapshot(
-                row=row,
-                name=str(payload.get("name") or ""),
-            )
-        except Exception:  # noqa: BLE001 — metrics capture must not fail sync
-            result["metrics_snapshot"] = None
-        return result
-
     def execute(task_type: str, payload: dict[str, Any], deadline: str | None) -> Any:
-        if task_type == "final_pull":
-            return _with_metrics_snapshot(worker.final_pull(
-                session=payload["session"],
-                name=str(payload.get("name") or ""),
-                deadline=deadline,
-            ), payload)
-        if task_type == "sync_pull":
-            return _with_metrics_snapshot(worker.sync_pull(
-                session=payload["session"],
-                name=str(payload.get("name") or ""),
-                skip_if_busy=bool(payload.get("skip_if_busy")),
-            ), payload)
+        del deadline
         if task_type == "conn_refresh":
             return worker.sandbox_enrichment(
                 row=payload["row"],
@@ -528,19 +472,6 @@ def build_daemon_executor(*, worker: LocalDataPlaneWorker, control: HttpControlP
                 ),
             )
             return None
-        if task_type == "parachute_restore":
-            # The cloud hands a presigned GET URL (S3); the daemon downloads the
-            # tar and unpacks it through the worker's normal sync-path semantics.
-            url = str(payload.get("get_url") or "")
-            if not url:
-                raise ValidationError("parachute_restore task has no get_url")
-            with urlopen(url, timeout=120) as response:  # noqa: S310 — presigned URL from the control plane
-                data = response.read()
-            return worker.restore_parachute(
-                experiment_id=str(payload["experiment_id"]),
-                data=data,
-                name=str(payload.get("name") or ""),
-            )
         raise ValidationError(f"unknown task type: {task_type}")
 
     return execute
@@ -557,7 +488,7 @@ def build_daemon_server(
 
     ``workspace_root`` defaults to ~/.research_plugin for the daemon's own
     machine-local state (keys, conn files, sandbox_local.sqlite). ``client_id``
-    is the stable per-daemon lease-holder id; absent, the worker mints one.
+    is the stable per-daemon id; absent, the worker mints one.
     """
     if not control_url:
         raise ValidationError(
@@ -577,7 +508,7 @@ def build_daemon_server(
     view = HttpControlPlaneView(
         control=control, worker=worker, client_id=resolved_client_id
     )
-    executor = build_daemon_executor(worker=worker, control=control)
+    executor = build_daemon_executor(worker=worker)
 
     def poll(wait_seconds: float) -> dict[str, Any] | None:
         return view.poll_task(wait_seconds=wait_seconds)

@@ -298,7 +298,6 @@ class ServiceLayoutTest(unittest.TestCase):
             "review_policy.py": {"typing"},
             "resource_records.py": {"typing"},
             "sandbox_lifecycle.py": {"datetime", "typing"},
-            "sandbox_sync.py": {"typing"},
             "sandbox_worker.py": {"pathlib", "typing"},
             "synthesis_writers.py": {"typing"},
             "task_channel.py": {"typing"},
@@ -318,84 +317,6 @@ class ServiceLayoutTest(unittest.TestCase):
         self.assertFalse((PORTS_ROOT / "project_readers.py").exists())
         self.assertFalse((PORTS_ROOT / "reflection_waves.py").exists())
         self.assertFalse((PORTS_ROOT / "review_targets.py").exists())
-        self.assertIn(
-            "def sync_targets(self, *, tenant_id: str | None = None)",
-            (PORTS_ROOT / "sandbox_sync.py").read_text(encoding="utf-8"),
-        )
-        sandbox_sync_path = PORTS_ROOT / "sandbox_sync.py"
-        sandbox_sync_source = sandbox_sync_path.read_text(encoding="utf-8")
-        self.assertIn("class RunningSandboxSyncRow", sandbox_sync_source)
-        self.assertIn("class SyncTarget", sandbox_sync_source)
-        self.assertIn("class RunningSandboxRows", sandbox_sync_source)
-        self.assertEqual(
-            _class_method_names(sandbox_sync_path, "ControlPlaneView"),
-            {"sync_targets"},
-        )
-        self.assertEqual(
-            _class_method_names(sandbox_sync_path, "RunningSandboxRows"),
-            {"list_running_sync_rows"},
-        )
-        self.assertEqual(
-            _class_method_names(sandbox_sync_path, "SyncSessionIssuer"),
-            {"grant"},
-        )
-        from backend.ports.sandbox_sync import (
-            ControlPlaneView,
-            RunningSandboxRows,
-            RunningSandboxSyncRow,
-            SyncSessionIssuer,
-            SyncTarget,
-        )
-
-        for protocol in (ControlPlaneView, RunningSandboxRows, SyncSessionIssuer):
-            self.assertIn(Protocol, protocol.__mro__)
-        self.assertTrue(is_typeddict(RunningSandboxSyncRow))
-        self.assertEqual(
-            get_type_hints(RunningSandboxSyncRow),
-            {
-                "sandbox_uid": str,
-                "experiment_id": str,
-                "tenant_id": str | None,
-                "sandbox_id": str | None,
-                "ssh_host": str | None,
-                "ssh_port": int | None,
-                "ssh_user": str | None,
-                "sync_dir": str | None,
-                "workdir": str | None,
-                "sandbox_data_dir": str | None,
-                "unsynced_dir": str | None,
-            },
-        )
-        self.assertTrue(is_typeddict(SyncTarget))
-        self.assertEqual(get_type_hints(SyncTarget)["row"], RunningSandboxSyncRow)
-        self.assertEqual(get_type_hints(SyncTarget)["session"], dict[str, Any])
-        self.assertEqual(
-            get_type_hints(RunningSandboxRows.list_running_sync_rows)["return"],
-            list[RunningSandboxSyncRow],
-        )
-        self.assertEqual(
-            get_type_hints(ControlPlaneView.sync_targets)["return"],
-            list[SyncTarget],
-        )
-        grant_params = inspect_signature(SyncSessionIssuer.grant).parameters
-        self.assertEqual(
-            list(grant_params),
-            [
-                "self",
-                "experiment_id",
-                "sandbox_id",
-                "ssh_host",
-                "ssh_port",
-                "ssh_user",
-                "experiment_dir",
-                "data_dir",
-                "sandbox_uid",
-            ],
-        )
-        for name in list(grant_params)[1:]:
-            self.assertEqual(grant_params[name].kind, Parameter.KEYWORD_ONLY)
-        self.assertEqual(grant_params["data_dir"].default, "")
-        self.assertEqual(grant_params["sandbox_uid"].default, "")
         workflow_reader_source = (PORTS_ROOT / "workflow_readers.py").read_text(
             encoding="utf-8"
         )
@@ -497,16 +418,6 @@ class ServiceLayoutTest(unittest.TestCase):
         daemon_imports = _import_segments(SERVICES / "sandbox" / "sandbox_daemons.py")
         self.assertNotIn("experiments", daemon_imports)
         self.assertNotIn("sandbox_provisioner", daemon_imports)
-
-    def test_sync_sessions_use_running_sandbox_row_port(self) -> None:
-        source = _source("sync_sessions.py")
-        imports = _import_segments(SERVICES / "sync_sessions.py")
-
-        self.assertIn("sandbox_sync", imports)
-        self.assertIn("registry: RunningSandboxRows", source)
-        self.assertIn("list_running_sync_rows", source)
-        self.assertNotIn("list_running_rows", source)
-        self.assertNotIn("class RunningSandboxRows", source)
 
     def test_auto_sync_poller_is_removed(self) -> None:
         daemon_mode = BACKEND_ROOT / "composition" / "daemon_mode.py"
@@ -874,9 +785,7 @@ class ServiceLayoutTest(unittest.TestCase):
         self.assertNotIn('name != "sandbox.get"', source)
         self.assertNotIn('name == "sandbox.release"', source)
         self.assertIn("TOOL_CONTRACTS.get(name)", source)
-        self.assertIn("contract.hosted_control_skip_final_pull", source)
         self.assertIn("contract.hosted_control_sandbox_lookup", source)
-        self.assertIn("hosted_control_skip_final_pull=True", contracts_source)
         self.assertIn("hosted_control_sandbox_lookup=True", contracts_source)
         marker = "if (\n            surface.hosted_control\n            and contract is not None\n            and contract.hosted_control_sandbox_lookup"
         start = source.index(marker)
@@ -934,7 +843,6 @@ class ServiceLayoutTest(unittest.TestCase):
             "allow_data_plane_http",
             "allow_data_plane_tool_calls",
             "use_hosted_tool_policies",
-            "release_uses_final_pull",
         ):
             with self.subTest(field_name=field_name):
                 self.assertIn(field_name, policy_source)
@@ -989,7 +897,6 @@ class ServiceLayoutTest(unittest.TestCase):
             {
                 "resource_registration": "resource.register_file",
                 "resource_association": "resource.associate",
-                "sandbox_sync": "sandbox.sync",
             },
         )
         self.assertIn("HTTP_DATA_PLANE_FEATURE_TO_TOOL", policy_source)
@@ -1066,7 +973,6 @@ class ServiceLayoutTest(unittest.TestCase):
         self.assertIn("register_daemon_routes(", source)
         self.assertIn("app_for_daemon_project", source)
         self.assertIn("task_queue=task_queue", source)
-        self.assertIn("sync_targets_source=sync_targets_source", source)
         self.assertNotIn("def _required_text", source)
         self.assertNotIn("def _decode_b64_field", source)
         self.assertNotIn("base64", source)
@@ -1080,9 +986,7 @@ class ServiceLayoutTest(unittest.TestCase):
             '"/api/daemon/feed/post"',
             '"/api/daemon/sandboxes/request"',
             '"/api/daemon/sandboxes/attach"',
-            '"/api/daemon/sandboxes/sync"',
             '"/api/daemon/sandboxes/metrics"',
-            '"/api/daemon/sync-targets"',
         ):
             with self.subTest(route=route):
                 self.assertIn(route, daemon_source)

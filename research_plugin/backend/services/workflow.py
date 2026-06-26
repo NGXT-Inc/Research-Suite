@@ -788,8 +788,8 @@ class WorkflowService:
             "guidance": (
                 f"Write the experiment plan as one markdown file at {folder}plan.md "
                 "— the folder experiment.create made for this experiment. That "
-                "folder is also the sandbox sync unit: keep the plan, scripts, "
-                "configs, and everything a run needs inside it from the start. "
+                "folder is also the sandbox working folder: keep the plan, "
+                "scripts, configs, and everything a run needs inside it from the start. "
                 "Start from the template's required sections, then register the "
                 "file and associate it with role 'plan'. Consider seeding the "
                 f"logic graph now too ({folder}graph.json, see "
@@ -809,26 +809,21 @@ class WorkflowService:
                 "Prefer CPU-only sandboxes for data inspection and data engineering "
                 "unless the command needs GPU. Work inside the experiment folder "
                 "($RP_EXPERIMENT_DIR on the sandbox) for scripts, configs, metrics, "
-                "and compact results — it is the only directory that syncs back to "
-                "the local repo. Download large datasets, caches, checkpoints, "
+                "and compact results. Download large datasets, caches, checkpoints, "
                 "parquet files, and other heavy intermediates OUTSIDE the folder "
-                "(e.g. $RP_DATASET_DIR); nothing outside it is ever synced. If a "
-                "large artifact deliberately must persist locally, place it under "
-                "$RP_EXPERIMENT_DIR/artifacts_to_keep (5 GB per-file cap). Prefer "
+                "(e.g. $RP_DATASET_DIR); copy out or upload only the files that "
+                "must persist before releasing the sandbox. Prefer "
                 "saving a data.md in the experiment folder that records dataset "
                 "sources, splits, filters, schema/row-count notes, caveats, and "
                 "where ephemeral data lives on the VM."
             ),
-            "sync_guidance": (
+            "retention_guidance": (
                 "While a sandbox is live it owns the experiment folder: make all "
                 "experiment file changes inside $RP_EXPERIMENT_DIR over SSH, not "
-                "in the local repo — the folder is mirrored back locally every few "
-                "seconds as an exact replica, so local edits are overwritten. "
-                "Before registering or associating result resources, call "
-                "sandbox.sync so remote files exist under the local experiment "
-                "folder. The backend also rsyncs periodically while the sandbox is "
-                "running, but explicit sandbox.sync is the durable handoff before "
-                "workflow mutations."
+                "in the local repo. Before registering or associating result "
+                "resources, copy light files out over SSH into the local experiment "
+                "folder or upload heavy files with storage.put_object, then register "
+                "those retained files."
             ),
             "report_guidance": (
                 "A results report (role 'report') is also required before "
@@ -863,8 +858,8 @@ class WorkflowService:
                 "explicitly. Keep it under 16 KB: link raw metrics files instead "
                 "of inlining data. Reference figures with relative markdown image "
                 "links (e.g. ![loss](figures/loss.png)); every linked image must "
-                "exist after sandbox.sync or submit_results is blocked. Then "
-                "register the report and associate it with role 'report'."
+                "exist in the retained local report folder before submit_results. "
+                "Then register the report and associate it with role 'report'."
             ),
         }
 

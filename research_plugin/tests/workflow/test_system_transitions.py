@@ -24,7 +24,6 @@ from backend.domain.workflow_gates import (
     TRANSITION_REQUIREMENTS,
 )
 from backend.utils import ValidationError, WorkflowError
-from tests.fakes import FakeRsyncSyncer
 from tests.paths import SERVICES_ROOT
 
 
@@ -33,12 +32,10 @@ class SystemTransitionTestBase(unittest.TestCase):
         self.tmp = tempfile.TemporaryDirectory()
         self.repo = Path(self.tmp.name)
         self.backend = FakeSandboxBackend()
-        self.rsync = FakeRsyncSyncer()
         self.app = ResearchPluginApp(
             repo_root=self.repo,
             db_path=self.repo / ".research_plugin" / "state.sqlite",
             execution_backend=self.backend,
-            rsync_syncer=self.rsync,
         )
         self.project_id = self.call("project.create", name="System Transitions")["id"]
 

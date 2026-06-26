@@ -154,7 +154,7 @@ class WorkflowGateTest(unittest.TestCase):
         wf = self.call("workflow.status_and_next", project_id=self.project_id, experiment_id=exp["id"])
         workflow = wf.get("workflow") or wf
         self.assertEqual(workflow["current_gate"], "plan_required")
-        self.assertEqual(workflow["next_action"], "write_or_sync_plan_resource")
+        self.assertEqual(workflow["next_action"], "write_and_associate_plan_resource")
         guidance = workflow["resource_guidance"]
         self.assertEqual(guidance["association_role"], "plan")
         # The guidance names the experiment's actual folder, not a placeholder.
@@ -340,7 +340,7 @@ class WorkflowGateTest(unittest.TestCase):
         with self.assertRaises(WorkflowError) as ctx:
             self.call("experiment.transition", project_id=self.project_id, experiment_id=exp_id, transition="submit_results")
         self.assertIn("figures/loss.png", str(ctx.exception))
-        # Once the figure exists on disk (post-sync), re-associating the report
+        # Once the figure exists on disk, re-associating the report
         # submits it alongside, and the gate opens.
         (self.repo / "figures").mkdir()
         (self.repo / "figures" / "loss.png").write_bytes(b"\x89PNG\r\n\x1a\n")
@@ -499,7 +499,7 @@ class WorkflowGateTest(unittest.TestCase):
             review_session_id=session_id,
             verdict="needs_changes",
             return_to="running",
-            notes="Conclusion overreaches; re-derive it from the synced metrics.",
+            notes="Conclusion overreaches; re-derive it from the retained metrics.",
         )
         state = self.call("experiment.get_state", project_id=self.project_id, experiment_id=exp_id)
         self.assertEqual(state["status"], "running")

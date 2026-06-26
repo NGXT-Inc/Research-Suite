@@ -29,7 +29,7 @@ from ...sandbox.sandbox_backend import (
     SandboxBackend,
     SandboxRequest,
 )
-from ...domain.sync_contract import DEFAULT_DATA_DIR, remote_experiment_dir
+from ...domain.sandbox_paths import DEFAULT_DATA_DIR, remote_experiment_dir
 from ...ports.sandbox_lifecycle import ExperimentTransitions
 from ...ports.sandbox_worker import SandboxWorker
 from ...utils import iso_after, now_iso

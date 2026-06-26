@@ -49,7 +49,6 @@ def register_daemon_routes(
     http: Any,
     *,
     task_queue: Any | None,
-    sync_targets_source: Any | None,
     app_for_project: DaemonProjectApp,
 ) -> None:
     if task_queue is not None:
@@ -226,21 +225,6 @@ def register_daemon_routes(
             )
             return result
 
-        @http.post("/api/daemon/sandboxes/sync")
-        def daemon_sync_sandbox(
-            request: Request, body: JsonBody = Body(default=None)
-        ) -> dict[str, Any]:
-            payload = body or {}
-            project_id = _required_text(payload, "project_id")
-            app = app_for_project(request, project_id)
-            return app.sandboxes.sync(
-                project_id=project_id,
-                experiment_id=_required_text(payload, "experiment_id"),
-                sandbox_uid=payload.get("sandbox_uid"),
-                daemon_metrics_snapshot=payload.get("metrics_snapshot"),
-                daemon_metrics_snapshot_provided="metrics_snapshot" in payload,
-            )
-
         @http.post("/api/daemon/sandboxes/metrics")
         def daemon_sandbox_metrics(
             request: Request, body: JsonBody = Body(default=None)
@@ -289,21 +273,3 @@ def register_daemon_routes(
                 url=payload.get("url"),
                 ref=payload.get("ref"),
             )
-
-    if sync_targets_source is not None:
-
-        @http.get("/api/daemon/sync-targets")
-        def daemon_sync_targets(
-            request: Request, client_id: str = Query("")  # noqa: ARG001
-        ) -> dict[str, Any]:
-            targets = sync_targets_source.sync_targets(tenant_id="")
-            return {
-                "targets": [
-                    {
-                        "experiment_id": str(t["row"].get("experiment_id") or ""),
-                        "row": t["row"],
-                        "session": t["session"],
-                    }
-                    for t in targets
-                ]
-            }

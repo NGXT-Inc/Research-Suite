@@ -9,7 +9,6 @@ from pathlib import Path
 
 from backend.app import ResearchPluginApp
 from backend.execution.backends.fake import FakeSandboxBackend
-from tests.fakes import FakeRsyncSyncer
 
 
 # association_version_id is the submission pin — agents confirm a
@@ -29,7 +28,6 @@ class WorkflowSlimTest(unittest.TestCase):
             repo_root=self.repo,
             db_path=self.repo / ".research_plugin" / "state.sqlite",
             execution_backend=self.backend,
-            rsync_syncer=FakeRsyncSyncer(sync_pulled=0, sync_stdout=""),
         )
         self.project_id = self.call("project.create", name="Slim Project")["id"]
 

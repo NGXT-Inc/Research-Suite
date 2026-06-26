@@ -1,15 +1,14 @@
 """Control-plane (cloud) composition (cloud plan Phase 8, §3.4).
 
 Builds the multi-tenant control plane: record services + workflow + reviews +
-sandbox lifecycle/provisioner/reaper + blob store + leases + quotas.
+sandbox lifecycle/provisioner/reaper + blob store + quotas.
 Store from build_state_store (Postgres in hosted/no-repo-root control; SQLite
 only when an explicit dev/test repo_root is supplied). Blob store from
-build_blob_store (a bucket is required for hosted/no-repo-root control so the
-parachute presign is a reachable HTTPS PUT). NO DataPlaneWorker rsync runs
-here — the cloud never touches a user checkout; data-plane tool calls are
+build_blob_store. NO DataPlaneWorker rsync runs here — the cloud never touches
+a user checkout; data-plane tool calls are
 routed to the daemon by the proxy. The control plane enqueues data-plane work to
-the daemon via the HttpTaskQueue and serves the daemon's task long-poll +
-sync-target poll over HTTP.
+the daemon via the HttpTaskQueue and serves the daemon's task long-poll over
+HTTP.
 
 Provider creds resolve here (platform-owned keys, fixed decision 3). The cloud
 NEVER dials a user machine: every cloud→daemon signal is a daemon-initiated
@@ -111,9 +110,8 @@ def build_control_app(
     objects = build_object_store(default_root=staging / ".research_plugin", env=env)
     storage = StorageLedgerService(store=store, objects=objects)
     # The cloud→daemon task channel: control enqueues, the daemon long-polls.
-    # A bounded result wait so a reaper final_pull falls through to the expiry
-    # parachute promptly when the daemon is unreachable (billing protection
-    # beats data recovery) instead of blocking the reaper thread.
+    # A bounded result wait keeps control lifecycle calls from blocking on a
+    # missing daemon.
     result_timeout = env_float(
         "RESEARCH_PLUGIN_TASK_RESULT_TIMEOUT", None, 30.0, env=env, strict=True
     )
@@ -160,7 +158,6 @@ def build_control_server(
         app=app,
         allowed_origins=origins,
         task_queue=task_queue,
-        sync_targets_source=app.sandboxes.control_view,
         cleanup=cleanup,
         surface_policy=surface,
     )
@@ -236,9 +233,8 @@ def _resume_active_sandboxes(*, app: ControlApp) -> None:
         if running:
             # Kick the resumed reaper once so anything already past its deadline
             # is reaped promptly instead of waiting a full interval. Off-thread:
-            # a final_pull task blocks on the (long-poll) daemon, and startup
-            # must not block on that. The reaper thread the SandboxService
-            # already started also catches it on its next tick.
+            # startup must not block on cleanup. The reaper thread the
+            # SandboxService already started also catches it on its next tick.
             import threading
 
             threading.Thread(

@@ -899,7 +899,6 @@ def create_fastapi_app(
     router: ProjectRouter | None = None,
     allowed_origins: list[str] | None = None,
     task_queue: Any | None = None,
-    sync_targets_source: Any | None = None,
     cleanup: Any | None = None,
     surface_policy: HttpSurfacePolicy | None = None,
 ) -> FastAPI:
@@ -978,24 +977,6 @@ def create_fastapi_app(
                     "tool": name,
                     "reason": "requires_local_data_plane",
                 },
-            )
-        if (
-            contract is not None
-            and contract.hosted_control_skip_final_pull
-            and not surface.release_uses_final_pull
-        ):
-            # Browser/admin release is a control-plane lifecycle action, but a
-            # final rsync pull is data-plane work. Hosted calls terminate without
-            # the pull; reapers and local/daemon calls still use the full path.
-            request = validated_contract_input()
-            target = api_for_project(request.project_id)
-            return target._present(
-                target.app.sandboxes.release(
-                    experiment_id=request.experiment_id,
-                    project_id=request.project_id,
-                    skip_final_pull=True,
-                    confirm_retained=request.confirm_retained,
-                )
             )
         if router is not None:
             return router.call_tool(
@@ -1559,14 +1540,6 @@ def create_fastapi_app(
             args["since"] = since
         return api_for_project(project_id).call_tool(name="sandbox.terminal", arguments=args)
 
-    @http.post("/api/projects/{project_id}/experiments/{experiment_id}/sandbox/sync")
-    def sync_sandbox(project_id: str, experiment_id: str) -> dict[str, Any]:
-        require_data_plane_for_http(feature="sandbox_sync")
-        return api_for_project(project_id).call_tool(
-            name="sandbox.sync",
-            arguments={"project_id": project_id, "experiment_id": experiment_id},
-        )
-
     @http.post("/api/projects/{project_id}/experiments/{experiment_id}/sandbox/release")
     def release_sandbox(
         project_id: str,
@@ -1635,7 +1608,6 @@ def create_fastapi_app(
     register_daemon_routes(
         http,
         task_queue=task_queue,
-        sync_targets_source=sync_targets_source,
         app_for_project=app_for_daemon_project,
     )
 

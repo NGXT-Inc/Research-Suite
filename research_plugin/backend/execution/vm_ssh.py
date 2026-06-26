@@ -11,7 +11,6 @@ from typing import Any, Callable, Mapping
 from backend.sandbox.sandbox_backend import BackendUnavailableError
 
 from .sync_dirs import remote_experiment_dir, remote_root_of, remote_sessions_dir
-from .transfer_spec import parse_parachute_receipt
 from .usage_metrics import METRICS_SCRIPT, parse_metrics
 from .vm_bootstrap import (
     MGMT_SSH_USER,
@@ -24,7 +23,6 @@ from .vm_bootstrap import (
 TRANSCRIPT_TAIL_DEFAULT = 50_000
 TRANSCRIPT_SSH_CONNECT_TIMEOUT = 10
 TRANSCRIPT_READ_TIMEOUT_SECONDS = 30
-PARACHUTE_SSH_TIMEOUT_SECONDS = 600
 
 SshRunner = Callable[[list[str]], "subprocess.CompletedProcess[str]"]
 SshInputRunner = Callable[[list[str], str], "subprocess.CompletedProcess[str]"]
@@ -103,42 +101,6 @@ def sample_metrics_via_mgmt_ssh(
     if result.returncode != 0:
         return None
     return parse_metrics(result.stdout or "")
-
-
-def run_parachute_via_mgmt_ssh(
-    *,
-    ssh_runner: SshRunner,
-    sandbox_id: str,
-    put_url: str,
-    ssh_host: str,
-    ssh_port: int,
-    key_path: str,
-) -> dict[str, Any] | None:
-    if not sandbox_id or not ssh_host or not key_path:
-        raise BackendUnavailableError("parachute needs the SSH endpoint and the management key")
-    remote_command = f"sudo -n bash /opt/rp/parachute.sh {shlex.quote(put_url)}"
-    try:
-        result = ssh_runner(
-            ssh_command(
-                host=ssh_host,
-                port=int(ssh_port) or 22,
-                user=MGMT_SSH_USER,
-                key_path=key_path,
-                remote_command=remote_command,
-            )
-        )
-    except subprocess.TimeoutExpired as exc:
-        raise BackendUnavailableError(f"parachute over SSH timed out: {exc}") from exc
-    except OSError as exc:
-        raise BackendUnavailableError(f"could not run ssh for parachute: {exc}") from exc
-    if result.returncode != 0:
-        raise BackendUnavailableError(
-            f"parachute over SSH failed (exit {result.returncode}): {stderr_detail(result)}"
-        )
-    receipt = parse_parachute_receipt(result.stdout or "")
-    if receipt is None:
-        raise BackendUnavailableError("parachute produced no upload receipt")
-    return receipt
 
 
 def write_secrets_via_mgmt_ssh(
@@ -299,10 +261,4 @@ def run_ssh_input(command: list[str], stdin: str) -> subprocess.CompletedProcess
         text=True,
         capture_output=True,
         timeout=TRANSCRIPT_READ_TIMEOUT_SECONDS,
-    )
-
-
-def run_ssh_parachute(command: list[str]) -> subprocess.CompletedProcess[str]:
-    return subprocess.run(
-        command, text=True, capture_output=True, timeout=PARACHUTE_SSH_TIMEOUT_SECONDS
     )

@@ -1,78 +1,33 @@
 """The DataPlaneWorker interface and its local-mode implementation.
 
-Every local-IO duty of the sandbox stack routes through this seam (cloud plan
-§3.1): workspace folders, SSH keypairs and conn files, sync pulls, dashboard
-tunnels, and the legacy pulled-``mlflow.db`` metrics fallback.
+Every local-IO duty of the sandbox stack routes through this seam: workspace
+folders, SSH keypairs and conn files, dashboard tunnels, and the legacy pulled-
+``mlflow.db`` metrics fallback.
 Control-plane code (registry, provisioner, facade verbs) calls the interface;
 ``LocalDataPlaneWorker`` binds it to this machine by wrapping the existing
 machinery. In split mode the same duties become the daemon's task loop
-(Phase 8).
-
-Byte movement is session-shaped (plan Phase 4): ``sync_pull``/``final_pull``
-take the lease-backed sync session the control plane minted — SSH endpoint,
-remote directory contract, ``direction_policy`` — and refuse a session whose
-policy or contract version the local rsync flags do not implement. The
-worker's per-experiment locks serialize rsync on this machine, subordinate to
-the lease (the cross-client authority).
+(Phase 8). Sandbox file movement is not a backend service: the agent uses the
+SSH credentials directly to copy out anything it wants to keep before release.
 
 Since plan Phase 5's management-key switch, ``read_transcript`` and
 ``sample_metrics`` are control-plane duties authenticated by the per-sandbox
-management key; the worker-held user key is data-plane-only (rsync, the sbx
-dispatcher, dashboard tunnels).
+management key; the worker-held user key is data-plane-only (the sbx
+dispatcher and dashboard tunnels).
 """
 
 from __future__ import annotations
 
-import io
-import tarfile
-import threading
 from pathlib import Path
 from typing import Any, Callable, Protocol
 
-from ..execution.ssh_rsync import SshRsyncSyncer
 from ..sandbox.sandbox_backend import SandboxBackend
 from .metrics_archive import MetricsArchive, snapshot_mlflow_db
 from .sandbox_dashboards import DashboardTunnels
 from ..sandbox.sandbox_support import ACTIVE_SANDBOX_STATUSES
-from ..domain.sync_contract import (
-    DIRECTION_POLICY,
-    SYNC_SESSION_SCHEMA_VERSION,
-    TRANSFER_CONTRACT_VERSION,
-)
-from ..utils import ValidationError
 from ..workspace import LocalWorkspace
 from .mlflow_tunnels import MlflowReverseTunnels
 from .sandbox_conn import SandboxConnFiles
 from .state import SandboxLocalState
-
-
-def _require_session(session: Any) -> dict[str, Any]:
-    """Refuse byte movement outside the transfer contract (plan Phase 4).
-
-    The session's ``direction_policy`` must be exactly the one this worker's
-    rsync flags implement — experiment dir mirrored remote-authoritative
-    (pull with --delete), ``artifacts_to_keep`` on its own append-only-shaped
-    5 GB pass — and the contract version must match, so a session minted
-    under different rules fails loudly instead of moving bytes wrong.
-    """
-    if not isinstance(session, dict) or not str(session.get("experiment_id") or ""):
-        raise ValidationError("sync session is required for sandbox byte movement")
-    if int(session.get("schema_version") or 0) != SYNC_SESSION_SCHEMA_VERSION:
-        raise ValidationError(
-            f"unsupported sync session schema_version: {session.get('schema_version')!r}"
-        )
-    if int(session.get("transfer_contract_version") or 0) != TRANSFER_CONTRACT_VERSION:
-        raise ValidationError(
-            "unsupported transfer_contract_version: "
-            f"{session.get('transfer_contract_version')!r} "
-            f"(this worker implements {TRANSFER_CONTRACT_VERSION})"
-        )
-    if dict(session.get("direction_policy") or {}) != DIRECTION_POLICY:
-        raise ValidationError(
-            f"unsupported direction_policy: {session.get('direction_policy')!r} "
-            f"(this worker's rsync implements {DIRECTION_POLICY})"
-        )
-    return session
 
 
 class DataPlaneWorker(Protocol):
@@ -109,18 +64,6 @@ class DataPlaneWorker(Protocol):
         use_sandbox_uid_command: bool = False,
     ) -> dict[str, Any]: ...
 
-    def sync_pull(
-        self, *, session: dict[str, Any], name: str = "", skip_if_busy: bool = False
-    ) -> dict[str, Any]: ...
-
-    def final_pull(
-        self, *, session: dict[str, Any], name: str = "", deadline: str | None = None
-    ) -> dict[str, Any]: ...
-
-    def restore_parachute(
-        self, *, experiment_id: str, data: bytes, name: str = ""
-    ) -> dict[str, Any]: ...
-
     def ensure_local_dashboards(self, *, row: dict[str, Any]) -> dict[str, Any]: ...
 
     def merge_local_dashboards(self, *, row: dict[str, Any]) -> dict[str, Any]: ...
@@ -150,10 +93,9 @@ class LocalDataPlaneWorker:
     """Local-mode worker: today's sandbox IO machinery behind the seam.
 
     Wraps ``SandboxConnFiles`` (keys, dispatcher, conn files),
-    ``SshRsyncSyncer`` (pulls), ``DashboardTunnels`` (ssh -L pool), and
-    ``MetricsArchive``; machine-local sandbox facts (key path, local sync dir,
-    loopback dashboard URLs) persist in ``SandboxLocalState``, never in
-    cloud-bound rows.
+    ``DashboardTunnels`` (ssh -L pool), and ``MetricsArchive``; machine-local
+    sandbox facts (key path, local folder, loopback dashboard URLs) persist in
+    ``SandboxLocalState``, never in cloud-bound rows.
     """
 
     def __init__(
@@ -161,10 +103,8 @@ class LocalDataPlaneWorker:
         *,
         workspace: LocalWorkspace,
         backend: SandboxBackend,
-        rsync_syncer: SshRsyncSyncer | None = None,
     ) -> None:
         self.workspace = workspace
-        self.rsync_syncer = rsync_syncer or SshRsyncSyncer()
         keys_dir = workspace.research_dir / "sandboxes" / "keys"
         self._conn = SandboxConnFiles(repo_root=workspace.repo_root, keys_dir=keys_dir)
         self.state = SandboxLocalState(
@@ -177,28 +117,17 @@ class LocalDataPlaneWorker:
             local_state=self.state,
         )
         self.mlflow_tunnels = MlflowReverseTunnels(key_path=self.key_path)
-        # One rsync per experiment at a time; sync/release/reap contend. With
-        # multiple sandboxes per experiment each pulls to its OWN local dir
-        # (uid-suffixed for additional ones), so this lock is conservative —
-        # machine-local serialization only, subordinate to the sync lease
-        # (the cross-client authority, plan Phase 4).
-        self._sync_locks: dict[str, threading.Lock] = {}
-        self._sync_locks_lock = threading.Lock()
 
     # ---------- identity ----------
 
     def client_id(self) -> str:
-        """Stable data-plane client identity — the sync-lease holder id."""
+        """Stable data-plane client identity for daemon polling."""
         return self.state.client_id()
 
     # ---------- workspace ----------
 
     def ensure_workspace(self, *, experiment_id: str, name: str = "") -> Path:
-        """Create the experiment's one local folder (its sandbox sync root).
-
-        Workspace creation happens on the first data-routed touch (plan §3.1);
-        record services only return logical folder guidance.
-        """
+        """Create the experiment's local folder."""
         folder = self.workspace.experiment_dir(experiment_id=experiment_id, name=name)
         folder.mkdir(parents=True, exist_ok=True)
         return folder
@@ -207,9 +136,8 @@ class LocalDataPlaneWorker:
         self, *, experiment_id: str, name: str = "", sandbox_uid: str = ""
     ) -> Path:
         if sandbox_uid:
-            # Additional sandbox: a uid-suffixed local dir mirrors its uid-suffixed
-            # remote root (sync_contract) so parallel pulls never overwrite the
-            # primary's folder. Deterministic, so it needs no per-experiment cache.
+            # Additional sandbox: a uid-suffixed local dir matches the remote
+            # root so explicit copy-outs never overwrite the primary folder.
             base = self.workspace.experiment_dir(experiment_id=experiment_id, name=name)
             return base.with_name(f"{base.name}-{sandbox_uid[:12]}")
         stored = self.state.load(experiment_id=experiment_id)["local_sync_dir"]
@@ -298,118 +226,6 @@ class LocalDataPlaneWorker:
             ),
         }
 
-    # ---------- rsync ----------
-
-    def sync_pull(
-        self, *, session: dict[str, Any], name: str = "", skip_if_busy: bool = False
-    ) -> dict[str, Any]:
-        session = _require_session(session)
-        experiment_id = str(session["experiment_id"])
-        local_uid = self._local_dir_uid(
-            remote_dir=str((session.get("remote") or {}).get("experiment_dir") or ""),
-            sandbox_uid=str(session.get("sandbox_uid") or ""),
-        )
-        with self._sync_locks_lock:
-            lock = self._sync_locks.setdefault(experiment_id, threading.Lock())
-        acquired = lock.acquire(blocking=not skip_if_busy)
-        if not acquired:
-            return {
-                "provider": "ssh_rsync",
-                "skipped": "busy",
-                "pulled": 0,
-                "conflicts": 0,
-                "local_dir": str(
-                    self.local_experiment_dir(
-                        experiment_id=experiment_id, name=name, sandbox_uid=local_uid
-                    )
-                ),
-            }
-        try:
-            local_dir = self.local_experiment_dir(
-                experiment_id=experiment_id, name=name, sandbox_uid=local_uid
-            )
-            ssh = session["ssh"]
-            remote = session["remote"]
-            result = self.rsync_syncer.sync(
-                ssh_host=str(ssh.get("host") or ""),
-                ssh_port=int(ssh.get("port") or 0),
-                ssh_user=str(ssh.get("user") or "root"),
-                key_path=self.key_path(experiment_id=experiment_id),
-                remote_sync_dir=str(remote.get("experiment_dir") or ""),
-                local_sync_dir=local_dir,
-                # Sandbox-authored telemetry (MLflow db, TB events, transcript)
-                # lives outside the experiment folder and lands in a daemon-owned
-                # local dir, keyed by sandbox id so each VM generation's history
-                # is preserved. Legacy rows simply have nothing at this remote
-                # path (their sessions ride inside the synced folder).
-                remote_sessions_dir=str(remote.get("sessions_dir") or ""),
-                local_sessions_dir=self.workspace.sessions_dir(
-                    experiment_id=experiment_id,
-                    sandbox_id=str(session.get("sandbox_id") or ""),
-                ),
-            ).as_dict()
-            # Cache the primary's local dir only; an additional sandbox uses a
-            # deterministic uid-suffixed dir, so caching it would clobber the
-            # primary's cached path.
-            if not local_uid:
-                self.state.record(
-                    experiment_id=experiment_id, local_sync_dir=str(local_dir)
-                )
-            return result
-        finally:
-            lock.release()
-
-    def final_pull(
-        self, *, session: dict[str, Any], name: str = "", deadline: str | None = None
-    ) -> dict[str, Any]:
-        """Last pull before terminate (release + the reaper's final_pull task).
-
-        ``deadline`` is the task's cloud-minted budget, carried but unenforced
-        in-process — the local worker is by definition reachable, so this is
-        a busy-skipping pull. When the pull fails (or a split-mode daemon
-        misses the deadline), the control plane fires the expiry parachute
-        over the management channel instead (plan Phase 5, decision 5).
-        """
-        del deadline
-        return self.sync_pull(session=session, name=name, skip_if_busy=True)
-
-    def restore_parachute(
-        self, *, experiment_id: str, data: bytes, name: str = ""
-    ) -> dict[str, Any]:
-        """Unpack a parachute object into the experiment's local folder.
-
-        The tar IS the remote experiment dir at reap time — same excludes and
-        size caps as a final pull (shared transfer spec) — so it lands at the
-        normal sync target, under the same per-experiment lock the rsync
-        paths take. Unlike a pull there is no ``--delete``: a parachute is a
-        recovery object, not a mirror pass, so restoring never removes local
-        files. The task channel is URL-first so the data plane downloads the
-        archive before calling this method; inline bytes remain a compatibility
-        path for in-process callers.
-        """
-        with self._sync_locks_lock:
-            lock = self._sync_locks.setdefault(experiment_id, threading.Lock())
-        with lock:
-            local_dir = self.local_experiment_dir(
-                experiment_id=experiment_id, name=name
-            )
-            local_dir.mkdir(parents=True, exist_ok=True)
-            with tarfile.open(fileobj=io.BytesIO(data), mode="r:gz") as tar:
-                members = tar.getmembers()
-                # The 'data' filter refuses absolute paths and parent-dir
-                # escapes and strips dangerous modes — a parachute object is
-                # remote-produced bytes and gets no more trust than a pull.
-                tar.extractall(path=local_dir, filter="data")
-            restored = sum(1 for member in members if member.isfile())
-            self.state.record(
-                experiment_id=experiment_id, local_sync_dir=str(local_dir)
-            )
-        return {
-            "provider": "parachute",
-            "restored": restored,
-            "local_dir": str(local_dir),
-        }
-
     # ---------- dashboards ----------
 
     def ensure_local_dashboards(self, *, row: dict[str, Any]) -> dict[str, Any]:
@@ -432,11 +248,9 @@ class LocalDataPlaneWorker:
     # ---------- pulled-metrics fallback ----------
 
     def pulled_mlflow_db_path(self, *, experiment_id: str, name: str = "") -> Path:
-        # Legacy sandbox-local MLflow backend store, as mirrored locally by the
-        # rsync pull. Current layout: the daemon-owned sessions dir, one subdir
-        # per sandbox generation — pick the most recently modified db. Older
-        # layouts (sessions inside the synced folder) are checked as fallbacks
-        # so pre-centralization experiments keep their lazy metrics backfill.
+        # Legacy sandbox-local MLflow backend store. Current experiments should
+        # use centralized MLflow; older local copies are checked as fallbacks so
+        # pre-centralization runs keep their lazy metrics backfill.
         sessions_base = self.workspace.sessions_dir(experiment_id=experiment_id)
         candidates = sorted(
             sessions_base.glob("*/mlflow.db"),

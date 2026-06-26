@@ -81,7 +81,7 @@ class BlobStoreContractMixin:
         self.assertEqual(store.sweep_expired(now="2026-06-01T00:00:00Z"), 0)
         self.assertEqual(store.get(namespace="proj_a", sha256=sha), b"pin me")
 
-    # ---- single-use uploads (the parachute PUT seam, plan Phase 5) ----
+    # ---- single-use uploads from off-process producers ----
 
     def _write_upload(self, target: dict, data: bytes) -> None:
         """PUT bytes to the presigned target the way an off-process producer
@@ -97,12 +97,12 @@ class BlobStoreContractMixin:
     def test_presign_put_single_use_round_trip(self) -> None:
         store = self.make_store()
         target = store.presign_put(namespace="proj_a", max_size_bytes=1024)
-        self._write_upload(target, b"parachute bytes")
+        self._write_upload(target, b"uploaded bytes")
         stat = store.finalize_put(upload_id=target["upload_id"])
-        self.assertEqual(stat.size_bytes, len(b"parachute bytes"))
+        self.assertEqual(stat.size_bytes, len(b"uploaded bytes"))
         self.assertEqual(stat.namespace, "proj_a")
         self.assertEqual(
-            store.get(namespace="proj_a", sha256=stat.sha256), b"parachute bytes"
+            store.get(namespace="proj_a", sha256=stat.sha256), b"uploaded bytes"
         )
         # Single use: the target is consumed by finalize.
         with self.assertRaises(NotFoundError):

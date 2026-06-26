@@ -358,16 +358,6 @@ CREATE TABLE IF NOT EXISTS sandboxes (
   -- non-empty when a control-plane management key was minted for this
   -- sandbox. A key-store reference (the sandbox_uid) — never key material.
   mgmt_key_ref TEXT NOT NULL DEFAULT '',
-  -- Expiry parachute record (cloud plan Phase 5, fixed decision 5): set when
-  -- a reap/release whose final pull failed uploaded the experiment dir to
-  -- the blob store over the management channel. State machine:
-  -- '' (none) → 'uploaded' → 'restored' | 'failed'. The object key is
-  -- namespace/sha256 in the blob store; expires_at is the TTL backstop.
-  parachute_state TEXT NOT NULL DEFAULT '',
-  parachute_object_key TEXT NOT NULL DEFAULT '',
-  parachute_sha256 TEXT NOT NULL DEFAULT '',
-  parachute_size_bytes INTEGER NOT NULL DEFAULT 0,
-  parachute_expires_at TEXT,
   volume_name TEXT NOT NULL DEFAULT '',
   -- Sandbox-local observability dashboards (currently TensorBoard at 6006),
   -- surfaced to the user as provider URLs (Modal HTTPS tunnels) or
@@ -413,21 +403,6 @@ CREATE TABLE IF NOT EXISTS report_figures (
   created_at TEXT NOT NULL,
   PRIMARY KEY (report_version_id, link_path),
   FOREIGN KEY(report_version_id) REFERENCES resource_versions(id)
-);
-
--- Sync leases (cloud plan Phase 4, fixed decision 8): the exclusive
--- per-experiment byte-movement authority. Cloud-held — the only safe
--- multi-client coordinator — with TTL + takeover; every sandbox sync/push/
--- final-pull is authorized by the experiment's lease and its completion
--- report is validated against the lease id. One row per experiment: the
--- current holder. Expired rows are takeover-able in place.
-CREATE TABLE IF NOT EXISTS sync_leases (
-  experiment_id TEXT PRIMARY KEY,
-  lease_id TEXT NOT NULL,
-  holder_client_id TEXT NOT NULL,
-  ttl_seconds INTEGER NOT NULL,
-  expires_at TEXT NOT NULL,
-  renewed_at TEXT NOT NULL
 );
 
 -- MLflow metrics snapshots as control-plane records (cloud plan Phase 5):
@@ -1066,13 +1041,6 @@ class StateStore(BaseStateStore):
                 # — non-empty when a control-plane management key exists for
                 # this sandbox. Never key material.
                 "mgmt_key_ref": "TEXT NOT NULL DEFAULT ''",
-                # Cloud-split Phase 5 (June 2026): expiry-parachute record —
-                # the blob-store object a failed final pull was rescued to.
-                "parachute_state": "TEXT NOT NULL DEFAULT ''",
-                "parachute_object_key": "TEXT NOT NULL DEFAULT ''",
-                "parachute_sha256": "TEXT NOT NULL DEFAULT ''",
-                "parachute_size_bytes": "INTEGER NOT NULL DEFAULT 0",
-                "parachute_expires_at": "TEXT",
             },
         )
         conn.execute(

@@ -63,12 +63,10 @@ class LambdaLabsSandboxBackend(VmSshSandboxBackend):
         client: LambdaCloudClient | None = None,
         ssh_runner: SshRunner | None = None,
         ssh_input_runner: SshInputRunner | None = None,
-        parachute_runner: SshRunner | None = None,
     ) -> None:
         super().__init__(
             ssh_runner=ssh_runner,
             ssh_input_runner=ssh_input_runner,
-            parachute_runner=parachute_runner,
         )
         # Resolve config/client lazily so the daemon can boot (and report health)
         # with only an API key present — region/instance type are per-request,

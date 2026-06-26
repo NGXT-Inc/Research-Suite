@@ -19,7 +19,6 @@ from backend.domain.quota_contract import AdmissionRequest
 from backend.execution.backends.fake import FakeSandboxBackend
 from backend.services.quotas import GLOBAL_SCOPE, QuotaService
 from backend.utils import PermissionDeniedError
-from tests.fakes import FakeRsyncSyncer
 
 
 class QuotaAdmissionTest(unittest.TestCase):
@@ -32,7 +31,6 @@ class QuotaAdmissionTest(unittest.TestCase):
             repo_root=self.repo,
             db_path=self.repo / ".research_plugin" / "state.sqlite",
             execution_backend=FakeSandboxBackend(),
-            rsync_syncer=FakeRsyncSyncer(),
         )
         self.store = self.app.store
         self.quotas = QuotaService(store=self.store)
@@ -277,7 +275,6 @@ class QuotaProvisionRecordingTest(unittest.TestCase):
             repo_root=self.repo,
             db_path=self.repo / ".research_plugin" / "state.sqlite",
             execution_backend=self.backend,
-            rsync_syncer=FakeRsyncSyncer(),
         )
         self.store = self.app.store
         self.project_id = self.app.call_tool("project.create", {"name": "Proj P"})["id"]

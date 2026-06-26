@@ -3,9 +3,9 @@
 The split architecture in docs/CONTROL_DATA_PLANE_SPLIT.md requires every tool
 contract carries a plane, the three route sets partition the registry exactly,
 and the modules that must stay cloud-servable do not grow local-process or
-local-path dependencies. Hard from Phase 3: control modules cannot import
-subprocess, the rsync/conn machinery, or the dataplane package, and the record
-store does not know where the repository checkout lives.
+local-path dependencies. Control modules cannot import subprocess, conn
+machinery, or the dataplane package, and the record store does not know where
+the repository checkout lives.
 """
 
 from __future__ import annotations
@@ -29,7 +29,7 @@ from tests.paths import BACKEND_ROOT, DOMAIN_ROOT, PORTS_ROOT, SERVICES_ROOT
 
 
 # Record halves that must be servable from a cloud control plane: no local
-# processes, no rsync/conn machinery, no dataplane worker.
+# processes, no conn machinery, no dataplane worker.
 DOMAIN_MODULES = tuple(sorted(DOMAIN_ROOT.glob("*.py")))
 PORT_MODULES = tuple(sorted(PORTS_ROOT.glob("*.py")))
 
@@ -53,10 +53,8 @@ CONTROL_MODULES = (
     SERVICES_ROOT / "pinned.py",
     SERVICES_ROOT / "resources.py",
     SERVICES_ROOT / "feed.py",
-    SERVICES_ROOT / "sync_sessions.py",
     SERVICES_ROOT / "metrics_records.py",
     SERVICES_ROOT / "sandbox" / "sandbox_metrics.py",
-    SERVICES_ROOT / "sandbox" / "sandbox_parachute.py",
     BACKEND_ROOT / "control" / "record_core.py",
     BACKEND_ROOT / "control" / "control_app.py",
     BACKEND_ROOT / "control" / "control_runtime.py",
@@ -70,7 +68,6 @@ CONTROL_MODULES = (
 CONTROL_FORBIDDEN_SEGMENTS = {
     "dataplane",
     "sandbox_conn",
-    "ssh_rsync",
     "subprocess",
     "workspace",
 }
@@ -92,8 +89,8 @@ def _imports(path: Path) -> set[str]:
 def _import_segments(path: Path) -> set[str]:
     """Every dotted segment of every imported module path.
 
-    Catches relative submodule imports (``from ..execution.ssh_rsync import``)
-    that a top-level-only collector would report as just ``execution``.
+    Catches relative submodule imports that a top-level-only collector would
+    report by parent package only.
     """
     tree = ast.parse(path.read_text(encoding="utf-8"))
     segments: set[str] = set()
@@ -316,19 +313,9 @@ class ToolPlanePartitionTest(unittest.TestCase):
             {
                 "resource_registration": "resource.register_file",
                 "resource_association": "resource.associate",
-                # sandbox.sync is no longer an MCP tool (the agent pulls files
-                # itself via rsync over SSH); the legacy UI feature key and its
-                # dead /sandbox/sync route remain but no longer point at a
-                # data-plane tool in the catalog.
-                "sandbox_sync": "sandbox.sync",
             },
         )
-        live_features = {
-            tool
-            for feature, tool in HTTP_DATA_PLANE_FEATURE_TO_TOOL.items()
-            if feature != "sandbox_sync"
-        }
-        self.assertLessEqual(live_features, DATA_PLANE_TOOL_NAMES)
+        self.assertLessEqual(set(HTTP_DATA_PLANE_FEATURE_TO_TOOL.values()), DATA_PLANE_TOOL_NAMES)
 
     def test_daemon_tool_catalogs_use_contract_plane_sets(self) -> None:
         daemon_mode = BACKEND_ROOT / "composition" / "daemon_mode.py"
@@ -440,22 +427,10 @@ load("subprocess")
         source = (BACKEND_ROOT / "state" / "store.py").read_text(encoding="utf-8")
         self.assertNotIn("repo_root", source)
 
-    def test_sync_record_views_do_not_import_execution(self) -> None:
-        # Remote directory names and session version pins are a control/data
-        # contract, not provider execution machinery.
-        for path in (
-            SERVICES_ROOT / "sync_sessions.py",
-            SERVICES_ROOT / "sandbox" / "sandbox_views.py",
-        ):
-            with self.subTest(module=path.name):
-                self.assertNotIn("execution", _import_segments(path))
-        source = (SERVICES_ROOT / "sync_sessions.py").read_text(encoding="utf-8")
-        imports = _import_segments(SERVICES_ROOT / "sync_sessions.py")
-        self.assertIn("sandbox_sync", imports)
-        self.assertIn("registry: RunningSandboxRows", source)
-        self.assertIn("list_running_sync_rows", source)
-        self.assertNotIn("list_running_rows", source)
-        self.assertNotIn("class RunningSandboxRows", source)
+    def test_sandbox_views_do_not_import_execution(self) -> None:
+        # Remote directory names are projected without provider execution machinery.
+        path = SERVICES_ROOT / "sandbox" / "sandbox_views.py"
+        self.assertNotIn("execution", _import_segments(path))
 
     def test_sandbox_services_use_backend_port_not_execution_package(self) -> None:
         # Record/control sandbox services depend on the provider-neutral port,
@@ -472,7 +447,6 @@ load("subprocess")
             "dataplane",
             "execution",
             "services",
-            "ssh_rsync",
             "state",
             "subprocess",
             "workspace",
@@ -507,7 +481,6 @@ load("subprocess")
             "services",
             "dataplane",
             "workspace",
-            "ssh_rsync",
             "subprocess",
             "threading",
         ):
@@ -516,10 +489,9 @@ load("subprocess")
 import sys
 import backend.sandbox.sandbox_support
 for name in (
-    "backend.services.sandbox.sandboxes",
-    "backend.dataplane.worker",
-    "backend.execution.ssh_rsync",
-    "backend.workspace",
+	    "backend.services.sandbox.sandboxes",
+	    "backend.dataplane.worker",
+	    "backend.workspace",
 ):
     if name in sys.modules:
         raise SystemExit(f"{name} loaded")
@@ -532,14 +504,13 @@ for name in (
         # Importing dataplane.tasks should not pull in the local worker package
         # barrel. The worker stays available through lazy __getattr__ exports.
         imports = _top_level_import_segments(BACKEND_ROOT / "dataplane" / "__init__.py")
-        for forbidden in ("worker", "ssh_rsync", "workspace"):
+        for forbidden in ("worker", "workspace"):
             self.assertNotIn(forbidden, imports)
         code = """
 import sys
 import backend.dataplane.tasks
 for name in (
     "backend.dataplane.worker",
-    "backend.execution.ssh_rsync",
     "backend.workspace",
 ):
     if name in sys.modules:
@@ -555,17 +526,6 @@ for name in (
         for path in sorted((BACKEND_ROOT / "dataplane").glob("*.py")):
             with self.subTest(module=path.name):
                 self.assertNotIn("services", _import_segments(path))
-
-    def test_remote_control_view_uses_sync_target_port(self) -> None:
-        imports = _import_segments(BACKEND_ROOT / "dataplane" / "remote_view.py")
-        self.assertIn("sandbox_sync", imports)
-        from backend.dataplane.remote_view import HttpControlPlaneView
-        from backend.ports.sandbox_sync import SyncTarget
-
-        self.assertEqual(
-            get_type_hints(HttpControlPlaneView.sync_targets)["return"],
-            list[SyncTarget],
-        )
 
     def test_project_overview_uses_direct_concrete_collaborators(self) -> None:
         # project.current has one consumer and one implementation pair today.
@@ -765,7 +725,6 @@ for name in (
             "dataplane",
             "workspace",
             "execution",
-            "ssh_rsync",
         ):
             self.assertNotIn(forbidden, _import_segments(BACKEND_ROOT / "control" / "record_core.py"))
 
@@ -850,7 +809,7 @@ for name in (
 
     def test_app_import_keeps_local_io_modules_unloaded(self) -> None:
         # Import-time separation is not a full ControlApp, but app import should
-        # not pull in local workspace, rsync, or data-plane worker machinery.
+        # not pull in local workspace or data-plane worker machinery.
         code = """
 import sys
 import backend.app
@@ -858,11 +817,10 @@ for name in (
     "backend.local_runtime",
     "backend.workspace",
     "backend.dataplane.worker",
-    "backend.dataplane.metrics_archive",
-    "backend.dataplane.sandbox_dashboards",
-    "backend.dataplane.sandbox_conn",
-    "backend.execution.ssh_rsync",
-    "backend.services.sandbox_conn",
+	    "backend.dataplane.metrics_archive",
+	    "backend.dataplane.sandbox_dashboards",
+	    "backend.dataplane.sandbox_conn",
+	    "backend.services.sandbox_conn",
     "backend.state.mgmt_keys",
 ):
     if name in sys.modules:

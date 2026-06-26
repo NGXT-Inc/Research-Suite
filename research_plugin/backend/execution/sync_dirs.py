@@ -1,8 +1,8 @@
-"""Compatibility re-export for the provider-neutral sync contract."""
+"""Compatibility re-export for remote sandbox path helpers."""
 
 from __future__ import annotations
 
-from ..domain.sync_contract import (
+from ..domain.sandbox_paths import (
     ARTIFACTS_TO_KEEP_DIRNAME,
     DEFAULT_DATA_DIR,
     DEFAULT_REMOTE_ROOT,
@@ -10,7 +10,6 @@ from ..domain.sync_contract import (
     remote_experiment_dir,
     remote_root_of,
     remote_sessions_dir,
-    sync_hint,
 )
 
 __all__ = [
@@ -21,5 +20,4 @@ __all__ = [
     "remote_experiment_dir",
     "remote_root_of",
     "remote_sessions_dir",
-    "sync_hint",
 ]

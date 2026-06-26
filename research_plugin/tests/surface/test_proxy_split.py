@@ -22,7 +22,6 @@ from backend.execution.backends.fake import FakeSandboxBackend
 from backend.transport.http_server import make_http_server
 from mcp_server.daemon_marker import marker_path
 from mcp_server.proxy import HttpProxyMcpServer, ProxyConfig
-from tests.fakes import FakeRsyncSyncer
 
 
 class _LiveServer:
@@ -57,7 +56,6 @@ class DualUpstreamProxyTest(unittest.TestCase):
             repo_root=self.repo,
             db_path=db_path,
             execution_backend=FakeSandboxBackend(),
-            rsync_syncer=FakeRsyncSyncer(),
         )
         self.cloud = _LiveServer(app=self.app, repo=self.repo)
         self.daemon = _LiveServer(app=self.app, repo=self.repo)

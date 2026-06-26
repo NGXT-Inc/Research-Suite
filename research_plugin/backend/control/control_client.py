@@ -125,9 +125,6 @@ class HttpControlPlaneClient:
     def attach_sandbox(self, payload: dict[str, Any]) -> dict[str, Any]:
         return self._post(path="/api/daemon/sandboxes/attach", payload=payload)
 
-    def sync_sandbox(self, payload: dict[str, Any]) -> dict[str, Any]:
-        return self._post(path="/api/daemon/sandboxes/sync", payload=payload)
-
     def submit_sandbox_metrics(self, payload: dict[str, Any]) -> dict[str, Any]:
         return self._post(path="/api/daemon/sandboxes/metrics", payload=payload)
 

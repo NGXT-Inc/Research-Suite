@@ -1,7 +1,7 @@
 """Cloud cleanup sweeps (cloud plan Phase 9), driven by injected clocks.
 
-The four idempotent sweeps grouped behind CleanupService.run_all — orphan-VM,
-blob TTL GC, lease-expiry, and stale-provision reap — each take a
+The idempotent sweeps grouped behind CleanupService.run_all — orphan-VM,
+blob TTL GC, storage TTL GC, and stale-provision reap — each take a
 ``now`` so the test owns the clock. The service is mode-blind (the in-process
 app exercises the exact code the control plane schedules), so these run without
 docker or a real control plane.
@@ -19,7 +19,6 @@ from backend.app import ResearchPluginApp
 from backend.execution.backends.fake import FakeSandboxBackend
 from backend.sandbox.sandbox_backend import BackendCapabilities
 from backend.services.cleanup import CleanupService
-from tests.fakes import FakeRsyncSyncer
 
 
 class CleanupSweepTest(unittest.TestCase):
@@ -41,7 +40,6 @@ class CleanupSweepTest(unittest.TestCase):
             repo_root=self.repo,
             db_path=self.repo / ".research_plugin" / "state.sqlite",
             execution_backend=self.backend,
-            rsync_syncer=FakeRsyncSyncer(),
         )
         self.store = self.app.store
         self.cleanup = CleanupService(
@@ -120,29 +118,6 @@ class CleanupSweepTest(unittest.TestCase):
         self.assertEqual(swept, 1)
         self.assertIsNotNone(self.app.blobs.stat(namespace=ns, sha256=live))
         self.assertIsNone(self.app.blobs.stat(namespace=ns, sha256=dead))
-
-    # ---- lease-expiry sweep ----
-
-    def test_lease_expiry_sweep_releases_expired_leases(self) -> None:
-        leases = self.app.sandboxes.leases
-        # A short-TTL lease, then sweep at a clock well past its expiry.
-        leases.acquire(
-            experiment_id="exp_lease", holder_client_id="c1", ttl_seconds=1
-        )
-        self.assertIsNotNone(leases.holder(experiment_id="exp_lease"))
-        future = datetime.now(tz=UTC) + timedelta(hours=1)
-        released = self.cleanup.sweep_expired_leases(now=future)
-        self.assertEqual(released, 1)
-        self.assertIsNone(leases.holder(experiment_id="exp_lease"))
-
-    def test_lease_expiry_sweep_keeps_a_live_lease(self) -> None:
-        leases = self.app.sandboxes.leases
-        leases.acquire(
-            experiment_id="exp_live", holder_client_id="c1", ttl_seconds=600
-        )
-        released = self.cleanup.sweep_expired_leases(now=datetime.now(tz=UTC))
-        self.assertEqual(released, 0)
-        self.assertIsNotNone(leases.holder(experiment_id="exp_live"))
 
     # ---- stale provisioning reap ----
 
@@ -240,7 +215,7 @@ class CleanupSweepTest(unittest.TestCase):
     # ---- run_all ----
 
     def test_run_all_returns_per_sweep_counts_and_is_idempotent(self) -> None:
-        # One expired blob + one dead-VM row + one expired lease.
+        # One expired blob + one dead-VM row.
         self.app.blobs.put(
             namespace=self.project_id, data=b"x", expires_at="2000-01-01T00:00:00Z"
         )
@@ -253,21 +228,16 @@ class CleanupSweepTest(unittest.TestCase):
             status="running",
             expires_at="2999-01-01T00:00:00Z",
         )
-        self.app.sandboxes.leases.acquire(
-            experiment_id="exp_l", holder_client_id="c", ttl_seconds=1
-        )
         future = datetime.now(tz=UTC) + timedelta(hours=1)
         report = self.cleanup.run_all(now=future)
         self.assertEqual(report.orphan_vms_reaped, 1)
         self.assertEqual(report.blobs_swept, 1)
-        self.assertEqual(report.leases_released, 1)
         # A second pass over the cleaned state changes nothing.
         report2 = self.cleanup.run_all(now=future)
         self.assertEqual(report2.as_dict(), {
             "orphan_vms_reaped": 0,
             "blobs_swept": 0,
             "storage_objects_swept": 0,
-            "leases_released": 0,
             "stale_provisions_reaped": 0,
         })
 

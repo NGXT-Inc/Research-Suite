@@ -16,7 +16,6 @@ from pathlib import Path
 from backend.app import ResearchPluginApp
 from backend.execution.backends.fake import FakeSandboxBackend
 from backend.observability import StructuredLogger, TenantCounters
-from tests.fakes import FakeRsyncSyncer
 
 
 class StructuredLoggerTest(unittest.TestCase):
@@ -80,7 +79,6 @@ class TenantCountersTest(unittest.TestCase):
             repo_root=self.repo,
             db_path=self.repo / ".research_plugin" / "state.sqlite",
             execution_backend=FakeSandboxBackend(),
-            rsync_syncer=FakeRsyncSyncer(),
         )
         self.store = self.app.store
         self.counters = TenantCounters(store=self.store)

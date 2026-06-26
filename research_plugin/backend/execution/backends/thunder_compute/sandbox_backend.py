@@ -64,12 +64,10 @@ class ThunderComputeSandboxBackend(VmSshSandboxBackend):
         ssh_runner: SshRunner | None = None,
         ssh_input_runner: SshInputRunner | None = None,
         bootstrap_runner: BootstrapRunner | None = None,
-        parachute_runner: SshRunner | None = None,
     ) -> None:
         super().__init__(
             ssh_runner=ssh_runner,
             ssh_input_runner=ssh_input_runner,
-            parachute_runner=parachute_runner,
         )
         self._config = config
         self._client = client

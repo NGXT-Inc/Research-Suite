@@ -305,7 +305,7 @@ class ThunderBackendTest(unittest.TestCase):
         self.assertIn("RP_EXECUTION_BACKEND=thunder_compute", script)
         self.assertNotIn("UNRELATED", script)
         self.assertIn("ForceCommand /opt/rp/rec.sh", script)
-        self.assertIn("/opt/rp/parachute.sh", script)
+        self.assertNotIn("/opt/rp/parachute.sh", script)
         # Bootstrap readiness is checked through the management principal.
         self.assertEqual(ssh.commands[-1][-2], f"{MGMT_SSH_USER}@198.51.100.7")
 

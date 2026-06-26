@@ -19,7 +19,6 @@ class HttpSurfacePolicy:
     allow_data_plane_http: bool
     allow_data_plane_tool_calls: bool
     use_hosted_tool_policies: bool
-    release_uses_final_pull: bool
 
     @classmethod
     def for_surface(
@@ -37,7 +36,6 @@ class HttpSurfacePolicy:
             allow_data_plane_http=expose_local_data_plane,
             allow_data_plane_tool_calls=expose_local_data_plane,
             use_hosted_tool_policies=hosted_control,
-            release_uses_final_pull=expose_local_data_plane,
         )
 
     def data_plane_http_capabilities(self) -> dict[str, bool]:
@@ -60,5 +58,4 @@ HOSTED_CONTROL_TOOL_POLICIES = {
 HTTP_DATA_PLANE_FEATURE_TO_TOOL = {
     "resource_registration": "resource.register_file",
     "resource_association": "resource.associate",
-    "sandbox_sync": "sandbox.sync",
 }

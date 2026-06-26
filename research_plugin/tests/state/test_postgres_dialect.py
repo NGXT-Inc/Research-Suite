@@ -45,7 +45,6 @@ from backend.services.metrics_records import MetricsSnapshotStore
 from backend.state.dialects import PostgresStateStore, translate_schema_to_postgres
 from backend.state.store import MIGRATIONS, SCHEMA, StateStore, next_created_seq
 from backend.utils import ValidationError, now_iso
-from tests.fakes import FakeRsyncSyncer
 from tests.surface.test_control_plane_contract import (
     ClientHarness,
     ControlPlaneContractScenarios,
@@ -147,7 +146,6 @@ def _postgres_harness() -> ClientHarness:
         repo_root=repo,
         db_path=repo / ".research_plugin" / "unused.sqlite",
         execution_backend=FakeSandboxBackend(),
-        rsync_syncer=FakeRsyncSyncer(),
         store=PostgresStateStore(dsn=_reset_database()),
     )
     return ClientHarness(

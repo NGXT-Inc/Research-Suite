@@ -15,7 +15,7 @@ from backend.execution.backends.fake import FakeSandboxBackend
 from backend.services.mlflow_tracking import CentralMlflowService
 from backend.sandbox.sandbox_backend import SandboxRequest
 from backend.utils import NotFoundError, PermissionDeniedError, ValidationError
-from tests.fakes import FakeProcess, FakeRsyncSyncer, write_fake_mlflow_db
+from tests.fakes import FakeProcess, write_fake_mlflow_db
 
 
 class SandboxServiceTest(unittest.TestCase):
@@ -23,12 +23,10 @@ class SandboxServiceTest(unittest.TestCase):
         self.tmp = tempfile.TemporaryDirectory()
         self.repo = Path(self.tmp.name)
         self.backend = FakeSandboxBackend()
-        self.rsync = FakeRsyncSyncer()
         self.app = ResearchPluginApp(
             repo_root=self.repo,
             db_path=self.repo / ".research_plugin" / "state.sqlite",
             execution_backend=self.backend,
-            rsync_syncer=self.rsync,
             mlflow_tracking=CentralMlflowService(
                 mode="external",
                 tracking_uri="https://mlflow.test",
@@ -309,7 +307,7 @@ class SandboxServiceTest(unittest.TestCase):
         got = self.call("sandbox.get", project_id=self.project_id, experiment_id=exp_id)
         self.assertEqual(got["sandbox_uid"], second["sandbox_uid"])
 
-    def test_get_sync_terminal_and_release_target_sandbox_uid(self) -> None:
+    def test_get_terminal_and_release_target_sandbox_uid(self) -> None:
         exp_id = self._experiment()
         first = self.call("sandbox.request", project_id=self.project_id, experiment_id=exp_id)
         second = self.call(
@@ -326,14 +324,6 @@ class SandboxServiceTest(unittest.TestCase):
             sandbox_uid=first["sandbox_uid"],
         )
         self.assertEqual(got_first["sandbox_id"], first["sandbox_id"])
-        synced = self.app.sandboxes.sync(
-            project_id=self.project_id,
-            experiment_id=exp_id,
-            sandbox_uid=first["sandbox_uid"],
-        )
-        self.assertEqual(synced["sandbox_uid"], first["sandbox_uid"])
-        self.assertEqual(self.rsync.calls[-1]["remote_sync_dir"], first["workdir"])
-
         self.call(
             "sandbox.terminal",
             project_id=self.project_id,
@@ -463,8 +453,8 @@ class SandboxServiceTest(unittest.TestCase):
         self.assertEqual(state["status"], "running")
 
     def test_additional_sandbox_gets_a_distinct_local_dir(self) -> None:
-        # Regression (F2): parallel sandboxes must NOT share one local sync dir, or
-        # a uid-targeted sync (rsync --delete) would clobber the primary's folder.
+        # Regression (F2): parallel sandboxes must NOT share one local experiment
+        # folder, or explicit retained-file copies would collide.
         exp_id = self._experiment()
         primary = self.call("sandbox.request", project_id=self.project_id, experiment_id=exp_id)
         extra = self.call(
@@ -852,14 +842,14 @@ class SandboxServiceTest(unittest.TestCase):
         )
         self.assertEqual(result["experiments"][0]["name"], "lora_glue")
 
-    def test_explicit_sync_archives_metrics(self) -> None:
+    def test_daemon_metrics_snapshot_archives_metrics(self) -> None:
         exp_id = self._experiment()
         self.call("sandbox.request", project_id=self.project_id, experiment_id=exp_id)
-        with patch(
-            "backend.services.sandbox.sandbox_metrics.snapshot_mlflow",
-            return_value=dict(self.SNAPSHOT),
-        ):
-            self.app.sandboxes.sync(project_id=self.project_id, experiment_id=exp_id)
+        self.app.sandboxes.record_daemon_metrics(
+            project_id=self.project_id,
+            experiment_id=exp_id,
+            snapshot=dict(self.SNAPSHOT),
+        )
         result = self.app.sandboxes.results_metrics(
             experiment_id=exp_id, project_id=self.project_id
         )
@@ -868,15 +858,15 @@ class SandboxServiceTest(unittest.TestCase):
 
     def test_unreachable_mlflow_keeps_last_good_archive(self) -> None:
         # A temporarily unreachable central server at release time must not wipe
-        # the archive captured during earlier syncs: None means "skip", never
+        # the archive captured earlier by the daemon: None means "skip", never
         # "overwrite with empty".
         exp_id = self._experiment()
         self.call("sandbox.request", project_id=self.project_id, experiment_id=exp_id)
-        with patch(
-            "backend.services.sandbox.sandbox_metrics.snapshot_mlflow",
-            return_value=dict(self.SNAPSHOT),
-        ):
-            self.app.sandboxes.sync(project_id=self.project_id, experiment_id=exp_id)
+        self.app.sandboxes.record_daemon_metrics(
+            project_id=self.project_id,
+            experiment_id=exp_id,
+            snapshot=dict(self.SNAPSHOT),
+        )
         with patch("backend.services.sandbox.sandbox_metrics.snapshot_mlflow", return_value=None):
             self.call(
                 "sandbox.release",
@@ -896,11 +886,11 @@ class SandboxServiceTest(unittest.TestCase):
         # reviews/UI see metrics without the user machine online.
         exp_id = self._experiment()
         self.call("sandbox.request", project_id=self.project_id, experiment_id=exp_id)
-        with patch(
-            "backend.services.sandbox.sandbox_metrics.snapshot_mlflow",
-            return_value=dict(self.SNAPSHOT),
-        ):
-            self.app.sandboxes.sync(project_id=self.project_id, experiment_id=exp_id)
+        self.app.sandboxes.record_daemon_metrics(
+            project_id=self.project_id,
+            experiment_id=exp_id,
+            snapshot=dict(self.SNAPSHOT),
+        )
         archive_path = self.app.sandboxes.metrics_archive.path_for(exp_id)
         self.assertTrue(archive_path.exists())  # the local file cache is kept as-is
         archive_path.unlink()
@@ -949,7 +939,7 @@ class SandboxServiceTest(unittest.TestCase):
 
     def test_results_metrics_backfills_from_pulled_mlflow_db(self) -> None:
         # Rescue path: a sandbox terminated before REST archiving ever ran,
-        # but the rsync pull captured its mlflow.db. The first read extracts
+        # but a legacy local mlflow.db cache exists. The first read extracts
         # the archive from that file and persists it.
         exp_id = self._experiment()
         db_path = self.app.sandboxes.worker.pulled_mlflow_db_path(experiment_id=exp_id, name=self.app.sandboxes.registry.experiment_name(experiment_id=exp_id))
@@ -1320,24 +1310,6 @@ class SandboxServiceTest(unittest.TestCase):
         self.assertFalse(term["running"])
         self.assertFalse(term["command_running"])
 
-    def test_sync_commits_sandbox_and_returns_resource_guidance(self) -> None:
-        # sandbox.sync is no longer an MCP tool, but the internal service method
-        # still backs daemon-driven pulls — exercise it directly.
-        exp_id = self._experiment()
-        created = self.call("sandbox.request", project_id=self.project_id, experiment_id=exp_id)
-        result = self.app.sandboxes.sync(project_id=self.project_id, experiment_id=exp_id)
-        self.assertEqual(result["status"], "running")
-        self.assertEqual(result["sync"]["provider"], "ssh_rsync")
-        self.assertEqual(result["sync"]["pulled"], 2)
-        self.assertIn("resource.register_file", result["hint"])
-        self.assertEqual(self.rsync.calls[-1]["ssh_host"], created["ssh"]["host"])
-        self.assertEqual(self.rsync.calls[-1]["remote_sync_dir"], "/workspace/exp-1")
-
-    def test_sync_requires_running_sandbox(self) -> None:
-        exp_id = self._experiment()
-        with self.assertRaises(ValidationError):
-            self.app.sandboxes.sync(project_id=self.project_id, experiment_id=exp_id)
-
     # ---- release ----
 
     def test_release_terminates(self) -> None:
@@ -1350,10 +1322,7 @@ class SandboxServiceTest(unittest.TestCase):
             confirm_retained=True,
         )
         self.assertEqual(released["status"], "terminated")
-        self.assertIn("final pull", released["hint"])
-        self.assertIn("metrics snapshot", released["hint"])
-        self.assertIn("sandbox.sync", released["hint"])
-        self.assertNotIn("parachute", released["hint"].lower())
+        self.assertIn("Only files the agent explicitly copied or uploaded", released["hint"])
         self.assertIn(created["sandbox_id"], self.backend.terminated)
 
     def test_release_requires_retention_confirmation(self) -> None:
@@ -1515,8 +1484,6 @@ class SandboxServiceTest(unittest.TestCase):
         reaped = self.app.sandboxes.reap_expired()
         self.assertEqual(reaped, 1)
         self.assertIn(sid, self.backend.terminated)
-        # A best-effort final sync runs before the kill so outputs survive.
-        self.assertTrue(self.rsync.calls)
         got = self.call("sandbox.get", project_id=self.project_id, experiment_id=exp_id)
         self.assertEqual(got["status"], "terminated")
 

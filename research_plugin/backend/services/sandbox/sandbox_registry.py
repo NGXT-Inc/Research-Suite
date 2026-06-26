@@ -14,7 +14,6 @@ import json
 import uuid
 from typing import Any, Callable
 
-from ...ports.sandbox_sync import RunningSandboxSyncRow
 from ...sandbox.sandbox_support import ACTIVE_SANDBOX_STATUSES
 from ...state.store import BaseStateStore, next_created_seq, row_to_dict
 from ...utils import NotFoundError, new_id, now_iso
@@ -160,38 +159,6 @@ class SandboxRegistry:
                 "SELECT * FROM sandboxes WHERE status = 'running' ORDER BY created_seq DESC"
             ).fetchall()
             return [row_to_dict(row=row) or {} for row in rows]
-        finally:
-            conn.close()
-
-    def list_running_sync_rows(self) -> list[RunningSandboxSyncRow]:
-        """Running sandbox rows projected to the sync-session contract."""
-        conn = self.store.connect()
-        try:
-            rows = conn.execute(
-                """
-                SELECT sandbox_uid, experiment_id, tenant_id, sandbox_id, ssh_host, ssh_port,
-                       ssh_user, sync_dir, workdir, sandbox_data_dir, unsynced_dir
-                FROM sandboxes
-                WHERE status = 'running'
-                ORDER BY created_seq DESC
-                """
-            ).fetchall()
-            return [
-                RunningSandboxSyncRow(
-                    sandbox_uid=str(row["sandbox_uid"] or ""),
-                    experiment_id=str(row["experiment_id"] or ""),
-                    tenant_id=row["tenant_id"],
-                    sandbox_id=row["sandbox_id"],
-                    ssh_host=row["ssh_host"],
-                    ssh_port=row["ssh_port"],
-                    ssh_user=row["ssh_user"],
-                    sync_dir=row["sync_dir"],
-                    workdir=row["workdir"],
-                    sandbox_data_dir=row["sandbox_data_dir"],
-                    unsynced_dir=row["unsynced_dir"],
-                )
-                for row in rows
-            ]
         finally:
             conn.close()
 

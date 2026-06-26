@@ -1,13 +1,9 @@
-"""The daemon's HTTP window onto the control plane (cloud plan Phase 8).
+"""The daemon's HTTP window onto the control plane.
 
 In-process, ``InProcessTaskChannel`` dispatches tasks. In split mode the daemon
 talks to the cloud over HTTP: ``HttpControlPlaneView`` long-polls
 ``/api/daemon/tasks`` for data-plane work and posts acks back. The cloud never
 dials in — every call here is daemon-initiated.
-
-Sessions returned by the cloud are JSON sync-session dicts (the same shape the
-worker already requires); the daemon enriches its own key paths locally — the
-cloud never holds the user key path (§3.2).
 """
 
 from __future__ import annotations
@@ -18,7 +14,6 @@ from urllib import error as urllib_error
 from urllib.request import Request, urlopen
 
 from ..control.control_client import ControlPlaneUnreachableError, HttpControlPlaneClient
-from ..ports.sandbox_sync import SyncTarget
 
 
 class HttpControlPlaneView:
@@ -41,27 +36,6 @@ class HttpControlPlaneView:
         self._worker = worker
         self._client_id = client_id
         self._poll_timeout = poll_timeout_seconds
-
-    # ---- sync targets (the ControlPlaneView poll) ----
-
-    def sync_targets(self, *, tenant_id: str | None = None) -> list[SyncTarget]:
-        _ = tenant_id  # Reserved for future user auth; current private mode is unscoped.
-        body = self._request(
-            method="GET",
-            path=f"/api/daemon/sync-targets?client_id={self._client_id}",
-        )
-        targets = body.get("targets")
-        if not isinstance(targets, list):
-            return []
-        # The cloud sends provider-portable row facts + the lease-backed
-        # session; the worker reads its own local key path by experiment_id.
-        return [
-            SyncTarget(row=target["row"], session=target["session"])
-            for target in targets
-            if isinstance(target, dict)
-            and isinstance(target.get("row"), dict)
-            and isinstance(target.get("session"), dict)
-        ]
 
     # ---- task long-poll + ack ----
 

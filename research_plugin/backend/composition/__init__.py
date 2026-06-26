@@ -6,7 +6,7 @@ process roles:
 - ``local_mode``  — today's topology, both planes in one process (the default,
   byte-identical to before this phase).
 - ``control_mode`` — the cloud control plane: record services + lifecycle +
-  blob store + leases + quotas + the daemon task/lease HTTP endpoints.
+  blob store + quotas + the daemon task HTTP endpoints.
   It serves /mcp/* (control tools) + /api/* but NEVER touches a user checkout.
 - ``daemon_mode`` — the slim local data-plane daemon: LocalDataPlaneWorker +
   HttpControlPlaneClient to the cloud, the task long-poll loop, and the local

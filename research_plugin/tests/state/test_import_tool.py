@@ -20,7 +20,6 @@ from backend.daemon.import_tool import import_local_to_cloud, is_tombstoned
 from backend.state import StateStore
 from backend.state.blobs import LocalDirBlobStore
 from backend.utils import ValidationError
-from tests.fakes import FakeRsyncSyncer
 
 VALID_PLAN = (
     "## Summary\nImport test plan.\n\n"
@@ -38,7 +37,6 @@ class ImportToolTest(unittest.TestCase):
             repo_root=self.repo,
             db_path=self.local_db,
             execution_backend=FakeSandboxBackend(),
-            rsync_syncer=FakeRsyncSyncer(),
         )
         self.project_id = self.app.call_tool("project.create", {"name": "Local P"})["id"]
 

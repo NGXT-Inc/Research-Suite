@@ -45,16 +45,16 @@ GATE_TABLE: dict[str, ForwardTransition] = {
         name="submit_design",
         to_status="design_review",
         requires_prose=(
-            "a 'plan' resource must be synced & associated to this experiment, with "
+            "a 'plan' resource must be registered and associated to this experiment, with "
             "the required plan section headers present"
         ),
         requirements=(
             RoleRequirement(
                 role="plan",
-                error="an experiment plan resource must be synced before design review",
+                error="an experiment plan resource must be registered before design review",
                 validator="plan",
                 gate="plan_required",
-                action="write_or_sync_plan_resource",
+                action="write_and_associate_plan_resource",
                 allowed=("resource.register_file", "resource.associate"),
                 missing="experiment plan resource",
                 guidance_key="plan",
@@ -88,7 +88,7 @@ GATE_TABLE: dict[str, ForwardTransition] = {
         to_status="experiment_review",
         requires_prose=(
             "a 'result' resource, a results report (role 'report'), AND a logic "
-            "graph (role 'graph') must be synced & associated to this experiment; "
+            "graph (role 'graph') must be registered and associated to this experiment; "
             "the report needs the required section headers, a metrics table, and "
             "resolvable figure links; the graph must be valid JSON forming a DAG "
             "of at most 16 nodes"
@@ -96,17 +96,16 @@ GATE_TABLE: dict[str, ForwardTransition] = {
         requirements=(
             RoleRequirement(
                 role="result",
-                error="result resource must be synced before experiment_review",
+                error="result resource must be retained before experiment_review",
                 # The workflow layer upgrades this to execution_active while a
                 # sandbox is live for the experiment.
                 gate="execution_ready",
-                action="run_experiment_and_sync_results",
+                action="run_experiment_and_retain_results",
                 allowed=(
                     "sandbox.request",
                     "sandbox.attach",
                     "sandbox.terminal",
                     "sandbox.get",
-                    "sandbox.sync",
                     "resource.register_file",
                     "resource.associate",
                 ),
@@ -116,17 +115,17 @@ GATE_TABLE: dict[str, ForwardTransition] = {
             RoleRequirement(
                 role="report",
                 error=(
-                    "a results report must be synced before experiment_review: write a "
+                    "a results report must be retained before experiment_review: write a "
                     "short markdown report (sections Summary; Results with a metrics "
                     "table; Deviations from plan; Conclusion applying the plan's "
-                    "decision rule), sync it, and associate it with role 'report' — "
+                    "decision rule), copy it out if produced on the sandbox, and "
+                    "associate it with role 'report' — "
                     "see skills/research-workflow/report-template.md"
                 ),
                 validator="report",
                 gate="results_report_required",
                 action="write_and_associate_results_report",
                 allowed=(
-                    "sandbox.sync",
                     "resource.register_file",
                     "resource.associate",
                 ),
@@ -136,19 +135,18 @@ GATE_TABLE: dict[str, ForwardTransition] = {
             RoleRequirement(
                 role="graph",
                 error=(
-                    "a logic graph must be synced before experiment_review: write "
+                    "a logic graph must be retained before experiment_review: write "
                     "the experiment's logic graph (experiments/<name>/graph.json "
                     "— your story of the experiment's logical path: the hard "
                     "decisions and the reasoning behind them, as a DAG of at most "
                     "16 nodes; not a pipeline/provenance diagram and never "
-                    "script-generated), sync it, and associate it "
+                    "script-generated), copy it out if produced on the sandbox, and associate it "
                     "with role 'graph' — see skills/research-workflow/graph-template.md"
                 ),
                 validator="graph",
                 gate="logic_graph_required",
                 action="write_and_associate_logic_graph",
                 allowed=(
-                    "sandbox.sync",
                     "resource.register_file",
                     "resource.associate",
                 ),
