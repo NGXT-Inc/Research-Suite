@@ -235,6 +235,47 @@ class HostedControlSurfaceTest(unittest.TestCase):
         self.assertEqual(resp.status_code, 400, resp.text)
         self.assertEqual(resp.json()["reason"], "repo_root_hidden_from_cloud")
 
+    def test_hosted_sandbox_get_addresses_by_sandbox_uid(self) -> None:
+        # Decoupled identity: a sandbox is found by its durable sandbox_uid, not
+        # by experiment. When one experiment drives several sandboxes, hosted
+        # sandbox.get(sandbox_uid=...) must return THAT sandbox, not the primary.
+        project = self.client.post("/api/projects", json={"name": "Multi Sandbox"})
+        self.assertEqual(project.status_code, 201, project.text)
+        project_id = project.json()["id"]
+        exp_id = self.app.call_tool(
+            name="experiment.create",
+            arguments={"project_id": project_id, "name": "multi", "intent": "two boxes"},
+        )["id"]
+        backend = self.app.execution_backend
+        backend.alive["sbx_primary"] = True
+        backend.alive["sbx_extra"] = True
+        for uid, sid in (("uid_primary", "sbx_primary"), ("uid_extra", "sbx_extra")):
+            self.app.sandboxes.registry.upsert(
+                experiment_id=exp_id,
+                sandbox_uid=uid,
+                project_id=project_id,
+                status="running",
+                sandbox_id=sid,
+            )
+
+        def _get(**extra):
+            resp = self.client.post(
+                "/mcp/call",
+                json={
+                    "name": "sandbox.get",
+                    "arguments": {"project_id": project_id, "experiment_id": exp_id, **extra},
+                },
+            )
+            self.assertEqual(resp.status_code, 200, resp.text)
+            return resp.json()["result"]
+
+        primary = _get(sandbox_uid="uid_primary")
+        extra = _get(sandbox_uid="uid_extra")
+        self.assertEqual(primary["sandbox_id"], "sbx_primary")
+        self.assertEqual(extra["sandbox_id"], "sbx_extra")
+        # The two uids must not collapse to the same sandbox (the hosted bug).
+        self.assertNotEqual(primary["sandbox_id"], extra["sandbox_id"])
+
     def test_data_plane_http_mutation_is_rejected_in_control_mode(self) -> None:
         project = self.client.post("/api/projects", json={"name": "Hosted Project"})
         self.assertEqual(project.status_code, 201, project.text)

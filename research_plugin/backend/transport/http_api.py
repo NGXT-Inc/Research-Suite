@@ -1041,6 +1041,9 @@ def create_fastapi_app(
                 experiment_id=request.experiment_id,
                 project_id=request.project_id,
                 tenant_id=None,
+                # Address the specific sandbox by its durable id (decoupled
+                # identity); omitted still targets the experiment's primary.
+                sandbox_uid=request.sandbox_uid,
                 include_data_plane_enrichment=False,
             )
             return result

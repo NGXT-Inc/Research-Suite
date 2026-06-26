@@ -1008,6 +1008,56 @@ class SandboxServiceTest(unittest.TestCase):
         got = self.call("sandbox.get", project_id=self.project_id, experiment_id=exp_id)
         self.assertEqual(got["status"], "terminated")
 
+    def test_get_reconcile_reverts_experiment_when_sandbox_dies(self) -> None:
+        # A sandbox that dies underneath a running experiment (provider stopped
+        # it, e.g. a billing/idle stop) is detected by reconcile on the next
+        # sandbox.get. The experiment must not be stranded in 'running' — it
+        # reverts to ready_to_run so the agent can request a fresh sandbox,
+        # exactly as the expiry reaper does.
+        exp_id = self._experiment()
+        created = self.call("sandbox.request", project_id=self.project_id, experiment_id=exp_id)
+        self.assertEqual(
+            self.call("experiment.get_state", project_id=self.project_id, experiment_id=exp_id)["status"],
+            "running",
+        )
+        self.backend.kill(sandbox_id=created["sandbox_id"])
+        got = self.call("sandbox.get", project_id=self.project_id, experiment_id=exp_id)
+        self.assertEqual(got["status"], "terminated")
+        state = self.call("experiment.get_state", project_id=self.project_id, experiment_id=exp_id)
+        self.assertEqual(state["status"], "ready_to_run")
+
+    def test_get_reconcile_keeps_experiment_running_while_sibling_alive(self) -> None:
+        # With a parallel (additional) sandbox still live, reconciling one dead
+        # sandbox must keep the experiment running; only the last live sandbox
+        # dying reverts it.
+        exp_id = self._experiment()
+        first = self.call("sandbox.request", project_id=self.project_id, experiment_id=exp_id)
+        second = self.call(
+            "sandbox.request", project_id=self.project_id, experiment_id=exp_id, additional=True
+        )
+        self.backend.kill(sandbox_id=first["sandbox_id"])
+        self.call(
+            "sandbox.get",
+            project_id=self.project_id,
+            experiment_id=exp_id,
+            sandbox_uid=first["sandbox_uid"],
+        )
+        self.assertEqual(
+            self.call("experiment.get_state", project_id=self.project_id, experiment_id=exp_id)["status"],
+            "running",
+        )
+        self.backend.kill(sandbox_id=second["sandbox_id"])
+        self.call(
+            "sandbox.get",
+            project_id=self.project_id,
+            experiment_id=exp_id,
+            sandbox_uid=second["sandbox_uid"],
+        )
+        self.assertEqual(
+            self.call("experiment.get_state", project_id=self.project_id, experiment_id=exp_id)["status"],
+            "ready_to_run",
+        )
+
     def test_get_scoped_to_project(self) -> None:
         exp_id = self._experiment()
         self.call("sandbox.request", project_id=self.project_id, experiment_id=exp_id)

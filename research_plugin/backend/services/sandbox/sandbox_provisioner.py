@@ -117,11 +117,26 @@ class SandboxProvisioner:
                 self.registry.touch_alive(experiment_id=exp, sandbox_uid=sandbox_uid)
                 return self._refresh_row(row=self.registry.get_by_uid(sandbox_uid=sandbox_uid))
             self.registry.mark_terminated(experiment_id=exp, sandbox_uid=sandbox_uid)
+            # An experiment whose sandbox died underneath it must not stay
+            # 'running' forever — mirror the reaper's _reap_row and revert to
+            # ready_to_run so the agent can request a fresh sandbox. The
+            # has_active guard keeps a parallel-sandbox experiment running while
+            # a sibling sandbox is still alive; the transition no-ops past running.
+            reverted = False
+            if not self.registry.has_active_for_experiment(experiment_id=exp):
+                reverted = self.experiments.apply_system_transition(
+                    experiment_id=exp,
+                    transition="sandbox_expired",
+                    reason="sandbox terminated (provider reported not alive)",
+                )
             self.registry.emit_event(
                 project_id=str(row["project_id"]),
                 event_type="sandbox.expired",
                 experiment_id=exp,
-                payload={"sandbox_id": row.get("sandbox_id", "")},
+                payload={
+                    "sandbox_id": row.get("sandbox_id", ""),
+                    "experiment_reverted": reverted,
+                },
             )
             return self.registry.get_by_uid(sandbox_uid=sandbox_uid)
         if status == "provisioning":
