@@ -30,36 +30,50 @@ from ...sandbox.sandbox_support import (
 )
 
 
-def _folder_contract_note(*, remote_dir: str, local_dir: str) -> str:
+def _folder_contract_note(
+    *, remote_dir: str, local_dir: str, attached_to_experiment: bool
+) -> str:
     """The sandbox file durability rule, told at the moment it matters."""
+    folder_label = "experiment folder" if attached_to_experiment else "work folder"
+    local_label = (
+        "local experiment folder" if attached_to_experiment else "local sandbox folder"
+    )
     return (
-        f"The sandbox experiment folder is {remote_dir} ($RP_EXPERIMENT_DIR). "
+        f"The sandbox {folder_label} is {remote_dir} ($RP_EXPERIMENT_DIR). "
         "Work in it over SSH — scripts, results, report.md, graph.json. "
         "This sandbox is an EPHEMERAL SSH window: nothing is synced for you, and "
         "when it is released or reaped the VM and everything on it is destroyed. "
         "So pull anything you want to keep BEFORE then, yourself, from the "
         "terminal: you have the SSH connection details (ssh.key_path / ssh.host / "
         "ssh.port in this response), so rsync the light files you need off the box "
-        f"into the local experiment folder ({local_dir}) and then register them as "
+        f"into the {local_label} ({local_dir}) and then register them as "
         "resources, e.g. "
         f"rsync -az -e 'ssh -i <key_path> -p <port> -o StrictHostKeyChecking=no' "
         f"<user>@<host>:{remote_dir}/ {local_dir}/ . "
         "Heavy files (trained models, precious datasets, multi-GB checkpoints) "
         "should NOT be rsynced into the repo — upload them to durable storage with "
         "storage.put_object instead. Keep caches and scratch data under "
-        "$RP_DATASET_DIR, outside the experiment folder. "
+        f"$RP_DATASET_DIR, outside the {folder_label}. "
     )
 
 
-def _expiry_note(expires_at: Any) -> str:
+def _expiry_note(expires_at: Any, *, attached_to_experiment: bool) -> str:
     if not expires_at:
         return ""
+    local_label = (
+        "local experiment folder" if attached_to_experiment else "local sandbox folder"
+    )
+    retry_note = (
+        "the experiment can request a new one from ready_to_run"
+        if attached_to_experiment
+        else "you can request a new sandbox"
+    )
     return (
         f"Sandbox lifetime expires at {expires_at}. Before that deadline, pull "
-        "anything you need off the box yourself (rsync light files into the local "
-        "experiment folder, storage.put_object for heavy ones) and "
-        "register/associate the outputs. If it expires, the reaper terminates the "
-        "sandbox and the experiment can request a new one from ready_to_run. "
+        f"anything you need off the box yourself (rsync light files into the {local_label}, "
+        "storage.put_object for heavy ones) and register/associate the outputs. "
+        "If it expires, the reaper terminates the sandbox and "
+        f"{retry_note}. "
     )
 
 
@@ -103,11 +117,11 @@ def agent_row_facts(
             "user": row.get("ssh_user"),
         },
         "workdir": row.get("workdir"),
-        # The experiment folder on the box; the agent rsyncs what it needs off
-        # it over SSH before the sandbox is destroyed (nothing is auto-synced).
+        # The work folder on the box; the agent rsyncs what it needs off it over
+        # SSH before the sandbox is destroyed (nothing is auto-synced).
         "experiment_dir": remote_dir,
         # VM-local conventional home for datasets/caches. Never synced —
-        # like everything else outside the experiment folder.
+        # like everything else outside the work folder.
         "data_dir": data_dir,
         "volume": row.get("volume_name"),
         "gpu": row.get("gpu") or None,
@@ -146,6 +160,7 @@ def merge_agent_view(
     view = dict(facts)
     status = str(view.get("status") or "none")
     live = _is_live(status=status, ssh=view.get("ssh") or {})
+    attached_to_experiment = bool(str(view.get("experiment_id") or ""))
     command = str(enrichment.get("command") or "") if live else ""
     raw_command = str(enrichment.get("raw_command") or "") if live else ""
     local_dir = str(enrichment.get("local_dir") or "")
@@ -202,8 +217,11 @@ def merge_agent_view(
             "sandbox.get every 30-60 seconds until status is running, then "
             "run commands with ssh.command. Do not re-call sandbox.request "
             "to poll. "
-            f"{_expiry_note(view.get('expires_at'))}"
-            f"{credential_note}"
+            + _expiry_note(
+                view.get('expires_at'),
+                attached_to_experiment=attached_to_experiment,
+            )
+            + credential_note
         )
     elif status == "failed":
         view["hint"] = (
@@ -211,25 +229,41 @@ def merge_agent_view(
             "call sandbox.request to retry."
         )
     elif live:
-        dashboard_note = (
-            "Training observability: the backend provides centralized MLflow "
-            "tracking context and the sandbox provides TensorBoard event "
-            "logging. Write TensorBoard events to $RP_TB_LOGDIR. Framework "
-            "integrations such as Hugging Face "
-            "Trainer and PyTorch Lightning's MLFlowLogger can use these "
-            "env vars directly; for plain PyTorch, add mlflow.autolog() "
-            "when useful. The user sees dashboard tabs in the UI once "
-            "the servers are reachable; you do not need to fetch or "
-            "share the URLs. Also save selected plot images or compact result "
-            "tables under $RP_EXPERIMENT_DIR (e.g. figures/*.png, "
-            "results/*.json/csv) so you can rsync them off and reference them "
-            "from report.md. "
-        )
+        if attached_to_experiment:
+            dashboard_note = (
+                "Training observability: the backend provides centralized MLflow "
+                "tracking context and the sandbox provides TensorBoard event "
+                "logging. Write TensorBoard events to $RP_TB_LOGDIR. Framework "
+                "integrations such as Hugging Face "
+                "Trainer and PyTorch Lightning's MLFlowLogger can use these "
+                "env vars directly; for plain PyTorch, add mlflow.autolog() "
+                "when useful. The user sees dashboard tabs in the UI once "
+                "the servers are reachable; you do not need to fetch or "
+                "share the URLs. Also save selected plot images or compact result "
+                "tables under $RP_EXPERIMENT_DIR (e.g. figures/*.png, "
+                "results/*.json/csv) so you can rsync them off and reference them "
+                "from report.md. "
+            )
+        else:
+            dashboard_note = (
+                "Sandbox observability: write TensorBoard events to $RP_TB_LOGDIR "
+                "when useful. The user sees dashboard tabs in the UI once the "
+                "servers are reachable; you do not need to fetch or share the "
+                "URLs. Also save selected outputs under $RP_EXPERIMENT_DIR so "
+                "you can rsync them off before release. "
+            )
         view["hint"] = (
             f"Run commands with: {command} '<your shell command>' (from the repo root). "
-            "Commands start inside the experiment folder. "
-            "Output streams back and is recorded to the experiment terminal. "
-            "Every command runs under a tmux supervisor on the sandbox and "
+            + (
+                "Commands start inside the experiment folder. "
+                "Output streams back and is recorded to the experiment terminal. "
+                if attached_to_experiment
+                else (
+                    "Commands start inside the sandbox work folder. "
+                    "Output streams back and is recorded to the sandbox terminal. "
+                )
+            )
+            + "Every command runs under a tmux supervisor on the sandbox and "
             "keeps running if SSH drops or your call times out - a timeout "
             "means you stopped watching, not that the command stopped. Check "
             "the terminal transcript for the command's exit marker before "
@@ -240,21 +274,26 @@ def merge_agent_view(
             + _folder_contract_note(
                 remote_dir=remote_dir,
                 local_dir=local_dir,
+                attached_to_experiment=attached_to_experiment,
             )
             + "Before registering result resources, rsync the files you need off "
-            "the box yourself (see the folder note) into the local experiment "
-            "folder, then register those local files. "
-            f"{_expiry_note(view.get('expires_at'))}"
-            f"{credential_note}"
-            f"{mlflow_note}"
-            f"{dashboard_note}"
-            "The dispatcher multiplexes one SSH connection and auto-retries "
+            "the box yourself (see the folder note) into the local "
+            + ("experiment folder" if attached_to_experiment else "sandbox folder")
+            + ", then register those local files. "
+            + _expiry_note(
+                view.get('expires_at'),
+                attached_to_experiment=attached_to_experiment,
+            )
+            + credential_note
+            + mlflow_note
+            + dashboard_note
+            + "The dispatcher multiplexes one SSH connection and auto-retries "
             "transient connect failures, so do not wrap it in your own retry "
             "loop; if commands keep failing to connect, call sandbox.get once "
             "to refresh the endpoint."
         )
     else:
-        view["hint"] = "No live sandbox for this experiment — call sandbox.request to create one."
+        view["hint"] = "No live sandbox found — call sandbox.request to create one."
     return view
 
 

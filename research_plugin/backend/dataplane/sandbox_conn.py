@@ -1,8 +1,8 @@
-"""Per-experiment SSH key + dispatcher + connection-file plumbing.
+"""Sandbox SSH key + dispatcher + connection-file plumbing.
 
 ``SandboxConnFiles`` owns everything about how the agent reaches a sandbox over
 SSH on the local filesystem: the ed25519 keypair, the static ``sbx`` dispatcher
-script, and the per-experiment ``conn`` file the dispatcher sources. It is pure
+script, and the ``conn`` files the dispatcher sources. It is pure
 filesystem/subprocess work with no sandbox-state knowledge, split out of
 ``SandboxService`` so that machinery is independently testable.
 """
@@ -77,7 +77,7 @@ class SandboxConnFiles:
         key_path: Path,
         use_sandbox_uid_command: bool = False,
     ) -> str:
-        """Refresh the per-experiment conn file and return the short command.
+        """Refresh the sandbox conn file and return the short command.
 
         Returns `.research_plugin/sbx <key>` (relative to the repo root).
         Returns "" if the wrapper could not be written, so the caller falls
@@ -87,7 +87,7 @@ class SandboxConnFiles:
         experiment_id = str(row.get("experiment_id") or "")
         sandbox_uid = str(row.get("sandbox_uid") or "")
         safe_uid = _safe_name(sandbox_uid or experiment_id)
-        safe_exp = _safe_name(experiment_id)
+        safe_exp = _safe_name(experiment_id) if experiment_id else ""
         try:
             self.ensure_dispatcher(dispatcher=dispatcher)
             conn_dir.mkdir(parents=True, exist_ok=True)
@@ -100,7 +100,7 @@ class SandboxConnFiles:
             conn_file = conn_dir / safe_uid
             conn_file.write_text(body)
             os.chmod(conn_file, 0o600)
-            if safe_exp and not use_sandbox_uid_command:
+            if experiment_id and safe_exp and not use_sandbox_uid_command:
                 # The experiment alias preserves the single-sandbox command.
                 alias = conn_dir / safe_exp
                 alias.write_text(body)

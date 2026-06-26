@@ -87,7 +87,7 @@ class SandboxRegistry:
     def fetch_scoped(
         self,
         *,
-        experiment_id: str,
+        experiment_id: str | None,
         project_id: str | None,
         tenant_id: str | None = None,
         sandbox_uid: str | None = None,
@@ -104,6 +104,8 @@ class SandboxRegistry:
                     "SELECT * FROM sandboxes WHERE sandbox_uid = ?", (target_uid,)
                 ).fetchone()
             else:
+                if not experiment_id:
+                    raise NotFoundError("sandbox_uid or experiment_id is required")
                 target_uid = (
                     self._primary_uid(conn=conn, experiment_id=experiment_id)
                     or self._latest_uid(conn=conn, experiment_id=experiment_id)
@@ -117,8 +119,10 @@ class SandboxRegistry:
                     else None
                 )
             if row is None:
+                if target_uid:
+                    raise NotFoundError(f"sandbox not found: {target_uid}")
                 raise NotFoundError(f"no sandbox for experiment: {experiment_id}")
-            if row["experiment_id"] != experiment_id:
+            if experiment_id and row["experiment_id"] != experiment_id:
                 raise NotFoundError(f"no sandbox for experiment: {experiment_id}")
             if project_id is not None and row["project_id"] != project_id:
                 raise NotFoundError(
@@ -606,7 +610,7 @@ class SandboxRegistry:
                 project_id=project_id,
                 event_type=event_type,
                 target_type="sandbox",
-                target_id=experiment_id,
+                target_id=experiment_id or str(payload.get("sandbox_uid") or ""),
                 payload=payload,
             )
 
@@ -620,7 +624,7 @@ class SandboxRegistry:
         experiment_id: str,
         attached_at: str,
     ) -> None:
-        if not sandbox_uid:
+        if not sandbox_uid or not experiment_id:
             return
         conn.execute(
             """
@@ -644,7 +648,7 @@ class SandboxRegistry:
         experiment_id: str,
         detached_at: str,
     ) -> None:
-        if not sandbox_uid:
+        if not sandbox_uid or not experiment_id:
             return
         conn.execute(
             """

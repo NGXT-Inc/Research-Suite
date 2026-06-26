@@ -192,7 +192,9 @@ class LocalDataPlaneWorker:
         merges this with the row facts; in split mode the daemon supplies it.
         """
         experiment_id = str(row.get("experiment_id") or "")
-        key_path = self.key_path(experiment_id=experiment_id)
+        sandbox_uid = str(row.get("sandbox_uid") or "")
+        local_key = experiment_id or sandbox_uid
+        key_path = self.key_path(experiment_id=local_key)
         live = bool(
             row.get("ssh_host")
             and row.get("ssh_port")
@@ -216,11 +218,11 @@ class LocalDataPlaneWorker:
             "raw_command": raw_command,
             "local_dir": str(
                 self.local_experiment_dir(
-                    experiment_id=experiment_id,
+                    experiment_id=local_key,
                     name=name,
                     sandbox_uid=self._local_dir_uid(
                         remote_dir=str(row.get("workdir") or row.get("sync_dir") or ""),
-                        sandbox_uid=str(row.get("sandbox_uid") or ""),
+                        sandbox_uid=sandbox_uid,
                     ),
                 )
             ),

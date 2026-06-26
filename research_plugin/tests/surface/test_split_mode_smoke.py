@@ -586,6 +586,27 @@ class SplitModeSmokeTest(unittest.TestCase):
 
     # ---- the smoke ----
 
+    def test_standalone_sandbox_request_through_the_split(self) -> None:
+        project = self._call("project.create", name="Split Standalone")
+        project_id = project["id"]
+        self.links.link(repo_root=str(self.repo), project_id=project_id)
+        self.proxy._project_id = None
+
+        created = self._call("sandbox.request", project_id=project_id)
+
+        uid = created["sandbox_uid"]
+        self.assertEqual(created["experiment_id"], "")
+        self.assertIn(uid[:12], created["ssh"]["command"])
+        self.assertTrue(Path(created["ssh"]["key_path"]).exists())
+        conn_dir = self.repo / ".research_plugin" / "sandboxes" / "conn"
+        self.assertTrue((conn_dir / uid).exists())
+        self.assertFalse((conn_dir / "experiment").exists())
+
+        got = self._call("sandbox.get", project_id=project_id, sandbox_uid=uid)
+        self.assertEqual(got["sandbox_uid"], uid)
+        self.assertIn(uid[:12], got["ssh"]["command"])
+        self.assertIn("sandbox work folder", got["hint"])
+
     def test_full_loop_through_the_split(self) -> None:
         # project.create → cloud (control). The proxy passes project_id; we link
         # the repo so the daemon's /local/route resolves it for later calls.

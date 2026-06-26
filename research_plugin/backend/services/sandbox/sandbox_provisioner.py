@@ -1,9 +1,9 @@
 """Background sandbox provisioning: job threads, cancellation, reconcile.
 
 `SandboxProvisioner` owns the acquire lifecycle — idempotent experiment-keyed
-jobs for the default path, uid-keyed jobs for additional sandboxes, cooperative
-cancellation, orphan cleanup, and the reconcile pass that keeps a polled row
-truthful after crashes or restarts.
+jobs for attached default sandboxes, uid-keyed jobs for standalone/additional
+sandboxes, cooperative cancellation, orphan cleanup, and the reconcile pass that
+keeps a polled row truthful after crashes or restarts.
 It talks to persistence through `SandboxRegistry`, applies experiment status
 changes only through the workflow engine's system transitions, and reaches
 the facade only through ``refresh_row`` (endpoint + dashboard refresh for a
@@ -78,7 +78,7 @@ class SandboxProvisioner:
         self.worker = worker
         self._refresh_row = refresh_row
         self.stale_provision_seconds = stale_provision_seconds
-        # Default provisioning is keyed by experiment; additional sandboxes by uid.
+        # Attached default jobs are keyed by experiment; standalone/additional by uid.
         self._jobs: dict[str, _ProvisionJob] = {}
         self._jobs_lock = threading.Lock()
 
@@ -110,7 +110,7 @@ class SandboxProvisioner:
           terminal state.
         """
         status = row.get("status")
-        exp = str(row.get("experiment_id"))
+        exp = str(row.get("experiment_id") or "")
         sandbox_uid = str(row.get("sandbox_uid") or "")
         if status in ACTIVE_SANDBOX_STATUSES and row.get("sandbox_id"):
             if self.is_alive(sandbox_id=str(row["sandbox_id"])):
@@ -123,7 +123,7 @@ class SandboxProvisioner:
             # has_active guard keeps a parallel-sandbox experiment running while
             # a sibling sandbox is still alive; the transition no-ops past running.
             reverted = False
-            if not self.registry.has_active_for_experiment(experiment_id=exp):
+            if exp and not self.registry.has_active_for_experiment(experiment_id=exp):
                 reverted = self.experiments.apply_system_transition(
                     experiment_id=exp,
                     transition="sandbox_expired",
@@ -194,7 +194,7 @@ class SandboxProvisioner:
             sandbox_uid = self.registry.new_sandbox_uid()
         job_key = self._job_key(
             experiment_id=experiment_id,
-            sandbox_uid=sandbox_uid if create_new else "",
+            sandbox_uid=sandbox_uid if create_new or not experiment_id else "",
         )
         with self._jobs_lock:
             job = self._jobs.get(job_key)
@@ -366,10 +366,11 @@ class SandboxProvisioner:
                 )
             except Exception:  # noqa: BLE001
                 pass
-            self.experiments.apply_system_transition(
-                experiment_id=experiment_id,
-                transition="sandbox_started",
-            )
+            if experiment_id:
+                self.experiments.apply_system_transition(
+                    experiment_id=experiment_id,
+                    transition="sandbox_started",
+                )
             self.registry.emit_event(
                 project_id=project_id,
                 event_type="sandbox.created",
@@ -565,7 +566,8 @@ class SandboxProvisioner:
         if not sid:
             sandbox_uid = str((row or {}).get("sandbox_uid") or "")
             active_sibling = bool(
-                sandbox_uid
+                experiment_id
+                and sandbox_uid
                 and self.registry.has_active_for_experiment(
                     experiment_id=experiment_id, exclude_sandbox_uid=sandbox_uid
                 )

@@ -21,6 +21,7 @@ from __future__ import annotations
 import base64
 import json
 import os
+import uuid
 from collections.abc import Mapping
 from pathlib import Path
 from typing import Any
@@ -175,18 +176,26 @@ class DaemonServer:
         self, *, arguments: dict[str, Any], context: dict[str, Any]
     ) -> dict[str, Any]:
         _repo_root, project_id = self._linked_scope(context=context)
-        experiment_id = self._required_arg(arguments, "experiment_id")
-        public_key, _key_path = self.worker.ensure_keypair(experiment_id=experiment_id)
+        experiment_id = str(arguments.get("experiment_id") or "").strip()
+        requested_uid = "" if experiment_id else uuid.uuid4().hex
+        local_key = experiment_id or requested_uid
+        public_key, _key_path = self.worker.ensure_keypair(experiment_id=local_key)
         payload = dict(arguments)
         payload["project_id"] = project_id
-        payload["experiment_id"] = experiment_id
+        if experiment_id:
+            payload["experiment_id"] = experiment_id
+        else:
+            payload["sandbox_uid"] = requested_uid
         payload["public_key"] = public_key
         facts = self.control.request_sandbox(payload)
-        name = str(facts.pop("_experiment_name", "") or "")
+        sandbox_uid = str(facts.get("sandbox_uid") or "")
+        name = str(facts.pop("_experiment_name", "") or "") or (
+            f"sandbox-{sandbox_uid[:12]}" if sandbox_uid else ""
+        )
         return self._merge_sandbox_enrichment(
             facts=facts,
             name=name,
-            use_sandbox_uid_command=bool(arguments.get("additional")),
+            use_sandbox_uid_command=bool(arguments.get("additional") or not experiment_id),
         )
 
     def _attach_sandbox(
@@ -268,8 +277,6 @@ class DaemonServer:
         name: str,
         use_sandbox_uid_command: bool = False,
     ) -> dict[str, Any]:
-        if not facts.get("experiment_id"):
-            return facts
         enrichment = self._sandbox_enrichment(
             facts=facts,
             name=name,

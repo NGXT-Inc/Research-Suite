@@ -180,7 +180,8 @@ class SandboxDaemons:
                 stopped = self.backend.terminate(sandbox_id=sandbox_id)
             except Exception:  # noqa: BLE001
                 stopped = False
-        self.provisioner.cleanup_orphan(experiment_id=experiment_id, row=row)
+        if not stopped:
+            self.provisioner.cleanup_orphan(experiment_id=experiment_id, row=row)
         sandbox_uid = str(row.get("sandbox_uid") or "")
         self.registry.mark_terminated(
             experiment_id=experiment_id, sandbox_uid=sandbox_uid
@@ -189,11 +190,12 @@ class SandboxDaemons:
         # 'running' forever; ready_to_run is truthful (nothing is executing)
         # and lets the agent simply request a fresh sandbox. The system
         # transition no-ops for experiments already past running.
-        active_remain = self.registry.has_active_for_experiment(
-            experiment_id=experiment_id
+        active_remain = bool(
+            experiment_id
+            and self.registry.has_active_for_experiment(experiment_id=experiment_id)
         )
         reverted = False
-        if not active_remain:
+        if experiment_id and not active_remain:
             reverted = self.experiments.apply_system_transition(
                 experiment_id=experiment_id,
                 transition="sandbox_expired",

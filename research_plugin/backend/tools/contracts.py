@@ -375,7 +375,13 @@ class ReviewStatusInput(ProjectScopedInput):
 
 
 class SandboxRequestInput(ProjectScopedInput):
-    experiment_id: str
+    experiment_id: str | None = Field(
+        default=None,
+        description=(
+            "Optional experiment to attach the sandbox to. Omit to create a "
+            "standalone sandbox addressed by sandbox_uid."
+        ),
+    )
     instance_type: str | None = Field(
         default=None,
         description=(
@@ -422,8 +428,9 @@ class SandboxRequestInput(ProjectScopedInput):
     additional: bool = Field(
         default=False,
         description=(
-            "When true, provision a new parallel sandbox for this experiment "
-            "instead of reusing the current primary sandbox."
+            "When true, provision a new parallel sandbox for the supplied "
+            "experiment instead of reusing that experiment's current primary "
+            "sandbox."
         ),
     )
 
@@ -440,7 +447,12 @@ class SandboxOptionsInput(ProjectScopedInput):
 
 
 class SandboxGetInput(ProjectScopedInput):
-    experiment_id: str
+    experiment_id: str | None = Field(
+        default=None,
+        description=(
+            "Experiment to read by primary sandbox. Omit when sandbox_uid is supplied."
+        ),
+    )
     sandbox_uid: str | None = Field(
         default=None,
         description="Optional sandbox_uid to read; omitted targets the primary sandbox.",
@@ -461,7 +473,13 @@ class SandboxListInput(ProjectScopedInput):
 
 
 class SandboxReleaseInput(ProjectScopedInput):
-    experiment_id: str
+    experiment_id: str | None = Field(
+        default=None,
+        description=(
+            "Experiment whose sandbox(es) should be released. Omit when "
+            "terminating a specific sandbox_uid."
+        ),
+    )
     sandbox_uid: str | None = Field(
         default=None,
         description=(
@@ -482,7 +500,10 @@ class SandboxReleaseInput(ProjectScopedInput):
 
 
 class SandboxTerminalInput(ProjectScopedInput):
-    experiment_id: str
+    experiment_id: str | None = Field(
+        default=None,
+        description="Experiment whose sandbox transcript to read. Omit with sandbox_uid.",
+    )
     sandbox_uid: str | None = Field(
         default=None,
         description="Optional sandbox_uid to read; omitted targets the primary sandbox.",
@@ -748,10 +769,12 @@ TOOL_CONTRACTS: dict[str, ToolContract] = {
     "sandbox.request": ToolContract(
         input_model=SandboxRequestInput,
         description=(
-            "Procure (reuse or create) the experiment's sandbox and return SSH "
-            "details plus runtime guidance for the remote work folder, expiry, and "
-            "centralized MLflow tracking plus sandbox TensorBoard observability. "
-            "Put anything the run needs in experiments/<name>/ before provisioning. "
+            "Procure (reuse or create) a project sandbox, optionally attached to "
+            "an experiment, and return SSH details plus runtime guidance for the "
+            "remote work folder, expiry, and sandbox TensorBoard observability. "
+            "Attached experiment sandboxes also include centralized MLflow tracking "
+            "context. Put anything an experiment run needs in experiments/<name>/ "
+            "before provisioning. "
             "On Thunder Compute or Lambda Labs, omit instance_type to "
             "receive a live menu of available machines to pick from."
         ),
@@ -767,9 +790,9 @@ TOOL_CONTRACTS: dict[str, ToolContract] = {
     "sandbox.get": ToolContract(
         input_model=SandboxGetInput,
         description=(
-            "Get the experiment's sandbox status, SSH details, expiry, and "
-            "polling/runtime guidance. Use it to poll provisioning and inspect "
-            "terminated or expired sandboxes."
+            "Get sandbox status, SSH details, expiry, and polling/runtime "
+            "guidance by experiment_id or sandbox_uid. Use it to poll "
+            "provisioning and inspect terminated or expired sandboxes."
         ),
         plane="aggregate",
         hosted_control_sandbox_lookup=True,
@@ -790,8 +813,9 @@ TOOL_CONTRACTS: dict[str, ToolContract] = {
     "sandbox.release": ToolContract(
         input_model=SandboxReleaseInput,
         description=(
-            "Terminate the experiment's sandbox (permanently destroys the VM "
-            "and everything on it) and capture a best-effort metrics snapshot. "
+            "Terminate a sandbox by experiment_id or sandbox_uid (permanently "
+            "destroys the VM and everything on it) and capture a best-effort "
+            "metrics snapshot. "
             "Two-step by design: the first call WITHOUT confirm_retained does "
             "not delete — it returns a retention checklist asking you to confirm "
             "you have everything you need. Retain first (rsync light files off "
@@ -802,7 +826,8 @@ TOOL_CONTRACTS: dict[str, ToolContract] = {
     "sandbox.terminal": ToolContract(
         input_model=SandboxTerminalInput,
         description=(
-            "Read the experiment's terminal transcript. For polling, pass "
+            "Read a sandbox terminal transcript by experiment_id or sandbox_uid. "
+            "For polling, pass "
             "since=<cursor from the last response> to get only NEW output "
             "instead of re-pulling the whole tail; 'running' indicates whether "
             "the sandbox is still alive so you can stop polling a finished one. "

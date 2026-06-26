@@ -149,7 +149,7 @@ class SandboxService:
     def request(
         self,
         *,
-        experiment_id: str,
+        experiment_id: str | None = None,
         project_id: str | None = None,
         gpu: str | None = None,
         cpu: float | None = None,
@@ -160,7 +160,9 @@ class SandboxService:
         public_key_override: str | None = None,
         include_data_plane_enrichment: bool = True,
         additional: bool = False,
+        sandbox_uid: str | None = None,
     ) -> dict[str, Any]:
+        experiment_id = (experiment_id or "").strip()
         caps = self.backend.capabilities
         gpu, cpu, memory, time_limit = validate_request_inputs(
             gpu=gpu,
@@ -172,34 +174,50 @@ class SandboxService:
         instance_type = (instance_type or "").strip() or None
         region = (region or "").strip() or None
 
-        # Resolve scope + experiment gate, and read the current primary row.
+        # Resolve scope. Experiment attachment is optional: an unattached
+        # sandbox is project-scoped and addressed by sandbox_uid.
+        experiment_name = ""
         with self.store.transaction() as conn:
             project_id = self.store.require_project_id(conn=conn, project_id=project_id)
-            experiment = conn.execute(
-                "SELECT * FROM experiments WHERE id = ?", (experiment_id,)
-            ).fetchone()
-            if experiment is None or experiment["project_id"] != project_id:
-                raise NotFoundError(
-                    f"experiment not found in project {project_id}: {experiment_id}"
-                )
-            if experiment["status"] not in {"ready_to_run", "running"}:
-                raise PermissionDeniedError(
-                    "sandbox.request requires experiment status ready_to_run or running"
-                )
-        try:
-            existing = self.registry.load_row(experiment_id=experiment_id)
-        except NotFoundError:
+            if experiment_id:
+                experiment = conn.execute(
+                    "SELECT * FROM experiments WHERE id = ?", (experiment_id,)
+                ).fetchone()
+                if experiment is None or experiment["project_id"] != project_id:
+                    raise NotFoundError(
+                        f"experiment not found in project {project_id}: {experiment_id}"
+                    )
+                if experiment["status"] not in {"ready_to_run", "running"}:
+                    raise PermissionDeniedError(
+                        "sandbox.request requires experiment status ready_to_run or running"
+                    )
+                experiment_name = str(experiment["name"] or "")
+        if experiment_id:
+            try:
+                existing = self.registry.load_row(experiment_id=experiment_id)
+            except NotFoundError:
+                existing = None
+        else:
             existing = None
+            additional = False
 
+        requested_uid = (sandbox_uid or "").strip()
+        sandbox_uid = (
+            requested_uid
+            or (
+                self.registry.new_sandbox_uid()
+                if additional
+                else str(
+                    (existing or {}).get("sandbox_uid")
+                    or self.registry.new_sandbox_uid()
+                )
+            )
+        )
+        local_key = experiment_id or sandbox_uid
         if public_key_override:
             public_key = public_key_override
         else:
-            public_key, _key_path = self._ensure_keypair(experiment_id=experiment_id)
-        sandbox_uid = (
-            self.registry.new_sandbox_uid()
-            if additional
-            else str((existing or {}).get("sandbox_uid") or self.registry.new_sandbox_uid())
-        )
+            public_key, _key_path = self._ensure_keypair(local_key=local_key)
         # Mint the management keypair before any provision so key injection
         # always precedes the management read paths (plan Phase 5 sequencing).
         management_public_key = self.mgmt_keys.ensure(sandbox_uid=sandbox_uid)
@@ -280,12 +298,12 @@ class SandboxService:
             experiment_id=experiment_id,
         )
         remote_dir = remote_experiment_dir(
-            experiment_id=experiment_id,
-            name=self.registry.experiment_name(experiment_id=experiment_id),
+            experiment_id=experiment_id or sandbox_uid,
+            name=experiment_name or (f"sandbox-{sandbox_uid[:12]}" if not experiment_id else ""),
             sandbox_uid=sandbox_uid if additional else "",
         )
         req = SandboxRequest(
-            experiment_id=experiment_id,
+            experiment_id=experiment_id or sandbox_uid,
             project_id=project_id,
             public_key=public_key,
             sandbox_uid=sandbox_uid,
@@ -326,13 +344,13 @@ class SandboxService:
             row=row,
             reused=reused,
             include_data_plane_enrichment=include_data_plane_enrichment,
-            use_sandbox_uid_command=additional,
+            use_sandbox_uid_command=additional or not experiment_id,
         )
 
     def request_from_data_plane(
         self,
         *,
-        experiment_id: str,
+        experiment_id: str | None = None,
         public_key: str,
         project_id: str | None = None,
         gpu: str | None = None,
@@ -342,6 +360,7 @@ class SandboxService:
         instance_type: str | None = None,
         region: str | None = None,
         additional: bool = False,
+        sandbox_uid: str | None = None,
     ) -> dict[str, Any]:
         return self.request(
             experiment_id=experiment_id,
@@ -355,18 +374,22 @@ class SandboxService:
             public_key_override=public_key,
             include_data_plane_enrichment=False,
             additional=additional,
+            sandbox_uid=sandbox_uid,
         )
 
     def get(
         self,
         *,
-        experiment_id: str,
+        experiment_id: str | None = None,
         project_id: str | None = None,
         tenant_id: str | None = None,
         sandbox_uid: str | None = None,
         include_data_plane_enrichment: bool = True,
     ) -> dict[str, Any]:
         """Read-only poll target. Never provisions; reconciles stale state."""
+        experiment_id = (experiment_id or "").strip()
+        if not experiment_id and not (sandbox_uid or "").strip():
+            raise ValidationError("sandbox.get requires experiment_id or sandbox_uid")
         try:
             row = self.registry.fetch_scoped(
                 experiment_id=experiment_id,
@@ -378,7 +401,9 @@ class SandboxService:
             # Soften only the genuine "never provisioned" case so the poll loop
             # never has to catch an exception. A project-scope mismatch (the row
             # exists under another project) is a real error and still raises.
-            if self.registry.exists(experiment_id=experiment_id):
+            if (sandbox_uid or "").strip():
+                raise
+            if experiment_id and self.registry.exists(experiment_id=experiment_id):
                 raise
             return {
                 "experiment_id": experiment_id,
@@ -486,14 +511,14 @@ class SandboxService:
         self._mark_experiment_running(experiment_id=experiment_id)
         source_active = self._has_active_sandbox(experiment_id=source_experiment_id)
         source_reverted = False
-        if not source_active:
+        if source_experiment_id and not source_active:
             source_reverted = self.experiments.apply_system_transition(
                 experiment_id=source_experiment_id,
                 transition="sandbox_expired",
                 reason=f"sandbox {sandbox_uid} attached to {experiment_id}",
             )
             self._remove_conn_alias(experiment_id=source_experiment_id)
-        else:
+        elif source_experiment_id:
             self._refresh_conn_alias(experiment_id=source_experiment_id)
         if include_data_plane_enrichment:
             row = self.worker.ensure_local_dashboards(row=row)
@@ -552,11 +577,13 @@ class SandboxService:
         selection_required = bool(caps.requires_hardware_selection)
         hint = (
             "Pick one options[].instance_type and call "
-            "sandbox.request(experiment_id, instance_type=..., region=?). "
+            "sandbox.request(instance_type=..., region=?). Include experiment_id "
+            "only when attaching the sandbox to an experiment. "
             "Options are sorted cheapest-first and reflect live capacity."
             if selection_required
             else (
-                "Call sandbox.request(experiment_id, gpu=?, cpu=?, memory=?). "
+                "Call sandbox.request(gpu=?, cpu=?, memory=?). Include "
+                "experiment_id only when attaching the sandbox to an experiment. "
                 "Omit gpu for a CPU-only sandbox."
             )
         )
@@ -573,18 +600,21 @@ class SandboxService:
     def release(
         self,
         *,
-        experiment_id: str,
+        experiment_id: str | None = None,
         project_id: str | None = None,
         sandbox_uid: str | None = None,
         confirm_retained: bool = False,
     ) -> dict[str, Any]:
+        experiment_id = (experiment_id or "").strip()
+        if not experiment_id and not (sandbox_uid or "").strip():
+            raise ValidationError("sandbox.release requires experiment_id or sandbox_uid")
         row = self.registry.fetch_scoped(
             experiment_id=experiment_id,
             project_id=project_id,
             sandbox_uid=sandbox_uid,
         )
         targets = [row]
-        if not sandbox_uid:
+        if experiment_id and not sandbox_uid:
             rows = [
                 item
                 for item in self.registry.list_by_experiment(experiment_id=experiment_id)
@@ -644,7 +674,7 @@ class SandboxService:
                 f"Not released yet. This will permanently destroy {count} {noun} "
                 "and everything on the VM. First confirm you have retained "
                 "everything you need: rsync the light files you want off the box "
-                "yourself over SSH into the local experiment folder, and "
+                "yourself over SSH into the local work folder, and "
                 "storage.put_object for any heavy file (a trained model, a precious "
                 "dataset) worth keeping. Nothing is auto-synced — anything you do "
                 "not pull is lost. When you have everything, re-call sandbox.release "
@@ -675,8 +705,10 @@ class SandboxService:
                 stopped = self.backend.terminate(sandbox_id=str(row["sandbox_id"]))
             except Exception:  # noqa: BLE001
                 stopped = False
-        # Belt-and-suspenders: clear any named orphan we may have created.
-        self.provisioner.cleanup_orphan(experiment_id=experiment_id, row=row)
+        # If the direct terminate failed or there was no recorded id, try the
+        # deterministic-name orphan cleanup path.
+        if not stopped:
+            self.provisioner.cleanup_orphan(experiment_id=experiment_id, row=row)
         self.registry.mark_terminated(
             experiment_id=experiment_id, sandbox_uid=sandbox_uid
         )
@@ -706,13 +738,13 @@ class SandboxService:
     def terminal(
         self,
         *,
-        experiment_id: str,
+        experiment_id: str | None = None,
         project_id: str | None = None,
         sandbox_uid: str | None = None,
         tail: int | None = None,
         since: int | None = None,
     ) -> dict[str, Any]:
-        """Read the experiment's terminal transcript.
+        """Read a sandbox terminal transcript.
 
         Supports incremental polling: every response carries a ``cursor`` (the
         end offset of the full transcript). Pass it back as ``since=`` to receive
@@ -731,6 +763,9 @@ class SandboxService:
         side cost; a future backend ``transcript_length`` could avoid it. The
         agent-facing payload is what ``since`` keeps small.)
         """
+        experiment_id = (experiment_id or "").strip()
+        if not experiment_id and not (sandbox_uid or "").strip():
+            raise ValidationError("sandbox.terminal requires experiment_id or sandbox_uid")
         row = self.registry.fetch_scoped(
             experiment_id=experiment_id,
             project_id=project_id,
@@ -744,7 +779,7 @@ class SandboxService:
         def _read() -> str:
             return self.backend.read_transcript(
                 sandbox_id=sandbox_id,
-                experiment_id=experiment_id,
+                experiment_id=experiment_id or str(row.get("sandbox_uid") or ""),
                 volume_name=str(row.get("volume_name") or ""),
                 workdir=str(row.get("workdir") or ""),
                 tail=None,
@@ -922,6 +957,8 @@ class SandboxService:
         lands in the experiment.transitioned event log); a no-op when the
         experiment is already running or past it.
         """
+        if not experiment_id:
+            return
         self.experiments.apply_system_transition(
             experiment_id=experiment_id,
             transition="sandbox_started",
@@ -930,6 +967,8 @@ class SandboxService:
     def _has_active_sandbox(
         self, *, experiment_id: str, exclude_sandbox_uid: str | None = None
     ) -> bool:
+        if not experiment_id:
+            return False
         return self.registry.has_active_for_experiment(
             experiment_id=experiment_id, exclude_sandbox_uid=exclude_sandbox_uid
         )
@@ -973,7 +1012,9 @@ class SandboxService:
                     "sandbox_uid": sandbox_uid or "",
                     "remove_experiment_alias": not active_remain,
                 },
-                tenant_id=self._tenant_for_experiment(experiment_id=experiment_id),
+                tenant_id=self._tenant_for_sandbox(
+                    experiment_id=experiment_id, sandbox_uid=sandbox_uid or ""
+                ),
             )
         except Exception:  # noqa: BLE001 — best-effort; never block the mark
             pass
@@ -1005,7 +1046,7 @@ class SandboxService:
         encoded = encode_dashboards(normalized)
         if encoded == (row.get("dashboards_json") or "{}"):
             return row
-        experiment_id = str(row.get("experiment_id"))
+        experiment_id = str(row.get("experiment_id") or "")
         sandbox_uid = str(row.get("sandbox_uid") or "")
         if not sandbox_uid:
             return row
@@ -1043,7 +1084,7 @@ class SandboxService:
             return row
         if host == str(row.get("ssh_host") or "") and port == int(row.get("ssh_port") or 0):
             return row  # unchanged — the common case; avoid a needless write
-        experiment_id = str(row.get("experiment_id"))
+        experiment_id = str(row.get("experiment_id") or "")
         sandbox_uid = str(row.get("sandbox_uid") or "")
         if not sandbox_uid:
             return row
@@ -1124,13 +1165,17 @@ class SandboxService:
             name=self.registry.experiment_name(experiment_id=experiment_id),
         )
 
-    def _ensure_keypair(self, *, experiment_id: str) -> tuple[str, Path]:
-        return self.worker.ensure_keypair(experiment_id=experiment_id)
+    def _ensure_keypair(
+        self, *, experiment_id: str = "", local_key: str | None = None
+    ) -> tuple[str, Path]:
+        return self.worker.ensure_keypair(experiment_id=local_key or experiment_id)
 
     def _mgmt_key_path(self, *, row: dict[str, Any]) -> Path:
         return self.mgmt_keys.key_path(sandbox_uid=str(row.get("sandbox_uid") or ""))
 
     def _remove_conn_alias(self, *, experiment_id: str) -> None:
+        if not experiment_id:
+            return
         try:
             self.tasks.submit(
                 task_type="teardown",
@@ -1146,6 +1191,8 @@ class SandboxService:
             pass
 
     def _refresh_conn_alias(self, *, experiment_id: str) -> None:
+        if not experiment_id:
+            return
         try:
             row = self.registry.fetch_scoped(
                 experiment_id=experiment_id,
@@ -1201,6 +1248,12 @@ class SandboxService:
         # the worker. Local mode merges them here, so tool results are
         # unchanged; split mode performs the same merge across the seam.
         experiment_id = str(row.get("experiment_id") or "")
+        sandbox_uid = str(row.get("sandbox_uid") or "")
+        view_name = (
+            self.registry.experiment_name(experiment_id=experiment_id)
+            if experiment_id
+            else f"sandbox-{sandbox_uid[:12]}"
+        )
         mlflow = self._mlflow_context(row=row)
         current_access = mlflow.get("access")
         access_ready = not (
@@ -1221,7 +1274,7 @@ class SandboxService:
         )
         enrichment = self.worker.sandbox_enrichment(
             row=row,
-            name=self.registry.experiment_name(experiment_id=experiment_id),
+            name=view_name,
             use_sandbox_uid_command=use_sandbox_uid_command,
         )
         return sandbox_views.merge_agent_view(facts=facts, enrichment=enrichment)
@@ -1248,6 +1301,8 @@ class SandboxService:
         return context
 
     def _mlflow_tracking_env(self, *, project_id: str, experiment_id: str) -> dict[str, str]:
+        if not experiment_id:
+            return {}
         context = self.mlflow_tracking.context(
             project_id=project_id,
             experiment_id=experiment_id,
@@ -1261,14 +1316,21 @@ class SandboxService:
         self, *, row: dict[str, Any], conn: Connection | None = None
     ) -> dict[str, Any]:
         experiment_id = str(row.get("experiment_id") or "")
+        sandbox_uid = str(row.get("sandbox_uid") or "")
         row = self.worker.merge_local_dashboards(row=row)
+        local_key = experiment_id or sandbox_uid
+        local_name = (
+            self._experiment_name(experiment_id=experiment_id, conn=conn)
+            if experiment_id
+            else f"sandbox-{sandbox_uid[:12]}"
+        )
         return sandbox_views.sandbox_row_view(
             row=row,
             mlflow=self._mlflow_context(row=row),
             local_sync_dir=str(
                 self.worker.local_experiment_dir(
-                    experiment_id=experiment_id,
-                    name=self._experiment_name(experiment_id=experiment_id, conn=conn),
+                    experiment_id=local_key,
+                    name=local_name,
                 )
             ),
         )
@@ -1317,6 +1379,21 @@ class SandboxService:
                     "SELECT tenant_id FROM sandboxes WHERE experiment_id = ?",
                     (experiment_id,),
                 ).fetchone()
+        finally:
+            conn.close()
+        return str(row["tenant_id"]) if row is not None else "local"
+
+    def _tenant_for_sandbox(self, *, experiment_id: str, sandbox_uid: str) -> str:
+        if experiment_id:
+            return self._tenant_for_experiment(experiment_id=experiment_id)
+        if not sandbox_uid:
+            return "local"
+        conn = self.store.connect()
+        try:
+            row = conn.execute(
+                "SELECT tenant_id FROM sandboxes WHERE sandbox_uid = ?",
+                (sandbox_uid,),
+            ).fetchone()
         finally:
             conn.close()
         return str(row["tenant_id"]) if row is not None else "local"

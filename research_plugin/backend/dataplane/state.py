@@ -1,6 +1,6 @@
 """Worker-owned machine-local sandbox state (cloud plan §3.2).
 
-Machine-local values — the per-experiment SSH key path, the local sync dir,
+Machine-local values — the sandbox SSH key path, the local sync dir,
 daemon-owned loopback dashboard URLs, and the stable per-machine client
 identity — must never live in cloud-bound rows. They live here instead, in a
 small SQLite file under ``.research_plugin/`` owned by the data plane (the
@@ -39,7 +39,7 @@ CREATE TABLE IF NOT EXISTS client_meta (
 
 
 class SandboxLocalState:
-    """Per-experiment machine-local sandbox facts, keyed by experiment_id."""
+    """Machine-local sandbox facts, keyed by experiment id or sandbox uid."""
 
     def __init__(self, *, db_path: Path) -> None:
         self.db_path = db_path

@@ -123,7 +123,8 @@ class SandboxHeartbeatMonitor:
         self, *, row: dict[str, Any], now: datetime, threshold_seconds: float
     ) -> bool:
         experiment_id = str(row.get("experiment_id") or "")
-        if not experiment_id:
+        sandbox_uid = str(row.get("sandbox_uid") or "")
+        if not experiment_id and not sandbox_uid:
             return False
         metrics = self._sample(row=row, experiment_id=experiment_id)
         if not isinstance(metrics, dict):
@@ -143,7 +144,7 @@ class SandboxHeartbeatMonitor:
         if not isinstance(previous, dict) or previous_at is None:
             self.registry.record_heartbeat(
                 experiment_id=experiment_id,
-                sandbox_uid=str(row.get("sandbox_uid") or ""),
+                sandbox_uid=sandbox_uid,
                 idle_since=None,
                 snapshot=self._snapshot(metrics=metrics, now=now),
             )
@@ -158,7 +159,7 @@ class SandboxHeartbeatMonitor:
         )
         self.registry.record_heartbeat(
             experiment_id=experiment_id,
-            sandbox_uid=str(row.get("sandbox_uid") or ""),
+            sandbox_uid=sandbox_uid,
             idle_since=format_iso(next_idle_since) if next_idle_since else None,
             snapshot=self._snapshot(metrics=metrics, now=now),
         )

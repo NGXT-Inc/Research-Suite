@@ -43,7 +43,7 @@ OnCreated = Callable[[str, str], None]    # (sandbox_id, sandbox_name)
 
 @dataclass(frozen=True)
 class SandboxRequest:
-    """A request to procure a sandbox for one experiment."""
+    """A request to procure one SSH-reachable sandbox."""
 
     experiment_id: str
     project_id: str

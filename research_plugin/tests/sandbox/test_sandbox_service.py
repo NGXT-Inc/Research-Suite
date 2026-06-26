@@ -101,6 +101,45 @@ class SandboxServiceTest(unittest.TestCase):
             tracking_env["MLFLOW_EXPERIMENT_NAME"], f"rp/{self.project_id}/{exp_id}"
         )
 
+    def test_request_without_experiment_creates_standalone_sandbox(self) -> None:
+        result = self.call("sandbox.request", project_id=self.project_id)
+
+        self.assertEqual(result["status"], "running")
+        self.assertEqual(result["experiment_id"], "")
+        self.assertTrue(result["sandbox_uid"])
+        self.assertIn(result["sandbox_uid"][:12], result["ssh"]["command"])
+        self.assertTrue(Path(result["ssh"]["key_path"]).exists())
+        self.assertEqual(self.backend.acquired[-1].experiment_id, result["sandbox_uid"])
+
+        got = self.call(
+            "sandbox.get",
+            project_id=self.project_id,
+            sandbox_uid=result["sandbox_uid"],
+        )
+        self.assertEqual(got["sandbox_id"], result["sandbox_id"])
+        other_project = self.call("project.create", name="Other Project")["id"]
+        with self.assertRaises(NotFoundError):
+            self.call(
+                "sandbox.get",
+                project_id=other_project,
+                sandbox_uid=result["sandbox_uid"],
+            )
+        terminal = self.call(
+            "sandbox.terminal",
+            project_id=self.project_id,
+            sandbox_uid=result["sandbox_uid"],
+        )
+        self.assertEqual(terminal["status"], "running")
+
+        released = self.call(
+            "sandbox.release",
+            project_id=self.project_id,
+            sandbox_uid=result["sandbox_uid"],
+            confirm_retained=True,
+        )
+        self.assertEqual(released["status"], "terminated")
+        self.assertEqual(self.backend.terminated, [result["sandbox_id"]])
+
     def test_request_and_get_report_huggingface_env_without_secret_value(self) -> None:
         self.backend.sandbox_environment = lambda: {  # type: ignore[method-assign]
             "available_tokens": ["HF_TOKEN"],
@@ -210,6 +249,48 @@ class SandboxServiceTest(unittest.TestCase):
 
         self.call("sandbox.terminal", project_id=self.project_id, experiment_id=target)
         self.assertEqual(self.backend.transcript_reads[-1]["key_path"], str(old_key))
+
+    def test_attach_standalone_sandbox_to_experiment(self) -> None:
+        target = self._experiment(name="exp-2")
+        created = self.call("sandbox.request", project_id=self.project_id)
+        uid = created["sandbox_uid"]
+
+        attached = self.call(
+            "sandbox.attach",
+            project_id=self.project_id,
+            experiment_id=target,
+            sandbox_uid=uid,
+        )
+
+        self.assertEqual(attached["sandbox_uid"], uid)
+        self.assertEqual(attached["experiment_id"], target)
+        self.assertEqual(attached["source_experiment_id"], "")
+        self.assertFalse(attached["source_experiment_reverted"])
+        self.assertEqual(attached["ssh"]["command"], f".research_plugin/sbx {target}")
+        self.assertEqual(
+            self.call(
+                "experiment.get_state",
+                project_id=self.project_id,
+                experiment_id=target,
+            )["status"],
+            "running",
+        )
+        conn = self.app.store.connect()
+        try:
+            attachments = conn.execute(
+                """
+                SELECT experiment_id, detached_at
+                FROM sandbox_attachments
+                WHERE sandbox_uid = ?
+                """,
+                (uid,),
+            ).fetchall()
+        finally:
+            conn.close()
+        self.assertEqual(
+            [(row["experiment_id"], row["detached_at"]) for row in attachments],
+            [(target, None)],
+        )
 
     def test_attach_refreshes_source_alias_when_sibling_remains(self) -> None:
         source = self._experiment(name="exp-1")

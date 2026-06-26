@@ -182,7 +182,7 @@ def register_daemon_routes(
         ) -> dict[str, Any]:
             payload = body or {}
             project_id = _required_text(payload, "project_id")
-            experiment_id = _required_text(payload, "experiment_id")
+            experiment_id = str(payload.get("experiment_id") or "").strip()
             app = app_for_project(request, project_id)
             result = app.sandboxes.request_from_data_plane(
                 project_id=project_id,
@@ -195,9 +195,12 @@ def register_daemon_routes(
                 instance_type=payload.get("instance_type"),
                 region=payload.get("region"),
                 additional=bool(payload.get("additional")),
+                sandbox_uid=payload.get("sandbox_uid"),
             )
-            result["_experiment_name"] = app.sandboxes.registry.experiment_name(
-                experiment_id=experiment_id
+            result["_experiment_name"] = (
+                app.sandboxes.registry.experiment_name(experiment_id=experiment_id)
+                if experiment_id
+                else ""
             )
             return result
 

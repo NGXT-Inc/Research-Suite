@@ -58,7 +58,7 @@ DEFAULT_REAPER_INTERVAL_SECONDS = 30.0
 DEFAULT_SANDBOX_IDLE_SECONDS = 3600.0
 
 # Static dispatcher dropped at `.research_plugin/sbx`. It resolves the
-# per-experiment connection file the registry regenerates on every request and
+# sandbox connection file the registry regenerates on every request and
 # execs ssh with the boilerplate (-i key, -o flags, user@host) baked in, so the
 # agent only ever types `.research_plugin/sbx <experiment_id> '<command>'`.
 #
