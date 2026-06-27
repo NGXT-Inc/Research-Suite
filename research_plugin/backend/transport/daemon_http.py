@@ -219,20 +219,6 @@ def register_daemon_routes(
             result["_use_sandbox_uid_command"] = True
             return result
 
-        @http.post("/api/daemon/sandboxes/metrics")
-        def daemon_sandbox_metrics(
-            request: Request, body: JsonBody = Body(default=None)
-        ) -> dict[str, Any]:
-            payload = body or {}
-            project_id = _required_text(payload, "project_id")
-            app = app_for_project(request, project_id)
-            snapshot = payload.get("metrics_snapshot")
-            return app.sandboxes.record_daemon_metrics(
-                project_id=project_id,
-                experiment_id=_required_text(payload, "experiment_id"),
-                snapshot=snapshot if isinstance(snapshot, dict) else None,
-            )
-
         @http.post("/api/daemon/feed/post")
         def daemon_post_feed(
             request: Request, body: JsonBody = Body(default=None)

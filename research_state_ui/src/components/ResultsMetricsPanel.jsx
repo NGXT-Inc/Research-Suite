@@ -18,11 +18,10 @@ function finalValue(series) {
 }
 
 /**
- * ResultsMetricsPanel — DURABLE archived metrics that outlive the sandbox VM.
+ * ResultsMetricsPanel — centralized MLflow metrics for an experiment.
  *
- * Fetches GET /experiments/{id}/results/metrics, the control-plane copy
- * recorded on sync and at release. Distinct from the live /sandbox/metrics
- * (which vanishes with the VM), so this never polls — the data is durable.
+ * Fetches GET /experiments/{id}/results/metrics. Distinct from live
+ * /sandbox/metrics (which vanishes with the VM), so this never polls.
  * Renders the final value of every recorded metric per run.
  */
 export default function ResultsMetricsPanel({ projectId, experimentId, refreshKey }) {
@@ -39,9 +38,7 @@ export default function ResultsMetricsPanel({ projectId, experimentId, refreshKe
   if (!data) return null;
 
   if (data.available === false) {
-    // Nothing archived yet. Stay unobtrusive: render a tiny muted hint only
-    // when a sandbox has actually run, otherwise render nothing at all.
-    if (data.hint && data.sandbox_status && data.sandbox_status !== 'none') {
+    if (data.hint) {
       return <div className="results-metrics-sub">{data.hint}</div>;
     }
     return null;

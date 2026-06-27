@@ -6,10 +6,13 @@ from pathlib import Path
 from types import SimpleNamespace
 from typing import Any
 
-from ..tools.contracts import AGGREGATE_TOOL_NAMES, CONTROL_PLANE_TOOL_NAMES
+from ..tools.contracts import (
+    AGGREGATE_TOOL_NAMES,
+    CONTROL_PLANE_TOOL_NAMES,
+    available_tool_names,
+)
 from .control_runtime import (
     ControlActivitySink,
-    ControlMetricsArchive,
     ControlSandboxWorker,
     ControlToolCallSink,
 )
@@ -36,7 +39,7 @@ class ControlApp:
         repo_root: Path,
         store: BaseStateStore,
         blobs: BlobStore,
-        storage: StorageLedgerService,
+        storage: StorageLedgerService | None,
         execution_backend: SandboxBackend,
         task_channel: Any,
         mgmt_keys: MgmtKeyStore,
@@ -77,10 +80,9 @@ class ControlApp:
             worker=self.worker,
             activity=None,
             mgmt_keys=mgmt_keys,
-            metrics_archive=ControlMetricsArchive(),
             quotas=self.quotas,
             task_channel=task_channel,
-            mlflow_tracking=self.mlflow_tracking,
+            storage_enabled=self.storage is not None,
         )
         self.workflow = WorkflowService(
             store=self.store,
@@ -88,7 +90,10 @@ class ControlApp:
             reviews=self.reviews,
             sandboxes=self.sandboxes,
             syntheses=self.syntheses,
+            storage_enabled=self.storage is not None,
         )
+        control_tool_names = CONTROL_PLANE_TOOL_NAMES | AGGREGATE_TOOL_NAMES
+        control_tool_names &= available_tool_names(storage_enabled=self.storage is not None)
         self.tools = ToolDispatcher(
             handlers=build_control_tool_handlers(
                 workflow=self.workflow,
@@ -107,7 +112,7 @@ class ControlApp:
             permissions=self.permissions,
             activity=self.activity,
             tool_calls=self.tool_calls,
-            tool_names=CONTROL_PLANE_TOOL_NAMES | AGGREGATE_TOOL_NAMES,
+            tool_names=control_tool_names,
         )
 
     def current_project(self, *, tenant_id: str | None = None) -> dict[str, Any]:

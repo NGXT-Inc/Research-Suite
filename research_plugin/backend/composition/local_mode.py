@@ -19,10 +19,8 @@ from ..storage.service import StorageLedgerService
 def build_local_app(*, repo_root: Path, db_path: Path) -> ResearchPluginApp:
     """Today's single-process app."""
     store = build_state_store(db_path=db_path)
-    storage = StorageLedgerService(
-        store=store,
-        objects=build_object_store(default_root=repo_root / ".research_plugin"),
-    )
+    objects = build_object_store(default_root=repo_root / ".research_plugin")
+    storage = StorageLedgerService(store=store, objects=objects) if objects else None
     return ResearchPluginApp(
         repo_root=repo_root,
         db_path=db_path,

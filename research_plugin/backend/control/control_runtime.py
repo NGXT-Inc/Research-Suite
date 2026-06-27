@@ -246,35 +246,13 @@ class ControlToolCallSink:
             return {"cleared": before - len(self._calls)}
 
 
-class ControlMetricsArchive:
-    """Control mode stores durable metrics in records, not local cache files."""
-
-    def path_for(self, experiment_id: str) -> Path:
-        return Path("")
-
-    def persist(self, *, experiment_id: str, snapshot: dict[str, Any]) -> Path:
-        return self.path_for(experiment_id)
-
-    def load(self, *, experiment_id: str) -> dict[str, Any] | None:
-        return None
-
-
 class ControlSandboxWorker:
     """Control-side adapter for data-plane duties executed by daemon tasks."""
 
     def repo_relative(self, path: str | Path) -> str:
         return str(path)
 
-    def capture_metrics_fallback(self, **_: Any) -> dict[str, Any] | None:
-        return None
-
-    def capture_metrics_snapshot(self, **_: Any) -> dict[str, Any] | None:
-        return None
-
     def local_experiment_dir(self, **_: Any) -> Path:
-        return Path("")
-
-    def pulled_mlflow_db_path(self, **_: Any) -> Path:
         return Path("")
 
     def ensure_keypair(self, **_: Any) -> tuple[str, Path]:

@@ -32,6 +32,45 @@ class SandboxRegistry:
         self.store = store
         self.on_terminal: TerminalHook | None = None
 
+    def _row_dict(self, *, row: Any, conn: Any) -> dict[str, Any]:
+        data = row_to_dict(row=row) or {}
+        if data.get("experiment_id"):
+            return data
+        sandbox_uid = str(data.get("sandbox_uid") or "")
+        if sandbox_uid:
+            data["experiment_id"] = self._primary_experiment_id(
+                conn=conn, sandbox_uid=sandbox_uid
+            )
+        else:
+            data["experiment_id"] = ""
+        return data
+
+    def _primary_experiment_id(self, *, conn: Any, sandbox_uid: str) -> str:
+        """Compatibility projection: first active attachment for a sandbox."""
+        row = conn.execute(
+            """
+            SELECT experiment_id
+            FROM sandbox_attachments
+            WHERE sandbox_uid = ? AND detached_at IS NULL
+            ORDER BY attached_at, experiment_id
+            LIMIT 1
+            """,
+            (sandbox_uid,),
+        ).fetchone()
+        if row is not None and row["experiment_id"]:
+            return str(row["experiment_id"])
+        row = conn.execute(
+            """
+            SELECT experiment_id
+            FROM sandbox_attachments
+            WHERE sandbox_uid = ?
+            ORDER BY attached_at DESC, experiment_id
+            LIMIT 1
+            """,
+            (sandbox_uid,),
+        ).fetchone()
+        return str(row["experiment_id"]) if row is not None and row["experiment_id"] else ""
+
     # ---------- reads ----------
 
     def load_row(self, *, experiment_id: str) -> dict[str, Any]:
@@ -47,7 +86,7 @@ class SandboxRegistry:
             ).fetchone()
             if row is None:
                 raise NotFoundError(f"sandbox not found: {experiment_id}")
-            return row_to_dict(row=row) or {}
+            return self._row_dict(row=row, conn=conn)
         finally:
             conn.close()
 
@@ -59,7 +98,7 @@ class SandboxRegistry:
             ).fetchone()
             if row is None:
                 raise NotFoundError(f"sandbox not found: {sandbox_uid}")
-            return row_to_dict(row=row) or {}
+            return self._row_dict(row=row, conn=conn)
         finally:
             conn.close()
 
@@ -76,7 +115,7 @@ class SandboxRegistry:
                 """,
                 (experiment_id,),
             ).fetchall()
-            return [row_to_dict(row=row) or {} for row in rows]
+            return [self._row_dict(row=row, conn=conn) for row in rows]
         finally:
             conn.close()
 
@@ -160,7 +199,7 @@ class SandboxRegistry:
                 raise NotFoundError(
                     f"sandbox not found in project {project_id}: {experiment_id}"
                 )
-            return row_to_dict(row=row) or {}
+            return self._row_dict(row=row, conn=conn)
         finally:
             conn.close()
 
@@ -189,7 +228,7 @@ class SandboxRegistry:
                 "SELECT * FROM sandboxes WHERE project_id = ? ORDER BY created_seq DESC",
                 (project_id,),
             ).fetchall()
-            return [row_to_dict(row=row) or {} for row in rows]
+            return [self._row_dict(row=row, conn=conn) for row in rows]
         finally:
             conn.close()
 
@@ -199,7 +238,7 @@ class SandboxRegistry:
             rows = conn.execute(
                 "SELECT * FROM sandboxes WHERE status = 'running' ORDER BY created_seq DESC"
             ).fetchall()
-            return [row_to_dict(row=row) or {} for row in rows]
+            return [self._row_dict(row=row, conn=conn) for row in rows]
         finally:
             conn.close()
 
@@ -217,7 +256,7 @@ class SandboxRegistry:
                 "SELECT * FROM sandboxes WHERE status = ? ORDER BY created_seq DESC",
                 (status,),
             ).fetchall()
-            return [row_to_dict(row=row) or {} for row in rows]
+            return [self._row_dict(row=row, conn=conn) for row in rows]
         finally:
             conn.close()
 
@@ -323,6 +362,7 @@ class SandboxRegistry:
                 (target_uid,),
             ).fetchone()
             payload = dict(fields)
+            payload.pop("experiment_id", None)
             if payload.get("project_id") and not payload.get("tenant_id"):
                 tenant_row = conn.execute(
                     "SELECT tenant_id FROM projects WHERE id = ?",
@@ -333,7 +373,6 @@ class SandboxRegistry:
                 )
             payload["updated_at"] = now
             if exists is None:
-                payload["experiment_id"] = experiment_id
                 payload["sandbox_uid"] = target_uid
                 payload.setdefault("created_at", now)
                 # Insertion-order column (cloud plan Phase 6): replaces rowid
@@ -421,7 +460,7 @@ class SandboxRegistry:
             fresh = conn.execute(
                 "SELECT * FROM sandboxes WHERE sandbox_uid = ?", (sandbox_uid,)
             ).fetchone()
-            return row_to_dict(row=fresh) or {}
+            return self._row_dict(row=fresh, conn=conn)
 
     def record_generation(
         self,

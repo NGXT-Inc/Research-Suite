@@ -6,7 +6,7 @@ import unittest
 from pathlib import Path
 
 from backend.app import ResearchPluginApp
-from backend.state.store import StateStore
+from backend.state.store import MIGRATIONS, StateStore
 
 
 OLD_SCHEMA = """
@@ -182,6 +182,98 @@ class StoreMigrationTest(unittest.TestCase):
         finally:
             conn.close()
 
+    def test_storage_missing_status_migrates_to_expired(self) -> None:
+        conn = sqlite3.connect(self.db)
+        try:
+            conn.executescript(
+                """
+                CREATE TABLE projects (
+                  id TEXT PRIMARY KEY,
+                  name TEXT NOT NULL,
+                  summary TEXT NOT NULL DEFAULT '',
+                  status TEXT NOT NULL DEFAULT 'active',
+                  hard_stop_reflection_id TEXT,
+                  hard_stop_rationale TEXT NOT NULL DEFAULT '',
+                  stopped_at TEXT,
+                  tenant_id TEXT NOT NULL DEFAULT 'local',
+                  created_at TEXT NOT NULL
+                );
+                CREATE TABLE storage_objects (
+                  id TEXT PRIMARY KEY,
+                  project_id TEXT NOT NULL,
+                  name TEXT NOT NULL,
+                  version INTEGER NOT NULL,
+                  kind TEXT NOT NULL,
+                  content_sha256 TEXT NOT NULL,
+                  size_bytes INTEGER NOT NULL,
+                  content_type TEXT NOT NULL DEFAULT 'application/octet-stream',
+                  namespace TEXT NOT NULL,
+                  status TEXT NOT NULL,
+                  upload_id TEXT,
+                  expires_at TEXT,
+                  created_by TEXT NOT NULL DEFAULT 'codex',
+                  producing_experiment_id TEXT NOT NULL DEFAULT '',
+                  producing_run TEXT NOT NULL DEFAULT '',
+                  source_uri TEXT NOT NULL DEFAULT '',
+                  notes TEXT NOT NULL DEFAULT '',
+                  created_at TEXT NOT NULL,
+                  updated_at TEXT NOT NULL,
+                  last_accessed_at TEXT,
+                  created_seq INTEGER NOT NULL DEFAULT 0,
+                  UNIQUE(project_id, name, version),
+                  FOREIGN KEY(project_id) REFERENCES projects(id)
+                );
+                CREATE TABLE schema_migrations (
+                  version INTEGER PRIMARY KEY,
+                  name TEXT NOT NULL,
+                  applied_at TEXT NOT NULL
+                );
+                """
+            )
+            conn.execute(
+                """
+                INSERT INTO projects (id, name, summary, created_at)
+                VALUES ('proj_old', 'Legacy', '', '2026-01-01T00:00:00Z')
+                """
+            )
+            conn.execute(
+                """
+                INSERT INTO storage_objects (
+                  id, project_id, name, version, kind, content_sha256, size_bytes,
+                  content_type, namespace, status, created_at, updated_at
+                )
+                VALUES (
+                  'obj_missing', 'proj_old', 'old.bin', 1, 'dataset',
+                  'abc123', 3, 'application/octet-stream', 'proj_old', 'missing',
+                  '2026-01-01T00:00:00Z', '2026-01-01T00:00:00Z'
+                )
+                """
+            )
+            conn.executemany(
+                """
+                INSERT INTO schema_migrations (version, name, applied_at)
+                VALUES (?, ?, '2026-01-01T00:00:00Z')
+                """,
+                [(version, name) for version, name, _ in MIGRATIONS if version < 10],
+            )
+            conn.commit()
+        finally:
+            conn.close()
+
+        store = StateStore(db_path=self.db)
+        conn = store.connect()
+        try:
+            row = conn.execute(
+                "SELECT status FROM storage_objects WHERE id = 'obj_missing'"
+            ).fetchone()
+            self.assertEqual(row["status"], "expired")
+            migration = conn.execute(
+                "SELECT name FROM schema_migrations WHERE version = 10"
+            ).fetchone()
+            self.assertEqual(migration["name"], "normalize_storage_missing_status")
+        finally:
+            conn.close()
+
     def _sandbox_columns(self, conn: sqlite3.Connection) -> set[str]:
         return {
             str(row["name"])
@@ -239,11 +331,16 @@ class StoreMigrationTest(unittest.TestCase):
             columns = self._sandbox_columns(conn)
             self.assertNotIn("key_path", columns)
             self.assertNotIn("local_sync_dir", columns)
+            self.assertNotIn("experiment_id", columns)
             row = conn.execute("SELECT * FROM sandboxes").fetchone()
-            self.assertEqual(row["experiment_id"], "exp_old")
             self.assertEqual(row["status"], "terminated")
             self.assertEqual(row["ssh_host"], "host.example")
             self.assertEqual(row["ssh_port"], 2222)
+            attachment = conn.execute(
+                "SELECT experiment_id FROM sandbox_attachments WHERE sandbox_uid = ?",
+                (row["sandbox_uid"],),
+            ).fetchone()
+            self.assertEqual(attachment["experiment_id"], "exp_old")
         finally:
             conn.close()
 
@@ -291,7 +388,12 @@ class StoreMigrationTest(unittest.TestCase):
             ]
             self.assertEqual(pk, ["sandbox_uid"])
             rows = conn.execute(
-                "SELECT sandbox_uid, experiment_id FROM sandboxes ORDER BY experiment_id"
+                """
+                SELECT s.sandbox_uid, a.experiment_id
+                FROM sandboxes s
+                JOIN sandbox_attachments a ON a.sandbox_uid = s.sandbox_uid
+                ORDER BY a.experiment_id
+                """
             ).fetchall()
             self.assertEqual([row["experiment_id"] for row in rows], ["exp_done", "exp_run"])
             uids = [str(row["sandbox_uid"]) for row in rows]
@@ -376,17 +478,31 @@ class StoreMigrationTest(unittest.TestCase):
             conn.execute(
                 """
                 INSERT INTO sandboxes (
-                  sandbox_uid, experiment_id, project_id, sandbox_id, status,
+                  sandbox_uid, project_id, sandbox_id, status,
                   created_at, updated_at, created_seq
                 )
                 VALUES (
-                  'uid_new', 'exp_parallel', 'proj_old', 'sb-new', 'running',
+                  'uid_new', 'proj_old', 'sb-new', 'running',
                   '2026-01-01T00:00:01Z', '2026-01-01T00:00:01Z', 2
                 )
                 """
             )
+            conn.execute(
+                """
+                INSERT INTO sandbox_attachments (
+                  sandbox_uid, experiment_id, attached_at, detached_at
+                )
+                VALUES ('uid_new', 'exp_parallel', '2026-01-01T00:00:01Z', NULL)
+                """
+            )
             rows = conn.execute(
-                "SELECT sandbox_uid FROM sandboxes WHERE experiment_id = ? ORDER BY created_seq",
+                """
+                SELECT s.sandbox_uid
+                FROM sandboxes s
+                JOIN sandbox_attachments a ON a.sandbox_uid = s.sandbox_uid
+                WHERE a.experiment_id = ?
+                ORDER BY s.created_seq
+                """,
                 ("exp_parallel",),
             ).fetchall()
             self.assertEqual([row["sandbox_uid"] for row in rows], ["uid_old", "uid_new"])
@@ -625,10 +741,9 @@ class StoreMigrationTest(unittest.TestCase):
         finally:
             conn.close()
 
-    def test_legacy_db_gains_mgmt_key_and_metrics_records(self) -> None:
-        # Cloud-split Phase 5: the management-key reference joins the sandboxes
-        # row, and metrics snapshots gain a control-plane record table — all
-        # via additive convergence on a pre-Phase-5 database.
+    def test_legacy_db_gains_mgmt_key_and_drops_metrics_records(self) -> None:
+        # Management-key references stay on sandbox rows; obsolete sandbox
+        # MLflow snapshot records are removed.
         self._seed_legacy_db()
         conn = sqlite3.connect(self.db)
         try:
@@ -648,7 +763,7 @@ class StoreMigrationTest(unittest.TestCase):
                     "SELECT name FROM sqlite_master WHERE type = 'table'"
                 ).fetchall()
             }
-            self.assertIn("metrics_snapshots", tables)
+            self.assertNotIn("metrics_snapshots", tables)
         finally:
             conn.close()
 

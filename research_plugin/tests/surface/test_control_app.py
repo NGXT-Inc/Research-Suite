@@ -235,24 +235,19 @@ class ControlAppTest(unittest.TestCase):
                 sandbox_id="sbx_control",
             )
 
-            self.assertIsNone(app.sandboxes.metrics_archive.load(experiment_id=exp_id))
             with patch(
-                "backend.services.sandbox.sandbox_metrics.snapshot_mlflow",
+                "backend.services.mlflow_tracking.snapshot_mlflow",
                 return_value=dict(snapshot),
             ) as capture:
-                result = app.sandboxes.results_metrics(
+                result = app.mlflow_tracking.results_metrics(
                     experiment_id=exp_id, project_id=project_id
                 )
 
             capture.assert_called_once()
             self.assertEqual(capture.call_args.args[0], "http://mlflow:5000")
             self.assertTrue(result["available"])
-            self.assertIn("captured_at", result)
             self.assertNotIn("base_url", result)
-            self.assertIsNone(app.sandboxes.metrics_archive.load(experiment_id=exp_id))
-            record = app.sandboxes.metrics_records.load(experiment_id=exp_id)
-            self.assertIsNotNone(record)
-            self.assertEqual((record or {})["experiments"][0]["name"], "central")
+            self.assertEqual(result["experiments"][0]["name"], "central")
 
     def test_control_app_without_repo_root_requires_durable_config(self) -> None:
         with self.assertRaises(ValidationError) as ctx:

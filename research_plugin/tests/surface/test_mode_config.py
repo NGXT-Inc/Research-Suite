@@ -13,10 +13,13 @@ from backend.config import (
     MGMT_PUBLIC_KEY_ENV_VAR,
     Mode,
     STORAGE_ACCESS_KEY_ID_ENV_VAR,
+    STORAGE_PROVIDER_ENV_VAR,
     STORAGE_SECRET_ACCESS_KEY_ENV_VAR,
     resolve_mode,
     resolve_storage_access_key_id,
+    resolve_storage_provider,
     resolve_storage_secret_access_key,
+    storage_feature_enabled,
 )
 from backend.execution.backends.fake import FakeSandboxBackend
 from backend.transport.http_api import create_fastapi_app
@@ -61,6 +64,17 @@ class ModeConfigTest(unittest.TestCase):
 
 
 class StorageConfigTest(unittest.TestCase):
+    def test_storage_is_disabled_unless_s3_provider_is_explicit(self) -> None:
+        self.assertIsNone(resolve_storage_provider({}))
+        self.assertFalse(storage_feature_enabled({}))
+        self.assertEqual(
+            resolve_storage_provider({STORAGE_PROVIDER_ENV_VAR: " s3 "}),
+            "s3",
+        )
+        self.assertTrue(storage_feature_enabled({STORAGE_PROVIDER_ENV_VAR: "s3"}))
+        with self.assertRaises(ValidationError):
+            resolve_storage_provider({STORAGE_PROVIDER_ENV_VAR: "local"})
+
     def test_storage_access_key_prefers_storage_env_then_aws_then_none(self) -> None:
         self.assertEqual(
             resolve_storage_access_key_id(

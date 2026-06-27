@@ -18,7 +18,7 @@ from ..utils import NotFoundError, ValidationError, format_iso, iso_after, new_i
 
 
 STORAGE_KINDS = {"dataset", "model", "other"}
-STORAGE_STATUSES = {"uploading", "completing", "available", "missing", "expired", "deleted"}
+STORAGE_STATUSES = {"uploading", "completing", "available", "expired", "deleted"}
 STORAGE_DEFAULT_TTL_SECONDS = 60 * 24 * 3600
 PRESIGN_TTL_SECONDS = 3600
 
@@ -233,9 +233,11 @@ class StorageLedgerService:
                 where.append("status = ?")
                 params.append(status)
             else:
-                where.append("status NOT IN ('uploading', 'completing', 'deleted')")
-            if not include_expired and status != "expired":
-                where.append("status != 'expired'")
+                where.append(
+                    "status IN ('available', 'expired')"
+                    if include_expired
+                    else "status = 'available'"
+                )
             base = f"FROM storage_objects WHERE {' AND '.join(where)}"
             total_row = conn.execute(f"SELECT COUNT(*) AS total {base}", params).fetchone()
             total = int(total_row["total"] if total_row is not None else 0)
@@ -555,7 +557,7 @@ class StorageLedgerService:
             SELECT COUNT(*) AS count
             FROM storage_objects
             WHERE namespace = ? AND content_sha256 = ?
-              AND status IN ('uploading', 'completing', 'available', 'missing')
+              AND status IN ('uploading', 'completing', 'available')
             """,
             (namespace, sha256),
         ).fetchone()

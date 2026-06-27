@@ -8,8 +8,8 @@ from pathlib import Path
 from urllib.parse import urlsplit
 from urllib.request import url2pathname
 
+from tests.fakes import FakeObjectStore
 from backend.state.store import StateStore
-from backend.storage.local_object_store import LocalObjectStore
 from backend.storage.service import STORAGE_DEFAULT_TTL_SECONDS, StorageLedgerService
 from backend.utils import NotFoundError, ValidationError, parse_iso
 
@@ -19,7 +19,7 @@ class StorageLedgerServiceTest(unittest.TestCase):
         self.tmp = tempfile.TemporaryDirectory()
         self.root = Path(self.tmp.name)
         self.store = StateStore(db_path=self.root / "state.sqlite")
-        self.objects = LocalObjectStore(root=self.root / "objects")
+        self.objects = FakeObjectStore()
         self.service = StorageLedgerService(store=self.store, objects=self.objects)
         conn = self.store.connect()
         try:
@@ -61,7 +61,6 @@ class StorageLedgerServiceTest(unittest.TestCase):
         self.assertLess(ttl, STORAGE_DEFAULT_TTL_SECONDS + 120)
         stat = self.objects.stat(namespace=self.project_id, sha256=self._sha(data))
         self.assertIsNotNone(stat)
-        self.assertIsNone(stat.expires_at)
 
     def test_physical_dedup_and_idempotent_same_name_sha(self) -> None:
         data = b"shared model weights"
@@ -128,7 +127,13 @@ class StorageLedgerServiceTest(unittest.TestCase):
         self.assertTrue(page["has_more"])
         self.assertNotIn("notes", page["objects"][0])
 
-    def test_default_list_hides_in_progress_uploads(self) -> None:
+    def test_default_list_only_returns_available_objects(self) -> None:
+        available = self._put_and_complete(
+            name="datasets/ready.tar", kind="dataset", data=b"ready"
+        )
+        expired = self._put_and_complete(
+            name="datasets/expired.tar", kind="dataset", data=b"expired"
+        )
         registered = self.service.put_object(
             project_id=self.project_id,
             name="datasets/pending.tar",
@@ -136,11 +141,28 @@ class StorageLedgerServiceTest(unittest.TestCase):
             sha256=self._sha(b"pending"),
             size_bytes=len(b"pending"),
         )
+        conn = self.store.connect()
+        try:
+            conn.execute(
+                "UPDATE storage_objects SET status = 'expired' WHERE id = ?",
+                (expired["id"],),
+            )
+            conn.commit()
+        finally:
+            conn.close()
 
         listed = self.service.list_objects(project_id=self.project_id)
+        with_expired = self.service.list_objects(
+            project_id=self.project_id, include_expired=True
+        )
         uploading = self.service.list_objects(project_id=self.project_id, status="uploading")
 
-        self.assertEqual(listed["total"], 0)
+        self.assertEqual(listed["total"], 1)
+        self.assertEqual(listed["objects"][0]["id"], available["id"])
+        self.assertEqual(
+            {obj["id"] for obj in with_expired["objects"]},
+            {available["id"], expired["id"]},
+        )
         self.assertEqual(uploading["total"], 1)
         self.assertEqual(uploading["objects"][0]["id"], registered["object"]["id"])
 
@@ -377,7 +399,7 @@ class StorageLedgerServiceTest(unittest.TestCase):
 
 
 class _HookedObjectStore:
-    def __init__(self, inner: LocalObjectStore) -> None:
+    def __init__(self, inner: FakeObjectStore) -> None:
         self.inner = inner
         self.before_complete = None
         self.after_complete = None

@@ -639,30 +639,6 @@ class SplitModeSmokeTest(unittest.TestCase):
         self._call("experiment.transition", project_id=project_id, experiment_id=exp_id,
                    transition="complete", evidence={"conclusion": "0.72 beats 0.6; supported."})
 
-        self.control_client.submit_sandbox_metrics(
-            {
-                "project_id": project_id,
-                "experiment_id": exp_id,
-                "metrics_snapshot": {
-                    "source": "smoke",
-                    "experiments": [
-                        {
-                            "name": "split-smoke",
-                            "runs": [
-                                {
-                                    "run_name": "seed_0",
-                                    "status": "FINISHED",
-                                    "params": {},
-                                    "metrics": {"accuracy": {"last": 0.72}},
-                                    "history": {"accuracy": [[1, 0.72]]},
-                                }
-                            ],
-                        }
-                    ],
-                },
-            }
-        )
-
         # release (control surface) — terminates the sandbox.
         self._call(
             "sandbox.release",
@@ -670,12 +646,6 @@ class SplitModeSmokeTest(unittest.TestCase):
             experiment_id=exp_id,
             confirm_retained=True,
         )
-        durable_metrics = self.cloud_app.sandboxes.results_metrics(
-            experiment_id=exp_id,
-            project_id=project_id,
-        )
-        self.assertTrue(durable_metrics["available"])
-        self.assertEqual(durable_metrics["sandbox_status"], "none")
 
         # ---- assertions ----
         conn = self.store.connect()

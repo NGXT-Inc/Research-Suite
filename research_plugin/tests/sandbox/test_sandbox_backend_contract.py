@@ -82,7 +82,7 @@ class SandboxBackendContractTest(unittest.TestCase):
             registry=object(),  # type: ignore[arg-type]
             backend=backend,
             provisioner=object(),  # type: ignore[arg-type]
-            persist_metrics=lambda **_kwargs: None,
+            sample_metrics=lambda **_kwargs: {},
         )
 
     def test_backend_classes_expose_full_contract_surface(self) -> None:

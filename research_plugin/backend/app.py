@@ -15,6 +15,7 @@ from .observability import StructuredLogger
 from .control.record_core import build_record_core
 from .services.mlflow_tracking import CentralMlflowService
 from .tools.tool_facade import ToolDispatcher
+from .tools.contracts import available_tool_names
 from .tools.tool_handlers import build_local_tool_handlers
 from .utils import ValidationError
 
@@ -78,10 +79,15 @@ class ResearchPluginApp:
         # S3BlobStore. Same protocol, same contract tests, so the rest of the
         # app is blob-impl-blind.
         self.blobs = runtime.blobs
-        self.storage = storage if storage is not None else StorageLedgerService(
-            store=self.store,
-            objects=build_object_store(default_root=self.workspace.research_dir),
-        )
+        if storage is not None:
+            self.storage = storage
+        else:
+            objects = build_object_store(default_root=self.workspace.research_dir)
+            self.storage = (
+                StorageLedgerService(store=self.store, objects=objects)
+                if objects is not None
+                else None
+            )
         self.execution_backend = runtime.execution_backend
         self.mlflow_tracking = (
             mlflow_tracking
@@ -117,15 +123,14 @@ class ResearchPluginApp:
             # custody — local mode roots them under .research_plugin/ beside
             # the rest of the control state.
             mgmt_keys=runtime.mgmt_keys,
-            metrics_archive=self.worker.metrics_archive,
             quotas=self.quotas,
-            mlflow_tracking=self.mlflow_tracking,
             # Split mode (Phase 8): the control composition injects an
             # HttpTaskChannel so control enqueues data-plane work to the daemon
             # over HTTP. None ⇒ the synchronous in-process channel (local mode).
             task_channel=(
                 task_channel if task_channel is not None else runtime.task_channel
             ),
+            storage_enabled=self.storage is not None,
         )
         self.workflow = WorkflowService(
             store=self.store,
@@ -133,6 +138,7 @@ class ResearchPluginApp:
             reviews=self.reviews,
             sandboxes=self.sandboxes,
             syntheses=self.syntheses,
+            storage_enabled=self.storage is not None,
         )
         self.tools = ToolDispatcher(
             handlers=build_local_tool_handlers(
@@ -155,6 +161,7 @@ class ResearchPluginApp:
             permissions=self.permissions,
             activity=self.activity,
             tool_calls=self.tool_calls,
+            tool_names=available_tool_names(storage_enabled=self.storage is not None),
         )
 
     def current_project(self, *, tenant_id: str | None = None) -> dict[str, Any]:

@@ -41,7 +41,7 @@ object when the agent explicitly fetches it. See "Saving" in
   "size_bytes": 4823195012,
   "content_type": "application/x-tar",
   "namespace": "proj_...",
-  "status": "uploading | available | missing | expired | deleted",
+  "status": "uploading | completing | available | expired | deleted",
   "expires_at": "2026-08-24T14:21:03Z",   // null = pinned (kept forever)
   "created_by": "codex | user",
   "producing_experiment_id": "exp_...",     // soft provenance — plain strings
@@ -68,7 +68,7 @@ is idempotent and does not bump it.
 - **Soft provenance.** The producing experiment/run are plain strings — no
   foreign keys, no imports from the experiments domain. Storage stays standalone.
 - **The ledger owns lifecycle.** `expires_at` lives on the ledger row; the
-  provider's own expiry/sweep is a dormant backstop.
+  object provider only stores, stats, presigns, and deletes bytes.
 
 ## TTL / lifecycle
 
@@ -79,7 +79,7 @@ is idempotent and does not bump it.
   deadline.
 - **Sweep:** `CleanupService` calls `sweep_expired`, which marks due rows
   `expired` and reclaims the physical object **only when the last active alias for
-  a sha is gone** (refcount). Bucket lifecycle rules are the ultimate backstop.
+  a sha is gone** (refcount).
 
 ## Operations (`storage.*` MCP tools)
 
@@ -110,22 +110,22 @@ The UI browses and manages lifecycle; it never uploads (bytes are agent-driven).
 
 ## Provider (plug-and-play)
 
-One `ObjectStore` port; two implementations behind shared contract tests:
+One `ObjectStore` port; one production implementation:
 
-- `LocalObjectStore` — a local directory with `file://` presign stand-ins
-  (local/dev/tests).
 - `S3CompatibleObjectStore` — one class for **Cloudflare R2, AWS S3, and MinIO**,
   parameterized by `endpoint_url` + region (boto3 lazy-imported). Multipart
   presigned upload above a threshold; integrity verified via the
   `x-amz-checksum-sha256` trailer (no GB re-hash).
 
-Selected by env (control profile): `RESEARCH_PLUGIN_STORAGE_PROVIDER`
-(`local|s3`; R2 = `s3` + an endpoint), `RESEARCH_PLUGIN_STORAGE_BUCKET`,
+Storage is optional and disabled when `RESEARCH_PLUGIN_STORAGE_PROVIDER` is
+unset; disabled backends do not advertise `storage.*` tools. Enable it with
+`RESEARCH_PLUGIN_STORAGE_PROVIDER=s3` plus `RESEARCH_PLUGIN_STORAGE_BUCKET`,
 `RESEARCH_PLUGIN_STORAGE_ENDPOINT_URL`, `RESEARCH_PLUGIN_STORAGE_REGION`,
 `RESEARCH_PLUGIN_STORAGE_ACCESS_KEY_ID`, and
 `RESEARCH_PLUGIN_STORAGE_SECRET_ACCESS_KEY`. The storage credential vars are
 storage-specific and fall back to `AWS_ACCESS_KEY_ID` / `AWS_SECRET_ACCESS_KEY`
-when unset. Users bring their own S3-like storage by setting these — no code
+when unset. Local non-cloud deployments should run MinIO and point these env
+vars at it. Users bring their own S3-like storage by setting these — no code
 change.
 
 ## State layout
@@ -133,13 +133,12 @@ change.
 ```text
 .research_plugin/
   state.sqlite          # the storage_objects ledger (alongside projects/experiments)
-  storage/              # LocalObjectStore bytes (local mode only)
 ```
 
 Hosted control keeps the ledger in Postgres and the bytes in the configured
-bucket (R2 first). Namespaces are `tenant/project` in the cloud and `project`
-locally; objects are never deduplicated across namespaces (cross-tenant dedup
-would leak content existence).
+bucket (R2/S3/MinIO). Namespaces are project-scoped today; objects are never
+deduplicated across namespaces (cross-tenant dedup would leak content
+existence).
 
 ## Rules
 

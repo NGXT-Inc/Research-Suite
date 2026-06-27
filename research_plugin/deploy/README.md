@@ -12,7 +12,7 @@ operator's responsibility (see "What this stack does NOT do" below).
 |---|---|
 | `Dockerfile` | Control-plane image: installs the `control` extra, runs `research-plugin-control` (uvicorn) as a non-root user, with a `HEALTHCHECK` hitting `/api/meta`. |
 | `Dockerfile.mlflow` | Separate MLflow server image for the reference compose stack. |
-| `docker-compose.yml` | Full local stack: control + MLflow + Postgres (record stores) + MinIO (S3-shape blob/artifact stores), with one-shot bucket/database creators. |
+| `docker-compose.yml` | Full local stack: control + MLflow + Postgres (record stores) + MinIO (S3-shape blob/storage/artifact stores), with one-shot bucket/database creators. |
 | `.env.example` | Documents the control-mode environment (§3.4 config matrix). Copy, fill, and keep out of version control. |
 | `.dockerignore` | Keeps secrets, local state, the React UI, and tests out of the build context. |
 
@@ -30,9 +30,9 @@ This brings up:
   MinIO bucket. This loopback URL is for local browser/dev access only; remote
   sandboxes need `RESEARCH_PLUGIN_MLFLOW_TRACKING_URI` set to the public HTTPS
   MLflow URL.
-- **MinIO** on `localhost:9000` (console `:9001`) — the S3-shape blob store; the
-  `createbucket` job makes the Research Plugin blob bucket and the MLflow
-  artifact bucket.
+- **MinIO** on `localhost:9000` (console `:9001`) — the S3-shape blob and
+  heavy-file storage backend; the `createbucket` job makes the Research Plugin
+  blob bucket, storage bucket, and MLflow artifact bucket.
 - **mgmtkey** one-shot — creates a dev-only management SSH key in a named volume
   and mounts it read-only into control. Managed deploys should use a real secret
   manager instead.

@@ -8,6 +8,7 @@ from typing import Callable, Mapping
 
 import httpx
 
+from ..mlflow_metrics import snapshot_mlflow
 from ..config import (
     resolve_mlflow_dashboard_url,
     resolve_mlflow_mode,
@@ -144,6 +145,35 @@ class CentralMlflowService:
         if self.note:
             result["note"] = self.note
         return result
+
+    def results_metrics(self, *, project_id: str, experiment_id: str) -> dict[str, object]:
+        """Read experiment metrics from the centralized MLflow server."""
+        context = self.context(project_id=project_id, experiment_id=experiment_id)
+        if not context.configured:
+            return {
+                "experiment_id": experiment_id,
+                "available": False,
+                "source": "mlflow",
+                "hint": context.note,
+            }
+        snapshot = snapshot_mlflow(
+            self.server_uri or context.tracking_uri,
+            experiment_name=context.experiment_name,
+        )
+        if not isinstance(snapshot, dict):
+            return {
+                "experiment_id": experiment_id,
+                "available": False,
+                "source": "mlflow",
+                "hint": "No MLflow runs found for this experiment yet.",
+            }
+        portable = dict(snapshot)
+        portable.pop("base_url", None)
+        return {
+            "experiment_id": experiment_id,
+            "available": True,
+            **portable,
+        }
 
     def _reachable(self) -> bool:
         if self._health_check is not None:

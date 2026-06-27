@@ -7,6 +7,7 @@ from typing import Any, Literal
 
 from pydantic import BaseModel, ConfigDict, Field
 
+from ..config import storage_feature_enabled
 from ..domain.vocabulary import (
     RESOURCE_ROLES,
     RESOURCE_TARGET_TYPES,
@@ -291,7 +292,7 @@ class StorageListInput(ProjectScopedInput):
     kind: Literal["dataset", "model", "other"] | None = None
     name: str | None = None
     status: (
-        Literal["uploading", "completing", "available", "missing", "expired", "deleted"]
+        Literal["uploading", "completing", "available", "expired", "deleted"]
         | None
     ) = None
     include_expired: bool = False
@@ -494,8 +495,9 @@ class SandboxReleaseInput(ProjectScopedInput):
             "Release permanently destroys the sandbox and everything on it. "
             "The first call without this flag does NOT delete — it returns a "
             "retention checklist. Set true only after you have retained "
-            "everything you need (rsync light files off the box yourself over "
-            "SSH, storage.put_object for heavy ones) to actually terminate."
+            "everything you need (rsync files off the box yourself over SSH, "
+            "and use durable heavy-file storage only when that feature is "
+            "enabled) to actually terminate."
         ),
     )
 
@@ -818,7 +820,8 @@ TOOL_CONTRACTS: dict[str, ToolContract] = {
             "Two-step by design: the first call WITHOUT confirm_retained does "
             "not delete — it returns a retention checklist asking you to confirm "
             "you have everything you need. Retain first (rsync light files off "
-            "the box yourself over SSH, storage.put_object for heavy ones), then "
+            "the box yourself over SSH, and use configured durable storage for "
+            "heavy ones when available), then "
             "re-call with confirm_retained=true to actually terminate."
         ),
     ),
@@ -853,6 +856,31 @@ from .feed_contracts import FEED_TOOL_CONTRACTS  # noqa: E402
 
 TOOL_CONTRACTS.update(FEED_TOOL_CONTRACTS)
 
+STORAGE_TOOL_NAMES = {
+    "storage.put_object",
+    "storage.complete_upload",
+    "storage.list",
+    "storage.resolve",
+    "storage.pin",
+    "storage.unpin",
+    "storage.renew",
+    "storage.delete",
+}
+
+
+def available_tool_names(*, storage_enabled: bool | None = None) -> set[str]:
+    """Tool names for the active feature set.
+
+    Storage is optional. When it is not configured, the MCP catalog must omit
+    storage tools entirely rather than advertising a feature that will fail.
+    """
+    enabled = storage_feature_enabled() if storage_enabled is None else storage_enabled
+    names = set(TOOL_CONTRACTS)
+    if not enabled:
+        names -= STORAGE_TOOL_NAMES
+    return names
+
+
 TOOL_INPUT_MODELS: dict[str, type[ContractModel]] = {
     name: contract.input_model for name, contract in TOOL_CONTRACTS.items()
 }
@@ -876,15 +904,24 @@ AGGREGATE_TOOL_NAMES = {
 }
 
 
-def static_tool_catalog() -> list[dict[str, Any]]:
+def static_tool_catalog(
+    *, tool_names: set[str] | None = None, storage_enabled: bool | None = None
+) -> list[dict[str, Any]]:
     """The MCP tool catalog, derived purely from contracts.
 
     Same shape as ``ResearchPluginApp.list_tools()`` (top-level ``title``
     popped from each schema) so tool listing never needs an app instance —
     and therefore has no filesystem side effects.
     """
+    selected = (
+        available_tool_names(storage_enabled=storage_enabled)
+        if tool_names is None
+        else set(tool_names)
+    )
     catalog: list[dict[str, Any]] = []
     for name, contract in TOOL_CONTRACTS.items():
+        if name not in selected:
+            continue
         schema = contract.input_model.model_json_schema()
         schema.pop("title", None)
         catalog.append(

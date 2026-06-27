@@ -18,12 +18,10 @@ from ...sandbox.sandbox_backend import (
     SandboxBackend,
     SandboxRequest,
 )
-from ...ports.metrics_archive import MetricsArchive
 from ...ports.mgmt_keys import MgmtKeyStore
 from ...ports.quota_admission import QuotaAdmission
 from ...ports.sandbox_worker import SandboxWorker
 from ...ports.task_channel import TaskChannel
-from ..mlflow_tracking import CentralMlflowService
 from . import sandbox_views
 from .sandbox_metrics import SandboxMetrics
 from ..transcript_cache import TranscriptCache
@@ -50,13 +48,12 @@ class SandboxService:
         sandbox_backend: SandboxBackend,
         worker: SandboxWorker,
         mgmt_keys: MgmtKeyStore,
-        metrics_archive: MetricsArchive,
         activity: ActivityLogger | None = None,
         request_wait_seconds: float | None = None,
         stale_provision_seconds: float | None = None,
         quotas: QuotaAdmission | None = None,
         task_channel: TaskChannel | None = None,
-        mlflow_tracking: CentralMlflowService | None = None,
+        storage_enabled: bool = False,
     ) -> None:
         self.store = store
         self.backend = sandbox_backend
@@ -79,7 +76,7 @@ class SandboxService:
         self.mgmt_keys = mgmt_keys
         # Conn files and local tunnels route through the data-plane worker.
         self.worker = worker
-        mlflow_tracking = mlflow_tracking or CentralMlflowService()
+        self.storage_enabled = bool(storage_enabled)
         self.request_wait_seconds = env_float(
             "RESEARCH_PLUGIN_SANDBOX_REQUEST_WAIT",
             request_wait_seconds,
@@ -89,15 +86,8 @@ class SandboxService:
         self.metrics = SandboxMetrics(
             registry=self.registry,
             backend=sandbox_backend,
-            worker=self.worker,
             mgmt_keys=self.mgmt_keys,
-            metrics_archive=metrics_archive,
-            store=store,
-            mlflow_tracking=mlflow_tracking,
         )
-        # Backward-compatible public handles used by tests and thin UI helpers.
-        self.metrics_archive = self.metrics.metrics_archive
-        self.metrics_records = self.metrics.metrics_records
         # The task channel is only for cross-plane conn refresh and teardown.
         self.tasks = task_channel
         # Marking a row failed/terminated also tears down its runtime
@@ -117,7 +107,6 @@ class SandboxService:
             registry=self.registry,
             backend=sandbox_backend,
             provisioner=self.provisioner,
-            persist_metrics=self.metrics.persist_row,
             sample_metrics=self.metrics.sample_metrics,
         )
         self.daemons.start()
@@ -580,9 +569,14 @@ class SandboxService:
                 f"Not released yet. This will permanently destroy {count} {noun} "
                 "and everything on the VM. First confirm you have retained "
                 "everything you need: rsync the light files you want off the box "
-                "yourself over SSH into the local work folder, and "
-                "storage.put_object for any heavy file (a trained model, a precious "
-                "dataset) worth keeping. Nothing is auto-synced — anything you do "
+                "yourself over SSH into the local work folder"
+                + (
+                    ", and storage.put_object for any heavy file (a trained model, "
+                    "a precious dataset) worth keeping"
+                    if self.storage_enabled
+                    else "; heavy-file storage is not enabled on this backend"
+                )
+                + ". Nothing is auto-synced — anything you do "
                 "not pull is lost. When you have everything, re-call sandbox.release "
                 "with confirm_retained=true to terminate."
             ),
@@ -597,23 +591,6 @@ class SandboxService:
         self.provisioner.cancel(experiment_id=experiment_id, sandbox_uid=sandbox_uid)
         stopped = False
         was_active = bool(row.get("sandbox_id") and row.get("status") in ACTIVE_SANDBOX_STATUSES)
-        if was_active:
-            # Final metrics capture is best-effort. Central MLflow is durable;
-            # legacy sandbox-local MLflow DB snapshots remain a fallback path.
-            active_experiment_ids = self._active_experiment_ids_for_row(row=row)
-            if not active_experiment_ids and experiment_id:
-                active_experiment_ids = [experiment_id]
-            for metrics_experiment_id in active_experiment_ids:
-                self.metrics.persist_row(
-                    row={
-                        **row,
-                        "experiment_id": metrics_experiment_id,
-                        "active_experiment_ids": [metrics_experiment_id],
-                    },
-                    force=True,
-                    snapshot=None,
-                    snapshot_provided=False,
-                )
         if row.get("sandbox_id") and row.get("status") in (ACTIVE_SANDBOX_STATUSES | {"provisioning"}):
             try:
                 stopped = self.backend.terminate(sandbox_id=str(row["sandbox_id"]))
@@ -688,13 +665,16 @@ class SandboxService:
         )
         status = str(row.get("status", "none"))
         sandbox_id = str(row.get("sandbox_id") or "")
+        sandbox_uid = str(row.get("sandbox_uid") or "")
+        resolved_experiment_id = experiment_id or str(row.get("experiment_id") or "")
+        transcript_key = sandbox_uid or resolved_experiment_id
         full = ""
         unavailable = False
 
-        def _read() -> str:
+        def _read_for(key: str) -> str:
             return self.backend.read_transcript(
                 sandbox_id=sandbox_id,
-                experiment_id=experiment_id or str(row.get("sandbox_uid") or ""),
+                experiment_id=key,
                 volume_name=str(row.get("volume_name") or ""),
                 workdir=str(row.get("workdir") or ""),
                 tail=None,
@@ -707,6 +687,12 @@ class SandboxService:
                 ssh_user=str(row.get("ssh_user") or ""),
                 key_path=str(self._mgmt_key_path(row=row)),
             )
+
+        def _read() -> str:
+            full_text = _read_for(transcript_key)
+            if full_text or not resolved_experiment_id or resolved_experiment_id == transcript_key:
+                return full_text
+            return _read_for(resolved_experiment_id)
 
         try:
             # Cursor cache (plan Phase 9, risk 14): repeated control-side reads
@@ -742,8 +728,8 @@ class SandboxService:
             last_exit_code, last_command_finished_at, in_flight = parse_terminal_markers(full)
             command_running = in_flight and status in ACTIVE_SANDBOX_STATUSES
         return {
-            "experiment_id": experiment_id,
-            "sandbox_uid": row.get("sandbox_uid", ""),
+            "experiment_id": resolved_experiment_id,
+            "sandbox_uid": sandbox_uid,
             "sandbox_id": row.get("sandbox_id", ""),
             "status": status,
             "running": status in ACTIVE_SANDBOX_STATUSES,
@@ -754,26 +740,6 @@ class SandboxService:
             "last_command_finished_at": last_command_finished_at,
             "command_running": command_running,
         }
-
-    def record_daemon_metrics(
-        self,
-        *,
-        experiment_id: str,
-        project_id: str,
-        snapshot: dict[str, Any] | None,
-    ) -> dict[str, Any]:
-        return self.metrics.record_daemon_metrics(
-            experiment_id=experiment_id,
-            project_id=project_id,
-            snapshot=snapshot,
-        )
-
-    def results_metrics(
-        self, *, experiment_id: str, project_id: str | None = None
-    ) -> dict[str, Any]:
-        return self.metrics.results_metrics(
-            experiment_id=experiment_id, project_id=project_id
-        )
 
     def health(self) -> dict[str, Any]:
         health = self.backend.health()
@@ -790,11 +756,19 @@ class SandboxService:
     # UI responses (see ResearchHttpApi.sandbox_*_view). This keeps presentation
     # out of the domain service.
 
-    def get_row(self, *, experiment_id: str, project_id: str | None = None) -> dict[str, Any] | None:
-        """Reconciled sandbox row for an experiment, or None if none exists."""
+    def get_row(
+        self,
+        *,
+        experiment_id: str | None = None,
+        project_id: str | None = None,
+        sandbox_uid: str | None = None,
+    ) -> dict[str, Any] | None:
+        """Reconciled sandbox row for an experiment or sandbox UID."""
         try:
             row = self.registry.fetch_scoped(
-                experiment_id=experiment_id, project_id=project_id
+                experiment_id=(experiment_id or ""),
+                project_id=project_id,
+                sandbox_uid=sandbox_uid,
             )
         except NotFoundError:
             return None
@@ -839,7 +813,13 @@ class SandboxService:
             """,
             (experiment_id,),
         ).fetchall()
-        return [self._row_view(row=row_to_dict(row=row) or {}, conn=conn) for row in rows]
+        return [
+            self._row_view(
+                row={**(row_to_dict(row=row) or {}), "experiment_id": experiment_id},
+                conn=conn,
+            )
+            for row in rows
+        ]
 
     def sandboxes_for_project(self, *, conn, project_id: str) -> list[dict[str, Any]]:
         rows = conn.execute(
@@ -1038,6 +1018,7 @@ class SandboxService:
             row=row,
             env_info=self._sandbox_environment(),
             reused=reused,
+            storage_enabled=self.storage_enabled,
         )
 
     def _agent_view(
@@ -1058,6 +1039,7 @@ class SandboxService:
             row=row,
             env_info=self._sandbox_environment(),
             reused=reused,
+            storage_enabled=self.storage_enabled,
         )
         enrichment = self.worker.sandbox_enrichment(
             row=row,
@@ -1097,7 +1079,10 @@ class SandboxService:
 
     def _with_active_experiment_ids(self, *, row: dict[str, Any]) -> dict[str, Any]:
         out = dict(row)
-        out["active_experiment_ids"] = self._active_experiment_ids_for_row(row=row)
+        active = self._active_experiment_ids_for_row(row=row)
+        out["active_experiment_ids"] = active
+        if not out.get("experiment_id") and active:
+            out["experiment_id"] = active[0]
         return out
 
     def _needs_selection_view(
@@ -1129,7 +1114,14 @@ class SandboxService:
             ).fetchone()
             if row is None:
                 row = conn.execute(
-                    "SELECT tenant_id FROM sandboxes WHERE experiment_id = ?",
+                    """
+                    SELECT s.tenant_id
+                    FROM sandboxes s
+                    JOIN sandbox_attachments a ON a.sandbox_uid = s.sandbox_uid
+                    WHERE a.experiment_id = ? AND a.detached_at IS NULL
+                    ORDER BY s.created_seq DESC
+                    LIMIT 1
+                    """,
                     (experiment_id,),
                 ).fetchone()
         finally:

@@ -53,7 +53,6 @@ CONTROL_MODULES = (
     SERVICES_ROOT / "pinned.py",
     SERVICES_ROOT / "resources.py",
     SERVICES_ROOT / "feed.py",
-    SERVICES_ROOT / "metrics_records.py",
     SERVICES_ROOT / "sandbox" / "sandbox_metrics.py",
     BACKEND_ROOT / "control" / "record_core.py",
     BACKEND_ROOT / "control" / "control_app.py",
@@ -734,9 +733,11 @@ for name in (
         self.assertIn("build_record_core", source)
         self.assertIn("build_control_tool_handlers", source)
         self.assertIn(
-            "tool_names=CONTROL_PLANE_TOOL_NAMES | AGGREGATE_TOOL_NAMES",
+            "control_tool_names = CONTROL_PLANE_TOOL_NAMES | AGGREGATE_TOOL_NAMES",
             source,
         )
+        self.assertIn("available_tool_names(storage_enabled=", source)
+        self.assertIn("tool_names=control_tool_names", source)
         self.assertNotIn("class ControlActivitySink", source)
         self.assertNotIn("class ControlToolCallSink", source)
         self.assertNotIn("class ControlSandboxWorker", source)
@@ -817,7 +818,6 @@ for name in (
     "backend.local_runtime",
     "backend.workspace",
     "backend.dataplane.worker",
-	    "backend.dataplane.metrics_archive",
 	    "backend.dataplane.sandbox_conn",
 	    "backend.services.sandbox_conn",
     "backend.state.mgmt_keys",

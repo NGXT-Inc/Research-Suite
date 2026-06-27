@@ -328,7 +328,6 @@ CREATE TABLE IF NOT EXISTS synthesis_experiments (
 
 CREATE TABLE IF NOT EXISTS sandboxes (
   sandbox_uid TEXT PRIMARY KEY,
-  experiment_id TEXT NOT NULL,
   project_id TEXT NOT NULL,
   tenant_id TEXT NOT NULL DEFAULT 'local',
   sandbox_id TEXT NOT NULL DEFAULT '',
@@ -398,19 +397,6 @@ CREATE TABLE IF NOT EXISTS report_figures (
   created_at TEXT NOT NULL,
   PRIMARY KEY (report_version_id, link_path),
   FOREIGN KEY(report_version_id) REFERENCES resource_versions(id)
-);
-
--- MLflow metrics snapshots as control-plane records (cloud plan Phase 5):
--- reviews and the UI read metrics without the user machine online. One row
--- per experiment — the latest snapshot, mirroring the daemon's local file
--- cache (which is kept as-is). snapshot_json is the full extracted record
--- (captured_at + source + experiments/runs/metrics).
-CREATE TABLE IF NOT EXISTS metrics_snapshots (
-  experiment_id TEXT PRIMARY KEY,
-  project_id TEXT NOT NULL,
-  captured_at TEXT NOT NULL,
-  source TEXT NOT NULL DEFAULT '',
-  snapshot_json TEXT NOT NULL DEFAULT '{}'
 );
 
 CREATE TABLE IF NOT EXISTS schema_migrations (
@@ -510,6 +496,20 @@ MIGRATIONS: tuple[tuple[int, str, str], ...] = (
     # Slice-5 (June 2026): attachment history can contain multiple
     # close-then-open rows for the same sandbox/experiment pair.
     (7, "allow_sandbox_attachment_history", ""),
+    # Slice-6 (June 2026): sandbox rows are machine state only; experiment
+    # relationships live in sandbox_attachments.
+    (8, "drop_sandboxes_experiment_id", ""),
+    # Slice-6 follow-up: MLflow is centralized and no longer archived through
+    # sandbox release/daemon paths.
+    (9, "drop_metrics_snapshots", "DROP TABLE IF EXISTS metrics_snapshots"),
+    # Storage simplification: `missing` is no longer a storage object status.
+    # Old rows are unavailable to agents, so keep them visible only through
+    # expired/history views instead of preserving a removed state.
+    (
+        10,
+        "normalize_storage_missing_status",
+        "UPDATE storage_objects SET status = 'expired' WHERE status = 'missing'",
+    ),
 )
 
 
@@ -627,6 +627,8 @@ class BaseStateStore:
                 self._backfill_sandbox_mgmt_key_refs(conn=conn)
             elif name == "allow_sandbox_attachment_history":
                 self._allow_sandbox_attachment_history(conn=conn)
+            elif name == "drop_sandboxes_experiment_id":
+                self._drop_sandboxes_experiment_id(conn=conn)
             else:
                 conn.execute(statement)
             conn.execute(
@@ -682,6 +684,13 @@ class BaseStateStore:
         conn.execute(
             "ALTER TABLE sandbox_attachments DROP CONSTRAINT IF EXISTS sandbox_attachments_pkey"
         )
+
+    def _drop_sandboxes_experiment_id(self, *, conn: Connection) -> None:
+        """Drop the legacy Postgres sandbox experiment_id column after backfill."""
+        if not self._has_column(conn=conn, table="sandboxes", column="experiment_id"):
+            return
+        self._backfill_sandbox_attachments(conn=conn)
+        conn.execute("ALTER TABLE sandboxes DROP COLUMN IF EXISTS experiment_id")
 
     def _migrate_sandbox_uid_identity(self, *, conn: Connection) -> None:
         """Repoint an experiment_id-keyed sandboxes table onto sandbox_uid.
@@ -748,6 +757,8 @@ class BaseStateStore:
         identity migration share it.
         """
         conn.execute(_schema_table_ddl(table="sandbox_attachments"))
+        if not self._has_column(conn=conn, table="sandboxes", column="experiment_id"):
+            return
         # Only rows still missing their attachment — so re-runs after the first
         # upgrade do no work, while a partial upgrade still gets finished.
         rows = conn.execute(
@@ -1097,6 +1108,7 @@ class StateStore(BaseStateStore):
         # public 1:1 behavior is preserved by registry primary selection.
         self._migrate_sandbox_identity(conn=conn)
         self._backfill_sandbox_attachments(conn=conn)
+        self._drop_sandboxes_experiment_id(conn=conn)
         # Cloud-split Phase 9 (June 2026): the per-tenant USD spend budget. The
         # GPU-hour budget shipped in Phase 7; USD is its sibling. Nullable =
         # unlimited; pre-Phase-9 quota rows predate the column.
@@ -1122,7 +1134,8 @@ class StateStore(BaseStateStore):
             return
         conn.execute("DROP TABLE IF EXISTS sandbox_attachments")
         conn.execute(_schema_table_ddl(table="sandboxes", name="sandboxes_migrate"))
-        source_columns = {str(row["name"]) for row in columns}
+        source_column_list = [str(row["name"]) for row in columns]
+        source_columns = set(source_column_list)
         target_columns = [
             str(row["name"])
             for row in conn.execute("PRAGMA table_info(sandboxes_migrate)").fetchall()
@@ -1132,17 +1145,50 @@ class StateStore(BaseStateStore):
             for column in target_columns
             if column != "sandbox_uid" and column in source_columns
         ]
-        select_columns = ", ".join(copy_columns)
         insert_columns = ", ".join(["sandbox_uid", *copy_columns])
         placeholders = ", ".join("?" for _ in ["sandbox_uid", *copy_columns])
+        attachments: list[tuple[str, str, str, str | None]] = []
+        select_columns = ", ".join(source_column_list)
         for row in conn.execute(f"SELECT {select_columns} FROM sandboxes").fetchall():
+            row_uid = uuid.uuid4().hex
             conn.execute(
                 f"INSERT INTO sandboxes_migrate ({insert_columns}) VALUES ({placeholders})",
-                [uuid.uuid4().hex, *[row[column] for column in copy_columns]],
+                [row_uid, *[row[column] for column in copy_columns]],
             )
+            if "experiment_id" in source_columns and row["experiment_id"]:
+                attached_at = (
+                    (row["requested_at"] if "requested_at" in source_columns else None)
+                    or (row["created_at"] if "created_at" in source_columns else None)
+                    or (row["updated_at"] if "updated_at" in source_columns else None)
+                    or now_iso()
+                )
+                detached_at = None
+                terminated_at = (
+                    row["terminated_at"] if "terminated_at" in source_columns else None
+                )
+                status = row["status"] if "status" in source_columns else ""
+                if terminated_at or status in {"terminated", "failed"}:
+                    detached_at = (
+                        terminated_at
+                        or (row["updated_at"] if "updated_at" in source_columns else None)
+                        or attached_at
+                    )
+                attachments.append(
+                    (row_uid, row["experiment_id"], attached_at, detached_at)
+                )
         conn.execute("DROP TABLE sandboxes")
         conn.execute("ALTER TABLE sandboxes_migrate RENAME TO sandboxes")
         conn.execute(_schema_table_ddl(table="sandbox_attachments"))
+        for sandbox_uid, experiment_id, attached_at, detached_at in attachments:
+            conn.execute(
+                """
+                INSERT INTO sandbox_attachments (
+                  sandbox_uid, experiment_id, attached_at, detached_at
+                )
+                VALUES (?, ?, ?, ?)
+                """,
+                (sandbox_uid, experiment_id, attached_at, detached_at),
+            )
 
     def _drop_sandboxes_experiment_unique(self, *, conn: sqlite3.Connection) -> None:
         """Rebuild sandboxes when SQLite still has UNIQUE(experiment_id)."""
@@ -1151,6 +1197,7 @@ class StateStore(BaseStateStore):
         ).fetchone()
         if table is None or not self._sandboxes_has_experiment_unique(conn=conn):
             return
+        self._backfill_sandbox_attachments(conn=conn)
         attachments_exist = (
             conn.execute(
                 "SELECT name FROM sqlite_master WHERE type = 'table' AND name = 'sandbox_attachments'"
@@ -1176,10 +1223,11 @@ class StateStore(BaseStateStore):
             for row in conn.execute("PRAGMA table_info(sandboxes_migrate)").fetchall()
             if str(row["name"]) in source_columns
         ]
-        columns = ", ".join(target_columns)
-        conn.execute(
-            f"INSERT INTO sandboxes_migrate ({columns}) SELECT {columns} FROM sandboxes"
-        )
+        if target_columns:
+            columns = ", ".join(target_columns)
+            conn.execute(
+                f"INSERT INTO sandboxes_migrate ({columns}) SELECT {columns} FROM sandboxes"
+            )
         conn.execute("DROP TABLE sandboxes")
         conn.execute("ALTER TABLE sandboxes_migrate RENAME TO sandboxes")
         conn.execute(_schema_table_ddl(table="sandbox_attachments"))
@@ -1195,6 +1243,61 @@ class StateStore(BaseStateStore):
             )
             conn.execute("DROP TABLE sandbox_attachments_migrate")
         self._backfill_sandbox_attachments(conn=conn)
+
+    def _drop_sandboxes_experiment_id(self, *, conn: sqlite3.Connection) -> None:
+        """Rebuild sandboxes without the legacy experiment_id column."""
+        table = conn.execute(
+            "SELECT name FROM sqlite_master WHERE type = 'table' AND name = 'sandboxes'"
+        ).fetchone()
+        if table is None or not self._has_column(
+            conn=conn, table="sandboxes", column="experiment_id"
+        ):
+            return
+        self._backfill_sandbox_attachments(conn=conn)
+        attachments_exist = (
+            conn.execute(
+                "SELECT name FROM sqlite_master WHERE type = 'table' AND name = 'sandbox_attachments'"
+            ).fetchone()
+            is not None
+        )
+        if attachments_exist:
+            conn.execute("DROP TABLE IF EXISTS sandbox_attachments_migrate")
+            conn.execute(
+                """
+                CREATE TEMP TABLE sandbox_attachments_migrate AS
+                SELECT sandbox_uid, experiment_id, attached_at, detached_at
+                FROM sandbox_attachments
+                """
+            )
+            conn.execute("DROP TABLE sandbox_attachments")
+        conn.execute(_schema_table_ddl(table="sandboxes", name="sandboxes_migrate"))
+        source_columns = {
+            str(row["name"]) for row in conn.execute("PRAGMA table_info(sandboxes)").fetchall()
+        }
+        target_columns = [
+            str(row["name"])
+            for row in conn.execute("PRAGMA table_info(sandboxes_migrate)").fetchall()
+            if str(row["name"]) in source_columns
+        ]
+        if target_columns:
+            columns = ", ".join(target_columns)
+            conn.execute(
+                f"INSERT INTO sandboxes_migrate ({columns}) SELECT {columns} FROM sandboxes"
+            )
+        conn.execute("DROP TABLE sandboxes")
+        conn.execute("ALTER TABLE sandboxes_migrate RENAME TO sandboxes")
+        conn.execute(_schema_table_ddl(table="sandbox_attachments"))
+        if attachments_exist:
+            conn.execute(
+                """
+                INSERT OR IGNORE INTO sandbox_attachments (
+                  sandbox_uid, experiment_id, attached_at, detached_at
+                )
+                SELECT sandbox_uid, experiment_id, attached_at, detached_at
+                FROM sandbox_attachments_migrate
+                """
+            )
+            conn.execute("DROP TABLE sandbox_attachments_migrate")
 
     def _sandboxes_has_experiment_unique(self, *, conn: sqlite3.Connection) -> bool:
         for idx in conn.execute("PRAGMA index_list(sandboxes)").fetchall():
@@ -1243,6 +1346,8 @@ class StateStore(BaseStateStore):
     def _backfill_sandbox_attachments(self, *, conn: sqlite3.Connection) -> None:
         """Open the forward relation for legacy/un-attached rows; a no-op once filled."""
         conn.execute(_schema_table_ddl(table="sandbox_attachments"))
+        if not self._has_column(conn=conn, table="sandboxes", column="experiment_id"):
+            return
         # Only rows still missing their attachment — so re-runs after the first
         # upgrade do no work, while a partial upgrade still gets finished.
         rows = conn.execute(

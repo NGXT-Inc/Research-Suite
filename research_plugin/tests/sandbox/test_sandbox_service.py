@@ -6,14 +6,12 @@ import threading
 import time
 import unittest
 from pathlib import Path
-from unittest.mock import patch
 
 from backend.app import ResearchPluginApp
 from backend.execution.backends.fake import FakeSandboxBackend
 from backend.services.mlflow_tracking import CentralMlflowService
 from backend.sandbox.sandbox_backend import SandboxRequest
 from backend.utils import NotFoundError, ValidationError
-from tests.fakes import write_fake_mlflow_db
 
 
 class SandboxServiceTest(unittest.TestCase):
@@ -86,7 +84,7 @@ class SandboxServiceTest(unittest.TestCase):
         self.assertIn("EPHEMERAL SSH window", result["hint"])
         self.assertIn("$RP_DATASET_DIR", result["hint"])
         self.assertIn("rsync", result["hint"])
-        self.assertIn("storage.put_object", result["hint"])
+        self.assertIn("Heavy-file storage is not enabled", result["hint"])
         self.assertIn("expires at", result["hint"])
         self.assertNotIn("ready_to_run", result["hint"])
         # Full ssh line is still available as a cwd-independent fallback.
@@ -202,7 +200,6 @@ class SandboxServiceTest(unittest.TestCase):
 
         self.assertEqual(attached["sandbox_uid"], uid)
         self.assertEqual(attached["sandbox_id"], created["sandbox_id"])
-        self.assertEqual(attached["experiment_id"], source)
         self.assertEqual(set(attached["active_experiment_ids"]), {source, target})
         self.assertEqual(attached["status"], "running")
         self.assertTrue(attached["reused"])
@@ -210,7 +207,6 @@ class SandboxServiceTest(unittest.TestCase):
         self.assertEqual(attached["ssh"]["command"], f".research_plugin/sbx {uid}")
 
         row = self.app.sandboxes.registry.get_by_uid(sandbox_uid=uid)
-        self.assertEqual(row["experiment_id"], source)
         self.assertEqual(row["mgmt_key_ref"], uid)
         self.assertEqual(
             self.call("experiment.get_state", project_id=self.project_id, experiment_id=source)["status"],
@@ -258,7 +254,7 @@ class SandboxServiceTest(unittest.TestCase):
         )
 
         self.assertEqual(attached["sandbox_uid"], uid)
-        self.assertEqual(attached["experiment_id"], "")
+        self.assertEqual(attached["experiment_id"], target)
         self.assertEqual(attached["active_experiment_ids"], [target])
         self.assertEqual(attached["ssh"]["command"], f".research_plugin/sbx {uid}")
         self.assertEqual(
@@ -588,220 +584,6 @@ class SandboxServiceTest(unittest.TestCase):
         self.assertIn("figures/*.png", result["hint"])
         self.assertIn("report.md", result["hint"])
         self.assertIn("rsync the files you need off", result["hint"])
-
-    # ---- durable metrics archive (results outlive the VM) ----
-
-    SNAPSHOT = {
-        "source": "mlflow",
-        "base_url": "https://mlflow-x.modal.test",
-        "experiments": [
-            {
-                "experiment_id": "1",
-                "name": "lora_glue",
-                "last_update_time": 99,
-                "runs": [
-                    {
-                        "run_id": "r1",
-                        "run_name": "seed_0",
-                        "status": "FINISHED",
-                        "params": {"lr": "0.0005"},
-                        "metrics": {"acc": {"last": 0.91}},
-                        "history": {"acc": [[10, 0.85], [20, 0.91]]},
-                    }
-                ],
-            }
-        ],
-    }
-
-    def test_release_archives_metrics_before_terminating(self) -> None:
-        # Central MLflow is durable, but release still captures a final snapshot
-        # so the UI has a compact metrics record after termination.
-        exp_id = self._experiment()
-        self.call("sandbox.request", project_id=self.project_id, experiment_id=exp_id)
-        with patch(
-            "backend.services.sandbox.sandbox_metrics.snapshot_mlflow",
-            return_value=dict(self.SNAPSHOT),
-        ) as snap:
-            self.call(
-                "sandbox.release",
-                project_id=self.project_id,
-                experiment_id=exp_id,
-                confirm_retained=True,
-            )
-        snap.assert_called_once()
-        self.assertEqual(snap.call_args.args[0], "https://mlflow.test")
-        self.assertEqual(
-            snap.call_args.kwargs["experiment_name"], f"rp/{self.project_id}/{exp_id}"
-        )
-        result = self.app.sandboxes.results_metrics(
-            experiment_id=exp_id, project_id=self.project_id
-        )
-        self.assertTrue(result["available"])
-        self.assertEqual(result["sandbox_status"], "none")
-        self.assertNotIn("base_url", result)
-        self.assertEqual(result["experiments"][0]["name"], "lora_glue")
-        self.assertEqual(
-            result["experiments"][0]["runs"][0]["metrics"]["acc"]["last"], 0.91
-        )
-        self.assertIn("captured_at", result)
-        with self.app.store.transaction() as conn:
-            rows = conn.execute(
-                "SELECT type FROM events WHERE type = 'sandbox.metrics_persisted'"
-            ).fetchall()
-        self.assertEqual(len(rows), 1)
-
-    def test_results_metrics_lazy_central_snapshot_strips_base_url(self) -> None:
-        exp_id = self._experiment()
-        self.call("sandbox.request", project_id=self.project_id, experiment_id=exp_id)
-        with patch(
-            "backend.services.sandbox.sandbox_metrics.snapshot_mlflow",
-            return_value=dict(self.SNAPSHOT),
-        ):
-            result = self.app.sandboxes.results_metrics(
-                experiment_id=exp_id, project_id=self.project_id
-            )
-
-        self.assertTrue(result["available"])
-        self.assertNotIn("base_url", result)
-        self.assertEqual(result["experiments"][0]["name"], "lora_glue")
-
-    def test_central_metrics_override_legacy_snapshot(self) -> None:
-        exp_id = self._experiment()
-        self.call("sandbox.request", project_id=self.project_id, experiment_id=exp_id)
-        row = self.app.sandboxes.registry.fetch_scoped(
-            experiment_id=exp_id, project_id=self.project_id
-        )
-        self.app.sandboxes.metrics.mlflow_tracking.server_uri = "http://mlflow:5000"
-        legacy = {"source": "mlflow", "experiments": [{"name": "legacy_local"}]}
-        with patch(
-            "backend.services.sandbox.sandbox_metrics.snapshot_mlflow",
-            return_value=dict(self.SNAPSHOT),
-        ) as snap:
-            self.app.sandboxes.metrics.persist_row(
-                row=row, force=True, snapshot=legacy, snapshot_provided=True
-            )
-        self.assertEqual(snap.call_args.args[0], "http://mlflow:5000")
-        result = self.app.sandboxes.results_metrics(
-            experiment_id=exp_id, project_id=self.project_id
-        )
-        self.assertEqual(result["experiments"][0]["name"], "lora_glue")
-
-    def test_daemon_metrics_snapshot_archives_metrics(self) -> None:
-        exp_id = self._experiment()
-        self.call("sandbox.request", project_id=self.project_id, experiment_id=exp_id)
-        self.app.sandboxes.record_daemon_metrics(
-            project_id=self.project_id,
-            experiment_id=exp_id,
-            snapshot=dict(self.SNAPSHOT),
-        )
-        result = self.app.sandboxes.results_metrics(
-            experiment_id=exp_id, project_id=self.project_id
-        )
-        self.assertTrue(result["available"])
-        self.assertEqual(result["sandbox_status"], "running")
-
-    def test_unreachable_mlflow_keeps_last_good_archive(self) -> None:
-        # A temporarily unreachable central server at release time must not wipe
-        # the archive captured earlier by the daemon: None means "skip", never
-        # "overwrite with empty".
-        exp_id = self._experiment()
-        self.call("sandbox.request", project_id=self.project_id, experiment_id=exp_id)
-        self.app.sandboxes.record_daemon_metrics(
-            project_id=self.project_id,
-            experiment_id=exp_id,
-            snapshot=dict(self.SNAPSHOT),
-        )
-        with patch("backend.services.sandbox.sandbox_metrics.snapshot_mlflow", return_value=None):
-            self.call(
-                "sandbox.release",
-                project_id=self.project_id,
-                experiment_id=exp_id,
-                confirm_retained=True,
-            )
-        result = self.app.sandboxes.results_metrics(
-            experiment_id=exp_id, project_id=self.project_id
-        )
-        self.assertTrue(result["available"])
-        self.assertEqual(result["experiments"][0]["name"], "lora_glue")
-
-    def test_metrics_survive_without_the_daemon_files(self) -> None:
-        # Plan Phase 5: snapshots are control-plane records. Wipe every
-        # daemon-side metrics file — the read path still serves them, so
-        # reviews/UI see metrics without the user machine online.
-        exp_id = self._experiment()
-        self.call("sandbox.request", project_id=self.project_id, experiment_id=exp_id)
-        self.app.sandboxes.record_daemon_metrics(
-            project_id=self.project_id,
-            experiment_id=exp_id,
-            snapshot=dict(self.SNAPSHOT),
-        )
-        archive_path = self.app.sandboxes.metrics_archive.path_for(exp_id)
-        self.assertTrue(archive_path.exists())  # the local file cache is kept as-is
-        archive_path.unlink()
-        result = self.app.sandboxes.results_metrics(
-            experiment_id=exp_id, project_id=self.project_id
-        )
-        self.assertTrue(result["available"])
-        self.assertEqual(result["experiments"][0]["name"], "lora_glue")
-        self.assertIn("captured_at", result)
-        with self.app.store.transaction() as conn:
-            record = conn.execute(
-                "SELECT project_id, source FROM metrics_snapshots WHERE experiment_id = ?",
-                (exp_id,),
-            ).fetchone()
-        self.assertIsNotNone(record)
-        self.assertEqual(record["project_id"], self.project_id)
-        self.assertEqual(record["source"], "mlflow")
-
-    def test_pre_record_archive_converges_into_the_control_record(self) -> None:
-        # A pre-Phase-5 experiment has only the daemon file cache: the first
-        # read serves it AND lands it as a control record.
-        exp_id = self._experiment()
-        self.call("sandbox.request", project_id=self.project_id, experiment_id=exp_id)
-        self.app.sandboxes.metrics_archive.persist(
-            experiment_id=exp_id, snapshot=dict(self.SNAPSHOT)
-        )
-        self.assertIsNone(
-            self.app.sandboxes.metrics_records.load(experiment_id=exp_id)
-        )
-        result = self.app.sandboxes.results_metrics(
-            experiment_id=exp_id, project_id=self.project_id
-        )
-        self.assertTrue(result["available"])
-        record = self.app.sandboxes.metrics_records.load(experiment_id=exp_id)
-        self.assertIsNotNone(record)
-        self.assertEqual(record["experiments"][0]["name"], "lora_glue")
-
-    def test_results_metrics_unavailable_shape(self) -> None:
-        exp_id = self._experiment()
-        result = self.app.sandboxes.results_metrics(
-            experiment_id=exp_id, project_id=self.project_id
-        )
-        self.assertFalse(result["available"])
-        self.assertEqual(result["sandbox_status"], "none")
-        self.assertIn("hint", result)
-
-    def test_results_metrics_backfills_from_pulled_mlflow_db(self) -> None:
-        # Rescue path: a sandbox terminated before REST archiving ever ran,
-        # but a legacy local mlflow.db cache exists. The first read extracts
-        # the archive from that file and persists it.
-        exp_id = self._experiment()
-        db_path = self.app.sandboxes.worker.pulled_mlflow_db_path(experiment_id=exp_id, name=self.app.sandboxes.registry.experiment_name(experiment_id=exp_id))
-        write_fake_mlflow_db(db_path)
-        result = self.app.sandboxes.results_metrics(
-            experiment_id=exp_id, project_id=self.project_id
-        )
-        self.assertTrue(result["available"])
-        self.assertEqual(result["experiments"][0]["name"], "lora_glue")
-        self.assertEqual(
-            result["experiments"][0]["runs"][0]["metrics"]["acc"]["last"], 0.91
-        )
-        # Persisted: a second read works even if the pulled file disappears.
-        db_path.unlink()
-        again = self.app.sandboxes.results_metrics(
-            experiment_id=exp_id, project_id=self.project_id
-        )
-        self.assertTrue(again["available"])
 
     # ---- status / liveness ----
 
@@ -1270,7 +1052,13 @@ class SandboxServiceTest(unittest.TestCase):
         sid = created["sandbox_id"]
         with self.app.store.transaction() as conn:
             conn.execute(
-                "UPDATE sandboxes SET expires_at=? WHERE experiment_id=?",
+                """
+                UPDATE sandboxes
+                SET expires_at=?
+                WHERE sandbox_uid IN (
+                  SELECT sandbox_uid FROM sandbox_attachments WHERE experiment_id=?
+                )
+                """,
                 ("2000-01-01T00:00:00Z", exp_id),
             )
         reaped = self.app.sandboxes.reap_expired()
@@ -1286,7 +1074,13 @@ class SandboxServiceTest(unittest.TestCase):
         self.assertEqual(state["status"], "ready_to_run")
         with self.app.store.transaction() as conn:
             conn.execute(
-                "UPDATE sandboxes SET expires_at=? WHERE experiment_id=?",
+                """
+                UPDATE sandboxes
+                SET expires_at=?
+                WHERE sandbox_uid IN (
+                  SELECT sandbox_uid FROM sandbox_attachments WHERE experiment_id=?
+                )
+                """,
                 ("2000-01-01T00:00:00Z", exp_id),
             )
         self.assertEqual(self.app.sandboxes.reap_expired(), 1)
@@ -1301,7 +1095,13 @@ class SandboxServiceTest(unittest.TestCase):
                 "UPDATE experiments SET status = 'experiment_review' WHERE id = ?", (exp_id,)
             )
             conn.execute(
-                "UPDATE sandboxes SET expires_at=? WHERE experiment_id=?",
+                """
+                UPDATE sandboxes
+                SET expires_at=?
+                WHERE sandbox_uid IN (
+                  SELECT sandbox_uid FROM sandbox_attachments WHERE experiment_id=?
+                )
+                """,
                 ("2000-01-01T00:00:00Z", exp_id),
             )
         self.assertEqual(self.app.sandboxes.reap_expired(), 1)

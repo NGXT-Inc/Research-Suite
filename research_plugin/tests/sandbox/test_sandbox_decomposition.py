@@ -81,7 +81,6 @@ class SandboxDecompositionTest(unittest.TestCase):
         self.assertIs(service.daemons.registry, service.registry)
         self.assertIs(service.daemons.heartbeat.registry, service.registry)
         self.assertIs(service.metrics.registry, service.registry)
-        self.assertIs(service.metrics.worker, service.worker)
         self.assertIs(service.worker, self.app.worker)
 
     def test_facade_wires_the_task_seam(self) -> None:
@@ -90,7 +89,6 @@ class SandboxDecompositionTest(unittest.TestCase):
         service = self.app.sandboxes
         self.assertIsInstance(service.tasks, InProcessTaskChannel)
         self.assertIs(service.tasks.worker, service.worker)
-        self.assertIs(service.metrics_archive, service.worker.metrics_archive)
         self.assertIs(service.quotas, self.app.quotas)
 
     def test_facade_requires_explicit_task_channel(self) -> None:
@@ -100,7 +98,6 @@ class SandboxDecompositionTest(unittest.TestCase):
                 sandbox_backend=self.app.execution_backend,
                 worker=self.app.worker,
                 mgmt_keys=self.app.sandboxes.mgmt_keys,
-                metrics_archive=self.app.sandboxes.metrics_archive,
             )
 
     def test_facade_requires_task_channel_submit(self) -> None:
@@ -110,7 +107,6 @@ class SandboxDecompositionTest(unittest.TestCase):
                 sandbox_backend=self.app.execution_backend,
                 worker=self.app.worker,
                 mgmt_keys=self.app.sandboxes.mgmt_keys,
-                metrics_archive=self.app.sandboxes.metrics_archive,
                 task_channel=object(),
             )
 
@@ -121,7 +117,6 @@ class SandboxDecompositionTest(unittest.TestCase):
                 sandbox_backend=self.app.execution_backend,
                 worker=self.app.worker,
                 mgmt_keys=self.app.sandboxes.mgmt_keys,
-                metrics_archive=self.app.sandboxes.metrics_archive,
                 task_channel=self.app.sandboxes.tasks,
             )
 
@@ -134,7 +129,6 @@ class SandboxDecompositionTest(unittest.TestCase):
                 sandbox_backend=self.app.execution_backend,
                 worker=self.app.worker,
                 mgmt_keys=self.app.sandboxes.mgmt_keys,
-                metrics_archive=self.app.sandboxes.metrics_archive,
                 task_channel=self.app.sandboxes.tasks,
                 quotas=object(),
             )
@@ -177,7 +171,7 @@ class SandboxDecompositionTest(unittest.TestCase):
         self.assertNotIn("_metrics_persisted_at", source)
         self.assertNotIn("def _persist_metrics_row", source)
         self.assertNotIn("def _sample_metrics_cached", source)
-        self.assertIn("self.metrics.persist_row", source)
+        self.assertNotIn("self.metrics.persist_row", source)
         self.assertNotIn("presign_put", source)
         self.assertNotIn("presign_get", source)
         self.assertNotIn("finalize_put", source)
@@ -197,7 +191,6 @@ import backend.services.sandbox.sandboxes
 for name in (
     "backend.dataplane.tasks",
 	    "backend.dataplane.worker",
-	    "backend.dataplane.metrics_archive",
 	    "backend.workspace",
 ):
     if name in sys.modules:

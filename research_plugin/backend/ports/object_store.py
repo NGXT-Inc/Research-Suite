@@ -13,7 +13,6 @@ class ObjectStat:
     size_bytes: int
     content_type: str
     created_at: str
-    expires_at: str | None
 
 
 class ObjectStore(Protocol):
@@ -43,13 +42,6 @@ class ObjectStore(Protocol):
     def stat(self, *, namespace: str, sha256: str) -> ObjectStat | None: ...
 
     def delete(self, *, namespace: str, sha256: str) -> bool: ...
-
-    def set_expiry(
-        self, *, namespace: str, sha256: str, expires_at: str | None
-    ) -> None:
-        ...
-
-    def sweep_expired(self, *, now: str | None = None) -> int: ...
 
 
 __all__ = ["ObjectStat", "ObjectStore"]

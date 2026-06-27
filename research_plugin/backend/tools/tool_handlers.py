@@ -77,7 +77,7 @@ def build_control_tool_handlers(
     experiments: Any,
     reflections: Any,
     resources: Any,
-    storage: Any,
+    storage: Any | None,
     reviews: Any,
     sandboxes: Any,
     mlflow_tracking: Any,
@@ -160,7 +160,16 @@ def build_control_tool_handlers(
             targets = [(e["id"], e.get("name") or e["id"], e.get("status") or "") for e in listed]
         out = []
         for eid, name, status in targets:
-            data = sandboxes.results_metrics(experiment_id=eid, project_id=pid)
+            data = (
+                mlflow_tracking.results_metrics(project_id=str(pid or ""), experiment_id=eid)
+                if mlflow_tracking is not None and pid
+                else {
+                    "experiment_id": eid,
+                    "available": False,
+                    "source": "mlflow",
+                    "hint": "Centralized MLflow is not configured.",
+                }
+            )
             runs = [
                 _trace_run(run, with_history=with_history)
                 for captured in (data.get("experiments") or [])
@@ -175,7 +184,7 @@ def build_control_tool_handlers(
             })
         return {"experiments": out, "include_history": with_history}
 
-    return {
+    handlers = {
         "workflow.status_and_next": workflow.status_and_next_agent,
         "project.create": projects.create,
         "project.update": projects.update,
@@ -198,14 +207,6 @@ def build_control_tool_handlers(
         "resource.delete": resources.delete,
         "resource.list": resources.list_resources,
         "resource.resolve": resources.resolve,
-        "storage.put_object": storage.put_object,
-        "storage.complete_upload": storage.complete_upload,
-        "storage.list": storage.list_objects,
-        "storage.resolve": storage.resolve,
-        "storage.pin": storage.pin,
-        "storage.unpin": storage.unpin,
-        "storage.renew": storage.renew,
-        "storage.delete": storage.delete,
         "review.request": reviews.request,
         "review.start": reviews.start,
         "review.submit": reviews.submit,
@@ -219,6 +220,20 @@ def build_control_tool_handlers(
         "feed.register": feed.register,
         "feed.list": feed.list_posts,
     }
+    if storage is not None:
+        handlers.update(
+            {
+                "storage.put_object": storage.put_object,
+                "storage.complete_upload": storage.complete_upload,
+                "storage.list": storage.list_objects,
+                "storage.resolve": storage.resolve,
+                "storage.pin": storage.pin,
+                "storage.unpin": storage.unpin,
+                "storage.renew": storage.renew,
+                "storage.delete": storage.delete,
+            }
+        )
+    return handlers
 
 
 def build_local_tool_handlers(
@@ -230,7 +245,7 @@ def build_local_tool_handlers(
     experiments: Any,
     reflections: Any,
     resources: Any,
-    storage: Any,
+    storage: Any | None,
     reviews: Any,
     sandboxes: Any,
     mlflow_tracking: Any,

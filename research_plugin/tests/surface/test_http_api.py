@@ -44,7 +44,6 @@ class ResearchPluginHttpApiTest(unittest.TestCase):
         self.app.mlflow_tracking.dashboard_url = service.dashboard_url
         self.app.mlflow_tracking.note = service.note
         self.app.mlflow_tracking._health_check = service._health_check
-        self.app.sandboxes.metrics.mlflow_tracking = self.app.mlflow_tracking
 
     def test_home_claim_experiment_resource_review_endpoints(self) -> None:
         project = self.request("POST", "/api/projects", {"name": "UI Project", "summary": "Frontend target"})
@@ -191,6 +190,11 @@ class ResearchPluginHttpApiTest(unittest.TestCase):
         self.assertEqual(sandbox["status"], "running")
         self.assertTrue(sandbox["sandbox_id"])
         self.assertNotIn("dashboards", sandbox)
+        sandbox_by_uid = self.request(
+            "GET", f"/api/projects/{project_id}/sandboxes/{sandbox_uid}"
+        )
+        self.assertEqual(sandbox_by_uid["sandbox_uid"], sandbox_uid)
+        self.assertEqual(sandbox_by_uid["status"], "running")
 
         listed = self.request("GET", f"/api/projects/{project_id}/sandboxes")["sandboxes"]
         self.assertEqual(len(listed), 1)
@@ -204,6 +208,11 @@ class ResearchPluginHttpApiTest(unittest.TestCase):
         metrics = self.request("GET", f"/api/projects/{project_id}/experiments/{exp_id}/sandbox/metrics")
         self.assertTrue(metrics["available"])
         self.assertEqual(metrics["metrics"]["gpus"][0]["util_pct"], 10)
+        metrics_by_uid = self.request(
+            "GET", f"/api/projects/{project_id}/sandboxes/{sandbox_uid}/metrics"
+        )
+        self.assertTrue(metrics_by_uid["available"])
+        self.assertEqual(metrics_by_uid["metrics"]["gpus"][0]["util_pct"], 10)
 
         self.backend.append_transcript(experiment_id=exp_id, text="$ ls\nplan.md\n")
         terminal = self.request("GET", f"/api/projects/{project_id}/experiments/{exp_id}/sandbox/terminal")
@@ -224,15 +233,21 @@ class ResearchPluginHttpApiTest(unittest.TestCase):
         self.assertEqual(delta["transcript"], "results.json\n")
         self.assertGreater(delta["cursor"], cursor)
 
-        released = self.request("POST", f"/api/projects/{project_id}/experiments/{exp_id}/sandbox/release")
+        self.app.sandboxes.transcript_cache.invalidate(sandbox_id=requested["sandbox_id"])
+        self.backend.append_transcript(experiment_id=sandbox_uid, text="uid transcript\n")
+        terminal_by_uid = self.request(
+            "GET", f"/api/projects/{project_id}/sandboxes/{sandbox_uid}/terminal"
+        )
+        self.assertIn("uid transcript", terminal_by_uid["transcript"])
+
+        released = self.request("POST", f"/api/projects/{project_id}/sandboxes/{sandbox_uid}/release")
         self.assertEqual(released["status"], "terminated")
 
         self.assertTrue(self.request("GET", "/api/sandboxes/health")["ok"])
 
-    def test_results_metrics_endpoint_survives_release(self) -> None:
-        # The archived-metrics endpoint is what makes results outlive the VM:
-        # empty before any capture, populated after a daemon metrics report,
-        # still readable (same payload) after the sandbox is terminated.
+    def test_results_metrics_endpoint_reads_central_mlflow_across_release(self) -> None:
+        # Results metrics are centralized MLflow reads, independent of sandbox
+        # release/reap.
         project = self.request("POST", "/api/projects", {"name": "Results Project"})
         project_id = project["id"]
         exp = self.request(
@@ -252,7 +267,7 @@ class ResearchPluginHttpApiTest(unittest.TestCase):
         self.configure_mlflow(mlflow)
 
         url = f"/api/projects/{project_id}/experiments/{exp_id}/results/metrics"
-        with patch("backend.services.sandbox.sandbox_metrics.snapshot_mlflow", return_value=None):
+        with patch("backend.services.mlflow_tracking.snapshot_mlflow", return_value=None):
             empty = self.request("GET", url)
         self.assertFalse(empty["available"])
         self.assertIn("hint", empty)
@@ -277,22 +292,15 @@ class ResearchPluginHttpApiTest(unittest.TestCase):
                 }
             ],
         }
-        self.app.sandboxes.record_daemon_metrics(
-            project_id=project_id,
-            experiment_id=exp_id,
-            snapshot=snapshot,
-        )
-        live = self.request("GET", url)
+        with patch("backend.services.mlflow_tracking.snapshot_mlflow", return_value=snapshot):
+            live = self.request("GET", url)
         self.assertTrue(live["available"])
-        self.assertEqual(live["sandbox_status"], "running")
         self.assertNotIn("base_url", live)
 
-        # Release with MLflow already unreachable — the last good archive serves on.
-        with patch("backend.services.sandbox.sandbox_metrics.snapshot_mlflow", return_value=None):
-            self.request("POST", f"/api/projects/{project_id}/experiments/{exp_id}/sandbox/release")
-        durable = self.request("GET", url)
+        self.request("POST", f"/api/projects/{project_id}/experiments/{exp_id}/sandbox/release")
+        with patch("backend.services.mlflow_tracking.snapshot_mlflow", return_value=snapshot):
+            durable = self.request("GET", url)
         self.assertTrue(durable["available"])
-        self.assertEqual(durable["sandbox_status"], "none")
         run = durable["experiments"][0]["runs"][0]
         self.assertEqual(run["metrics"]["acc"]["last"], 0.91)
         self.assertEqual(run["history"]["acc"], [[10, 0.85], [20, 0.91]])
@@ -311,31 +319,28 @@ class ResearchPluginHttpApiTest(unittest.TestCase):
             health_check=lambda: True,
         )
         self.configure_mlflow(mlflow)
-        # Seed the durable archive so the overview has curves without a sandbox.
-        self.app.sandboxes.metrics.metrics_archive.persist(
-            experiment_id=exp_id,
-            snapshot={
-                "source": "mlflow",
-                "experiments": [
-                    {
-                        "experiment_id": "7",
-                        "name": f"rp/{project_id}/{exp_id}",
-                        "runs": [
-                            {
-                                "run_id": "r1",
-                                "run_name": "seed_0",
-                                "status": "FINISHED",
-                                "params": {"lr": "0.001"},
-                                "metrics": {"acc": {"last": 0.92}},
-                                "history": {"acc": [[1, 0.5], [2, 0.92]]},
-                            }
-                        ],
-                    }
-                ],
-            },
-        )
+        snapshot = {
+            "source": "mlflow",
+            "experiments": [
+                {
+                    "experiment_id": "7",
+                    "name": f"rp/{project_id}/{exp_id}",
+                    "runs": [
+                        {
+                            "run_id": "r1",
+                            "run_name": "seed_0",
+                            "status": "FINISHED",
+                            "params": {"lr": "0.001"},
+                            "metrics": {"acc": {"last": 0.92}},
+                            "history": {"acc": [[1, 0.5], [2, 0.92]]},
+                        }
+                    ],
+                }
+            ],
+        }
 
-        overview = self.request("GET", f"/api/projects/{project_id}/mlflow")
+        with patch("backend.services.mlflow_tracking.snapshot_mlflow", return_value=snapshot):
+            overview = self.request("GET", f"/api/projects/{project_id}/mlflow")
         self.assertTrue(overview["mlflow"]["configured"])
         self.assertEqual(overview["mlflow"]["dashboard_url"], "https://mlflow.test")
         items = overview["experiments"]
@@ -392,31 +397,36 @@ class ResearchPluginHttpApiTest(unittest.TestCase):
             "POST", f"/api/projects/{project_id}/experiments", {"name": "exp-tr", "intent": "Train"}
         )
         exp_id = exp["id"]
-        self.app.sandboxes.metrics.metrics_archive.persist(
-            experiment_id=exp_id,
-            snapshot={
-                "source": "mlflow",
-                "experiments": [
-                    {
-                        "experiment_id": "1",
-                        "name": f"rp/{project_id}/{exp_id}",
-                        "runs": [
-                            {
-                                "run_id": "r1",
-                                "run_name": "seed_0",
-                                "status": "FINISHED",
-                                "params": {"lr": "0.001"},
-                                "metrics": {"acc": {"last": 0.93}},
-                                "history": {"acc": [[1, 0.6], [2, 0.93]]},
-                            }
-                        ],
-                    }
-                ],
-            },
+        self.configure_mlflow(
+            CentralMlflowService(
+                mode="external",
+                tracking_uri="https://mlflow.test",
+                health_check=lambda: True,
+            )
         )
+        snapshot = {
+            "source": "mlflow",
+            "experiments": [
+                {
+                    "experiment_id": "1",
+                    "name": f"rp/{project_id}/{exp_id}",
+                    "runs": [
+                        {
+                            "run_id": "r1",
+                            "run_name": "seed_0",
+                            "status": "FINISHED",
+                            "params": {"lr": "0.001"},
+                            "metrics": {"acc": {"last": 0.93}},
+                            "history": {"acc": [[1, 0.6], [2, 0.93]]},
+                        }
+                    ],
+                }
+            ],
+        }
 
         # Summary mode (no experiment_id): final values, no curves.
-        summary = self.app.call_tool("mlflow.traces", {"project_id": project_id})
+        with patch("backend.services.mlflow_tracking.snapshot_mlflow", return_value=snapshot):
+            summary = self.app.call_tool("mlflow.traces", {"project_id": project_id})
         self.assertFalse(summary["include_history"])
         item = next(e for e in summary["experiments"] if e["experiment_id"] == exp_id)
         self.assertTrue(item["available"])
@@ -425,9 +435,10 @@ class ResearchPluginHttpApiTest(unittest.TestCase):
         self.assertNotIn("history", run)
 
         # Scoped mode: full downsampled curves for plotting.
-        detail = self.app.call_tool(
-            "mlflow.traces", {"project_id": project_id, "experiment_id": exp_id}
-        )
+        with patch("backend.services.mlflow_tracking.snapshot_mlflow", return_value=snapshot):
+            detail = self.app.call_tool(
+                "mlflow.traces", {"project_id": project_id, "experiment_id": exp_id}
+            )
         self.assertTrue(detail["include_history"])
         drun = detail["experiments"][0]["runs"][0]
         self.assertEqual(drun["history"]["acc"], [[1, 0.6], [2, 0.93]])
@@ -445,12 +456,12 @@ class ResearchPluginHttpApiTest(unittest.TestCase):
             conn.execute(
                 """
                 INSERT INTO sandboxes (
-                  sandbox_uid, experiment_id, project_id, sandbox_id, status,
+                  sandbox_uid, project_id, sandbox_id, status,
                   created_at, updated_at
                 )
-                VALUES ('uid_active', ?, ?, 'sb_active', 'running', ?, ?)
+                VALUES ('uid_active', ?, 'sb_active', 'running', ?, ?)
                 """,
-                (running["id"], project_id, now, now),
+                (project_id, now, now),
             )
             conn.execute(
                 """
@@ -464,12 +475,12 @@ class ResearchPluginHttpApiTest(unittest.TestCase):
             conn.execute(
                 """
                 INSERT INTO sandboxes (
-                  sandbox_uid, experiment_id, project_id, sandbox_id, status,
+                  sandbox_uid, project_id, sandbox_id, status,
                   terminated_at, created_at, updated_at
                 )
-                VALUES ('uid_done', ?, ?, 'sb_done', 'terminated', ?, ?, ?)
+                VALUES ('uid_done', ?, 'sb_done', 'terminated', ?, ?, ?)
                 """,
-                (complete["id"], project_id, now, now, now),
+                (project_id, now, now, now),
             )
 
         home = self.request("GET", f"/api/projects/{project_id}/home")

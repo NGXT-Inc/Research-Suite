@@ -85,6 +85,13 @@ export async function request(path, { method = 'GET', body, signal } = {}) {
   return data;
 }
 
+function sandboxPath(pid, eid, sandboxUid, suffix = '') {
+  if (sandboxUid) {
+    return `/api/projects/${encodeURIComponent(pid)}/sandboxes/${encodeURIComponent(sandboxUid)}${suffix}`;
+  }
+  return `/api/projects/${encodeURIComponent(pid)}/experiments/${encodeURIComponent(eid)}/sandbox${suffix}`;
+}
+
 export const api = {
   // Server identity + compat floor (version handshake). Also reports mode and
   // capabilities so hosted-control UIs can hide local data-plane actions.
@@ -228,28 +235,27 @@ export const api = {
   // Sandboxes (cloud-backed; agent drives execution over SSH — see sandboxes.py).
   // The UI observes; it does not procure sandboxes (that is an agent MCP action).
   listSandboxes: (pid) => request(`/api/projects/${encodeURIComponent(pid)}/sandboxes`),
-  getSandbox: (pid, eid) =>
-    request(`/api/projects/${encodeURIComponent(pid)}/experiments/${encodeURIComponent(eid)}/sandbox`),
+  getSandbox: (pid, eid, { sandboxUid = null } = {}) =>
+    request(sandboxPath(pid, eid, sandboxUid)),
   // Terminal transcript. Pass { since: cursor } (from the previous response's
   // `cursor`) to fetch only new bytes — the cheap incremental poll. Without
   // `since`, returns the last `tail` bytes (the initial full pull).
-  getSandboxTerminal: (pid, eid, { tail = 200000, since = null } = {}) => {
+  getSandboxTerminal: (pid, eid, { tail = 200000, since = null, sandboxUid = null } = {}) => {
     const p = new URLSearchParams();
     if (since != null) p.set('since', String(since));
     else p.set('tail', String(tail));
     return request(
-      `/api/projects/${encodeURIComponent(pid)}/experiments/${encodeURIComponent(eid)}/sandbox/terminal?${p.toString()}`,
+      `${sandboxPath(pid, eid, sandboxUid, '/terminal')}?${p.toString()}`,
     );
   },
   // Live in-container usage (CPU/RAM/GPU), sampled on demand. Best-effort:
   // returns { available: false } when the sandbox is not running or the sampler
   // came back empty (e.g. a CPU-only image without nvidia-smi).
-  getSandboxMetrics: (pid, eid) =>
-    request(`/api/projects/${encodeURIComponent(pid)}/experiments/${encodeURIComponent(eid)}/sandbox/metrics`),
-  // Durable archived MLflow metrics that OUTLIVE the sandbox VM (captured on
-  // sync and right before release, recorded control-plane side). Distinct from
-  // getSandboxMetrics (live in-container CPU/RAM/GPU, gone once the VM stops).
-  // Returns { available, sandbox_status, experiments:[{name, runs:[...]}], hint? }.
+  getSandboxMetrics: (pid, eid, { sandboxUid = null } = {}) =>
+    request(sandboxPath(pid, eid, sandboxUid, '/metrics')),
+  // Centralized MLflow metrics. Distinct from getSandboxMetrics
+  // (live in-container CPU/RAM/GPU, gone once the VM stops).
+  // Returns { available, experiments:[{name, runs:[...]}], hint? }.
   getResultsMetrics: (pid, eid) =>
     request(`/api/projects/${encodeURIComponent(pid)}/experiments/${encodeURIComponent(eid)}/results/metrics`),
   // Project-wide MLflow: central endpoint + every experiment's runs/metric
@@ -261,8 +267,8 @@ export const api = {
     request(`/api/projects/${encodeURIComponent(pid)}/mlflow`),
   syncSandbox: (pid, eid) =>
     request(`/api/projects/${encodeURIComponent(pid)}/experiments/${encodeURIComponent(eid)}/sandbox/sync`, { method: 'POST' }),
-  releaseSandbox: (pid, eid) =>
-    request(`/api/projects/${encodeURIComponent(pid)}/experiments/${encodeURIComponent(eid)}/sandbox/release`, { method: 'POST' }),
+  releaseSandbox: (pid, eid, { sandboxUid = null } = {}) =>
+    request(sandboxPath(pid, eid, sandboxUid, '/release'), { method: 'POST' }),
 
   // Storage — long-term heavy-file ledger (datasets/models preserved off-repo in
   // S3-compatible storage, R2 first). The UI browses + manages lifecycle; bytes

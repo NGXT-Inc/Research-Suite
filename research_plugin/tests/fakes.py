@@ -1,8 +1,5 @@
 from __future__ import annotations
 
-import sqlite3
-from pathlib import Path
-
 
 class FakeProcess:
     def __init__(self, stdout: str = "", code: int = 0, *, running: bool = True) -> None:
@@ -39,48 +36,6 @@ class FakeProcess:
 
     def wait(self, timeout: float | None = None) -> int:  # noqa: ARG002
         return self._code if not (self.terminated or self.killed) else -15
-
-
-def write_fake_mlflow_db(path: Path, *, with_run: bool = True) -> None:
-    """Minimal slice of MLflow's SQLAlchemy schema (verified against 2.18)."""
-    path.parent.mkdir(parents=True, exist_ok=True)
-    conn = sqlite3.connect(path)
-    conn.executescript(
-        """
-        CREATE TABLE experiments (
-            experiment_id INTEGER PRIMARY KEY, name TEXT,
-            lifecycle_stage TEXT DEFAULT 'active', last_update_time BIGINT
-        );
-        CREATE TABLE runs (
-            run_uuid TEXT PRIMARY KEY, name TEXT, status TEXT,
-            start_time BIGINT, end_time BIGINT,
-            lifecycle_stage TEXT DEFAULT 'active', experiment_id INTEGER
-        );
-        CREATE TABLE params (key TEXT, value TEXT, run_uuid TEXT);
-        CREATE TABLE latest_metrics (
-            key TEXT, value FLOAT, timestamp BIGINT, step BIGINT,
-            is_nan BOOLEAN, run_uuid TEXT
-        );
-        CREATE TABLE metrics (
-            key TEXT, value FLOAT, timestamp BIGINT, run_uuid TEXT,
-            step BIGINT DEFAULT 0, is_nan BOOLEAN DEFAULT 0
-        );
-        """
-    )
-    conn.execute("INSERT INTO experiments VALUES (0, 'Default', 'active', 1)")
-    conn.execute("INSERT INTO experiments VALUES (1, 'lora_glue', 'active', 99)")
-    if with_run:
-        conn.execute(
-            "INSERT INTO runs VALUES ('r1', 'seed_0', 'FINISHED', 100, 200, 'active', 1)"
-        )
-        conn.execute("INSERT INTO params VALUES ('lr', '0.0005', 'r1')")
-        conn.execute("INSERT INTO latest_metrics VALUES ('acc', 0.91, 6, 20, 0, 'r1')")
-        conn.execute("INSERT INTO metrics VALUES ('acc', 0.85, 5, 'r1', 10, 0)")
-        conn.execute("INSERT INTO metrics VALUES ('acc', 0.91, 6, 'r1', 20, 0)")
-    conn.commit()
-    conn.close()
-
-
 class FakeBlobStore:
     """In-memory BlobStore double sharing LocalDirBlobStore's semantics.
 
@@ -234,3 +189,126 @@ class FakeBlobStore:
             self.blobs.pop(key, None)
             self.meta.pop(key, None)
         return len(expired)
+
+
+class FakeObjectStore:
+    """Test double for the heavy ObjectStore port.
+
+    Production storage now goes exclusively through S3CompatibleObjectStore.
+    This fake exists only to keep ledger/service tests isolated from Docker.
+    """
+
+    def __init__(self) -> None:
+        self.objects: dict[tuple[str, str], bytes] = {}
+        self.meta: dict[tuple[str, str], dict] = {}
+        self.uploads: dict[str, dict] = {}
+        self._staging_dir: str | None = None
+
+    def presign_upload(
+        self,
+        *,
+        namespace: str,
+        sha256: str,
+        size_bytes: int,
+        content_type: str = "application/octet-stream",
+        expires_in: int,
+    ) -> dict:
+        import tempfile
+        from pathlib import Path as _Path
+
+        from backend.state.blobs import _validate_keys
+        from backend.utils import new_id, now_iso
+
+        _validate_keys(namespace=namespace, sha256=sha256)
+        if self._staging_dir is None:
+            self._staging_dir = tempfile.mkdtemp(prefix="fake-object-uploads-")
+        upload_id = new_id(prefix="upload")
+        staging = _Path(self._staging_dir) / upload_id
+        self.uploads[upload_id] = {
+            "namespace": namespace,
+            "sha256": sha256,
+            "size_bytes": int(size_bytes),
+            "content_type": content_type,
+            "created_at": now_iso(),
+            "path": staging,
+        }
+        return {
+            "upload_id": upload_id,
+            "url": staging.resolve().as_uri(),
+            "size_bytes": int(size_bytes),
+            "content_type": content_type,
+            "expires_in": int(expires_in),
+        }
+
+    def complete_upload(self, *, upload_id: str, parts: list[dict] | None = None):
+        import hashlib
+
+        from backend.ports.object_store import ObjectStat
+        from backend.utils import NotFoundError, ValidationError, now_iso
+
+        _ = parts
+        meta = self.uploads.pop(upload_id, None)
+        if meta is None:
+            raise NotFoundError(f"unknown or already-consumed upload: {upload_id}")
+        staging = meta["path"]
+        try:
+            if not staging.exists():
+                raise NotFoundError(f"upload received no bytes: {upload_id}")
+            data = staging.read_bytes()
+            if len(data) > int(meta["size_bytes"]):
+                raise ValidationError(
+                    f"upload {upload_id} exceeds its size cap: "
+                    f"{len(data)} > {meta['size_bytes']} bytes"
+                )
+            sha = hashlib.sha256(data).hexdigest()
+            if sha != str(meta["sha256"]):
+                raise ValidationError(
+                    f"upload {upload_id} checksum mismatch: "
+                    f"expected {meta['sha256']}, got {sha}"
+                )
+            key = (str(meta["namespace"]), sha)
+            self.objects.setdefault(key, data)
+            self.meta.setdefault(
+                key,
+                {
+                    "sha256": sha,
+                    "namespace": str(meta["namespace"]),
+                    "size_bytes": len(data),
+                    "content_type": str(meta["content_type"]),
+                    "created_at": now_iso(),
+                },
+            )
+            return ObjectStat(**self.meta[key])
+        finally:
+            try:
+                staging.unlink()
+            except FileNotFoundError:
+                pass
+
+    def presign_download(self, *, namespace: str, sha256: str, expires_in: int) -> dict:
+        import tempfile
+        from pathlib import Path as _Path
+
+        from backend.utils import NotFoundError
+
+        key = (namespace, sha256)
+        if key not in self.objects:
+            raise NotFoundError(f"object not found: {namespace}/{sha256}")
+        if self._staging_dir is None:
+            self._staging_dir = tempfile.mkdtemp(prefix="fake-object-uploads-")
+        path = _Path(self._staging_dir) / f"{namespace}-{sha256}"
+        path.write_bytes(self.objects[key])
+        return {"url": path.resolve().as_uri(), "expires_in": int(expires_in)}
+
+    def stat(self, *, namespace: str, sha256: str):
+        from backend.ports.object_store import ObjectStat
+
+        meta = self.meta.get((namespace, sha256))
+        return ObjectStat(**meta) if meta is not None else None
+
+    def delete(self, *, namespace: str, sha256: str) -> bool:
+        key = (namespace, sha256)
+        existed = key in self.objects
+        self.objects.pop(key, None)
+        self.meta.pop(key, None)
+        return existed

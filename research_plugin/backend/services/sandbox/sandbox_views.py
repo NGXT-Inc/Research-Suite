@@ -28,12 +28,28 @@ from ...sandbox.sandbox_support import (
 
 
 def _folder_contract_note(
-    *, remote_dir: str, local_dir: str, attached_to_experiment: bool
+    *,
+    remote_dir: str,
+    local_dir: str,
+    attached_to_experiment: bool,
+    storage_enabled: bool,
 ) -> str:
     """The sandbox file durability rule, told at the moment it matters."""
     _ = attached_to_experiment
     folder_label = "work folder"
     local_label = "local sandbox folder"
+    if storage_enabled:
+        heavy_note = (
+            "Heavy files (trained models, precious datasets, multi-GB checkpoints) "
+            "should NOT be rsynced into the repo — upload them to durable storage with "
+            "storage.put_object instead. "
+        )
+    else:
+        heavy_note = (
+            "Heavy-file storage is not enabled on this backend, so trained models, "
+            "precious datasets, and multi-GB checkpoints cannot be durably retained "
+            "through the storage tools. "
+        )
     return (
         f"The sandbox {folder_label} is {remote_dir} ($RP_EXPERIMENT_DIR). "
         "Work in it over SSH — scripts, results, report.md, graph.json. "
@@ -46,23 +62,29 @@ def _folder_contract_note(
         "resources, e.g. "
         f"rsync -az -e 'ssh -i <key_path> -p <port> -o StrictHostKeyChecking=no' "
         f"<user>@<host>:{remote_dir}/ {local_dir}/ . "
-        "Heavy files (trained models, precious datasets, multi-GB checkpoints) "
-        "should NOT be rsynced into the repo — upload them to durable storage with "
-        "storage.put_object instead. Keep caches and scratch data under "
+        + heavy_note
+        + "Keep caches and scratch data under "
         f"$RP_DATASET_DIR, outside the {folder_label}. "
     )
 
 
-def _expiry_note(expires_at: Any, *, attached_to_experiment: bool) -> str:
+def _expiry_note(
+    expires_at: Any, *, attached_to_experiment: bool, storage_enabled: bool
+) -> str:
     if not expires_at:
         return ""
     _ = attached_to_experiment
     local_label = "local sandbox folder"
     retry_note = "you can request a new sandbox"
+    heavy_note = (
+        "storage.put_object for heavy ones"
+        if storage_enabled
+        else "no configured heavy-file storage is available"
+    )
     return (
         f"Sandbox lifetime expires at {expires_at}. Before that deadline, pull "
         f"anything you need off the box yourself (rsync light files into the {local_label}, "
-        "storage.put_object for heavy ones) and register/associate the outputs. "
+        f"{heavy_note}) and register/associate the outputs. "
         "If it expires, the reaper terminates the sandbox and "
         f"{retry_note}. "
     )
@@ -77,6 +99,7 @@ def agent_row_facts(
     row: dict[str, Any],
     env_info: dict[str, Any],
     reused: bool | None,
+    storage_enabled: bool = False,
 ) -> dict[str, Any]:
     """Provider-portable half of the agent view — pure row projection.
 
@@ -124,6 +147,7 @@ def agent_row_facts(
         "instance_type": row.get("instance_type") or None,
         "region": row.get("region") or None,
         "expires_at": row.get("expires_at"),
+        "storage_enabled": bool(storage_enabled),
     }
     if env_info.get("available_tokens"):
         facts["environment"] = env_info
@@ -180,6 +204,7 @@ def merge_agent_view(
             + _expiry_note(
                 view.get('expires_at'),
                 attached_to_experiment=attached_to_experiment,
+                storage_enabled=bool(view.get("storage_enabled")),
             )
             + credential_note
         )
@@ -223,6 +248,7 @@ def merge_agent_view(
                 remote_dir=remote_dir,
                 local_dir=local_dir,
                 attached_to_experiment=attached_to_experiment,
+                storage_enabled=bool(view.get("storage_enabled")),
             )
             + "Before registering result resources, rsync the files you need off "
             "the box yourself (see the folder note) into the local "
@@ -231,6 +257,7 @@ def merge_agent_view(
             + _expiry_note(
                 view.get('expires_at'),
                 attached_to_experiment=attached_to_experiment,
+                storage_enabled=bool(view.get("storage_enabled")),
             )
             + credential_note
             + output_note

@@ -110,7 +110,7 @@ class ToolDispatcher:
     def list_tools(self) -> list[dict[str, Any]]:
         return [
             tool
-            for tool in static_tool_catalog()
+            for tool in static_tool_catalog(tool_names=set(self._tool_names))
             if tool.get("name") in self._tool_names
         ]
 

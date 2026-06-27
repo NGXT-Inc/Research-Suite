@@ -61,12 +61,12 @@ class SandboxIdentityTest(unittest.TestCase):
             conn.execute(
                 """
                 INSERT INTO sandboxes (
-                  sandbox_uid, experiment_id, project_id, status,
+                  sandbox_uid, project_id, status,
                   created_at, updated_at, created_seq
                 )
-                VALUES (?, ?, ?, ?, ?, ?, ?)
+                VALUES (?, ?, ?, ?, ?, ?)
                 """,
-                (sandbox_uid, experiment_id, self.project_id, status, now, now, seq),
+                (sandbox_uid, self.project_id, status, now, now, seq),
             )
             if status not in {"terminated", "failed"}:
                 conn.execute(

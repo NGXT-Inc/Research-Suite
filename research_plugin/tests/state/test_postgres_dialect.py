@@ -41,7 +41,6 @@ from pathlib import Path
 from backend.app import ResearchPluginApp
 from backend.config import build_state_store, resolve_db_url
 from backend.execution.backends.fake import FakeSandboxBackend
-from backend.services.metrics_records import MetricsSnapshotStore
 from backend.state.dialects import PostgresStateStore, translate_schema_to_postgres
 from backend.state.store import MIGRATIONS, SCHEMA, StateStore, next_created_seq
 from backend.utils import ValidationError, now_iso
@@ -159,7 +158,6 @@ def _schema_without_sandbox_tenant() -> str:
     legacy = re.sub(
         r"(CREATE TABLE IF NOT EXISTS sandboxes \(\n"
         r"\s*sandbox_uid TEXT PRIMARY KEY,\n"
-        r"\s*experiment_id TEXT NOT NULL,\n"
         r"\s*project_id TEXT NOT NULL,\n)"
         r"\s*tenant_id TEXT NOT NULL DEFAULT 'local',\n",
         r"\1",
@@ -175,8 +173,7 @@ def _schema_with_legacy_sandbox_identity() -> str:
     experiment_id, with no sandbox_uid column and no sandbox_attachments table."""
     legacy = re.sub(
         r"CREATE TABLE IF NOT EXISTS sandboxes \(\n"
-        r"\s*sandbox_uid TEXT PRIMARY KEY,\n"
-        r"\s*experiment_id TEXT NOT NULL,\n",
+        r"\s*sandbox_uid TEXT PRIMARY KEY,\n",
         "CREATE TABLE IF NOT EXISTS sandboxes (\n  experiment_id TEXT PRIMARY KEY,\n",
         SCHEMA,
     )
@@ -278,11 +275,11 @@ class PostgresStoreBehaviorTest(unittest.TestCase):
             conn.execute(
                 """
                 INSERT INTO sandboxes (
-                  sandbox_uid, experiment_id, project_id, status, created_at, updated_at
+                  sandbox_uid, project_id, status, created_at, updated_at
                 )
-                VALUES (%s, %s, %s, %s, %s, %s)
+                VALUES (%s, %s, %s, %s, %s)
                 """,
-                ("uid_exp_old", "exp_old", "proj_old", "failed", now_iso(), now_iso()),
+                ("uid_exp_old", "proj_old", "failed", now_iso(), now_iso()),
             )
 
         store = PostgresStateStore(dsn=dsn)
@@ -299,8 +296,8 @@ class PostgresStoreBehaviorTest(unittest.TestCase):
             ).fetchone()
             self.assertIsNotNone(col)
             row = conn.execute(
-                "SELECT tenant_id FROM sandboxes WHERE experiment_id = ?",
-                ("exp_old",),
+                "SELECT tenant_id FROM sandboxes WHERE sandbox_uid = ?",
+                ("uid_exp_old",),
             ).fetchone()
             self.assertEqual(row["tenant_id"], "tenant_pg")
             ledger = conn.execute(
@@ -372,16 +369,15 @@ class PostgresStoreBehaviorTest(unittest.TestCase):
             self.assertEqual([str(r["column_name"]) for r in pk], ["sandbox_uid"])
             # every legacy row got a distinct uuid.
             rows = conn.execute(
-                "SELECT experiment_id, sandbox_uid FROM sandboxes"
+                "SELECT sandbox_uid FROM sandboxes"
             ).fetchall()
             self.assertTrue(all(str(r["sandbox_uid"]) for r in rows))
             self.assertEqual(len({str(r["sandbox_uid"]) for r in rows}), 2)
             # one attachment per sandbox: live stays open, terminated is closed.
             att = conn.execute(
                 """
-                SELECT s.experiment_id, a.detached_at
+                SELECT a.experiment_id, a.detached_at
                 FROM sandbox_attachments a
-                JOIN sandboxes s ON s.sandbox_uid = a.sandbox_uid
                 """
             ).fetchall()
             by_exp = {str(r["experiment_id"]): r["detached_at"] for r in att}
@@ -526,32 +522,6 @@ class PostgresStoreBehaviorTest(unittest.TestCase):
             self.assertEqual(rows[0]["id"], "assoc_a")  # original row survived
             self.assertEqual(rows[0]["version_id"], "rver_b")  # pin replaced
             self.assertEqual(int(rows[0]["created_seq"]), 1)  # order kept
-        finally:
-            conn.close()
-
-    def test_metrics_snapshot_upsert_is_latest_wins(self) -> None:
-        """A record service's ON CONFLICT upsert, exercised end to end."""
-        project_id = self._seed_project()
-        snapshots = MetricsSnapshotStore(store=self.store)
-        snapshots.record(
-            experiment_id="exp_1",
-            project_id=project_id,
-            snapshot={"captured_at": "2026-06-01T00:00:00Z", "source": "a", "runs": 1},
-        )
-        snapshots.record(
-            experiment_id="exp_1",
-            project_id=project_id,
-            snapshot={"captured_at": "2026-06-02T00:00:00Z", "source": "b", "runs": 2},
-        )
-        loaded = snapshots.load(experiment_id="exp_1")
-        self.assertEqual(loaded["runs"], 2)
-        self.assertEqual(loaded["captured_at"], "2026-06-02T00:00:00Z")
-        conn = self.store.connect()
-        try:
-            count = conn.execute(
-                "SELECT COUNT(*) AS n FROM metrics_snapshots"
-            ).fetchone()
-            self.assertEqual(int(count["n"]), 1)
         finally:
             conn.close()
 

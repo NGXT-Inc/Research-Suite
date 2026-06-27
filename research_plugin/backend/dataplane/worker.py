@@ -1,16 +1,15 @@
 """The DataPlaneWorker interface and its local-mode implementation.
 
 Every local-IO duty of the sandbox stack routes through this seam: workspace
-folders, SSH keypairs and conn files, and the legacy pulled-``mlflow.db``
-metrics fallback.
+folders, SSH keypairs, and conn files.
 Control-plane code (registry, provisioner, facade verbs) calls the interface;
 ``LocalDataPlaneWorker`` binds it to this machine by wrapping the existing
 machinery. In split mode the same duties become the daemon's task loop
 (Phase 8). Sandbox file movement is not a backend service: the agent uses the
 SSH credentials directly to copy out anything it wants to keep before release.
 
-Since plan Phase 5's management-key switch, ``read_transcript`` and
-``sample_metrics`` are control-plane duties authenticated by the per-sandbox
+Since plan Phase 5's management-key switch, ``read_transcript`` and live
+usage sampling are control-plane duties authenticated by the per-sandbox
 management key; the worker-held user key is data-plane-only (the sbx
 dispatcher and copy-out workflows).
 """
@@ -20,7 +19,6 @@ from __future__ import annotations
 from pathlib import Path
 from typing import Any, Protocol
 
-from .metrics_archive import MetricsArchive, snapshot_mlflow_db
 from ..sandbox.sandbox_support import ACTIVE_SANDBOX_STATUSES
 from ..workspace import LocalWorkspace
 from .sandbox_conn import SandboxConnFiles
@@ -31,7 +29,6 @@ class DataPlaneWorker(Protocol):
     """Local-IO duties the control plane is never allowed to perform itself."""
 
     workspace: LocalWorkspace
-    metrics_archive: MetricsArchive
 
     def client_id(self) -> str: ...
 
@@ -61,23 +58,13 @@ class DataPlaneWorker(Protocol):
         use_sandbox_uid_command: bool = True,
     ) -> dict[str, Any]: ...
 
-    def pulled_mlflow_db_path(self, *, experiment_id: str, name: str = "") -> Path: ...
-
-    def capture_metrics_fallback(
-        self, *, experiment_id: str, name: str = ""
-    ) -> dict[str, Any] | None: ...
-
-    def capture_metrics_snapshot(
-        self, *, row: dict[str, Any], name: str = ""
-    ) -> dict[str, Any] | None: ...
-
 
 class LocalDataPlaneWorker:
     """Local-mode worker: today's sandbox IO machinery behind the seam.
 
-    Wraps ``SandboxConnFiles`` (keys, dispatcher, conn files) and
-    ``MetricsArchive``; machine-local sandbox facts (key path, local folder)
-    persist in ``SandboxLocalState``, never in cloud-bound rows.
+    Wraps ``SandboxConnFiles`` (keys, dispatcher, conn files); machine-local
+    sandbox facts (key path, local folder) persist in ``SandboxLocalState``,
+    never in cloud-bound rows.
     """
 
     def __init__(
@@ -91,7 +78,7 @@ class LocalDataPlaneWorker:
         self.state = SandboxLocalState(
             db_path=workspace.research_dir / "dataplane_state.sqlite"
         )
-        self.metrics_archive = MetricsArchive(repo_root=workspace.repo_root)
+
     # ---------- identity ----------
 
     def client_id(self) -> str:
@@ -190,53 +177,3 @@ class LocalDataPlaneWorker:
                 )
             ),
         }
-
-    # ---------- pulled-metrics fallback ----------
-
-    def pulled_mlflow_db_path(self, *, experiment_id: str, name: str = "") -> Path:
-        # Legacy sandbox-local MLflow backend store. Current experiments should
-        # use centralized MLflow; older local copies are checked as fallbacks so
-        # pre-centralization runs keep their lazy metrics backfill.
-        sessions_base = self.workspace.sessions_dir(experiment_id=experiment_id)
-        candidates = sorted(
-            sessions_base.glob("*/mlflow.db"),
-            key=lambda p: p.stat().st_mtime,
-            reverse=True,
-        )
-        if candidates:
-            return candidates[0]
-        local_dir = self.local_experiment_dir(experiment_id=experiment_id, name=name)
-        for legacy in (
-            local_dir / ".research_plugin_sessions" / experiment_id / "mlflow.db",
-            local_dir / "synced" / ".research_plugin_sessions" / experiment_id / "mlflow.db",
-        ):
-            if legacy.exists():
-                return legacy
-        return sessions_base / "mlflow.db"
-
-    def capture_metrics_fallback(
-        self, *, experiment_id: str, name: str = ""
-    ) -> dict[str, Any] | None:
-        snapshot = snapshot_mlflow_db(
-            self.pulled_mlflow_db_path(experiment_id=experiment_id, name=name)
-        )
-        return self._portable_metrics_snapshot(snapshot=snapshot)
-
-    def capture_metrics_snapshot(
-        self, *, row: dict[str, Any], name: str = ""
-    ) -> dict[str, Any] | None:
-        experiment_id = str(row.get("experiment_id") or "")
-        return self.capture_metrics_fallback(experiment_id=experiment_id, name=name)
-
-    def _portable_metrics_snapshot(
-        self, *, snapshot: dict[str, Any] | None
-    ) -> dict[str, Any] | None:
-        if not isinstance(snapshot, dict):
-            return None
-        portable = dict(snapshot)
-        portable.pop("base_url", None)
-        extracted_from = snapshot.get("extracted_from")
-        if not isinstance(extracted_from, str) or not extracted_from:
-            return portable
-        portable["extracted_from"] = self.repo_relative(extracted_from)
-        return portable

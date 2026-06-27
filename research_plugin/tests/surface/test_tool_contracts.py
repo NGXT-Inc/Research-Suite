@@ -2,9 +2,12 @@ from __future__ import annotations
 
 import tempfile
 import unittest
+import os
 from pathlib import Path
+from unittest.mock import patch
 
 from backend.app import ResearchPluginApp
+from backend.config import STORAGE_PROVIDER_ENV_VAR
 from backend.tools.contracts import (
     AGGREGATE_TOOL_NAMES,
     CONTROL_PLANE_TOOL_NAMES,
@@ -14,7 +17,9 @@ from backend.tools.contracts import (
     StorageObjectInput,
     StoragePutObjectInput,
     StorageResolveInput,
+    STORAGE_TOOL_NAMES,
     TOOL_CONTRACTS,
+    available_tool_names,
     static_tool_catalog,
 )
 from backend.execution.backends.fake import FakeSandboxBackend
@@ -60,6 +65,8 @@ class ToolContractRegistryTest(unittest.TestCase):
     def setUp(self) -> None:
         self.tmp = tempfile.TemporaryDirectory()
         self.repo = Path(self.tmp.name)
+        self.env_patch = patch.dict(os.environ, {STORAGE_PROVIDER_ENV_VAR: ""})
+        self.env_patch.start()
         self.app = ResearchPluginApp(
             repo_root=self.repo,
             db_path=self.repo / ".research_plugin" / "state.sqlite",
@@ -68,13 +75,17 @@ class ToolContractRegistryTest(unittest.TestCase):
 
     def tearDown(self) -> None:
         self.app.shutdown()
+        self.env_patch.stop()
         self.tmp.cleanup()
 
     def test_registered_tools_match_contracts_and_have_descriptions(self) -> None:
         tools = {tool["name"]: tool for tool in self.app.list_tools()}
 
-        self.assertEqual(set(tools), set(TOOL_CONTRACTS))
+        self.assertEqual(set(tools), available_tool_names(storage_enabled=False))
+        self.assertFalse(set(tools) & STORAGE_TOOL_NAMES)
         for name, contract in TOOL_CONTRACTS.items():
+            if name not in tools:
+                continue
             self.assertTrue(contract.description.strip(), name)
             self.assertEqual(tools[name]["description"], contract.description)
 
@@ -114,12 +125,16 @@ class StaticCatalogNoSideEffectTest(unittest.TestCase):
     def test_router_tool_listing_creates_no_template_repo(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             registry = Path(tmp) / "registry.sqlite"
-            router = ProjectRouter(registry_db_path=registry)
-            try:
-                tools = router.list_tools()
-            finally:
-                router.shutdown()
-            self.assertEqual({tool["name"] for tool in tools}, set(TOOL_CONTRACTS))
+            with patch.dict(os.environ, {STORAGE_PROVIDER_ENV_VAR: ""}):
+                router = ProjectRouter(registry_db_path=registry)
+                try:
+                    tools = router.list_tools()
+                finally:
+                    router.shutdown()
+            self.assertEqual(
+                {tool["name"] for tool in tools},
+                available_tool_names(storage_enabled=False),
+            )
             self.assertFalse((Path(tmp) / "_tool_schema").exists())
 
 
@@ -155,6 +170,13 @@ class ToolHandlerRegistryTest(unittest.TestCase):
 
         self.assertEqual(set(handlers), CONTROL_PLANE_TOOL_NAMES | AGGREGATE_TOOL_NAMES)
         self.assertFalse(set(handlers) & DATA_PLANE_TOOL_NAMES)
+
+    def test_control_handlers_omit_storage_when_disabled(self) -> None:
+        targets = _handler_targets()
+        targets["storage"] = None
+        handlers = build_control_tool_handlers(**targets)
+
+        self.assertFalse(set(handlers) & STORAGE_TOOL_NAMES)
 
 
 if __name__ == "__main__":

@@ -5,13 +5,11 @@ from __future__ import annotations
 import base64
 import hashlib
 import sys
-import tempfile
 import types
 import unittest
 from pathlib import Path
 from unittest.mock import patch
 
-from backend.storage.local_object_store import LocalObjectStore
 from backend.utils import NotFoundError, ValidationError
 
 
@@ -57,7 +55,6 @@ class ObjectStoreContractMixin:
         self.assertEqual(stat.namespace, "proj_a")
         self.assertEqual(stat.size_bytes, len(data))
         self.assertEqual(stat.content_type, "text/plain")
-        self.assertIsNone(stat.expires_at)
         self.assertEqual(
             self._read_download(
                 store.presign_download(namespace="proj_a", sha256=sha, expires_in=300)
@@ -90,26 +87,6 @@ class ObjectStoreContractMixin:
         self.assertIsNone(store.stat(namespace="proj_a", sha256=sha))
         with self.assertRaises(NotFoundError):
             store.presign_download(namespace="proj_a", sha256=sha, expires_in=300)
-
-    def test_extend_only_expiry_never_shortens_and_none_pins(self) -> None:
-        store = self.make_store()
-        sha, _ = self._upload(store, namespace="proj_a", data=b"ttl object")
-        store.set_expiry(
-            namespace="proj_a", sha256=sha, expires_at="2026-06-01T00:00:00Z"
-        )
-        store.set_expiry(
-            namespace="proj_a", sha256=sha, expires_at="2026-01-01T00:00:00Z"
-        )
-        self.assertEqual(
-            store.stat(namespace="proj_a", sha256=sha).expires_at,
-            "2026-06-01T00:00:00Z",
-        )
-        store.set_expiry(namespace="proj_a", sha256=sha, expires_at=None)
-        self.assertIsNone(store.stat(namespace="proj_a", sha256=sha).expires_at)
-        store.set_expiry(
-            namespace="proj_a", sha256=sha, expires_at="2026-01-01T00:00:00Z"
-        )
-        self.assertIsNone(store.stat(namespace="proj_a", sha256=sha).expires_at)
 
     def test_size_cap_rejection_consumes_upload(self) -> None:
         store = self.make_store()
@@ -149,63 +126,6 @@ class ObjectStoreContractMixin:
             store.presign_download(
                 namespace="proj_a", sha256=expected_sha, expires_in=300
             )
-
-    def test_sweep_expired(self) -> None:
-        store = self.make_store()
-        old_sha, _ = self._upload(store, namespace="proj_a", data=b"old")
-        keep_sha, _ = self._upload(store, namespace="proj_a", data=b"keep")
-        later_sha, _ = self._upload(store, namespace="proj_a", data=b"later")
-        store.set_expiry(
-            namespace="proj_a", sha256=old_sha, expires_at="2026-01-01T00:00:00Z"
-        )
-        store.set_expiry(
-            namespace="proj_a", sha256=later_sha, expires_at="2027-01-01T00:00:00Z"
-        )
-        self.assertEqual(store.sweep_expired(now="2026-06-01T00:00:00Z"), 1)
-        self.assertIsNone(store.stat(namespace="proj_a", sha256=old_sha))
-        self.assertIsNotNone(store.stat(namespace="proj_a", sha256=keep_sha))
-        self.assertIsNotNone(store.stat(namespace="proj_a", sha256=later_sha))
-
-
-class LocalObjectStoreTest(ObjectStoreContractMixin, unittest.TestCase):
-    def setUp(self) -> None:
-        self.tmp = tempfile.TemporaryDirectory()
-
-    def tearDown(self) -> None:
-        self.tmp.cleanup()
-
-    def make_store(self) -> LocalObjectStore:
-        return LocalObjectStore(root=Path(self.tmp.name) / "objects")
-
-    def test_complete_upload_hashes_multi_chunk_file(self) -> None:
-        store = self.make_store()
-        data = (
-            (b"a" * (1024 * 1024))
-            + (b"b" * (1024 * 1024))
-            + (b"c" * (1024 * 1024))
-            + b"tail"
-        )
-        sha = hashlib.sha256(data).hexdigest()
-        target = store.presign_upload(
-            namespace="proj_a",
-            sha256=sha,
-            size_bytes=len(data),
-            content_type="application/octet-stream",
-            expires_in=300,
-        )
-        self._write_upload(target, data)
-
-        stat = store.complete_upload(upload_id=target["upload_id"])
-
-        self.assertEqual(stat.sha256, sha)
-        self.assertEqual(stat.size_bytes, len(data))
-        self.assertEqual(
-            self._read_download(
-                store.presign_download(namespace="proj_a", sha256=sha, expires_in=300)
-            ),
-            data,
-        )
-
 
 class S3CompatibleObjectStoreClientConfigTest(unittest.TestCase):
     def test_boto3_client_receives_explicit_credentials_when_both_set(self) -> None:

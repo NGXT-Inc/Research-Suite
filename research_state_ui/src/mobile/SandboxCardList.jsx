@@ -12,14 +12,12 @@ import { expName } from '../utils/experiment';
 import { fmtDuration } from '../utils/format';
 import { PARACHUTE_CHIPS, latestParachute } from '../utils/parachute';
 
-// A daemon-owned SSH local forward (Lambda Labs dashboards) only resolves on
-// the desktop that owns the tunnel — never offer it as a tappable link here.
-function isLoopbackUrl(url) {
-  try {
-    const h = new URL(url).hostname;
-    return h === '127.0.0.1' || h === 'localhost' || h === '::1' || h === '[::1]';
-  } catch { return true; }
-}
+const sandboxRowId = (s) => s.sandbox_uid || s.sandbox_id || s.experiment_id;
+const primaryExperimentId = (s) => (
+  s.experiment_id
+  || (Array.isArray(s.active_experiment_ids) ? s.active_experiment_ids[0] : '')
+  || ''
+);
 
 /**
  * Mobile replacement for the 840px Sandboxes infra table: one card per
@@ -65,23 +63,28 @@ export default function SandboxCardList() {
         </div>
       ) : (
         <div className="mcard-list">
-          {rows.map(s => (
-            <SandboxCard
-              key={s.experiment_id}
-              sandbox={s}
-              experiment={expById[s.experiment_id]}
-              parachute={latestParachute(events, s.experiment_id, s.sandbox_id)}
-              open={expandedId === s.experiment_id}
-              onToggle={() => setExpandedId(prev => (prev === s.experiment_id ? null : s.experiment_id))}
-            />
-          ))}
+          {rows.map(s => {
+            const rowId = sandboxRowId(s);
+            const experimentId = primaryExperimentId(s);
+            return (
+              <SandboxCard
+                key={rowId}
+                sandbox={s}
+                experiment={expById[experimentId]}
+                experimentId={experimentId}
+                parachute={latestParachute(events, experimentId, s.sandbox_id)}
+                open={expandedId === rowId}
+                onToggle={() => setExpandedId(prev => (prev === rowId ? null : rowId))}
+              />
+            );
+          })}
         </div>
       )}
     </div>
   );
 }
 
-function SandboxCard({ sandbox: s, experiment, parachute, open, onToggle }) {
+function SandboxCard({ sandbox: s, experiment, experimentId, parachute, open, onToggle }) {
   const px = useProjectHref();
   const projectId = useProjectStore(st => st.projectId);
   const chip = parachute ? PARACHUTE_CHIPS[parachute] : null;
@@ -102,14 +105,11 @@ function SandboxCard({ sandbox: s, experiment, parachute, open, onToggle }) {
   const endpoint = s.ssh_host && s.ssh_port ? `${s.ssh_user || 'root'}@${s.ssh_host}:${s.ssh_port}` : null;
   const expRunning = experiment && experiment.status === 'running';
 
-  const dashboards = Object.entries(s.dashboards || {})
-    .filter(([, url]) => url && !isLoopbackUrl(url));
-
   async function release() {
     setBusy(true);
     setError(null);
     try {
-      await api.releaseSandbox(projectId, s.experiment_id);
+      await api.releaseSandbox(projectId, experimentId, { sandboxUid: s.sandbox_uid });
       setConfirming(false);
       toast('Sandbox released', { variant: 'success' });
       await refreshHome();
@@ -124,7 +124,7 @@ function SandboxCard({ sandbox: s, experiment, parachute, open, onToggle }) {
   return (
     <div className={`mcard${left != null && left < 30 * 60 * 1000 ? ' mcard--attn' : ''}`}>
       <div className="mcard-head">
-        <div className="mcard-title">{experiment ? expName(experiment) : s.experiment_id}</div>
+        <div className="mcard-title">{experiment ? expName(experiment) : experimentId || s.sandbox_uid || s.sandbox_id}</div>
         {chip && <span className={`parachute-chip parachute-chip--${chip.variant}`}>{chip.short}</span>}
         <StatusPill value={s.status} />
       </div>
@@ -140,14 +140,11 @@ function SandboxCard({ sandbox: s, experiment, parachute, open, onToggle }) {
         <button type="button" className="btn btn--sm" onClick={onToggle} aria-expanded={open}>
           {open ? 'Hide details ▾' : 'Details & terminal ▸'}
         </button>
-        <Link to={px(`/experiments/${s.experiment_id}`)} className="btn btn--sm btn--ghost">
-          Open experiment →
-        </Link>
-        {dashboards.map(([name, url]) => (
-          <a key={name} href={url} target="_blank" rel="noreferrer noopener" className="btn btn--sm btn--ghost">
-            {name} ↗
-          </a>
-        ))}
+        {experimentId && (
+          <Link to={px(`/experiments/${experimentId}`)} className="btn btn--sm btn--ghost">
+            Open experiment →
+          </Link>
+        )}
         {live && !confirming && (
           <button type="button" className="btn btn--sm btn--ghost" onClick={() => setConfirming(true)}>
             Release…
@@ -157,7 +154,7 @@ function SandboxCard({ sandbox: s, experiment, parachute, open, onToggle }) {
 
       {open && (
         <div className="mcard-drawer">
-          <SandboxTerminal projectId={projectId} experimentId={s.experiment_id} readOnly />
+          <SandboxTerminal projectId={projectId} experimentId={experimentId} sandboxUid={s.sandbox_uid} readOnly />
         </div>
       )}
 

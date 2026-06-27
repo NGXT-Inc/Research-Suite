@@ -1,18 +1,10 @@
 from __future__ import annotations
 
 import json
-import re
-import tempfile
 import unittest
-from pathlib import Path
 from unittest.mock import patch
 
 from backend.mlflow_metrics import MAX_HISTORY_POINTS, downsample_history, snapshot_mlflow
-from backend.dataplane.metrics_archive import (
-    MetricsArchive,
-    snapshot_mlflow_db,
-)
-from tests.fakes import write_fake_mlflow_db
 
 
 class FakeResponse:
@@ -183,64 +175,6 @@ class SnapshotMlflowTest(unittest.TestCase):
         self.assertEqual(sampled[-1], [4999, 4999.0])
         short = [[0, 1.0], [1, 2.0]]
         self.assertEqual(downsample_history(short), short)
-
-
-class SnapshotMlflowDbTest(unittest.TestCase):
-    def test_extracts_runs_from_pulled_db(self) -> None:
-        with tempfile.TemporaryDirectory() as tmp:
-            db = Path(tmp) / "mlflow.db"
-            write_fake_mlflow_db(db)
-            snapshot = snapshot_mlflow_db(db)
-        self.assertIsNotNone(snapshot)
-        self.assertEqual(snapshot["extracted_from"], str(db))
-        # Default has no runs and is skipped — same rule as the REST path.
-        self.assertEqual(len(snapshot["experiments"]), 1)
-        run = snapshot["experiments"][0]["runs"][0]
-        self.assertEqual(run["run_name"], "seed_0")
-        self.assertEqual(run["status"], "FINISHED")
-        self.assertEqual(run["params"], {"lr": "0.0005"})
-        self.assertEqual(run["metrics"]["acc"]["last"], 0.91)
-        self.assertEqual(run["metrics"]["acc"]["min"], 0.85)
-        self.assertEqual(run["history"]["acc"], [[10, 0.85], [20, 0.91]])
-        json.loads(json.dumps(snapshot, allow_nan=False))
-
-    def test_none_for_missing_or_runless_db(self) -> None:
-        with tempfile.TemporaryDirectory() as tmp:
-            self.assertIsNone(snapshot_mlflow_db(Path(tmp) / "absent.db"))
-            db = Path(tmp) / "empty.db"
-            write_fake_mlflow_db(db, with_run=False)
-            self.assertIsNone(snapshot_mlflow_db(db))
-            corrupt = Path(tmp) / "corrupt.db"
-            corrupt.write_text("not a sqlite file", encoding="utf-8")
-            self.assertIsNone(snapshot_mlflow_db(corrupt))
-
-
-class MetricsArchiveTest(unittest.TestCase):
-    def test_persist_and_load_round_trip(self) -> None:
-        with tempfile.TemporaryDirectory() as tmp:
-            archive = MetricsArchive(repo_root=Path(tmp))
-            snapshot = {"source": "mlflow", "experiments": [{"experiment_id": "1"}]}
-            path = archive.persist(experiment_id="exp_abc", snapshot=snapshot)
-            self.assertTrue(path.exists())
-            self.assertIn(".research_plugin", str(path))
-            loaded = archive.load(experiment_id="exp_abc")
-            self.assertEqual(loaded["experiments"], snapshot["experiments"])
-            self.assertRegex(
-                loaded["captured_at"],
-                re.compile(r"^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}Z$"),
-            )
-            # No leftover temp files from the atomic write.
-            leftovers = [p for p in path.parent.iterdir() if p.suffix == ".tmp"]
-            self.assertEqual(leftovers, [])
-
-    def test_load_missing_or_corrupt_returns_none(self) -> None:
-        with tempfile.TemporaryDirectory() as tmp:
-            archive = MetricsArchive(repo_root=Path(tmp))
-            self.assertIsNone(archive.load(experiment_id="exp_none"))
-            path = archive.path_for("exp_bad")
-            path.parent.mkdir(parents=True, exist_ok=True)
-            path.write_text("{not json", encoding="utf-8")
-            self.assertIsNone(archive.load(experiment_id="exp_bad"))
 
 
 if __name__ == "__main__":

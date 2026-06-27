@@ -238,7 +238,7 @@ class SandboxHeartbeatEnvTest(unittest.TestCase):
             registry=object(),  # type: ignore[arg-type]
             backend=FakeSandboxBackend(),
             provisioner=object(),  # type: ignore[arg-type]
-            persist_metrics=lambda **_kwargs: None,
+            sample_metrics=lambda **_kwargs: {},
         )
 
     def test_idle_threshold_zero_or_empty_disables_idle_reaping(self) -> None:

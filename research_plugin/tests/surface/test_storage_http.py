@@ -11,9 +11,12 @@ from urllib.request import url2pathname
 
 from fastapi.testclient import TestClient
 
+from tests.fakes import FakeObjectStore
 from backend.app import ResearchPluginApp
 from backend.composition.local_mode import build_local_app
+from backend.config import STORAGE_PROVIDER_ENV_VAR
 from backend.execution.backends.fake import FakeSandboxBackend
+from backend.state.store import StateStore
 from backend.storage.service import StorageLedgerService
 from backend.transport.http_api import create_fastapi_app
 
@@ -22,10 +25,14 @@ class StorageHttpApiTest(unittest.TestCase):
     def setUp(self) -> None:
         self.tmp = tempfile.TemporaryDirectory()
         self.repo = Path(self.tmp.name)
+        store = StateStore(db_path=self.repo / ".research_plugin" / "state.sqlite")
+        storage = StorageLedgerService(store=store, objects=FakeObjectStore())
         self.app = ResearchPluginApp(
             repo_root=self.repo,
             db_path=self.repo / ".research_plugin" / "state.sqlite",
             execution_backend=FakeSandboxBackend(),
+            store=store,
+            storage=storage,
         )
         self.client = TestClient(create_fastapi_app(self.app))
         self.project_id = self._request(
@@ -94,16 +101,26 @@ class StorageHttpApiTest(unittest.TestCase):
 
 
 class StorageCompositionTest(unittest.TestCase):
-    def test_local_mode_attaches_storage_ledger_service(self) -> None:
+    def test_local_mode_disables_storage_when_unconfigured(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)
-            with patch.dict(os.environ, {"RESEARCH_PLUGIN_EXECUTION_BACKEND": "fake"}):
+            with patch.dict(
+                os.environ,
+                {
+                    "RESEARCH_PLUGIN_EXECUTION_BACKEND": "fake",
+                    STORAGE_PROVIDER_ENV_VAR: "",
+                },
+            ):
                 app = build_local_app(
                     repo_root=root,
                     db_path=root / ".research_plugin" / "state.sqlite",
                 )
             try:
-                self.assertIsInstance(app.storage, StorageLedgerService)
+                self.assertIsNone(app.storage)
+                self.assertFalse(
+                    {tool["name"] for tool in app.list_tools()}
+                    & {"storage.put_object", "storage.list"}
+                )
             finally:
                 app.shutdown()
 

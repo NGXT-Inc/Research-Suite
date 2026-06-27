@@ -108,7 +108,7 @@ def build_control_app(
     store = build_state_store(db_path=db_path, env=env)
     blobs = build_blob_store(default_root=staging / ".research_plugin" / "blobs", env=env)
     objects = build_object_store(default_root=staging / ".research_plugin", env=env)
-    storage = StorageLedgerService(store=store, objects=objects)
+    storage = StorageLedgerService(store=store, objects=objects) if objects else None
     # The cloud→daemon task channel: control enqueues, the daemon long-polls.
     # A bounded result wait keeps control lifecycle calls from blocking on a
     # missing daemon.

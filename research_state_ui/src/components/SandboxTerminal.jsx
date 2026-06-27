@@ -4,26 +4,17 @@ import StatusPill from './StatusPill';
 import TerminalLog from './TerminalLog';
 
 /**
- * SandboxTerminal — a window into one experiment's cloud sandbox.
+ * SandboxTerminal — a window into a cloud sandbox.
  *
  * Replaces the old job dashboard. The agent procures the sandbox (sandbox.request
  * over MCP) and runs commands over SSH itself; this panel only *observes*:
  *   - sandbox status + SSH connection details (read-only, copyable);
  *   - a live transcript of every command + output recorded in the sandbox;
- *   - centralized **MLflow** and sandbox **TensorBoard** dashboards rendered as
- *     `<iframe>` tabs next to "Terminal" so the user can watch
- *     loss curves, gradients, and TB scalars live without ever opening a
- *     separate tab. Tabs only appear when the row exposes a URL for them.
  *
  * Polls GET /sandbox + /metrics every 3s. The terminal polls separately at
  * 1.5s while live, using the `since` cursor so each poll transfers only new
  * bytes (accumulated client-side) instead of re-pulling the whole tail.
  */
-const PANEL_TABS = [
-  { key: 'terminal', label: 'Terminal' },
-  { key: 'mlflow', label: 'MLflow' },
-  { key: 'tensorboard', label: 'TensorBoard' },
-];
 const RUNNING = 'running';
 const PROVISIONING = 'provisioning';
 const FAILED = 'failed';
@@ -31,7 +22,13 @@ const TERMINAL_POLL_MS = 1500;
 // Client-side scrollback cap: keep memory bounded on day-long sandboxes.
 const MAX_ACCUMULATED_CHARS = 2_000_000;
 
-export default function SandboxTerminal({ projectId, experimentId, readOnly = false, collapsible = false }) {
+export default function SandboxTerminal({
+  projectId,
+  experimentId,
+  sandboxUid = null,
+  readOnly = false,
+  collapsible = false,
+}) {
   const [sandbox, setSandbox] = useState(null);
   // When `collapsible`, the panel defaults to its liveness: expanded while a
   // sandbox is live/provisioning, collapsed to just the header once the run has
@@ -45,23 +42,25 @@ export default function SandboxTerminal({ projectId, experimentId, readOnly = fa
   const [error, setError] = useState(null);
   const [releasing, setReleasing] = useState(false);
   const [showRaw, setShowRaw] = useState(false);
-  // Active observability tab. Terminal is always available; mlflow/tensorboard
-  // only render when their URL is non-empty on the row. If the active tab loses
-  // its URL (e.g. the sandbox was released), fall back to terminal.
-  const [activeTab, setActiveTab] = useState('terminal');
   // Cursor-accumulated transcript: { sandboxId, cursor, text }. Reset whenever
   // the sandbox id changes or the server cursor regresses (new transcript).
   const accRef = useRef({ sandboxId: null, cursor: null, text: '' });
   const termBusyRef = useRef(false);
 
+  useEffect(() => {
+    accRef.current = { sandboxId: null, cursor: null, text: '' };
+    setTranscript(null);
+    setTermMeta(null);
+  }, [projectId, experimentId, sandboxUid]);
+
   const fetchOnce = useCallback(async () => {
     try {
-      const sb = await api.getSandbox(projectId, experimentId);
+      const sb = await api.getSandbox(projectId, experimentId, { sandboxUid });
       setSandbox(sb);
       setError(null);
       if (sb && sb.status === RUNNING) {
         try {
-          setMetrics(await api.getSandboxMetrics(projectId, experimentId));
+          setMetrics(await api.getSandboxMetrics(projectId, experimentId, { sandboxUid }));
         } catch {
           /* live usage is best-effort */
         }
@@ -71,7 +70,7 @@ export default function SandboxTerminal({ projectId, experimentId, readOnly = fa
     } catch (err) {
       setError(err.message);
     }
-  }, [projectId, experimentId]);
+  }, [projectId, experimentId, sandboxUid]);
 
   const sandboxId = sandbox?.sandbox_id || null;
   const isLiveSandbox = sandbox?.status === RUNNING;
@@ -85,7 +84,7 @@ export default function SandboxTerminal({ projectId, experimentId, readOnly = fa
       const term = await api.getSandboxTerminal(
         projectId,
         experimentId,
-        fresh ? {} : { since: acc.cursor },
+        fresh ? { sandboxUid } : { since: acc.cursor, sandboxUid },
       );
       setTermMeta({
         running: term.running,
@@ -116,7 +115,7 @@ export default function SandboxTerminal({ projectId, experimentId, readOnly = fa
     } finally {
       termBusyRef.current = false;
     }
-  }, [projectId, experimentId, sandboxId]);
+  }, [projectId, experimentId, sandboxId, sandboxUid]);
 
   // Pause polling while the tab/app is backgrounded and refresh on return.
   // Without this the 3s sandbox poll keeps the radio awake on a locked phone
@@ -152,14 +151,14 @@ export default function SandboxTerminal({ projectId, experimentId, readOnly = fa
   const onRelease = useCallback(async () => {
     setReleasing(true);
     try {
-      await api.releaseSandbox(projectId, experimentId);
+      await api.releaseSandbox(projectId, experimentId, { sandboxUid });
       await fetchOnce();
     } catch (err) {
       setError(err.message);
     } finally {
       setReleasing(false);
     }
-  }, [projectId, experimentId, fetchOnce]);
+  }, [projectId, experimentId, sandboxUid, fetchOnce]);
 
   const status = sandbox?.status || 'none';
   const isLive = status === RUNNING;
@@ -225,16 +224,12 @@ export default function SandboxTerminal({ projectId, experimentId, readOnly = fa
             <>
               <SandboxMeta sandbox={sandbox} />
               <SandboxUsage metrics={metrics} sandbox={sandbox} />
-              <SandboxPanelTabs
-                sandbox={sandbox}
+              <SandboxTerminalPane
                 transcript={transcript}
                 termMeta={termMeta}
                 isLive={isLive}
                 showRaw={showRaw}
                 setShowRaw={setShowRaw}
-                activeTab={activeTab}
-                setActiveTab={setActiveTab}
-                readOnly={readOnly}
               />
             </>
           )}
@@ -244,74 +239,15 @@ export default function SandboxTerminal({ projectId, experimentId, readOnly = fa
   );
 }
 
-/**
- * SandboxPanelTabs — switches between the terminal transcript and the in-sandbox
- * observability dashboards (central MLflow + TensorBoard). Dashboard URLs come
- * from `sandbox.mlflow` and the row's provider/local `dashboards` map.
- * A tab whose URL is empty is hidden; if the currently-active tab disappears
- * (sandbox released, tunnel relocation lost the URL temporarily), we fall back
- * to Terminal so the panel never goes blank.
- */
-function SandboxPanelTabs({
-  sandbox,
-  transcript,
-  termMeta,
-  isLive,
-  showRaw,
-  setShowRaw,
-  activeTab,
-  setActiveTab,
-  readOnly = false,
-}) {
-  const dashboards = sandbox?.dashboards || {};
-  const centralMlflowUrl = sandbox?.mlflow?.configured
-    ? (sandbox.mlflow.dashboard_url || sandbox.mlflow.tracking_uri)
-    : '';
-  const dashboardUrls = {
-    ...dashboards,
-    ...(centralMlflowUrl ? { mlflow: centralMlflowUrl } : {}),
-  };
-  // readOnly drops sandbox-local dashboard tabs; central MLflow remains usable.
-  const availableTabs = readOnly
-    ? PANEL_TABS.filter((t) => t.key === 'terminal' || (t.key === 'mlflow' && centralMlflowUrl))
-    : PANEL_TABS.filter((t) => t.key === 'terminal' || dashboardUrls[t.key]);
-  const effectiveTab = availableTabs.some((t) => t.key === activeTab)
-    ? activeTab
-    : 'terminal';
-  // Full-screen dashboard overlay. Reset when leaving dashboard tabs so a
-  // stale overlay can't swallow the page after the tab disappears.
-  const [dashFullscreen, setDashFullscreen] = useState(false);
-  useEffect(() => {
-    if (effectiveTab === 'terminal') setDashFullscreen(false);
-  }, [effectiveTab]);
-
+function SandboxTerminalPane({ transcript, termMeta, isLive, showRaw, setShowRaw }) {
   return (
-    <div className="sbx-tabs">
-      <div className="sbx-tabs-strip" role="tablist">
-        {availableTabs.map((tab) => (
-          <button
-            key={tab.key}
-            type="button"
-            role="tab"
-            aria-selected={effectiveTab === tab.key}
-            className={`sbx-tab${effectiveTab === tab.key ? ' is-active' : ''}`}
-            onClick={() => setActiveTab(tab.key)}
-            title={
-              tab.key === 'mlflow'
-                ? 'Centralized MLflow — runs, metrics, params, artifacts'
-                : tab.key === 'tensorboard'
-                ? 'TensorBoard (port 6006) — scalars and event-file visualizations'
-                : 'Recorded SSH command transcript'
-            }
-          >
-            {tab.label}
-            {tab.key !== 'terminal' && isLive && (
-              <span className="log-tail-live-dot" title="live" />
-            )}
-          </button>
-        ))}
-        <div className="sbx-tabs-spacer" />
-        {effectiveTab === 'terminal' && transcript && transcript.trim() !== '' && (
+    <>
+      <div className="sbx-term-head">
+        <span>
+          terminal transcript
+          {transcript != null && ` · ${transcript.split('\n').length} lines`}
+        </span>
+        {transcript && transcript.trim() !== '' && (
           <button
             type="button"
             className="sbx-term-toggle"
@@ -321,56 +257,6 @@ function SandboxPanelTabs({
             {showRaw ? 'formatted' : 'raw'}
           </button>
         )}
-        {effectiveTab !== 'terminal' && dashboardUrls[effectiveTab] && (
-          <>
-            <button
-              type="button"
-              className="sbx-term-toggle"
-              onClick={() => setDashFullscreen(true)}
-              title="Expand this dashboard to full screen (Esc or the exit button to leave)"
-            >
-              full screen
-            </button>
-            <a
-              href={dashboardUrls[effectiveTab]}
-              target="_blank"
-              rel="noreferrer noopener"
-              className="sbx-term-toggle"
-              title="Open this dashboard in a new tab"
-            >
-              open ↗
-            </a>
-          </>
-        )}
-      </div>
-
-      {effectiveTab === 'terminal' ? (
-        <SandboxTerminalPane
-          transcript={transcript}
-          termMeta={termMeta}
-          isLive={isLive}
-          showRaw={showRaw}
-        />
-      ) : (
-        <SandboxDashboardFrame
-          name={effectiveTab}
-          url={dashboardUrls[effectiveTab]}
-          fullscreen={dashFullscreen}
-          onExitFullscreen={() => setDashFullscreen(false)}
-        />
-      )}
-    </div>
-  );
-}
-
-function SandboxTerminalPane({ transcript, termMeta, isLive, showRaw }) {
-  return (
-    <>
-      <div className="sbx-term-head">
-        <span>
-          terminal transcript
-          {transcript != null && ` · ${transcript.split('\n').length} lines`}
-        </span>
       </div>
       {transcript == null ? (
         <div className="log-tail-empty">Loading transcript…</div>
@@ -380,96 +266,6 @@ function SandboxTerminalPane({ transcript, termMeta, isLive, showRaw }) {
         <TerminalLog text={transcript} live={isLive} raw={showRaw} meta={termMeta} />
       )}
     </>
-  );
-}
-
-/**
- * SandboxDashboardFrame — embeds central MLflow or sandbox TensorBoard.
- * The iframe is sandboxed (allow-scripts + same-origin) but
- * not allowed top-navigation or forms, so a malicious page inside the iframe
- * can't redirect the user away. The wrapper key includes the URL so a tunnel
- * relocation forces a clean reload rather than reusing a now-404 src.
- */
-function SandboxDashboardFrame({ name, url, fullscreen = false, onExitFullscreen }) {
-  const wrapRef = useRef(null);
-
-  // Prefer the native Fullscreen API: Esc then exits *this element's*
-  // fullscreen via the browser's own reserved-key handling — properly layered,
-  // so a fullscreen browser window stays fullscreen. The CSS overlay below is
-  // the fallback when requestFullscreen is unavailable or rejected.
-  useEffect(() => {
-    const el = wrapRef.current;
-    if (!el) return;
-    if (fullscreen) {
-      if (document.fullscreenElement !== el && el.requestFullscreen) {
-        el.requestFullscreen().catch(() => {
-          /* CSS overlay fallback keeps working */
-        });
-      }
-    } else if (document.fullscreenElement === el) {
-      document.exitFullscreen().catch(() => {});
-    }
-  }, [fullscreen]);
-
-  // When the browser exits our element's fullscreen natively (Esc), sync
-  // React state so the overlay class comes off too.
-  useEffect(() => {
-    if (!fullscreen) return undefined;
-    const onChange = () => {
-      if (!document.fullscreenElement) onExitFullscreen?.();
-    };
-    document.addEventListener('fullscreenchange', onChange);
-    return () => document.removeEventListener('fullscreenchange', onChange);
-  }, [fullscreen, onExitFullscreen]);
-
-  // CSS-fallback mode only: handle Esc ourselves (capture + preventDefault so
-  // nothing else — including a browser that would honor it — also reacts),
-  // and lock the page scroll behind the overlay. In native fullscreen the
-  // browser owns Esc and there is nothing to scroll.
-  useEffect(() => {
-    if (!fullscreen) return undefined;
-    const onKey = (e) => {
-      if (e.key !== 'Escape' || document.fullscreenElement) return;
-      e.preventDefault();
-      e.stopPropagation();
-      onExitFullscreen?.();
-    };
-    window.addEventListener('keydown', onKey, true);
-    const prevOverflow = document.body.style.overflow;
-    document.body.style.overflow = 'hidden';
-    return () => {
-      window.removeEventListener('keydown', onKey, true);
-      document.body.style.overflow = prevOverflow;
-    };
-  }, [fullscreen, onExitFullscreen]);
-
-  if (!url) {
-    return (
-      <div className="log-tail-empty">No {name} dashboard yet.</div>
-    );
-  }
-  const title = name === 'mlflow' ? 'MLflow tracking UI' : 'TensorBoard';
-  // Full screen toggles a class on the SAME node: the iframe is never
-  // remounted, so the dashboard keeps its state instead of reloading.
-  return (
-    <div ref={wrapRef} className={`sbx-dashboard${fullscreen ? ' is-fullscreen' : ''}`} key={url}>
-      {fullscreen && (
-        <div className="sbx-dash-exitbar">
-          <span className="sbx-dash-exitbar-title">{title}</span>
-          <button type="button" className="btn btn--sm btn--ghost" onClick={onExitFullscreen}>
-            exit full screen · Esc
-          </button>
-        </div>
-      )}
-      <iframe
-        src={url}
-        title={title}
-        className="sbx-dashboard-frame"
-        sandbox="allow-scripts allow-same-origin allow-popups allow-downloads"
-        loading="lazy"
-        referrerPolicy="no-referrer"
-      />
-    </div>
   );
 }
 

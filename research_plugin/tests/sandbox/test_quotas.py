@@ -53,11 +53,20 @@ class QuotaAdmissionTest(unittest.TestCase):
             conn.execute(
                 """
                 INSERT INTO sandboxes (
-                  sandbox_uid, experiment_id, project_id, status, created_at, updated_at
+                  sandbox_uid, project_id, status, created_at, updated_at
                 )
-                VALUES (?, ?, ?, 'running', '2026-01-01T00:00:00Z', '2026-01-01T00:00:00Z')
+                VALUES (?, ?, 'running', '2026-01-01T00:00:00Z', '2026-01-01T00:00:00Z')
                 """,
-                (f"uid_{experiment_id}", experiment_id, self.project_id),
+                (f"uid_{experiment_id}", self.project_id),
+            )
+            conn.execute(
+                """
+                INSERT INTO sandbox_attachments (
+                  sandbox_uid, experiment_id, attached_at, detached_at
+                )
+                VALUES (?, ?, '2026-01-01T00:00:00Z', NULL)
+                """,
+                (f"uid_{experiment_id}", experiment_id),
             )
 
     def test_no_quota_row_is_unlimited(self) -> None:
@@ -93,9 +102,9 @@ class QuotaAdmissionTest(unittest.TestCase):
             conn.execute(
                 """
                 INSERT INTO sandboxes (
-                  sandbox_uid, experiment_id, project_id, status, created_at, updated_at
+                  sandbox_uid, project_id, status, created_at, updated_at
                 )
-                VALUES ('uid_exp_o', 'exp_o', ?, 'running', '2026-01-01T00:00:00Z', '2026-01-01T00:00:00Z')
+                VALUES ('uid_exp_o', ?, 'running', '2026-01-01T00:00:00Z', '2026-01-01T00:00:00Z')
                 """,
                 (other,),
             )
@@ -310,7 +319,12 @@ class QuotaProvisionRecordingTest(unittest.TestCase):
         conn = self.store.connect()
         try:
             row = conn.execute(
-                "SELECT price_usd_per_hour FROM sandboxes WHERE experiment_id = ?",
+                """
+                SELECT s.price_usd_per_hour
+                FROM sandboxes s
+                JOIN sandbox_attachments a ON a.sandbox_uid = s.sandbox_uid
+                WHERE a.experiment_id = ?
+                """,
                 (exp_id,),
             ).fetchone()
             gens = conn.execute(

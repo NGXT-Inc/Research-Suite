@@ -607,10 +607,23 @@ class ResearchHttpApi:
     # The domain SandboxService returns raw rows / sampled data; the UI-facing
     # shaping lives here so presentation stays out of the service.
 
-    def sandbox_get_view(self, *, project_id: str, experiment_id: str) -> dict[str, Any]:
-        row = self.app.sandboxes.get_row(experiment_id=experiment_id, project_id=project_id)
+    def sandbox_get_view(
+        self,
+        *,
+        project_id: str,
+        experiment_id: str | None = None,
+        sandbox_uid: str | None = None,
+    ) -> dict[str, Any]:
+        row = self.app.sandboxes.get_row(
+            experiment_id=experiment_id, project_id=project_id, sandbox_uid=sandbox_uid
+        )
         if row is None:
-            return {"experiment_id": experiment_id, "status": "none", "sandbox": None}
+            return {
+                "experiment_id": experiment_id or "",
+                "sandbox_uid": sandbox_uid or "",
+                "status": "none",
+                "sandbox": None,
+            }
         return self._present(self.app.sandboxes.row_view(row=row))
 
     def sandbox_list_view(self, *, project_id: str) -> dict[str, Any]:
@@ -621,12 +634,24 @@ class ResearchHttpApi:
             ]
         })
 
-    def sandbox_metrics_view(self, *, project_id: str, experiment_id: str) -> dict[str, Any]:
-        return self.app.sandboxes.sample_metrics(experiment_id=experiment_id, project_id=project_id)
+    def sandbox_metrics_view(
+        self,
+        *,
+        project_id: str,
+        experiment_id: str | None = None,
+        sandbox_uid: str | None = None,
+    ) -> dict[str, Any]:
+        return self.app.sandboxes.sample_metrics(
+            experiment_id=experiment_id or "",
+            project_id=project_id,
+            sandbox_uid=sandbox_uid,
+        )
 
     def results_metrics_view(self, *, project_id: str, experiment_id: str) -> dict[str, Any]:
-        """Archived MLflow metrics — durable results that outlive the sandbox VM."""
-        return self.app.sandboxes.results_metrics(experiment_id=experiment_id, project_id=project_id)
+        """Centralized MLflow metrics for one experiment."""
+        return self.app.mlflow_tracking.results_metrics(
+            experiment_id=experiment_id, project_id=project_id
+        )
 
     def mlflow_overview_view(self, *, project_id: str) -> dict[str, Any]:
         """Project-wide MLflow: the central endpoint plus every experiment's
@@ -641,7 +666,9 @@ class ResearchHttpApi:
             eid = str(exp.get("id") or "")
             if not eid:
                 continue
-            metrics = self.app.sandboxes.results_metrics(experiment_id=eid, project_id=project_id)
+            metrics = self.app.mlflow_tracking.results_metrics(
+                experiment_id=eid, project_id=project_id
+            )
             mlflow_name = mlflow_experiment_name(project_id=project_id, experiment_id=eid)
             # Resolve MLflow's numeric experiment id from the snapshot so the UI
             # can deep-link the embedded drill-in to {dashboard}/#/experiments/<id>.
@@ -1401,6 +1428,12 @@ def create_fastapi_app(
     def delete_resource(project_id: str, resource_id: str) -> dict[str, Any]:
         return api_for_project(project_id).call_tool(name="resource.delete", arguments={"project_id": project_id, "resource_id": resource_id})
 
+    def storage_for_project(project_id: str) -> Any:
+        storage = api_for_project(project_id).app.storage
+        if storage is None:
+            raise NotFoundError("storage is not enabled on this backend")
+        return storage
+
     @http.get("/api/projects/{project_id}/storage")
     def list_storage(
         project_id: str,
@@ -1409,7 +1442,7 @@ def create_fastapi_app(
         name: str | None = None,
         include_expired: bool = False,
     ) -> dict[str, Any]:
-        return api_for_project(project_id).app.storage.list_objects(
+        return storage_for_project(project_id).list_objects(
             project_id=project_id,
             kind=kind,
             status=status,
@@ -1419,37 +1452,37 @@ def create_fastapi_app(
 
     @http.get("/api/projects/{project_id}/storage/{object_id}")
     def get_storage_object(project_id: str, object_id: str) -> dict[str, Any]:
-        return api_for_project(project_id).app.storage.get_object(
+        return storage_for_project(project_id).get_object(
             project_id=project_id, object_id=object_id
         )
 
     @http.post("/api/projects/{project_id}/storage/{object_id}/download")
     def download_storage_object(project_id: str, object_id: str) -> dict[str, Any]:
-        return api_for_project(project_id).app.storage.resolve(
+        return storage_for_project(project_id).resolve(
             project_id=project_id, object_id=object_id, include_download=True
         )
 
     @http.post("/api/projects/{project_id}/storage/{object_id}/pin")
     def pin_storage_object(project_id: str, object_id: str) -> dict[str, Any]:
-        return {"object": api_for_project(project_id).app.storage.pin(
+        return {"object": storage_for_project(project_id).pin(
             project_id=project_id, object_id=object_id
         )}
 
     @http.post("/api/projects/{project_id}/storage/{object_id}/unpin")
     def unpin_storage_object(project_id: str, object_id: str) -> dict[str, Any]:
-        return {"object": api_for_project(project_id).app.storage.unpin(
+        return {"object": storage_for_project(project_id).unpin(
             project_id=project_id, object_id=object_id
         )}
 
     @http.post("/api/projects/{project_id}/storage/{object_id}/renew")
     def renew_storage_object(project_id: str, object_id: str) -> dict[str, Any]:
-        return {"object": api_for_project(project_id).app.storage.renew(
+        return {"object": storage_for_project(project_id).renew(
             project_id=project_id, object_id=object_id
         )}
 
     @http.delete("/api/projects/{project_id}/storage/{object_id}")
     def delete_storage_object(project_id: str, object_id: str) -> dict[str, Any]:
-        return api_for_project(project_id).app.storage.delete(
+        return storage_for_project(project_id).delete(
             project_id=project_id, object_id=object_id
         )
 
@@ -1509,12 +1542,32 @@ def create_fastapi_app(
         return api.sandbox_health_view()
 
     @http.get("/api/projects/{project_id}/experiments/{experiment_id}/sandbox")
-    def get_sandbox(project_id: str, experiment_id: str) -> dict[str, Any]:
-        return api_for_project(project_id).sandbox_get_view(project_id=project_id, experiment_id=experiment_id)
+    def get_sandbox(
+        project_id: str, experiment_id: str, sandbox_uid: str | None = None
+    ) -> dict[str, Any]:
+        return api_for_project(project_id).sandbox_get_view(
+            project_id=project_id, experiment_id=experiment_id, sandbox_uid=sandbox_uid
+        )
+
+    @http.get("/api/projects/{project_id}/sandboxes/{sandbox_uid}")
+    def get_sandbox_by_uid(project_id: str, sandbox_uid: str) -> dict[str, Any]:
+        return api_for_project(project_id).sandbox_get_view(
+            project_id=project_id, sandbox_uid=sandbox_uid
+        )
 
     @http.get("/api/projects/{project_id}/experiments/{experiment_id}/sandbox/metrics")
-    def sandbox_metrics(project_id: str, experiment_id: str) -> dict[str, Any]:
-        return api_for_project(project_id).sandbox_metrics_view(project_id=project_id, experiment_id=experiment_id)
+    def sandbox_metrics(
+        project_id: str, experiment_id: str, sandbox_uid: str | None = None
+    ) -> dict[str, Any]:
+        return api_for_project(project_id).sandbox_metrics_view(
+            project_id=project_id, experiment_id=experiment_id, sandbox_uid=sandbox_uid
+        )
+
+    @http.get("/api/projects/{project_id}/sandboxes/{sandbox_uid}/metrics")
+    def sandbox_metrics_by_uid(project_id: str, sandbox_uid: str) -> dict[str, Any]:
+        return api_for_project(project_id).sandbox_metrics_view(
+            project_id=project_id, sandbox_uid=sandbox_uid
+        )
 
     @http.get("/api/projects/{project_id}/experiments/{experiment_id}/results/metrics")
     def experiment_results_metrics(project_id: str, experiment_id: str) -> dict[str, Any]:
@@ -1532,8 +1585,25 @@ def create_fastapi_app(
         experiment_id: str,
         tail: int | None = None,
         since: int | None = None,
+        sandbox_uid: str | None = None,
     ) -> dict[str, Any]:
         args: dict[str, Any] = {"project_id": project_id, "experiment_id": experiment_id}
+        if sandbox_uid:
+            args["sandbox_uid"] = sandbox_uid
+        if tail is not None:
+            args["tail"] = tail
+        if since is not None:
+            args["since"] = since
+        return api_for_project(project_id).call_tool(name="sandbox.terminal", arguments=args)
+
+    @http.get("/api/projects/{project_id}/sandboxes/{sandbox_uid}/terminal")
+    def sandbox_terminal_by_uid(
+        project_id: str,
+        sandbox_uid: str,
+        tail: int | None = None,
+        since: int | None = None,
+    ) -> dict[str, Any]:
+        args: dict[str, Any] = {"project_id": project_id, "sandbox_uid": sandbox_uid}
         if tail is not None:
             args["tail"] = tail
         if since is not None:
@@ -1545,14 +1615,35 @@ def create_fastapi_app(
         project_id: str,
         experiment_id: str,
         request: Request,
+        sandbox_uid: str | None = None,
     ) -> dict[str, Any]:
+        arguments: dict[str, Any] = {
+            "project_id": project_id,
+            "experiment_id": experiment_id,
+            "confirm_retained": True,
+        }
+        if sandbox_uid:
+            arguments["sandbox_uid"] = sandbox_uid
         return route_call_tool(
             name="sandbox.release",
             # The browser already confirms in its own UX; the retention gate is
             # for the agent's MCP call, so the UI route terminates directly.
+            arguments=arguments,
+            activity_source="http",
+            principal=getattr(request.state, "principal", LOCAL_PRINCIPAL),
+        )
+
+    @http.post("/api/projects/{project_id}/sandboxes/{sandbox_uid}/release")
+    def release_sandbox_by_uid(
+        project_id: str,
+        sandbox_uid: str,
+        request: Request,
+    ) -> dict[str, Any]:
+        return route_call_tool(
+            name="sandbox.release",
             arguments={
                 "project_id": project_id,
-                "experiment_id": experiment_id,
+                "sandbox_uid": sandbox_uid,
                 "confirm_retained": True,
             },
             activity_source="http",

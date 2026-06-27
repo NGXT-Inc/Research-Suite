@@ -53,12 +53,14 @@ class WorkflowService:
         reviews: ReviewWorkflowReader,
         sandboxes: SandboxWorkflowReader,
         syntheses: ReflectionWorkflowReader,
+        storage_enabled: bool = False,
     ) -> None:
         self.store = store
         self.experiments = experiments
         self.reviews = reviews
         self.sandboxes = sandboxes
         self.syntheses = syntheses
+        self.storage_enabled = bool(storage_enabled)
 
     def status_and_next(
         self, *, project_id: str | None = None, experiment_id: str | None = None
@@ -811,6 +813,18 @@ class WorkflowService:
         }
 
     def _result_resource_guidance(self) -> dict[str, Any]:
+        heavy_retention = (
+            "copy light files out over SSH into the local experiment folder "
+            "or upload heavy files with storage.put_object, then register "
+            "those retained files."
+            if self.storage_enabled
+            else (
+                "copy retained files out over SSH into the local experiment folder, "
+                "then register those retained files. Heavy-file storage is not "
+                "enabled on this backend, so large sandbox-only datasets/models "
+                "will not survive release."
+            )
+        )
         return {
             "target_type": "experiment",
             "association_role": "result",
@@ -830,9 +844,7 @@ class WorkflowService:
             "retention_guidance": (
                 "While a sandbox is live, treat its work folder as ephemeral "
                 "scratch. Before registering or associating result resources, "
-                "copy light files out over SSH into the local experiment folder "
-                "or upload heavy files with storage.put_object, then register "
-                "those retained files."
+                + heavy_retention
             ),
             "report_guidance": (
                 "A results report (role 'report') is also required before "

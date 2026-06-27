@@ -157,7 +157,7 @@ function StorageDetail({ o, projectId, onChanged }) {
           disabled={!!busy || o.status === 'expired'}
           onClick={() => run('download', async () => {
             const r = await api.storageDownloadLink(projectId, o.id);
-            setLink(r?.url || null);
+            setLink(r?.download?.url || null);
             onChanged();
           })}
         >

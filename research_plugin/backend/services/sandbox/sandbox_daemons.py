@@ -29,14 +29,12 @@ class SandboxDaemons:
         registry: SandboxRegistry,
         backend: SandboxBackend,
         provisioner: ProvisionReaper,
-        persist_metrics: Callable[..., None],
         sample_metrics: Callable[..., dict[str, Any]] | None = None,
         idle_policy: SandboxIdlePolicy | None = None,
     ) -> None:
         self.registry = registry
         self.backend = backend
         self.provisioner = provisioner
-        self._persist_metrics = persist_metrics
         self.heartbeat = SandboxHeartbeatMonitor(
             registry=registry,
             sample_metrics=sample_metrics or (lambda **_kwargs: {}),
@@ -129,7 +127,7 @@ class SandboxDaemons:
         """Terminate every running sandbox whose expires_at deadline has passed.
 
         Idempotent and safe to call directly (tests do). Returns how many were
-        reaped. A best-effort metrics snapshot runs first.
+        reaped.
         """
         now_dt = now or datetime.now(tz=UTC)
         reaped = 0
@@ -164,12 +162,6 @@ class SandboxDaemons:
         payload_extra: dict[str, Any] | None = None,
     ) -> None:
         experiment_id = str(row.get("experiment_id") or "")
-        self._persist_metrics(
-            row=row,
-            force=True,
-            snapshot=None,
-            snapshot_provided=False,
-        )
         sandbox_id = str(row.get("sandbox_id") or "")
         stopped = False
         if sandbox_id:

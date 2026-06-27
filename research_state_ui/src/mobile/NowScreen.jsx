@@ -20,6 +20,12 @@ import { fmtDuration } from '../utils/format';
 
 const REVIEW_STATES = new Set(['design_review', 'experiment_review']);
 const SOON_MS = 30 * 60 * 1000;
+const sandboxRowId = (s) => s.sandbox_uid || s.sandbox_id || s.experiment_id;
+const primaryExperimentId = (s) => (
+  s.experiment_id
+  || (Array.isArray(s.active_experiment_ids) ? s.active_experiment_ids[0] : '')
+  || ''
+);
 
 /**
  * The mobile landing: one needs-attention stack, then what's in flight.
@@ -162,13 +168,15 @@ export default function NowScreen() {
         ) : (
           <div className="mcard-list">
             {running.map(s => {
-              const exp = expById[s.experiment_id];
+              const experimentId = primaryExperimentId(s);
+              const exp = expById[experimentId];
               const up = s.requested_at ? now - Date.parse(s.requested_at) : null;
               const left = s.expires_at ? Date.parse(s.expires_at) - now : null;
-              return (
-                <Link key={s.experiment_id} to={px(`/experiments/${s.experiment_id}`)} className="mcard">
+              const title = exp ? expName(exp) : experimentId || s.sandbox_uid || s.sandbox_id;
+              const body = (
+                <>
                   <div className="mcard-head">
-                    <div className="mcard-title">{exp ? expName(exp) : s.experiment_id}</div>
+                    <div className="mcard-title">{title}</div>
                     <StatusPill value={s.status} />
                   </div>
                   <div className="mcard-meta">
@@ -176,6 +184,14 @@ export default function NowScreen() {
                     {up != null && <span>up {fmtDuration(up)}</span>}
                     {left != null && <span>expires in {left <= 0 ? 'soon' : fmtDuration(left)}</span>}
                   </div>
+                </>
+              );
+              if (!experimentId) {
+                return <div key={sandboxRowId(s)} className="mcard">{body}</div>;
+              }
+              return (
+                <Link key={sandboxRowId(s)} to={px(`/experiments/${experimentId}`)} className="mcard">
+                  {body}
                 </Link>
               );
             })}

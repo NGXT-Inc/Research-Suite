@@ -207,7 +207,6 @@ class S3CompatibleObjectStore:
             size_bytes=int(head.get("ContentLength") or 0),
             content_type=str(head.get("ContentType") or "application/octet-stream"),
             created_at=str(meta.get("created_at") or now_iso()),
-            expires_at=meta.get("expires_at"),
         )
 
     def delete(self, *, namespace: str, sha256: str) -> bool:
@@ -216,47 +215,6 @@ class S3CompatibleObjectStore:
         existed = self._head(key=key) is not None
         self._s3.delete_object(Bucket=self.bucket, Key=key)
         return existed
-
-    def set_expiry(
-        self, *, namespace: str, sha256: str, expires_at: str | None
-    ) -> None:
-        _validate_keys(namespace=namespace, sha256=sha256)
-        key = self._key(namespace=namespace, sha256=sha256)
-        head = self._head(key=key)
-        if head is None:
-            raise NotFoundError(f"object not found: {namespace}/{sha256}")
-        meta = dict(head.get("Metadata") or {})
-        current = meta.get("expires_at")
-        if current is None and meta.get("pinned") == "true":
-            return
-        if expires_at is None:
-            meta.pop("expires_at", None)
-            meta["pinned"] = "true"
-        elif current is None or str(expires_at) > str(current):
-            meta["expires_at"] = str(expires_at)
-            meta.pop("pinned", None)
-        else:
-            return
-        self._copy_with_metadata(key=key, head=head, metadata=meta)
-
-    def sweep_expired(self, *, now: str | None = None) -> int:
-        cutoff = now or now_iso()
-        swept = 0
-        paginator = self._s3.get_paginator("list_objects_v2")
-        for page in paginator.paginate(Bucket=self.bucket):
-            for item in page.get("Contents", []) or []:
-                key = str(item["Key"])
-                if key.startswith(_UPLOAD_PREFIX):
-                    continue
-                head = self._head(key=key)
-                if head is None:
-                    continue
-                expires_at = (head.get("Metadata") or {}).get("expires_at")
-                if not expires_at or str(expires_at) > cutoff:
-                    continue
-                self._s3.delete_object(Bucket=self.bucket, Key=key)
-                swept += 1
-        return swept
 
     def _key(self, *, namespace: str, sha256: str) -> str:
         return f"{namespace}/{sha256}"
@@ -306,18 +264,6 @@ class S3CompatibleObjectStore:
             Key=self._key(namespace=str(sidecar["namespace"]), sha256=str(sidecar["sha256"])),
             UploadId=str(sidecar["s3_upload_id"]),
             MultipartUpload={"Parts": completed},
-        )
-
-    def _copy_with_metadata(
-        self, *, key: str, head: dict[str, Any], metadata: dict[str, str]
-    ) -> None:
-        self._s3.copy_object(
-            Bucket=self.bucket,
-            Key=key,
-            CopySource={"Bucket": self.bucket, "Key": key},
-            ContentType=str(head.get("ContentType") or "application/octet-stream"),
-            Metadata=metadata,
-            MetadataDirective="REPLACE",
         )
 
     def _abort_multipart(self, *, sidecar: dict[str, Any]) -> None:

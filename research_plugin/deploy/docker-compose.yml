@@ -59,7 +59,7 @@ services:
       timeout: 5s
       retries: 10
 
-  # One-shot: create the blob bucket the control plane expects, then exit.
+  # One-shot: create the blob/storage buckets the control plane expects, then exit.
   createbucket:
     image: minio/mc:latest
     depends_on:
@@ -69,6 +69,7 @@ services:
       /bin/sh -c "
       mc alias set local http://minio:9000 rpminio rpminio_dev_password &&
       mc mb --ignore-existing local/research-plugin-blobs &&
+      mc mb --ignore-existing local/research-plugin-storage &&
       mc mb --ignore-existing local/research-plugin-mlflow-artifacts &&
       echo 'bucket ready';
       "
@@ -149,6 +150,12 @@ services:
       # Blob store: the S3-shape bucket on MinIO (cloud plan Phase 8). boto3
       # reads these standard AWS env vars; the endpoint URL points it at MinIO.
       RESEARCH_PLUGIN_BLOB_BUCKET: research-plugin-blobs
+      # Heavy-file storage: optional feature, enabled here through the same
+      # S3-compatible path used for R2/S3 production deployments.
+      RESEARCH_PLUGIN_STORAGE_PROVIDER: s3
+      RESEARCH_PLUGIN_STORAGE_BUCKET: research-plugin-storage
+      RESEARCH_PLUGIN_STORAGE_ENDPOINT_URL: http://minio:9000
+      RESEARCH_PLUGIN_STORAGE_REGION: us-east-1
       # Centralized MLflow: tracking/dashboard URLs are reported to agents.
       # Override the tracking URI to the public HTTPS host for remote sandboxes.
       RESEARCH_PLUGIN_MLFLOW_MODE: external

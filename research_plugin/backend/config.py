@@ -138,15 +138,19 @@ def resolve_blob_bucket(env: Mapping[str, str] | None = None) -> str | None:
     return (source.get(BLOB_BUCKET_ENV_VAR) or "").strip() or None
 
 
-def resolve_storage_provider(env: Mapping[str, str] | None = None) -> str:
+def storage_feature_enabled(env: Mapping[str, str] | None = None) -> bool:
+    return resolve_storage_provider(env) is not None
+
+
+def resolve_storage_provider(env: Mapping[str, str] | None = None) -> str | None:
     source = env if env is not None else os.environ
     raw = (source.get(STORAGE_PROVIDER_ENV_VAR) or "").strip().lower()
     if not raw:
-        return "local"
-    if raw not in {"local", "s3"}:
+        return None
+    if raw != "s3":
         raise ValidationError(
             f"unknown {STORAGE_PROVIDER_ENV_VAR}: {raw!r} "
-            "(expected 'local' or 's3')",
+            "(expected 's3', or unset to disable storage)",
             details={"provider": raw},
         )
     return raw
@@ -288,14 +292,15 @@ def build_object_store(
 ):
     """The heavy-object store selected by storage env config.
 
-    Unset/local keeps bytes under ``default_root/storage``. ``s3`` covers AWS
-    S3, MinIO, and R2; R2 is just S3 with an endpoint URL.
+    Unset disables storage entirely. ``s3`` covers AWS S3, MinIO, and R2; R2 is
+    just S3 with an endpoint URL. There is intentionally no in-process local
+    provider: local/offline users should run an S3-compatible service such as
+    MinIO and point this config at it.
     """
     provider = resolve_storage_provider(env)
-    if provider == "local":
-        from .storage.local_object_store import LocalObjectStore
-
-        return LocalObjectStore(root=default_root / "storage")
+    _ = default_root
+    if provider is None:
+        return None
     bucket = resolve_storage_bucket(env)
     if not bucket:
         raise ValidationError(

@@ -21,11 +21,9 @@ function finalOf(vals) {
 }
 
 /**
- * MobileMetricsPanel — the durable archived metrics (final value + curve) for
- * the experiment, over GET …/results/metrics. Adds sparkline curves on top of
- * the desktop panel's final-value grid, since mobile has no MLflow/TensorBoard
- * iframe to watch them in. Never polls — the data is durable.
- * docs/MOBILE_UX_REVIEW.md §3.6 / §4.3.
+ * MobileMetricsPanel — centralized MLflow metrics for the experiment, over
+ * GET …/results/metrics. Adds sparkline curves on top of the desktop panel's
+ * final-value grid. Never polls.
  */
 export default function MobileMetricsPanel({ projectId, experimentId, refreshKey }) {
   const [data, setData] = useState(null);
@@ -40,7 +38,7 @@ export default function MobileMetricsPanel({ projectId, experimentId, refreshKey
 
   if (!data) return null;
   if (data.available === false) {
-    if (data.hint && data.sandbox_status && data.sandbox_status !== 'none') {
+    if (data.hint) {
       return <div className="results-metrics-sub">{data.hint}</div>;
     }
     return null;

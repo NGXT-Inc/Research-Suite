@@ -292,7 +292,6 @@ class ServiceLayoutTest(unittest.TestCase):
 
     def test_ports_are_neutral_and_outside_services(self) -> None:
         expected_imports = {
-            "metrics_archive.py": {"pathlib", "typing"},
             "mgmt_keys.py": {"pathlib", "typing"},
             "quota_admission.py": {"domain.quota_contract", "typing"},
             "review_policy.py": {"typing"},
@@ -986,7 +985,6 @@ class ServiceLayoutTest(unittest.TestCase):
             '"/api/daemon/feed/post"',
             '"/api/daemon/sandboxes/request"',
             '"/api/daemon/sandboxes/attach"',
-            '"/api/daemon/sandboxes/metrics"',
         ):
             with self.subTest(route=route):
                 self.assertIn(route, daemon_source)

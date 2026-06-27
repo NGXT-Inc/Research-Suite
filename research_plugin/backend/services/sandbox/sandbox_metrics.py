@@ -1,213 +1,36 @@
-"""Sandbox metrics coordination kept out of the sandbox facade."""
+"""Live sandbox usage sampling kept out of the sandbox facade."""
 
 from __future__ import annotations
 
-import contextlib
 import threading
 import time
 from typing import Any
 
-from ...ports.metrics_archive import MetricsArchive
 from ...ports.mgmt_keys import MgmtKeyStore
-from ...ports.sandbox_worker import SandboxWorker
 from ...sandbox.sandbox_backend import SandboxBackend
 from ...sandbox.sandbox_support import (
     ACTIVE_SANDBOX_STATUSES,
     METRICS_CACHE_TTL_SECONDS,
-    METRICS_PERSIST_TTL_SECONDS,
 )
-from ...state.store import BaseStateStore
 from ...utils import NotFoundError, now_iso
-from ...mlflow_metrics import snapshot_mlflow
-from ..mlflow_tracking import CentralMlflowService
-from ..metrics_records import MetricsSnapshotStore
 from .sandbox_registry import SandboxRegistry
 
 
 class SandboxMetrics:
-    """Durable and live metrics behavior for sandbox rows."""
+    """Best-effort live usage metrics for running sandbox rows."""
 
     def __init__(
         self,
         *,
         registry: SandboxRegistry,
         backend: SandboxBackend,
-        worker: SandboxWorker,
         mgmt_keys: MgmtKeyStore,
-        metrics_archive: MetricsArchive,
-        store: BaseStateStore,
-        mlflow_tracking: CentralMlflowService | None = None,
     ) -> None:
         self.registry = registry
         self.backend = backend
-        self.worker = worker
         self.mgmt_keys = mgmt_keys
-        self.metrics_archive = metrics_archive
-        self.mlflow_tracking = mlflow_tracking or CentralMlflowService()
-        self.metrics_records = MetricsSnapshotStore(store=store)
         self._cache: dict[str, tuple[float, dict[str, Any] | None]] = {}
         self._lock = threading.Lock()
-        self._persisted_at: dict[str, float] = {}
-
-    def record_daemon_metrics(
-        self,
-        *,
-        experiment_id: str,
-        project_id: str,
-        snapshot: dict[str, Any] | None,
-    ) -> dict[str, Any]:
-        row = self.registry.fetch_scoped(
-            experiment_id=experiment_id,
-            project_id=project_id,
-        )
-        self.persist_row(
-            row=row,
-            force=True,
-            snapshot=snapshot if isinstance(snapshot, dict) else None,
-            snapshot_provided=True,
-        )
-        return {"experiment_id": experiment_id, "recorded": isinstance(snapshot, dict)}
-
-    def results_metrics(
-        self, *, experiment_id: str, project_id: str | None = None
-    ) -> dict[str, Any]:
-        """Archived MLflow metrics for an experiment."""
-        status = "none"
-        row: dict[str, Any] | None = None
-        try:
-            row = self.registry.fetch_scoped(
-                experiment_id=experiment_id, project_id=project_id
-            )
-            status = str(row.get("status") or "none")
-        except NotFoundError:
-            if self.registry.exists(experiment_id=experiment_id):
-                raise
-        data = self.metrics_records.load(experiment_id=experiment_id)
-        from_record = data is not None
-        if data is None:
-            data = self.metrics_archive.load(experiment_id=experiment_id)
-        if data is None:
-            snapshot = None
-            if row is not None:
-                snapshot = self._capture_central_mlflow(row=row)
-            if snapshot is None:
-                snapshot = self.worker.capture_metrics_fallback(
-                    experiment_id=experiment_id,
-                    name=self.registry.experiment_name(experiment_id=experiment_id),
-                )
-            if snapshot is not None:
-                snapshot = self._portable_snapshot(snapshot=snapshot)
-                snapshot = {"captured_at": now_iso(), **snapshot}
-                with contextlib.suppress(OSError):
-                    self.metrics_archive.persist(
-                        experiment_id=experiment_id, snapshot=snapshot
-                    )
-                data = snapshot
-        if data is not None and not from_record and row is not None:
-            with contextlib.suppress(Exception):
-                self.metrics_records.record(
-                    experiment_id=experiment_id,
-                    project_id=str(row.get("project_id") or ""),
-                    snapshot=data,
-                )
-        if data is None:
-            return {
-                "experiment_id": experiment_id,
-                "available": False,
-                "sandbox_status": status,
-                "hint": (
-                    "No archived metrics yet - they are captured from the "
-                    "centralized MLflow server while running and right before release."
-                ),
-            }
-        return {
-            "experiment_id": experiment_id,
-            "available": True,
-            "sandbox_status": status,
-            **data,
-        }
-
-    def persist_row(
-        self,
-        *,
-        row: dict[str, Any],
-        force: bool = False,
-        snapshot: dict[str, Any] | None = None,
-        snapshot_provided: bool = False,
-    ) -> None:
-        """Best-effort: archive the central MLflow metrics snapshot."""
-        try:
-            experiment_id = str(row.get("experiment_id") or "")
-            if not experiment_id:
-                return
-            now = time.monotonic()
-            last = self._persisted_at.get(experiment_id)
-            if (
-                not force
-                and last is not None
-                and now - last < METRICS_PERSIST_TTL_SECONDS
-            ):
-                return
-            central_snapshot = self._capture_central_mlflow(row=row)
-            if isinstance(central_snapshot, dict):
-                snapshot = central_snapshot
-            elif not isinstance(snapshot, dict) and not snapshot_provided:
-                snapshot = self.worker.capture_metrics_snapshot(
-                    row=row,
-                    name=self.registry.experiment_name(experiment_id=experiment_id),
-                )
-            if not isinstance(snapshot, dict):
-                return
-            snapshot = self._portable_snapshot(snapshot=snapshot)
-            self._persisted_at[experiment_id] = now
-            path = self.metrics_archive.persist(
-                experiment_id=experiment_id, snapshot=snapshot
-            )
-            self.metrics_records.record(
-                experiment_id=experiment_id,
-                project_id=str(row.get("project_id") or ""),
-                snapshot=snapshot,
-            )
-            if force:
-                self.registry.emit_event(
-                    project_id=str(row.get("project_id") or ""),
-                    event_type="sandbox.metrics_persisted",
-                    experiment_id=experiment_id,
-                    payload={
-                        "sandbox_id": row.get("sandbox_id", ""),
-                        "path": path.name,
-                        "runs": sum(
-                            len(e.get("runs") or [])
-                            for e in snapshot.get("experiments") or []
-                        ),
-                    },
-                )
-        except Exception:  # noqa: BLE001 - archiving must never block callers
-            return
-
-    def _capture_central_mlflow(self, *, row: dict[str, Any]) -> dict[str, Any] | None:
-        experiment_id = str(row.get("experiment_id") or "")
-        project_id = str(row.get("project_id") or "")
-        if not experiment_id or not project_id:
-            return None
-        context = self.mlflow_tracking.context(
-            project_id=project_id,
-            experiment_id=experiment_id,
-            sandbox_id=str(row.get("sandbox_id") or ""),
-            execution_backend=self.backend.capabilities.name,
-        )
-        if not context.configured:
-            return None
-        return snapshot_mlflow(
-            self.mlflow_tracking.server_uri or context.tracking_uri,
-            experiment_name=context.experiment_name,
-        )
-
-    @staticmethod
-    def _portable_snapshot(*, snapshot: dict[str, Any]) -> dict[str, Any]:
-        portable = dict(snapshot)
-        portable.pop("base_url", None)
-        return portable
 
     def sample_metrics(
         self,
@@ -226,14 +49,16 @@ class SandboxMetrics:
         except NotFoundError:
             return {
                 "experiment_id": experiment_id,
+                "sandbox_uid": sandbox_uid or "",
                 "status": "none",
                 "available": False,
                 "metrics": None,
             }
+        resolved_experiment_id = experiment_id or str(row.get("experiment_id") or "")
         status = row.get("status")
         sandbox_id = str(row.get("sandbox_id") or "")
         base: dict[str, Any] = {
-            "experiment_id": experiment_id,
+            "experiment_id": resolved_experiment_id,
             "sandbox_uid": row.get("sandbox_uid", ""),
             "sandbox_id": sandbox_id,
             "status": status,
@@ -248,7 +73,7 @@ class SandboxMetrics:
         if status not in ACTIVE_SANDBOX_STATUSES or not sandbox_id:
             return {**base, "available": False, "metrics": None}
         metrics = self._sample_cached(
-            experiment_id=experiment_id, sandbox_id=sandbox_id, row=row
+            experiment_id=resolved_experiment_id, sandbox_id=sandbox_id, row=row
         )
         return {
             **base,
