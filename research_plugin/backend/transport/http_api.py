@@ -264,7 +264,7 @@ class ResearchHttpApi:
             "workflow": workflow,
             "active_experiment": active_experiment,
             # Central, cross-experiment MLflow endpoint so the UI can offer a
-            # project-level entry point, not just per-sandbox dashboards.
+            # project-level entry point.
             "mlflow": self.app.mlflow_tracking.health(),
         })
 

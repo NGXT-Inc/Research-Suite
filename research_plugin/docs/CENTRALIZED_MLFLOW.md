@@ -11,7 +11,6 @@ tracking service for the backend deployment; sandboxes are MLflow clients only.
 - Run one MLflow server per backend deployment, not one per project.
 - Namespace runs as `rp/<project_id>/<experiment_id>`.
 - Keep stable IDs in MLflow names; human names belong in tags.
-- Keep TensorBoard separate and sandbox-local for now.
 - Keep old pulled `mlflow.db` support only as a legacy metrics fallback.
 - Add auth later at the same endpoint/env-injection boundary.
 
@@ -44,15 +43,9 @@ Local processes use the local URL directly:
 MLFLOW_TRACKING_URI=http://127.0.0.1:<port>
 ```
 
-Remote sandboxes controlled by the local backend use a daemon-owned reverse SSH
-tunnel for that same loopback URI:
-
-```bash
-ssh -N -R 127.0.0.1:<port>:127.0.0.1:<port> <sandbox>
-```
-
-The daemon owns the tunnel lifecycle: create on sandbox access, reuse while
-alive, stop on release/teardown/shutdown.
+Remote sandboxes are MLflow clients. They publish to the configured tracking
+URI directly; sandbox access does not create MLflow tunnels or sandbox-local
+MLflow servers.
 
 ## Configuration
 
@@ -71,8 +64,8 @@ RESEARCH_PLUGIN_MLFLOW_DASHBOARD_URL=https://backend.example.com/mlflow
 
 ## Agent Contract
 
-`sandbox.request` and `sandbox.get` return an `mlflow` block and the sandbox
-environment exports the same values:
+`experiment.mlflow` and `experiment.transition(start_running)` return the
+central MLflow block:
 
 ```json
 {
@@ -89,8 +82,8 @@ environment exports the same values:
 }
 ```
 
-Agents should use those env vars for quantitative experiments. They should not
-start MLflow servers in sandboxes.
+Agents should use those env vars for quantitative experiments, whether running
+locally or inside a sandbox. They should not start MLflow servers in sandboxes.
 
 ## Metrics
 
@@ -105,7 +98,7 @@ Snapshots strip internal server URLs before UI/API exposure.
 MLflow is best-effort for now:
 
 - If configured and reachable, inject it and snapshot centrally.
-- If unreachable, report readiness in `sandbox.get` and health output.
+- If unreachable, report readiness in experiment MLflow helpers and health output.
 - Training is not blocked solely because MLflow is down.
 
 Future user auth should scope the same environment injection point.

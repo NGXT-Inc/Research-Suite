@@ -284,15 +284,16 @@ There is no job abstraction. Codex requests a sandbox, gets back SSH connection
 details (including a short, ready-to-run `ssh.command`), and
 runs shell commands on the sandbox itself. Lightweight work still runs locally.
 
-`sandbox.request` is the only procurement call. The registry keeps **one sandbox
-per experiment** and reuses the live one if it is still alive, otherwise creates
-a fresh one. The response carries `ssh` (host, port, user, key_path, command,
+`sandbox.request` is the procurement call. Sandboxes are project-scoped machines:
+experiment attachment is optional, one sandbox can be attached to multiple
+active experiments, and one experiment can have multiple live sandboxes. The
+response carries `ssh` (host, port, user, key_path, command,
 raw_command), `workdir`, `experiment_dir`, `local_experiment_dir`, `data_dir`,
 `files_pushed` (how many files the initial folder push delivered; null while
 unknown), `status`, `expires_at`, `reused`, and — when set — the reserved
 hardware (`gpu`, `cpu`, `memory`, `instance_type`, `region`).
 `ssh.command` is the short dispatcher form
-`.research_plugin/sbx <experiment_id>` (run from the repo root); `ssh.raw_command`
+`.research_plugin/sbx <sandbox_uid>` (run from the repo root); `ssh.raw_command`
 is the full `ssh -i … user@host` line for use from any directory.
 
 #### Hardware selection (provider-shaped)

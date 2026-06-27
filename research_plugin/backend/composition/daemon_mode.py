@@ -3,7 +3,7 @@
 A user-machine process that holds the SSH keys, conn files, and repo↔project
 links. It runs:
 
-- a ``LocalDataPlaneWorker`` (conn files, dashboards),
+- a ``LocalDataPlaneWorker`` (keys, conn files, local paths),
 - an ``HttpControlPlaneClient`` upstream to the cloud,
 - a ``DaemonTaskLoop`` long-polling the cloud for data-plane tasks
   (conn_refresh | teardown),
@@ -19,7 +19,6 @@ already lazily imported; the daemon profile drops it entirely).
 from __future__ import annotations
 
 import base64
-import json
 import os
 import uuid
 from collections.abc import Mapping
@@ -35,7 +34,6 @@ from ..dataplane.project_links import ProjectLinks
 from ..dataplane.remote_view import HttpControlPlaneView
 from ..dataplane.resource_artifacts import LocalResourceArtifactReader
 from ..dataplane.resource_observer import LocalResourceObserver
-from ..execution import build_sandbox_backend
 from ..secret_tokens import mint_secret
 from ..services.sandbox import sandbox_views
 from ..utils import ValidationError
@@ -310,7 +308,6 @@ class DaemonServer:
             "workdir": facts.get("workdir", ""),
             "sync_dir": facts.get("experiment_dir", ""),
             "sandbox_data_dir": facts.get("data_dir", ""),
-            "dashboards_json": json.dumps(facts.get("dashboards") or {}, sort_keys=True),
         }
 
     def _register_resource_files(
@@ -468,9 +465,6 @@ def build_daemon_executor(*, worker: LocalDataPlaneWorker):
                 ),
             )
         if task_type == "teardown":
-            sandbox_id = payload.get("sandbox_id")
-            if sandbox_id is not None:
-                worker.stop_dashboards(sandbox_id=str(sandbox_id))
             worker.remove_conn_file(
                 experiment_id=str(payload["experiment_id"]),
                 sandbox_uid=str(payload.get("sandbox_uid") or ""),
@@ -505,11 +499,7 @@ def build_daemon_server(
         )
     root = workspace_root or (Path.home() / ".research_plugin")
     workspace = LocalWorkspace(repo_root=root)
-    # The provider SDK is needed only for dashboards; build the backend lazily
-    # via the standard factory (modal stays a lazy import). A daemon that never
-    # opens a dashboard never pays the import.
-    backend = build_sandbox_backend(repo_root=root, activity=lambda *_a, **_k: None)
-    worker = LocalDataPlaneWorker(workspace=workspace, backend=backend)
+    worker = LocalDataPlaneWorker(workspace=workspace)
     resolved_client_id = client_id or worker.client_id()
     control = HttpControlPlaneClient(base_url=control_url)
     view = HttpControlPlaneView(

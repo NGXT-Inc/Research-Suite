@@ -19,10 +19,7 @@ from backend.execution.bootstrap_tools import (
     LAMBDA_APT_PACKAGES,
     ML_PYTHON_PACKAGES,
 )
-from backend.execution.vm_bootstrap import (
-    DASHBOARD_PORTS,
-    build_bootstrap_core,
-)
+from backend.execution.vm_bootstrap import build_bootstrap_core
 from ....sandbox.sandbox_backend import (
     BackendUnavailableError,
     BackendCapabilities,
@@ -163,7 +160,6 @@ class LambdaLabsSandboxBackend(VmSshSandboxBackend):
                 unsynced_dir=self.config.sandbox_data_dir,
                 sandbox_data_dir=self.config.sandbox_data_dir,
                 reused=False,
-                dashboards={},
                 gpu=str(specs.get("gpu") or request.gpu or ""),
                 cpu=float(specs["vcpus"]) if specs.get("vcpus") else None,
                 memory=int(specs["memory_gib"]) * 1024 if specs.get("memory_gib") else None,
@@ -203,15 +199,6 @@ class LambdaLabsSandboxBackend(VmSshSandboxBackend):
             return False
         self._delete_ssh_keys_by_name(key_names)
         return True
-
-    def local_dashboard_ports(self) -> dict[str, int]:
-        """Dashboard ports reachable only from inside the VM.
-
-        The registry turns these into daemon-owned SSH local forwards and stores
-        loopback URLs in the sandbox row. Modal does not use this path because it
-        exposes native HTTPS dashboard tunnels.
-        """
-        return dict(DASHBOARD_PORTS)
 
     def sandbox_environment(self) -> dict:
         available_tokens: list[str] = []
@@ -416,16 +403,13 @@ def build_user_data(
 ) -> str:
     apt_packages = " ".join(shlex.quote(pkg) for pkg in LAMBDA_APT_PACKAGES)
     python_packages = " ".join(shlex.quote(pkg) for pkg in ML_PYTHON_PACKAGES)
-    # Dashboard deps install one-at-a-time, only when missing, and with
+    # Install the MLflow client one-at-a-time, only when missing, and with
     # --ignore-installed. The image ships Debian-owned Python packages without
-    # RECORD files (Werkzeug 3.0.1 was the observed one); pip cannot uninstall
-    # those, so any dependency upgrade that touches one aborts the whole
-    # install — that is how mlflow silently went missing while the hint still
-    # advertised it. --ignore-installed installs fresh copies into /usr/local
-    # (which shadows the Debian dist-packages on sys.path) and never calls
-    # uninstall at all. uv is skipped here: `uv pip install --system` refuses
-    # PEP 668 externally-managed interpreters outright. tensorboard stays
-    # unpinned (the preinstalled one is fine); mlflow keeps its pin.
+    # RECORD files; pip cannot uninstall those, so dependency upgrades that touch
+    # one can abort the whole install. --ignore-installed installs fresh copies
+    # into /usr/local (which shadows Debian dist-packages on sys.path) and never
+    # calls uninstall. uv is skipped here: `uv pip install --system` refuses
+    # PEP 668 externally-managed interpreters outright.
     mlflow_package = shlex.quote("mlflow==2.18.0")
     bootstrap_core = build_bootstrap_core(
         public_key=public_key,
@@ -463,17 +447,8 @@ install_with_uv_or_pip() {{
   fi
 }}
 python3 -c 'import mlflow' >/dev/null 2>&1 || python3 -m pip install --break-system-packages --ignore-installed {mlflow_package} || echo "[rp] mlflow install failed" >> /opt/rp/bootstrap.log
-python3 -c 'import tensorboard' >/dev/null 2>&1 || python3 -m pip install --break-system-packages --ignore-installed tensorboard || echo "[rp] tensorboard install failed" >> /opt/rp/bootstrap.log
 install_with_uv_or_pip torch torchvision torchaudio || true
 install_with_uv_or_pip {python_packages} || true
-# Dashboards write pids/logs into the sessions dir, which the daemon pulls
-# over ubuntu-user rsync; start them as the SSH login user, never root —
-# root-owned files there would break that pull (exit 23, permission denied).
-if id ubuntu >/dev/null 2>&1; then
-  sudo -u ubuntu /opt/rp/start_dashboards.sh || true
-else
-  /opt/rp/start_dashboards.sh || true
-fi
 """
 
 

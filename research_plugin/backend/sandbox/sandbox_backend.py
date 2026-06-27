@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 from typing import Any, Callable, Mapping, Protocol
 
 
@@ -76,7 +76,6 @@ class ProvisionedSandbox:
     unsynced_dir: str = ""
     sandbox_data_dir: str = ""
     reused: bool = False
-    dashboards: Mapping[str, str] = field(default_factory=dict)
     gpu: str = ""
     cpu: float | None = None
     memory: int | None = None
@@ -151,14 +150,6 @@ class SandboxBackend(Protocol):
         """Optionally return requestable hardware. Unsupported backends return None."""
         ...
 
-    def dashboard_urls(self, *, sandbox_id: str) -> dict[str, str] | None:
-        """Optionally refresh provider-native dashboard URLs. Unsupported backends return None."""
-        ...
-
-    def local_dashboard_ports(self) -> dict[str, int]:
-        """Optionally expose dashboards through local SSH forwards. Unsupported backends return {}."""
-        ...
-
     def find_sandbox_id(self, *, experiment_id: str, sandbox_uid: str = "") -> str | None:
         """Optionally find an orphan sandbox by experiment. Unsupported backends return None."""
         ...
@@ -208,14 +199,6 @@ class SandboxBackendBase:
     ) -> dict[str, Any] | None:
         """Unsupported default: no hardware catalog is available."""
         return None
-
-    def dashboard_urls(self, *, sandbox_id: str) -> dict[str, str] | None:
-        """Unsupported default: no provider-native dashboard URLs are available."""
-        return None
-
-    def local_dashboard_ports(self) -> dict[str, int]:
-        """Unsupported default: no dashboards need local SSH forwarding."""
-        return {}
 
     def find_sandbox_id(self, *, experiment_id: str, sandbox_uid: str = "") -> str | None:
         """Unsupported default: no orphan lookup is available."""

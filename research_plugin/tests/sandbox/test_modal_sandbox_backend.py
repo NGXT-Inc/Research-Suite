@@ -50,13 +50,6 @@ class FakeTunnel:
         self.tcp_socket = (host, port)
 
 
-class FakeEncryptedTunnel:
-    """Mimics the dashboard (HTTPS) tunnel shape — exposes .url."""
-
-    def __init__(self, url: str) -> None:
-        self.url = url
-
-
 class FakeSandbox:
     registry: dict[str, "FakeSandbox"] = {}
     tunnels_fail = False
@@ -75,12 +68,6 @@ class FakeSandbox:
             raise RuntimeError("tunnel not ready")
         return {
             22: FakeTunnel("sandbox.modal.test", 50022),
-            5000: FakeEncryptedTunnel(
-                f"https://mlflow-{self.object_id}.modal.test"
-            ),
-            6006: FakeEncryptedTunnel(
-                f"https://tensorboard-{self.object_id}.modal.test"
-            ),
         }
 
     def set_tags(self, tags) -> None:
@@ -235,9 +222,7 @@ class ModalSandboxBackendTest(unittest.TestCase):
         self.assertEqual(create["args"], ("bash", "/opt/rp/boot.sh"))
         kwargs = create["kwargs"]
         self.assertEqual(kwargs["unencrypted_ports"], [22])
-        # TensorBoard on 6006 is requested as an encrypted port so Modal exposes
-        # it as an HTTPS tunnel.
-        self.assertEqual(kwargs["encrypted_ports"], [6006])
+        self.assertNotIn("encrypted_ports", kwargs)
         self.assertEqual(kwargs["timeout"], 1234)
         self.assertEqual(kwargs["gpu"], "A100")
         self.assertNotIn("volumes", kwargs)
@@ -249,7 +234,7 @@ class ModalSandboxBackendTest(unittest.TestCase):
         self.assertEqual(kwargs["workdir"], "/workspace/exp1")
         self.assertEqual(kwargs["env"]["RP_EXPERIMENT_DIR"], kwargs["workdir"])
         self.assertEqual(
-            kwargs["env"]["RP_DASH_DIR"], "/workspace/.research_plugin_sessions/exp1"
+            kwargs["env"]["RP_SESSION_DIR"], "/workspace/.research_plugin_sessions/exp1"
         )
         self.assertEqual(kwargs["env"]["RP_SANDBOX_DATA_DIR"], self.backend.config.sandbox_data_dir)
         self.assertEqual(kwargs["env"]["RP_EXPERIMENT_ID"], "exp1")
@@ -261,41 +246,18 @@ class ModalSandboxBackendTest(unittest.TestCase):
         self.assertEqual(sandbox.tags["experiment_id"], "exp1")
         self.assertEqual(sandbox.tags["research_plugin_role"], "sandbox")
 
-    def test_acquire_captures_dashboard_urls(self) -> None:
-        provisioned = self.backend.acquire(request=self._request())
-        # ProvisionedSandbox.dashboards mirrors the encrypted-tunnel .url fields.
-        self.assertEqual(set(provisioned.dashboards.keys()), {"tensorboard"})
-        self.assertTrue(
-            provisioned.dashboards["tensorboard"].startswith("https://tensorboard-")
-        )
-
-    def test_dashboard_urls_refresh_returns_fresh_map(self) -> None:
-        provisioned = self.backend.acquire(request=self._request())
-        # The registry calls this after detecting tunnel relocation; mirrors
-        # refresh_ssh_endpoint's shape but for HTTPS dashboard tunnels.
-        urls = self.backend.dashboard_urls(sandbox_id=provisioned.sandbox_id)
-        self.assertEqual(urls, dict(provisioned.dashboards))
-
-    def test_dashboard_urls_empty_when_sandbox_id_missing(self) -> None:
-        # Defensive: empty dict, never raises — same contract as
-        # refresh_ssh_endpoint returning None when there's nothing to refresh.
-        self.assertEqual(self.backend.dashboard_urls(sandbox_id=""), {})
-
-    def test_boot_script_starts_tensorboard_without_sandbox_mlflow(self) -> None:
+    def test_boot_script_has_no_sandbox_mlflow_or_tensorboard_server(self) -> None:
         # The image layering writes the boot script as a heredoc into the
         # image; the embedded module-level BOOT_SCRIPT is the source of truth.
         from backend.execution.backends.modal.sandbox_backend import BOOT_SCRIPT, REC_SCRIPT
 
-        # MLflow is not served or configured inside the sandbox by provisioning.
         self.assertNotIn("mlflow server", BOOT_SCRIPT)
         self.assertNotIn("backend-store-uri", BOOT_SCRIPT)
         self.assertNotIn("MLFLOW_TRACKING_URI", BOOT_SCRIPT)
         self.assertNotIn("export MLFLOW_TRACKING_URI", REC_SCRIPT)
-        # TensorBoard, same Volume-backed logdir pattern.
-        self.assertIn("tensorboard.main", BOOT_SCRIPT)
-        self.assertIn("--port 6006", BOOT_SCRIPT)
-        # It must be backgrounded so sshd still becomes the foreground PID 1.
-        self.assertIn("&\n", BOOT_SCRIPT)
+        self.assertNotIn("tensorboard", BOOT_SCRIPT.lower())
+        self.assertNotIn("RP_TB_LOGDIR", BOOT_SCRIPT)
+        self.assertIn("RP_SESSION_DIR", BOOT_SCRIPT)
 
     def test_modal_images_install_agent_shell_baseline(self) -> None:
         base = self.backend._base_image_default()

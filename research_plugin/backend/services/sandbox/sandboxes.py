@@ -34,7 +34,6 @@ from ...sandbox.sandbox_support import (
     ACTIVE_SANDBOX_STATUSES,
     DEFAULT_REQUEST_WAIT_SECONDS,
     DEFAULT_STALE_PROVISION_SECONDS,
-    encode_dashboards,
     parse_terminal_markers,
     validate_request_inputs,
 )
@@ -99,9 +98,6 @@ class SandboxService:
         # Backward-compatible public handles used by tests and thin UI helpers.
         self.metrics_archive = self.metrics.metrics_archive
         self.metrics_records = self.metrics.metrics_records
-        # Data-plane work that deserves a record (tunnel came up) reports
-        # through the registry's event stream.
-        self.worker.set_event_sink(self.registry.emit_event)
         # The task channel is only for cross-plane conn refresh and teardown.
         self.tasks = task_channel
         # Marking a row failed/terminated also tears down its runtime
@@ -110,7 +106,6 @@ class SandboxService:
         self.provisioner = SandboxProvisioner(
             registry=self.registry,
             backend=sandbox_backend,
-            worker=self.worker,
             refresh_row=self._refresh_row,
             stale_provision_seconds=env_float(
                 "RESEARCH_PLUGIN_SANDBOX_STALE",
@@ -219,8 +214,6 @@ class SandboxService:
                     sandbox_uid=str(existing.get("sandbox_uid") or "")
                 )
             )
-            if include_data_plane_enrichment:
-                row = self.worker.ensure_local_dashboards(row=row)
             self.registry.emit_event(
                 project_id=project_id,
                 event_type="sandbox.reused",
@@ -306,8 +299,6 @@ class SandboxService:
         )
         job.done.wait(timeout=self.request_wait_seconds)
         row = self.registry.get_by_uid(sandbox_uid=sandbox_uid)
-        if include_data_plane_enrichment:
-            row = self.worker.ensure_local_dashboards(row=row)
         reused = False if row.get("status") == "running" else None
         # Post-boot secret delivery (plan Phase 9, risk 16): once the VM is up,
         # push provider credentials over the management channel rather than
@@ -386,8 +377,6 @@ class SandboxService:
                 "hint": "No sandbox for this experiment — call sandbox.request to create one.",
             }
         row = self.provisioner.reconcile(row=row)
-        if include_data_plane_enrichment:
-            row = self.worker.ensure_local_dashboards(row=row)
         return self._agent_result(
             row=row,
             reused=None,
@@ -438,8 +427,6 @@ class SandboxService:
             experiment_id=experiment_id,
             project_id=project_id,
         )
-        if include_data_plane_enrichment:
-            row = self.worker.ensure_local_dashboards(row=row)
         active_experiment_ids = self.registry.active_experiment_ids(
             sandbox_uid=sandbox_uid
         )
@@ -811,14 +798,11 @@ class SandboxService:
             )
         except NotFoundError:
             return None
-        return self.worker.ensure_local_dashboards(row=self.provisioner.reconcile(row=row))
+        return self.provisioner.reconcile(row=row)
 
     def rows(self, *, project_id: str | None = None) -> list[dict[str, Any]]:
         """All sandbox rows for a project (most-recent first)."""
-        return [
-            self.worker.ensure_local_dashboards(row=row)
-            for row in self.registry.list_rows(project_id=project_id)
-        ]
+        return self.registry.list_rows(project_id=project_id)
 
     def row_view(self, *, row: dict[str, Any]) -> dict[str, Any]:
         """Public projection of a sandbox row (machine-local fields enriched
@@ -867,10 +851,9 @@ class SandboxService:
     # ---------- lifecycle plumbing ----------
 
     def shutdown(self) -> None:
-        """Stop the daemons, in-flight provisioning jobs, and dashboard tunnels."""
+        """Stop the daemons and in-flight provisioning jobs."""
         self.daemons.stop()
         self.provisioner.shutdown()
-        self.worker.stop_dashboards()
 
     def reap_expired(self, **kwargs: Any) -> int:
         """Terminate running sandboxes past expires_at (see SandboxDaemons)."""
@@ -925,42 +908,8 @@ class SandboxService:
             pass
 
     def _refresh_row(self, *, row: dict[str, Any]) -> dict[str, Any]:
-        """Endpoint + provider-dashboard refresh for a confirmed-live row."""
-        return self._maybe_refresh_dashboards(row=self._maybe_refresh_endpoint(row=row))
-
-    def _maybe_refresh_dashboards(self, *, row: dict[str, Any]) -> dict[str, Any]:
-        """Re-read provider-native dashboard URLs and persist if changed.
-
-        Companion to the endpoint refresh: when a sandbox's tunnels move on
-        the Modal side, the SSH host/port AND the dashboard HTTPS URLs all
-        change together. These are provider-portable row facts — unlike the
-        worker's loopback tunnels — so they live on the row. Best-effort: a
-        backend without ``dashboard_urls`` or an error reading them leaves the
-        stored value untouched.
-        """
-        sandbox_id = str(row.get("sandbox_id") or "")
-        if not sandbox_id or row.get("status") not in ACTIVE_SANDBOX_STATUSES:
-            return row
-        try:
-            fresh = self.backend.dashboard_urls(sandbox_id=sandbox_id)
-        except Exception:  # noqa: BLE001 — refresh must never break the caller
-            return row
-        if fresh is None or not isinstance(fresh, dict):
-            return row
-        normalized = {str(k): str(v) for k, v in fresh.items() if isinstance(v, str) and v}
-        encoded = encode_dashboards(normalized)
-        if encoded == (row.get("dashboards_json") or "{}"):
-            return row
-        experiment_id = str(row.get("experiment_id") or "")
-        sandbox_uid = str(row.get("sandbox_uid") or "")
-        if not sandbox_uid:
-            return row
-        self.registry.upsert(
-            experiment_id=experiment_id,
-            sandbox_uid=sandbox_uid,
-            dashboards_json=encoded,
-        )
-        return self.registry.get_by_uid(sandbox_uid=sandbox_uid)
+        """Endpoint refresh for a confirmed-live row."""
+        return self._maybe_refresh_endpoint(row=row)
 
     def _maybe_refresh_endpoint(self, *, row: dict[str, Any]) -> dict[str, Any]:
         """Re-read a live sandbox's SSH tunnel and persist it if it moved.
@@ -1125,7 +1074,6 @@ class SandboxService:
     ) -> dict[str, Any]:
         row = self._with_active_experiment_ids(row=row)
         sandbox_uid = str(row.get("sandbox_uid") or "")
-        row = self.worker.merge_local_dashboards(row=row)
         local_key = sandbox_uid
         local_name = f"sandbox-{sandbox_uid[:12]}"
         return sandbox_views.sandbox_row_view(

@@ -116,14 +116,10 @@ class DaemonResourceForwardingTest(unittest.TestCase):
         self.assertIn("sandbox.request", names)
         self.assertIn("feed.post", names)
 
-    def test_daemon_teardown_stops_dashboard_tunnel(self) -> None:
+    def test_daemon_teardown_removes_conn_file(self) -> None:
         class _Worker:
             def __init__(self) -> None:
-                self.dashboard_stops: list[str] = []
                 self.removed_conn: list[str] = []
-
-            def stop_dashboards(self, *, sandbox_id: str = "") -> None:
-                self.dashboard_stops.append(sandbox_id)
 
             def remove_conn_file(self, *, experiment_id: str, **_kwargs) -> None:
                 self.removed_conn.append(experiment_id)
@@ -137,7 +133,6 @@ class DaemonResourceForwardingTest(unittest.TestCase):
             None,
         )
 
-        self.assertEqual(worker.dashboard_stops, ["sbx_1"])
         self.assertEqual(worker.removed_conn, ["exp_1"])
 
     def test_feed_post_reads_image_locally_and_submits_bytes(self) -> None:
@@ -443,7 +438,6 @@ class SplitModeSmokeTest(unittest.TestCase):
 
         self.daemon_worker = LocalDataPlaneWorker(
             workspace=LocalWorkspace(repo_root=self.repo),
-            backend=FakeSandboxBackend(),
         )
         self.control_client = HttpControlPlaneClient(base_url=self.cloud.url)
         view = HttpControlPlaneView(

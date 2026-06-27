@@ -12,7 +12,6 @@ from .bootstrap_tools import REC_EXEC_CORE
 SESSIONS_DIR_NAME = ".research_plugin_sessions"
 TRANSCRIPT_FILENAME = "transcript.log"
 MGMT_SSH_USER = "rpmgmt"
-DASHBOARD_PORTS: Mapping[str, int] = {"tensorboard": 6006}
 
 
 REC_SCRIPT = r"""#!/usr/bin/env bash
@@ -27,14 +26,10 @@ RP_WORKDIR="${RP_WORKDIR:-/workspace/$RP_EXPERIMENT_ID}"
 RP_EXPERIMENT_DIR="${RP_EXPERIMENT_DIR:-$RP_WORKDIR}"
 RP_SANDBOX_DATA_DIR="${RP_SANDBOX_DATA_DIR:-/workspace/data}"
 RP_DATASET_DIR="${RP_DATASET_DIR:-$RP_SANDBOX_DATA_DIR}"
-RP_DASH_DIR="${RP_DASH_DIR:-/workspace/.research_plugin_sessions/$RP_EXPERIMENT_ID}"
-RP_TB_LOGDIR="${RP_TB_LOGDIR:-$RP_DASH_DIR/tb}"
-export RP_WORKDIR RP_EXPERIMENT_DIR RP_EXPERIMENT_ID RP_SANDBOX_DATA_DIR RP_DATASET_DIR RP_DASH_DIR RP_TB_LOGDIR
-mkdir -p "$RP_EXPERIMENT_DIR" "$RP_SANDBOX_DATA_DIR" "$RP_EXPERIMENT_DIR/artifacts_to_keep" "$RP_DASH_DIR" 2>/dev/null || true
-if [ -x /opt/rp/start_dashboards.sh ]; then
-  /opt/rp/start_dashboards.sh >/dev/null 2>&1 || true
-fi
-LOG_DIR="$RP_DASH_DIR"
+RP_SESSION_DIR="${RP_SESSION_DIR:-/workspace/.research_plugin_sessions/$RP_EXPERIMENT_ID}"
+export RP_WORKDIR RP_EXPERIMENT_DIR RP_EXPERIMENT_ID RP_SANDBOX_DATA_DIR RP_DATASET_DIR RP_SESSION_DIR
+mkdir -p "$RP_EXPERIMENT_DIR" "$RP_SANDBOX_DATA_DIR" "$RP_EXPERIMENT_DIR/artifacts_to_keep" "$RP_SESSION_DIR" 2>/dev/null || true
+LOG_DIR="$RP_SESSION_DIR"
 LOG="$LOG_DIR/transcript.log"
 mkdir -p "$LOG_DIR" 2>/dev/null || true
 ts() { date -u +%Y-%m-%dT%H:%M:%SZ; }
@@ -66,37 +61,6 @@ exec bash -lc "${SSH_ORIGINAL_COMMAND:-bash -l}"
 """
 
 
-DASHBOARD_SCRIPT = r"""#!/usr/bin/env bash
-set +e
-[ -f /opt/rp/env ] && . /opt/rp/env
-RP_EXPERIMENT_ID="${RP_EXPERIMENT_ID:-unknown}"
-RP_DASH_DIR="${RP_DASH_DIR:-/workspace/.research_plugin_sessions/$RP_EXPERIMENT_ID}"
-RP_TB_LOGDIR="${RP_TB_LOGDIR:-$RP_DASH_DIR/tb}"
-mkdir -p "$RP_TB_LOGDIR" 2>/dev/null || true
-
-pid_alive() {
-  pid_file="$1"
-  [ -s "$pid_file" ] || return 1
-  pid="$(cat "$pid_file" 2>/dev/null || true)"
-  [ -n "$pid" ] || return 1
-  kill -0 "$pid" >/dev/null 2>&1
-}
-
-if python3 -c 'import tensorboard' >/dev/null 2>&1; then
-  if ! pid_alive "$RP_DASH_DIR/tensorboard.pid"; then
-    (
-      cd /tmp || exit 0
-      nohup python3 -m tensorboard.main \
-        --host 127.0.0.1 --port 6006 \
-        --logdir "$RP_TB_LOGDIR" \
-        >"$RP_DASH_DIR/tensorboard.log" 2>&1 &
-      echo $! > "$RP_DASH_DIR/tensorboard.pid"
-    )
-  fi
-fi
-"""
-
-
 def build_bootstrap_core(
     *,
     public_key: str,
@@ -108,10 +72,9 @@ def build_bootstrap_core(
     tokens: Mapping[str, str] | None = None,
     sshd_apply_command: str = "systemctl restart ssh || systemctl restart sshd || service ssh restart || true",
 ) -> str:
-    """Phase 1 VM bootstrap: workspace, SSH keys, rec.sh, and dashboards."""
+    """Phase 1 VM bootstrap: workspace, SSH keys, and rec.sh."""
     public_key_b64 = base64.b64encode(public_key.encode("utf-8")).decode("ascii")
     rec_script_b64 = base64.b64encode(REC_SCRIPT.encode("utf-8")).decode("ascii")
-    dashboard_script_b64 = base64.b64encode(DASHBOARD_SCRIPT.encode("utf-8")).decode("ascii")
     env_lines = build_runtime_env(
         experiment_id=experiment_id,
         workdir=workdir,
@@ -159,9 +122,7 @@ cat > /opt/rp/env <<'RP_ENV'
 {env_lines}
 RP_ENV
 printf '%s' {shlex.quote(rec_script_b64)} | base64 -d > /opt/rp/rec.sh
-printf '%s' {shlex.quote(dashboard_script_b64)} | base64 -d > /opt/rp/start_dashboards.sh
 chmod +x /opt/rp/rec.sh
-chmod +x /opt/rp/start_dashboards.sh
 {mgmt_block}cat > /etc/ssh/sshd_config.d/99-research-plugin.conf <<'RP_SSHD'
 PermitRootLogin prohibit-password
 PubkeyAuthentication yes
@@ -189,7 +150,6 @@ def build_runtime_env(
             f"RP_EXPERIMENT_ID={shlex.quote(experiment_id)}",
             f"RP_SANDBOX_DATA_DIR={shlex.quote(sandbox_data_dir)}",
             f"RP_DATASET_DIR={shlex.quote(sandbox_data_dir)}",
-            f"RP_DASH_DIR={shlex.quote(sessions_dir)}",
-            f"RP_TB_LOGDIR={shlex.quote(sessions_dir + '/tb')}",
+            f"RP_SESSION_DIR={shlex.quote(sessions_dir)}",
         ]
     )

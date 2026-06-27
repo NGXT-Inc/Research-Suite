@@ -462,7 +462,8 @@ Verdicts:
 
 Sandboxes are exposed through HTTP for **observation** only. Procurement is an
 agent action (the `sandbox.request` MCP tool); the UI does not provision
-sandboxes or run commands. Each experiment has at most one sandbox.
+sandboxes or run commands. A sandbox can be attached to multiple active
+experiments, and an experiment can have multiple live sandboxes.
 
 ```http
 GET  /api/projects/{project_id}/sandboxes
@@ -532,32 +533,13 @@ A sandbox row looks like:
   "sandbox_data_dir": "/workspace/data",
   "local_sync_dir": "/path/to/repo/experiments/exp_...",
   "initial_pushed": 12,
-  "dashboards": {
-    "tensorboard": "https://...modal.host"
-  },
-  "mlflow": {
-    "configured": true,
-    "mode": "external",
-    "tracking_uri": "https://mlflow.example.com",
-    "dashboard_url": "https://mlflow.example.com",
-    "experiment_name": "rp/proj_.../exp_...",
-    "env": {
-      "MLFLOW_TRACKING_URI": "https://mlflow.example.com",
-      "MLFLOW_EXPERIMENT_NAME": "rp/proj_.../exp_..."
-    }
-  },
   "expires_at": "2026-06-01T18:00:00Z"
 }
 ```
 
-`dashboards` is a `name → URL` map for sandbox-local dashboards. Today that is
-TensorBoard on port 6006. Modal entries are public HTTPS URLs from encrypted
-tunnels; Lambda Labs entries are daemon-owned loopback URLs backed by SSH local
-forwards. Centralized MLflow is exposed separately as the `mlflow` block because
-it is backend-owned, not a sandbox tunnel. Render one tab per non-empty
-dashboard entry and a separate MLflow link when `mlflow.configured` is true.
-If provider tunnels relocate, the row updates on the next `sandbox.get`; local
-SSH forwards are recreated by the daemon when needed.
+Sandbox rows do not expose sandbox-local dashboards. Centralized MLflow is
+backend-owned and exposed through the project MLflow endpoints and experiment
+MLflow tool responses, not through sandbox tunnels.
 
 The terminal endpoint returns `{ experiment_id, sandbox_id, status, transcript }`
 where `transcript` is the recorded command/output log for the sandbox. Fresh

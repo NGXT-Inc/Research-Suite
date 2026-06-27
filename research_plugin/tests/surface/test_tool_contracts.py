@@ -86,7 +86,8 @@ class ToolContractRegistryTest(unittest.TestCase):
     def test_sandbox_tool_descriptions_carry_lifecycle_guidance(self) -> None:
         tools = {tool["name"]: tool for tool in self.app.list_tools()}
         self.assertNotIn("MLflow", tools["sandbox.request"]["description"])
-        self.assertIn("TensorBoard", tools["sandbox.request"]["description"])
+        self.assertNotIn("TensorBoard", tools["sandbox.request"]["description"])
+        self.assertIn("durable storage", tools["sandbox.request"]["description"])
         self.assertIn("expiry", tools["sandbox.get"]["description"])
         self.assertIn("poll provisioning", tools["sandbox.get"]["description"])
         self.assertIn("confirm_retained", tools["sandbox.release"]["description"])

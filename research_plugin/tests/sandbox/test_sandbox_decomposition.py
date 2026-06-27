@@ -4,8 +4,8 @@ Behavior is covered by test_sandbox_service.py; this file guards the
 *structure* so the machinery doesn't quietly grow back into the facade:
 the facade owns the public verbs and delegates rows to SandboxRegistry,
 jobs/reconcile to SandboxProvisioner, every local-IO duty (conn files,
-dashboard tunnels) to the DataPlaneWorker, and the background loops to
-SandboxDaemons.
+local paths, metrics fallback) to the DataPlaneWorker, and the background
+loops to SandboxDaemons.
 """
 
 from __future__ import annotations
@@ -23,7 +23,6 @@ from backend.app import ResearchPluginApp
 from backend.dataplane import InProcessTaskChannel, LocalDataPlaneWorker
 from backend.execution.backends.fake import FakeSandboxBackend
 from backend.services.sandbox.sandbox_daemons import SandboxDaemons
-from backend.dataplane.sandbox_dashboards import DashboardTunnels
 from backend.services.sandbox.sandbox_heartbeat import (
     SandboxHeartbeatMonitor,
     SandboxIdlePolicy,
@@ -69,26 +68,21 @@ class SandboxDecompositionTest(unittest.TestCase):
         self.assertIsInstance(service.registry, SandboxRegistry)
         self.assertIsInstance(service.provisioner, SandboxProvisioner)
         self.assertIsInstance(service.worker, LocalDataPlaneWorker)
-        self.assertIsInstance(service.worker.dashboards, DashboardTunnels)
         self.assertIsInstance(service.metrics, SandboxMetrics)
         self.assertIsInstance(service.daemons, SandboxDaemons)
         self.assertIsInstance(service.daemons.heartbeat, SandboxHeartbeatMonitor)
         self.assertIsInstance(service.daemons.heartbeat.policy, SandboxIdlePolicy)
-        # Terminal row marks tear down tunnels + conn files through the hook,
+        # Terminal row marks tear down conn files through the hook,
         # so the registry itself stays persistence-only.
         self.assertIsNotNone(service.registry.on_terminal)
         # All collaborators share the one registry (single writer of rows) and
         # the one worker (single owner of local IO).
         self.assertIs(service.provisioner.registry, service.registry)
-        self.assertIs(service.provisioner.worker, service.worker)
         self.assertIs(service.daemons.registry, service.registry)
         self.assertIs(service.daemons.heartbeat.registry, service.registry)
         self.assertIs(service.metrics.registry, service.registry)
         self.assertIs(service.metrics.worker, service.worker)
         self.assertIs(service.worker, self.app.worker)
-        # Data-plane work that deserves a record (a tunnel came up) reports
-        # through the registry's event stream, not its own writes.
-        self.assertIsNotNone(service.worker.dashboards.emit_event)
 
     def test_facade_wires_the_task_seam(self) -> None:
         # One channel carries explicit control→data signals: conn refresh and
@@ -149,10 +143,9 @@ class SandboxDecompositionTest(unittest.TestCase):
         source = FACADE.read_text(encoding="utf-8")
         # Job/daemon threads live in the provisioner and daemons modules.
         self.assertNotIn("threading.Thread(", source)
-        # Tunnel subprocesses live in sandbox_dashboards.
         self.assertNotIn("subprocess", source)
         self.assertNotIn("httpx", source)
-        # Local IO (conn files and tunnels) lives behind the worker.
+        # Local IO (conn files and local paths) lives behind the worker.
         self.assertNotIn("SandboxConnFiles", source)
         self.assertNotIn("ssh_rsync", source)
         self.assertNotIn("SshRsyncSyncer", source)
@@ -205,7 +198,6 @@ for name in (
     "backend.dataplane.tasks",
 	    "backend.dataplane.worker",
 	    "backend.dataplane.metrics_archive",
-	    "backend.dataplane.sandbox_dashboards",
 	    "backend.workspace",
 ):
     if name in sys.modules:
@@ -220,7 +212,7 @@ for name in (
         provisioner_hints = get_type_hints(SandboxProvisioner.__init__)
 
         self.assertEqual(facade_hints["worker"].__name__, "SandboxWorker")
-        self.assertEqual(provisioner_hints["worker"].__name__, "SandboxWorker")
+        self.assertNotIn("worker", provisioner_hints)
 
     def test_registry_module_stays_dependency_free(self) -> None:
         # The registry must not import its consumers (no cycles, no backend,
@@ -228,7 +220,6 @@ for name in (
         source = (FACADE.parent / "sandbox_registry.py").read_text(encoding="utf-8")
         for forbidden in (
             "sandbox_provisioner",
-            "sandbox_dashboards",
             "sandbox_daemons",
             "import sandboxes",
             "from .sandboxes",

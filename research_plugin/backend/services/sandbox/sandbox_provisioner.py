@@ -4,7 +4,7 @@
 cancellation, orphan cleanup, and the reconcile pass that
 keeps a polled row truthful after crashes or restarts.
 It talks to persistence through `SandboxRegistry` and reaches the facade only
-through ``refresh_row`` (endpoint + dashboard refresh for a live row).
+through ``refresh_row`` (endpoint refresh for a live row).
 
 ``connecting``; then a successfully acquired sandbox is recorded as
 ``running``. The row status stays ``provisioning`` until that handoff, so the
@@ -27,12 +27,10 @@ from ...sandbox.sandbox_backend import (
     SandboxRequest,
 )
 from ...domain.sandbox_paths import DEFAULT_DATA_DIR, remote_experiment_dir
-from ...ports.sandbox_worker import SandboxWorker
 from ...utils import iso_after, now_iso
 from .sandbox_registry import SandboxRegistry
 from ...sandbox.sandbox_support import (
     ACTIVE_SANDBOX_STATUSES,
-    encode_dashboards,
     parse_iso,
 )
 
@@ -63,13 +61,11 @@ class SandboxProvisioner:
         *,
         registry: SandboxRegistry,
         backend: SandboxBackend,
-        worker: SandboxWorker,
         refresh_row: RefreshRow,
         stale_provision_seconds: float,
     ) -> None:
         self.registry = registry
         self.backend = backend
-        self.worker = worker
         self._refresh_row = refresh_row
         self.stale_provision_seconds = stale_provision_seconds
         self._jobs: dict[str, _ProvisionJob] = {}
@@ -320,7 +316,6 @@ class SandboxProvisioner:
                 unsynced_dir=provisioned.unsynced_dir or provisioned.sandbox_data_dir,
                 sandbox_data_dir=provisioned.sandbox_data_dir,
                 volume_name=provisioned.volume_name,
-                dashboards_json=encode_dashboards(provisioned.dashboards),
                 expires_at=iso_after(seconds=req.time_limit),
                 last_seen_at=now,
                 phase="",
@@ -524,15 +519,11 @@ class SandboxProvisioner:
 
         Covers both a recorded sandbox_id (from a prior/failed row) and the
         deterministic-named orphan a dead job may have left on the backend.
-        Stops the recorded id's dashboard tunnels too — this path runs before
-        re-provisioning, where no terminal row mark (and so no registry hook)
-        would otherwise tear them down.
         """
         seen: set[str] = set()
         sid = (row or {}).get("sandbox_id")
         if sid:
             seen.add(str(sid))
-            self.worker.stop_dashboards(sandbox_id=str(sid))
             self._terminate_quietly(sandbox_id=str(sid))
         if not sid:
             sandbox_uid = str((row or {}).get("sandbox_uid") or "")

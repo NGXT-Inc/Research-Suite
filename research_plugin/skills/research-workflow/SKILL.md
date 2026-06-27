@@ -136,15 +136,14 @@ Do not reconstruct workflow state from memory.
 ## Quantitative observability
 
 For quantitative ML work — training, evaluation, sweeps, ablations, or any run
-where metrics drive the conclusion — use MLflow for params/metrics/artifacts and
-TensorBoard for scalar curves/events. In a sandbox, `sandbox.request` /
-`sandbox.get` reports a `mlflow` block and exports the same central MLflow env
-inside SSH commands:
+where metrics drive the conclusion — use MLflow for params, metrics, and
+artifacts, and save compact plot/table evidence under the experiment folder.
+Before a sandbox or local run, call `experiment.mlflow` or use the `mlflow`
+block returned by `experiment.transition(start_running)`:
 
 ```sh
-export MLFLOW_TRACKING_URI="<from sandbox.mlflow.env>"
-export MLFLOW_EXPERIMENT_NAME="<from sandbox.mlflow.env>"
-export RP_TB_LOGDIR="<already set in sandbox commands>"
+export MLFLOW_TRACKING_URI="<from experiment.mlflow.env>"
+export MLFLOW_EXPERIMENT_NAME="<from experiment.mlflow.env>"
 mkdir -p "$RP_EXPERIMENT_DIR"/results "$RP_EXPERIMENT_DIR"/figures
 ```
 
@@ -170,8 +169,8 @@ SSH. Once the experiment is `ready_to_run` (or already `running`), call
 `sandbox.request(experiment_id?, instance_type?, region?, gpu?, cpu?, memory?,
 time_limit?)` and follow the returned `hint`; `sandbox.request`/`sandbox.get`
 are the source of truth for provider selection, polling, expiry, credentials,
-observability env vars, and the remote work folder. A sandbox can also be
-created unattached and addressed by `sandbox_uid`.
+and the remote work folder. A sandbox can also be created unattached and
+addressed by `sandbox_uid`.
 
 Use the smallest viable machine. On Lambda Labs, omit `instance_type` first
 when you need the live machine menu; on Modal, request `gpu`/`cpu`/`memory`
@@ -191,10 +190,9 @@ Keep durable scripts, configs, notes, compact outputs, report figures/tables,
 and deliberate final artifacts under `$RP_EXPERIMENT_DIR` so you can copy them
 off deliberately before release.
 
-Use the observability environment reported by `sandbox.request`/`sandbox.get`;
-the backend provides centralized MLflow tracking env and the sandbox provides
-TensorBoard event logging, but you still need to log the run and save compact
-evidence under `$RP_EXPERIMENT_DIR`.
+Use the centralized MLflow env from `experiment.mlflow` /
+`experiment.transition(start_running)` and save compact evidence under
+`$RP_EXPERIMENT_DIR`.
 
 Before registering or associating result resources, use `rsync` or `scp`
 yourself with the returned SSH details, or upload heavy artifacts with

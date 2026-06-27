@@ -24,7 +24,6 @@ from ...domain.sandbox_paths import DEFAULT_DATA_DIR, remote_experiment_dir
 from ...sandbox.sandbox_support import (
     ACTIVE_SANDBOX_STATUSES,
     POLL_AFTER_SECONDS,
-    decode_dashboards,
 )
 
 
@@ -125,8 +124,6 @@ def agent_row_facts(
         "instance_type": row.get("instance_type") or None,
         "region": row.get("region") or None,
         "expires_at": row.get("expires_at"),
-        # Observability dashboards visible to the user.
-        "dashboards": decode_dashboards(row.get("dashboards_json")),
     }
     if env_info.get("available_tokens"):
         facts["environment"] = env_info
@@ -193,21 +190,14 @@ def merge_agent_view(
         )
     elif live:
         if attached_to_experiment:
-            dashboard_note = (
-                "Training observability: write TensorBoard events to "
-                "$RP_TB_LOGDIR when useful. The user sees dashboard tabs in the UI once "
-                "the servers are reachable; you do not need to fetch or "
-                "share the URLs. Also save selected plot images or compact result "
-                "tables under $RP_EXPERIMENT_DIR (e.g. figures/*.png, "
-                "results/*.json/csv) so you can rsync them off and reference them "
-                "from report.md. "
+            output_note = (
+                "Save selected plot images or compact result tables under "
+                "$RP_EXPERIMENT_DIR (e.g. figures/*.png, results/*.json/csv) "
+                "so you can rsync them off and reference them from report.md. "
             )
         else:
-            dashboard_note = (
-                "Sandbox observability: write TensorBoard events to $RP_TB_LOGDIR "
-                "when useful. The user sees dashboard tabs in the UI once the "
-                "servers are reachable; you do not need to fetch or share the "
-                "URLs. Also save selected outputs under $RP_EXPERIMENT_DIR so "
+            output_note = (
+                "Save selected outputs under $RP_EXPERIMENT_DIR so "
                 "you can rsync them off before release. "
             )
         view["hint"] = (
@@ -243,7 +233,7 @@ def merge_agent_view(
                 attached_to_experiment=attached_to_experiment,
             )
             + credential_note
-            + dashboard_note
+            + output_note
             + "The dispatcher multiplexes one SSH connection and auto-retries "
             "transient connect failures, so do not wrap it in your own retry "
             "loop; if commands keep failing to connect, call sandbox.get once "
@@ -316,8 +306,6 @@ def sandbox_row_view(
         "local_sync_dir": local_sync_dir,
         "sandbox_data_dir": data_dir,
         "volume_name": row.get("volume_name"),
-        # Sandbox-local dashboards.
-        "dashboards": decode_dashboards(row.get("dashboards_json")),
         "requested_at": row.get("requested_at"),
         "expires_at": row.get("expires_at"),
         "last_seen_at": row.get("last_seen_at"),

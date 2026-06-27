@@ -81,12 +81,6 @@ class TaskChannelTest(TaskChannelTestBase):
             / created["sandbox_uid"]
         )
         self.assertTrue(conn_file.exists())
-        stopped: list[str] = []
-        original_stop = self.app.worker.stop_dashboards
-        self.app.worker.stop_dashboards = lambda *, sandbox_id="": (  # type: ignore[method-assign]
-            stopped.append(sandbox_id),
-            original_stop(sandbox_id=sandbox_id),
-        )
         self.call(
             "sandbox.release",
             project_id=self.project_id,
@@ -96,9 +90,8 @@ class TaskChannelTest(TaskChannelTestBase):
         teardown = next(t for t, _a in self.channel.history if t.type == "teardown")
         self.assertEqual(teardown.payload["experiment_id"], exp_id)
         self.assertEqual(teardown.payload["sandbox_id"], created["sandbox_id"])
-        # The conn file is gone (sbx fails loudly) and the tunnels were stopped.
+        # The conn file is gone, so sbx fails loudly for the released sandbox.
         self.assertFalse(conn_file.exists())
-        self.assertIn(created["sandbox_id"], stopped)
 
     def test_reaper_terminates_without_file_transfer_task(self) -> None:
         exp_id = self._experiment()

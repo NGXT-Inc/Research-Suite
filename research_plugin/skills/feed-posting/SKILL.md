@@ -227,7 +227,7 @@ Make the image earn its place:
   reader's eye catches and they read the post. Excitement is the feature — but it
   must carry the finding, not decorate it. A merely "cool" image that shows
   nothing is filler; default to text-only rather than spend a turn making art.
-- Avoid: raw TensorBoard screenshots, multi-panel collages, dense metric tables,
+- Avoid: raw dashboard screenshots, multi-panel collages, dense metric tables,
   hyperparameter dumps, event-less curves.
 
 ## Register once

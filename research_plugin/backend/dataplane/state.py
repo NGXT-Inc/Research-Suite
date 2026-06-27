@@ -1,15 +1,13 @@
 """Worker-owned machine-local sandbox state (cloud plan §3.2).
 
-Machine-local values — the sandbox SSH key path, the local sync dir,
-daemon-owned loopback dashboard URLs, and the stable per-machine client
-identity — must never live in cloud-bound rows. They live here instead, in a
-small SQLite file under ``.research_plugin/`` owned by the data plane (the
-daemon-mode successor is ``~/.research_plugin/daemon.sqlite``).
+Machine-local values — the sandbox SSH key path, the local sync dir, and the
+stable per-machine client identity — must never live in cloud-bound rows. They
+live here instead, in a small SQLite file under ``.research_plugin/`` owned by
+the data plane (the daemon-mode successor is ``~/.research_plugin/daemon.sqlite``).
 """
 
 from __future__ import annotations
 
-import json
 import os
 import sqlite3
 from pathlib import Path
@@ -27,8 +25,7 @@ _SCHEMA = """
 CREATE TABLE IF NOT EXISTS sandbox_local (
   experiment_id TEXT PRIMARY KEY,
   key_path TEXT NOT NULL DEFAULT '',
-  local_sync_dir TEXT NOT NULL DEFAULT '',
-  dashboards_local_json TEXT NOT NULL DEFAULT '{}'
+  local_sync_dir TEXT NOT NULL DEFAULT ''
 );
 
 CREATE TABLE IF NOT EXISTS client_meta (
@@ -62,7 +59,6 @@ class SandboxLocalState:
         experiment_id: str,
         key_path: str | None = None,
         local_sync_dir: str | None = None,
-        dashboards_local: dict[str, str] | None = None,
     ) -> None:
         """Upsert the provided fields; ``None`` leaves a field untouched."""
         fields: dict[str, Any] = {}
@@ -70,10 +66,6 @@ class SandboxLocalState:
             fields["key_path"] = key_path
         if local_sync_dir is not None:
             fields["local_sync_dir"] = local_sync_dir
-        if dashboards_local is not None:
-            fields["dashboards_local_json"] = json.dumps(
-                dashboards_local, sort_keys=True
-            )
         if not fields:
             return
         assignments = ", ".join(f"{name} = excluded.{name}" for name in fields)
@@ -100,15 +92,11 @@ class SandboxLocalState:
         finally:
             conn.close()
         if row is None:
-            return {"key_path": "", "local_sync_dir": "", "dashboards_local": {}}
+            return {"key_path": "", "local_sync_dir": ""}
         return {
             "key_path": str(row["key_path"] or ""),
             "local_sync_dir": str(row["local_sync_dir"] or ""),
-            "dashboards_local": _decode(row["dashboards_local_json"]),
         }
-
-    def dashboards_local(self, *, experiment_id: str) -> dict[str, str]:
-        return dict(self.load(experiment_id=experiment_id)["dashboards_local"])
 
     def client_id(self) -> str:
         """Stable per-machine data-plane identity — the sync-lease holder id.
@@ -139,13 +127,3 @@ class SandboxLocalState:
             return str(row["value"])
         finally:
             conn.close()
-
-
-def _decode(raw: Any) -> dict[str, str]:
-    try:
-        parsed = json.loads(str(raw or "{}"))
-    except (TypeError, ValueError, json.JSONDecodeError):
-        return {}
-    if not isinstance(parsed, dict):
-        return {}
-    return {str(k): str(v) for k, v in parsed.items() if isinstance(v, str) and v}

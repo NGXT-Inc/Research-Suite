@@ -262,18 +262,6 @@ class ControlMetricsArchive:
 class ControlSandboxWorker:
     """Control-side adapter for data-plane duties executed by daemon tasks."""
 
-    def set_event_sink(self, *_: Any, **__: Any) -> None:
-        return
-
-    def ensure_local_dashboards(self, *, row: dict[str, Any]) -> dict[str, Any]:
-        return row
-
-    def merge_local_dashboards(self, *, row: dict[str, Any]) -> dict[str, Any]:
-        return row
-
-    def stop_dashboards(self, **_: Any) -> None:
-        return
-
     def repo_relative(self, path: str | Path) -> str:
         return str(path)
 

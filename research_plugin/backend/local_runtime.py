@@ -54,10 +54,7 @@ def build_local_runtime(
             repo_root=workspace.repo_root,
             activity=_activity_hook,
         )
-    worker = LocalDataPlaneWorker(
-        workspace=workspace,
-        backend=execution_backend,
-    )
+    worker = LocalDataPlaneWorker(workspace=workspace)
     return LocalRuntime(
         workspace=workspace,
         activity=activity,

@@ -1,21 +1,19 @@
 from __future__ import annotations
 
 import os
-import subprocess
 import tempfile
 import threading
 import time
 import unittest
 from pathlib import Path
-from unittest.mock import MagicMock, patch
+from unittest.mock import patch
 
 from backend.app import ResearchPluginApp
-from backend.transport.http_api import ResearchHttpApi
 from backend.execution.backends.fake import FakeSandboxBackend
 from backend.services.mlflow_tracking import CentralMlflowService
 from backend.sandbox.sandbox_backend import SandboxRequest
 from backend.utils import NotFoundError, ValidationError
-from tests.fakes import FakeProcess, write_fake_mlflow_db
+from tests.fakes import write_fake_mlflow_db
 
 
 class SandboxServiceTest(unittest.TestCase):
@@ -574,144 +572,22 @@ class SandboxServiceTest(unittest.TestCase):
         self.assertIn("r999.modal.host", body)
         self.assertIn("55555", body)
 
-    # ---- observability dashboards (central MLflow + TensorBoard) ----
+    # ---- sandbox response guidance ----
 
-    def test_tunnel_ready_waits_out_the_ssh_handshake(self) -> None:
-        # The ssh -L listener binds only after the handshake (0.5-2s); an
-        # instant probe always loses that race. _tunnel_ready must wait for
-        # the bind, then probe end-to-end.
-        import http.server
-        from backend.dataplane.sandbox_dashboards import _free_local_port, _tunnel_ready
-
-        port = _free_local_port()
-        server: list = []
-
-        def serve_after_delay() -> None:
-            time.sleep(0.7)  # simulate the ssh handshake window
-            handler = type(
-                "OK",
-                (http.server.BaseHTTPRequestHandler,),
-                {
-                    "do_GET": lambda self: (self.send_response(200), self.end_headers()),
-                    "log_message": lambda self, *a: None,
-                },
-            )
-            srv = http.server.HTTPServer(("127.0.0.1", port), handler)
-            server.append(srv)
-            srv.serve_forever()
-
-        thread = threading.Thread(target=serve_after_delay, daemon=True)
-        thread.start()
-        fake_ssh = subprocess.Popen(["sleep", "30"])
-        try:
-            self.assertTrue(
-                _tunnel_ready(fake_ssh, port, f"http://127.0.0.1:{port}", timeout=6.0)
-            )
-        finally:
-            fake_ssh.kill()
-            if server:
-                server[0].shutdown()
-
-    def test_tunnel_ready_fails_fast_when_ssh_dies(self) -> None:
-        from backend.dataplane.sandbox_dashboards import _free_local_port, _tunnel_ready
-
-        port = _free_local_port()
-        dead_ssh = subprocess.Popen(["true"])
-        dead_ssh.wait()
-        self.assertFalse(
-            _tunnel_ready(dead_ssh, port, f"http://127.0.0.1:{port}", timeout=2.0)
-        )
-
-    def test_tunnel_ready_times_out_without_listener(self) -> None:
-        from backend.dataplane.sandbox_dashboards import _free_local_port, _tunnel_ready
-
-        port = _free_local_port()
-        fake_ssh = subprocess.Popen(["sleep", "30"])
-        try:
-            start = time.monotonic()
-            self.assertFalse(
-                _tunnel_ready(fake_ssh, port, f"http://127.0.0.1:{port}", timeout=0.8)
-            )
-            self.assertLess(time.monotonic() - start, 3.0)
-        finally:
-            fake_ssh.kill()
-
-    def test_request_surfaces_tensorboard_without_mlflow_context(self) -> None:
-        # TensorBoard remains a sandbox dashboard. Central MLflow is experiment
-        # context exposed through experiment.transition / experiment.mlflow, not
-        # sandbox.request.
+    def test_request_has_no_sandbox_dashboard_or_mlflow_context(self) -> None:
         exp_id = self._experiment()
         result = self.call(
             "sandbox.request", project_id=self.project_id, experiment_id=exp_id
         )
-        self.assertIn("dashboards", result)
-        self.assertIn("tensorboard", result["dashboards"])
-        self.assertNotIn("mlflow", result["dashboards"])
+        self.assertNotIn("dashboards", result)
         self.assertNotIn("mlflow", result)
         self.assertNotIn("MLFLOW_TRACKING_URI", result["hint"])
         self.assertNotIn("centralized MLflow", result["hint"])
-        self.assertIn("$RP_TB_LOGDIR", result["hint"])
+        self.assertNotIn("TensorBoard", result["hint"])
+        self.assertNotIn("$RP_TB_LOGDIR", result["hint"])
         self.assertIn("figures/*.png", result["hint"])
         self.assertIn("report.md", result["hint"])
         self.assertIn("rsync the files you need off", result["hint"])
-
-    def test_ui_view_exposes_dashboards(self) -> None:
-        # The HTTP API surfaces dashboards in the sandbox row so the UI can
-        # render an iframe tab per non-empty entry. Empty {} when the backend
-        # exposes none — never a missing key.
-        exp_id = self._experiment()
-        created = self.call(
-            "sandbox.request", project_id=self.project_id, experiment_id=exp_id
-        )
-        view = ResearchHttpApi(app=self.app).sandbox_get_view(
-            project_id=self.project_id, experiment_id=exp_id
-        )
-        self.assertEqual(
-            view["dashboards"],
-            {"tensorboard": f"https://tensorboard-{created['sandbox_id']}.modal.test"},
-        )
-
-    def test_get_refreshes_moved_dashboards(self) -> None:
-        # When Modal relocates a live sandbox's tunnels, the dashboard URLs
-        # change alongside the SSH endpoint. Reconcile must persist the fresh
-        # URLs so the UI iframe doesn't 404 on stale ones.
-        exp_id = self._experiment()
-        created = self.call(
-            "sandbox.request", project_id=self.project_id, experiment_id=exp_id
-        )
-        relocated = {
-            "tensorboard": "https://tb-r999.modal.host",
-        }
-        self.backend.move_dashboards(
-            sandbox_id=created["sandbox_id"], urls=relocated
-        )
-        got = self.call("sandbox.get", project_id=self.project_id, experiment_id=exp_id)
-        self.assertEqual(got["dashboards"], relocated)
-
-    def test_dashboards_empty_when_backend_exposes_none(self) -> None:
-        # CPU-only / older backends may surface no dashboards. The field must
-        # still be present (empty dict) so the UI keys defensively.
-        exp_id = self._experiment()
-        # Pre-empty the backend's default before acquire stores the row.
-        original_acquire = self.backend.acquire
-
-        def acquire_without_dashboards(*, request, on_phase=None, on_created=None):
-            provisioned = original_acquire(
-                request=request, on_phase=on_phase, on_created=on_created
-            )
-            self.backend.dashboards[provisioned.sandbox_id] = {}
-            from dataclasses import replace
-            return replace(provisioned, dashboards={})
-
-        self.backend.acquire = acquire_without_dashboards  # type: ignore[method-assign]
-        result = self.call(
-            "sandbox.request", project_id=self.project_id, experiment_id=exp_id
-        )
-        self.assertEqual(result["dashboards"], {})
-        view = ResearchHttpApi(app=self.app).sandbox_get_view(
-            project_id=self.project_id, experiment_id=exp_id
-        )
-        self.assertEqual(view["dashboards"], {})
 
     # ---- durable metrics archive (results outlive the VM) ----
 
@@ -926,108 +802,6 @@ class SandboxServiceTest(unittest.TestCase):
             experiment_id=exp_id, project_id=self.project_id
         )
         self.assertTrue(again["available"])
-
-    def test_local_dashboard_tunnels_when_backend_has_ports_but_no_urls(self) -> None:
-        self.backend.default_dashboards = False
-        self.backend.local_dashboard_ports = lambda: {"tensorboard": 6006}  # type: ignore[attr-defined]
-        exp_id = self._experiment()
-        # Mint both keypairs before patching Popen: sandbox_dashboards shares
-        # the global subprocess module, so the patch would otherwise swallow
-        # the ssh-keygen runs inside sandbox.request.
-        self.app.sandboxes._ensure_keypair(experiment_id=exp_id)
-        popen_calls: list[list[str]] = []
-        procs: list[tuple[list[str], FakeProcess]] = []
-        real_popen = subprocess.Popen
-
-        def fake_popen(command, **kwargs):
-            command = list(command)
-            # Mgmt-key minting (ssh-keygen) must run for real; the patch only
-            # stands in for the ssh dashboard tunnels.
-            if command and command[0] == "ssh-keygen":
-                return real_popen(command, **kwargs)
-            popen_calls.append(command)
-            proc = FakeProcess()
-            procs.append((command, proc))
-            return proc
-
-        class FakeResponse:
-            status_code = 200
-
-        with (
-            patch("backend.dataplane.sandbox_dashboards.subprocess.Popen", side_effect=fake_popen),
-            # The bind-wait would loop against a port nobody listens on; a
-            # connectable socket stands in for ssh having bound the forward.
-            patch("backend.dataplane.sandbox_dashboards.socket.create_connection", return_value=MagicMock()),
-            patch("backend.dataplane.sandbox_dashboards.httpx.get", return_value=FakeResponse()),
-        ):
-            result = self.call(
-                "sandbox.request", project_id=self.project_id, experiment_id=exp_id
-            )
-            dashboards = result["dashboards"]
-            self.assertEqual(set(dashboards), {"tensorboard"})
-            self.assertTrue(dashboards["tensorboard"].startswith("http://127.0.0.1:"))
-            self.assertEqual(len(popen_calls), 1)
-            self.assertTrue(
-                any(
-                    any(part.endswith(":127.0.0.1:6006") for part in command)
-                    for command in popen_calls
-                )
-            )
-            self.call(
-                "sandbox.release",
-                project_id=self.project_id,
-                experiment_id=exp_id,
-                confirm_retained=True,
-            )
-            ssh_procs = [proc for command, proc in procs if command and command[0] == "ssh"]
-            self.assertTrue(ssh_procs)
-            self.assertTrue(all(proc.terminated for proc in ssh_procs))
-
-    def test_standalone_dashboard_tunnels_key_local_state_by_uid(self) -> None:
-        self.backend.default_dashboards = False
-        self.backend.local_dashboard_ports = lambda: {"tensorboard": 6006}  # type: ignore[attr-defined]
-        real_popen = subprocess.Popen
-        procs: list[tuple[list[str], FakeProcess]] = []
-
-        def fake_popen(command, **kwargs):
-            command = list(command)
-            if command and command[0] == "ssh-keygen":
-                return real_popen(command, **kwargs)
-            proc = FakeProcess()
-            procs.append((command, proc))
-            return proc
-
-        class FakeResponse:
-            status_code = 200
-
-        with (
-            patch("backend.dataplane.sandbox_dashboards.subprocess.Popen", side_effect=fake_popen),
-            patch("backend.dataplane.sandbox_dashboards.socket.create_connection", return_value=MagicMock()),
-            patch("backend.dataplane.sandbox_dashboards.httpx.get", return_value=FakeResponse()),
-        ):
-            result = self.call("sandbox.request", project_id=self.project_id)
-
-        uid = result["sandbox_uid"]
-        self.assertEqual(result["experiment_id"], "")
-        self.assertIn("tensorboard", result["dashboards"])
-        self.assertIn(
-            "tensorboard",
-            self.app.worker.state.load(experiment_id=uid)["dashboards_local"],
-        )
-        self.assertEqual(
-            self.app.worker.state.load(experiment_id="")["dashboards_local"],
-            {},
-        )
-        self.call(
-            "sandbox.release",
-            project_id=self.project_id,
-            sandbox_uid=uid,
-            confirm_retained=True,
-        )
-
-        ssh_procs = [proc for command, proc in procs if command and command[0] == "ssh"]
-        self.assertTrue(ssh_procs)
-        self.assertTrue(all(proc.terminated for proc in ssh_procs))
 
     # ---- status / liveness ----
 

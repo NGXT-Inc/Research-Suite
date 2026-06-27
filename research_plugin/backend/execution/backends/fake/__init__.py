@@ -42,7 +42,6 @@ class FakeSandboxBackend(SandboxBackendBase):
         configurable_resources: bool = True,
         catalog_options: list[dict] | None = None,
         catalog_regions: list[str] | None = None,
-        default_dashboards: bool = True,
     ) -> None:
         self.capabilities = BackendCapabilities(
             name="fake",
@@ -57,7 +56,6 @@ class FakeSandboxBackend(SandboxBackendBase):
         # at all, so default instances behave exactly as before (no catalog).
         self._catalog_options = catalog_options
         self._catalog_regions = catalog_regions
-        self.default_dashboards = default_dashboards
         if requires_hardware_selection:
             self.hardware_catalog = self._hardware_catalog_impl  # type: ignore[assignment]
         self.counter = 0
@@ -77,10 +75,6 @@ class FakeSandboxBackend(SandboxBackendBase):
         # Live SSH endpoint per sandbox id; move_endpoint() simulates a tunnel
         # that Modal relocated so refresh_ssh_endpoint() can be exercised.
         self.endpoints: dict[str, tuple[str, int]] = {}
-        # Observability dashboard URLs per sandbox id, mirroring provider
-        # dashboard surfaces. Centralized MLflow is reported separately through
-        # sandbox views; TensorBoard remains a dashboard.
-        self.dashboards: dict[str, dict[str, str]] = {}
         self.phases: list[tuple[str, str]] = []
         self.healthy = True
         # async-path knobs
@@ -138,18 +132,6 @@ class FakeSandboxBackend(SandboxBackendBase):
             self.terminate(sandbox_id=sandbox_id)
             raise
         host, port = self.endpoints[sandbox_id]
-        # Default fake-Modal dashboard URLs so the SandboxService persistence +
-        # serializer path is exercised. A test wanting "no dashboards" can clear
-        # ``self.dashboards[sandbox_id]``.
-        if self.default_dashboards:
-            self.dashboards.setdefault(
-                sandbox_id,
-                {
-                    "tensorboard": f"https://tensorboard-{sandbox_id}.modal.test",
-                },
-            )
-        else:
-            self.dashboards.setdefault(sandbox_id, {})
         return ProvisionedSandbox(
             sandbox_id=sandbox_id,
             ssh_host=host,
@@ -161,7 +143,6 @@ class FakeSandboxBackend(SandboxBackendBase):
             unsynced_dir=DEFAULT_DATA_DIR,
             sandbox_data_dir=DEFAULT_DATA_DIR,
             reused=False,
-            dashboards=dict(self.dashboards[sandbox_id]),
             gpu=request.gpu or "",
             instance_type=request.instance_type or "",
             region=request.region or "",
@@ -194,11 +175,6 @@ class FakeSandboxBackend(SandboxBackendBase):
         if not self.alive.get(sandbox_id):
             return None
         return self.endpoints.get(sandbox_id)
-
-    def dashboard_urls(self, *, sandbox_id: str) -> dict[str, str]:
-        if not self.alive.get(sandbox_id):
-            return {}
-        return dict(self.dashboards.get(sandbox_id, {}))
 
     def find_sandbox_id(
         self, *, experiment_id: str, sandbox_uid: str = ""
@@ -325,10 +301,6 @@ class FakeSandboxBackend(SandboxBackendBase):
     def move_endpoint(self, *, sandbox_id: str, host: str, port: int) -> None:
         """Simulate Modal relocating a live sandbox's SSH tunnel."""
         self.endpoints[sandbox_id] = (host, port)
-
-    def move_dashboards(self, *, sandbox_id: str, urls: dict[str, str]) -> None:
-        """Simulate Modal relocating a live sandbox's encrypted dashboard tunnels."""
-        self.dashboards[sandbox_id] = dict(urls)
 
     def append_transcript(self, *, experiment_id: str, text: str) -> None:
         self.transcripts[experiment_id] = self.transcripts.get(experiment_id, "") + text

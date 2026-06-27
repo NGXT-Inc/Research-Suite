@@ -11,7 +11,6 @@ from typing import Any, Callable, Mapping
 
 from backend.execution.bootstrap_tools import BASELINE_APT_PACKAGES, ML_PYTHON_PACKAGES
 from backend.execution.vm_bootstrap import (
-    DASHBOARD_PORTS,
     MGMT_SSH_USER,
     build_bootstrap_core,
 )
@@ -151,7 +150,6 @@ class ThunderComputeSandboxBackend(VmSshSandboxBackend):
                 unsynced_dir=self.config.sandbox_data_dir,
                 sandbox_data_dir=self.config.sandbox_data_dir,
                 reused=False,
-                dashboards={},
                 gpu=str(option.get("gpu") or request.gpu or ""),
                 cpu=float(option["vcpus"]),
                 memory=int(option.get("memory_gib") or 0) * 1024 or None,
@@ -184,9 +182,6 @@ class ThunderComputeSandboxBackend(VmSshSandboxBackend):
         except Exception:  # noqa: BLE001
             return False
         return True
-
-    def local_dashboard_ports(self) -> dict[str, int]:
-        return dict(DASHBOARD_PORTS)
 
     def sandbox_environment(self) -> dict[str, Any]:
         available_tokens: list[str] = []
@@ -434,13 +429,7 @@ install_with_uv_or_pip() {{
   fi
 }}
 python3 -c 'import mlflow' >/dev/null 2>&1 || python3 -m pip install --break-system-packages --ignore-installed mlflow==2.18.0 || echo "[rp] mlflow install failed" >> /opt/rp/bootstrap.log
-python3 -c 'import tensorboard' >/dev/null 2>&1 || python3 -m pip install --break-system-packages --ignore-installed tensorboard || echo "[rp] tensorboard install failed" >> /opt/rp/bootstrap.log
 install_with_uv_or_pip {python_packages} || true
-if id ubuntu >/dev/null 2>&1; then
-  sudo -u ubuntu /opt/rp/start_dashboards.sh || true
-else
-  /opt/rp/start_dashboards.sh || true
-fi
 """
 
 

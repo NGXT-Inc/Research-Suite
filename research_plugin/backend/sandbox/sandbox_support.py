@@ -8,7 +8,6 @@ importing the service package.
 
 from __future__ import annotations
 
-import json
 import re
 from datetime import datetime
 from typing import Any
@@ -48,8 +47,8 @@ POLL_AFTER_SECONDS = 30
 # Live-usage samples are coalesced for this long so the fleet view and the
 # drill-in terminal (which both poll ~3s) don't double-exec into a sandbox.
 METRICS_CACHE_TTL_SECONDS = 2.0
-# Archiving MLflow metrics sweeps the whole REST surface, so dashboard polling
-# is throttled to this cadence. Explicit release/reap bypass the throttle.
+# Archiving MLflow metrics sweeps the tracking REST surface, so persistence is
+# throttled to this cadence. Explicit release/reap bypass the throttle.
 METRICS_PERSIST_TTL_SECONDS = 60.0
 # How often the reaper checks for sandboxes past their expires_at deadline and
 # terminates them. Needed because Lambda VMs (unlike Modal sandboxes) have no
@@ -219,35 +218,3 @@ def validate_request_inputs(
 
 def parse_iso(value: Any) -> datetime | None:
     return _parse_iso(value)
-
-
-# Dashboards persistence is plain JSON, mirroring how Python sees the field on
-# ProvisionedSandbox. Tolerant of legacy/empty values: a missing or unparseable
-# column returns {}, never raises. The UI keys on dashboard name (e.g. "mlflow",
-# "tensorboard") so adding a new dashboard later only means another key here.
-def encode_dashboards(dashboards: Any) -> str:
-    if not dashboards:
-        return "{}"
-    try:
-        clean = {
-            str(k): str(v)
-            for k, v in dict(dashboards).items()
-            if isinstance(v, str) and v
-        }
-    except Exception:  # noqa: BLE001 — never fail the upsert on a malformed map
-        return "{}"
-    return json.dumps(clean, sort_keys=True)
-
-
-def decode_dashboards(raw: Any) -> dict[str, str]:
-    if not raw:
-        return {}
-    if isinstance(raw, dict):
-        return {str(k): str(v) for k, v in raw.items() if isinstance(v, str) and v}
-    try:
-        parsed = json.loads(str(raw))
-    except (TypeError, ValueError, json.JSONDecodeError):
-        return {}
-    if not isinstance(parsed, dict):
-        return {}
-    return {str(k): str(v) for k, v in parsed.items() if isinstance(v, str) and v}

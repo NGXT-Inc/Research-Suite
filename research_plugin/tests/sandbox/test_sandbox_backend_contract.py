@@ -29,8 +29,6 @@ BACKEND_METHODS = (
     "sample_metrics",
     "refresh_ssh_endpoint",
     "hardware_catalog",
-    "dashboard_urls",
-    "local_dashboard_ports",
     "find_sandbox_id",
     "sandbox_secrets",
     "write_secrets",
@@ -107,8 +105,6 @@ class SandboxBackendContractTest(unittest.TestCase):
         self.assertIsNone(backend.sample_metrics(sandbox_id="sb"))
         self.assertIsNone(backend.refresh_ssh_endpoint(sandbox_id="sb"))
         self.assertIsNone(backend.hardware_catalog())
-        self.assertIsNone(backend.dashboard_urls(sandbox_id="sb"))
-        self.assertEqual(backend.local_dashboard_ports(), {})
         self.assertIsNone(backend.find_sandbox_id(experiment_id="exp"))
         self.assertIsNone(backend.shutdown())
 

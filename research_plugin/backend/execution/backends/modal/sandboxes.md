@@ -57,7 +57,7 @@ sandbox = modal.Sandbox.create(
         "RP_WORKDIR": "/workspace/<name>",
         "RP_EXPERIMENT_DIR": "/workspace/<name>",
         "RP_SANDBOX_DATA_DIR": "/workspace/data",
-        "RP_DASH_DIR": "/workspace/.research_plugin_sessions/<experiment_id>",
+        "RP_SESSION_DIR": "/workspace/.research_plugin_sessions/<experiment_id>",
     },
 )
 host, port = sandbox.tunnels()[22].tcp_socket
@@ -92,8 +92,8 @@ agent-visible API responses.
 The base image installs the baseline agent tooling plus two scripts:
 
 - `/opt/rp/boot.sh` writes `$RP_AUTHORIZED_KEY`, creates the experiment dir,
-  `/workspace/data`, `artifacts_to_keep/`, and the sessions dir, starts
-  TensorBoard, then `exec`s `sshd -D`.
+  `/workspace/data`, `artifacts_to_keep/`, and the sessions dir, then
+  `exec`s `sshd -D`.
 - `/opt/rp/rec.sh` is the `ForceCommand` transcript wrapper.
 
 ## Visibility: the transcript wrapper
@@ -102,26 +102,19 @@ The base image installs the baseline agent tooling plus two scripts:
 recorded to:
 
 ```bash
-$RP_DASH_DIR/transcript.log
+$RP_SESSION_DIR/transcript.log
 ```
 
 The wrapper records commands, streams stdout/stderr back to the SSH channel, and
 preserves the real command exit status. `sandbox.terminal` reads the transcript
 live from the running sandbox.
 
-## Training observability: centralized MLflow + TensorBoard
+## Training observability: centralized MLflow
 
 Every sandbox installs the MLflow client package and receives the central
-tracking env from the backend. It does not run an MLflow tracking server.
-
-TensorBoard still runs in the sandbox on port `6006`, with
-`--logdir $RP_TB_LOGDIR`.
-
-The TensorBoard port ships as a Modal encrypted tunnel, so the daemon receives
-an HTTPS URL via `sandbox.tunnels()[6006].url`. The dashboard is best-effort: a
-missing package or port collision loses TensorBoard observability for the run,
-never SSH. MLflow is reached through the backend-owned tracking URI in
-`MLFLOW_TRACKING_URI`.
+tracking env through experiment MLflow helpers. It does not run an MLflow
+tracking server, TensorBoard server, or sandbox-local dashboard tunnel.
+Training code logs to the backend-owned tracking URI in `MLFLOW_TRACKING_URI`.
 
 ## Shutdown / status
 

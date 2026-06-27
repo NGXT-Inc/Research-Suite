@@ -31,7 +31,6 @@ from backend.execution.usage_metrics import (
     METRICS_SCRIPT,
     parse_metrics,
 )
-from backend.execution.vm_bootstrap import build_runtime_env
 from ....sandbox.sandbox_backend import BackendUnavailableError, BackendValidationError
 from ...sync_dirs import remote_experiment_dir, remote_root_of, remote_sessions_dir
 from ....sandbox.sandbox_backend import (
@@ -51,11 +50,6 @@ ActivityHook = Callable[[str, dict[str, Any]], None]
 SESSIONS_DIR_NAME = ".research_plugin_sessions"
 TRANSCRIPT_FILENAME = "transcript.log"
 TRANSCRIPT_TAIL_DEFAULT = 50_000
-
-# Observability dashboards. TensorBoard still runs in the sandbox and is
-# surfaced to the user through a Modal encrypted tunnel (HTTPS).
-DASHBOARD_PORTS: Mapping[str, int] = {"tensorboard": 6006}
-TENSORBOARD_PORT = 6006
 
 # The usage sampler script + parser live in backend/execution/usage_metrics.py,
 # shared with the Lambda backend (which runs the same probes over plain SSH).
@@ -85,36 +79,17 @@ if [ -n "${RP_MANAGEMENT_KEY:-}" ]; then
   printf '%s\n' "$RP_MANAGEMENT_KEY" >> /root/.ssh/authorized_keys
 fi
 chmod 600 /root/.ssh/authorized_keys
-# Observability dashboard: TensorBoard on port 6006 serves from the
-# per-experiment sessions dir, which lives OUTSIDE the experiment folder (it is
-# sandbox-authored telemetry, not experiment content). It is launched as a
-# backgrounded process BEFORE `exec sshd` so it is already up by the time the
-# agent's first SSH command lands.
-#
-# Failure to launch is non-fatal: a missing python package or a port collision
-# only loses TensorBoard observability for this run; the sandbox is still
-# usable. Centralized MLflow is reported to agents by the backend.
-RP_DASH_DIR="${RP_DASH_DIR:-/workspace/.research_plugin_sessions/$RP_EXPERIMENT_ID}"
-RP_TB_LOGDIR="$RP_DASH_DIR/tb"
-mkdir -p "$RP_TB_LOGDIR" 2>/dev/null || true
-{
-  cd /tmp
-  nohup python -m tensorboard.main \
-    --host 0.0.0.0 --port 6006 \
-    --logdir "$RP_TB_LOGDIR" \
-    --bind_all \
-    >"$RP_DASH_DIR/tensorboard.log" 2>&1 &
-} || true
 # Persist the session env so the ForceCommand wrapper can read it (sshd does not
 # pass the container environment through to forced commands).
+RP_SESSION_DIR="${RP_SESSION_DIR:-/workspace/.research_plugin_sessions/$RP_EXPERIMENT_ID}"
+mkdir -p "$RP_SESSION_DIR" 2>/dev/null || true
 {
   printf 'RP_WORKDIR=%q\n' "$RP_EXPERIMENT_DIR"
   printf 'RP_EXPERIMENT_DIR=%q\n' "$RP_EXPERIMENT_DIR"
   printf 'RP_EXPERIMENT_ID=%q\n' "$RP_EXPERIMENT_ID"
   printf 'RP_SANDBOX_DATA_DIR=%q\n' "$RP_SANDBOX_DATA_DIR"
   printf 'RP_DATASET_DIR=%q\n' "$RP_SANDBOX_DATA_DIR"
-  printf 'RP_DASH_DIR=%q\n' "$RP_DASH_DIR"
-  printf 'RP_TB_LOGDIR=%q\n' "$RP_TB_LOGDIR"
+  printf 'RP_SESSION_DIR=%q\n' "$RP_SESSION_DIR"
   if [ -n "${HF_TOKEN:-}" ]; then
     printf 'HF_TOKEN=%q\n' "$HF_TOKEN"
     printf 'HUGGING_FACE_HUB_TOKEN=%q\n' "${HUGGING_FACE_HUB_TOKEN:-$HF_TOKEN}"
@@ -147,14 +122,13 @@ RP_WORKDIR="${RP_WORKDIR:-/workspace/$RP_EXPERIMENT_ID}"
 RP_EXPERIMENT_DIR="${RP_EXPERIMENT_DIR:-$RP_WORKDIR}"
 RP_SANDBOX_DATA_DIR="${RP_SANDBOX_DATA_DIR:-/workspace/data}"
 RP_DATASET_DIR="${RP_DATASET_DIR:-$RP_SANDBOX_DATA_DIR}"
-RP_DASH_DIR="${RP_DASH_DIR:-/workspace/.research_plugin_sessions/$RP_EXPERIMENT_ID}"
-RP_TB_LOGDIR="${RP_TB_LOGDIR:-$RP_DASH_DIR/tb}"
+RP_SESSION_DIR="${RP_SESSION_DIR:-/workspace/.research_plugin_sessions/$RP_EXPERIMENT_ID}"
 if [ -n "${HF_TOKEN:-}" ] && [ -z "${HUGGING_FACE_HUB_TOKEN:-}" ]; then
   HUGGING_FACE_HUB_TOKEN="$HF_TOKEN"
 fi
-export RP_WORKDIR RP_EXPERIMENT_DIR RP_EXPERIMENT_ID RP_SANDBOX_DATA_DIR RP_DATASET_DIR HF_TOKEN HUGGING_FACE_HUB_TOKEN RP_DASH_DIR RP_TB_LOGDIR
-mkdir -p "$RP_EXPERIMENT_DIR" "$RP_SANDBOX_DATA_DIR" "$RP_EXPERIMENT_DIR/artifacts_to_keep" "$RP_DASH_DIR" 2>/dev/null || true
-LOG_DIR="$RP_DASH_DIR"
+export RP_WORKDIR RP_EXPERIMENT_DIR RP_EXPERIMENT_ID RP_SANDBOX_DATA_DIR RP_DATASET_DIR HF_TOKEN HUGGING_FACE_HUB_TOKEN RP_SESSION_DIR
+mkdir -p "$RP_EXPERIMENT_DIR" "$RP_SANDBOX_DATA_DIR" "$RP_EXPERIMENT_DIR/artifacts_to_keep" "$RP_SESSION_DIR" 2>/dev/null || true
+LOG_DIR="$RP_SESSION_DIR"
 LOG="$LOG_DIR/transcript.log"
 mkdir -p "$LOG_DIR" 2>/dev/null || true
 ts() { date -u +%Y-%m-%dT%H:%M:%SZ; }
@@ -230,9 +204,6 @@ class ModalSandboxBackend(SandboxBackendBase):
             "timeout": int(request.time_limit),
             "workdir": workdir,
             "unencrypted_ports": [22],
-            # TensorBoard (6006) is served from inside the sandbox over a
-            # HTTPS-fronted Modal tunnel.
-            "encrypted_ports": [TENSORBOARD_PORT],
             "env": env,
             "cpu": request.cpu,
             "memory": int(request.memory),
@@ -268,10 +239,6 @@ class ModalSandboxBackend(SandboxBackendBase):
             _call(on_created, sandbox_id, name or "")
             _call(on_phase, "connecting", "waiting for ssh")
             host, port = self._ssh_endpoint(sandbox=sandbox)
-            # Read the encrypted dashboard tunnels alongside SSH. Failure here is
-            # treated as "no dashboards this run" rather than a fatal acquire
-            # error — the sandbox is still usable, the user just loses TensorBoard.
-            dashboards = self._dashboard_urls(sandbox=sandbox)
         except BaseException:
             try:
                 sandbox.terminate()
@@ -289,7 +256,6 @@ class ModalSandboxBackend(SandboxBackendBase):
             unsynced_dir=sandbox_data_dir,
             sandbox_data_dir=sandbox_data_dir,
             reused=False,
-            dashboards=dashboards,
         )
 
     def find_sandbox_id(
@@ -323,22 +289,6 @@ class ModalSandboxBackend(SandboxBackendBase):
             return maybe_await(poll()) is None
         except Exception:  # noqa: BLE001
             return False
-
-    def dashboard_urls(self, *, sandbox_id: str) -> dict[str, str]:
-        """Best-effort re-read of the encrypted dashboard tunnels for a live sandbox.
-
-        Returns an empty dict if the sandbox is gone, its tunnels can't be read
-        right now, or no dashboard ports were exposed. Used by the registry to
-        recover URLs after a tunnel relocation, the same way refresh_ssh_endpoint
-        recovers the SSH host/port.
-        """
-        if not sandbox_id:
-            return {}
-        try:
-            sandbox = self._sandbox_from_id(sandbox_id)
-            return self._dashboard_urls(sandbox=sandbox)
-        except Exception:  # noqa: BLE001 — caller treats empty as "couldn't refresh"
-            return {}
 
     def refresh_ssh_endpoint(self, *, sandbox_id: str) -> tuple[str, int] | None:
         """Re-read the live SSH tunnel endpoint for an existing sandbox.
@@ -537,7 +487,7 @@ class ModalSandboxBackend(SandboxBackendBase):
             "RP_WORKDIR": workdir,
             "RP_EXPERIMENT_DIR": workdir,
             "RP_SANDBOX_DATA_DIR": sandbox_data_dir,
-            "RP_DASH_DIR": remote_sessions_dir(
+            "RP_SESSION_DIR": remote_sessions_dir(
                 experiment_id=experiment_id, root=remote_root_of(workdir)
             ),
         }
@@ -574,36 +524,6 @@ class ModalSandboxBackend(SandboxBackendBase):
         except Exception as exc:  # noqa: BLE001
             raise BackendUnavailableError(f"Modal SSH tunnel is unavailable: {exc}") from exc
 
-    def _dashboard_urls(self, *, sandbox: Any) -> dict[str, str]:
-        """Read the encrypted tunnel URLs for the dashboard ports.
-
-        Modal tunnels for ``encrypted_ports`` expose a ``.url`` attribute that
-        is the public HTTPS URL routed to that in-container port. A missing
-        port (older Modal version, port not actually requested, etc.) is
-        silently skipped — the registry treats missing keys as "this dashboard
-        wasn't exposed for this sandbox" and the UI hides the tab.
-        """
-        get_tunnels = getattr(sandbox, "tunnels", None)
-        if not callable(get_tunnels):
-            return {}
-        try:
-            tunnels = maybe_await(get_tunnels())
-        except Exception:  # noqa: BLE001 — best-effort
-            return {}
-        result: dict[str, str] = {}
-        for name, port in DASHBOARD_PORTS.items():
-            tunnel = None
-            try:
-                tunnel = tunnels.get(port) if hasattr(tunnels, "get") else tunnels[port]
-            except (KeyError, Exception):  # noqa: BLE001
-                tunnel = None
-            if tunnel is None:
-                continue
-            url = getattr(tunnel, "url", None)
-            if isinstance(url, str) and url.startswith(("http://", "https://")):
-                result[name] = url
-        return result
-
     def _sandbox_from_id(self, sandbox_id: str) -> Any:
         modal = self._modal_module()
         return modal.Sandbox.from_id(sandbox_id)
@@ -630,7 +550,7 @@ class ModalSandboxBackend(SandboxBackendBase):
                 if self._base_image is None:
                     modal = self._modal_module()
                     self._base_image = self._with_ssh(
-                        self._with_observability(
+                        self._with_mlflow_client(
                             modal.Image.debian_slim(python_version="3.11")
                             .apt_install(*MODAL_APT_PACKAGES)
                             .pip_install("uv")
@@ -650,7 +570,7 @@ class ModalSandboxBackend(SandboxBackendBase):
                 if self._cuda_image is None:
                     modal = self._modal_module()
                     self._cuda_image = self._with_ssh(
-                        self._with_observability(
+                        self._with_mlflow_client(
                             modal.Image.from_registry(
                                 "nvidia/cuda:12.1.1-devel-ubuntu22.04",
                                 add_python="3.11",
@@ -667,16 +587,10 @@ class ModalSandboxBackend(SandboxBackendBase):
                     )
         return self._cuda_image
 
-    def _with_observability(self, image: Any) -> Any:
-        """Layer in the MLflow client and TensorBoard server used by the boot script.
-
-        Kept as its own layer below the heavy torch install so iterating on
-        observability versions doesn't invalidate the multi-GB torch+CUDA
-        layer above. Pins are conservative — major versions known to be
-        backward-compatible with the boot script's CLI flags.
-        """
+    def _with_mlflow_client(self, image: Any) -> Any:
+        """Layer in the MLflow client used with the centralized tracking URL."""
         return image.run_commands(
-            "uv pip install --system mlflow==2.18.0 tensorboard==2.18.0",
+            "uv pip install --system mlflow==2.18.0",
         )
 
     def _with_ssh(self, image: Any) -> Any:

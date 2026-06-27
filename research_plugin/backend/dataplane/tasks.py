@@ -2,7 +2,7 @@
 
 Every "control plane signals the data plane" flow is a task: the control plane
 enqueues, the data plane executes and acks. The channel only handles local
-conn/dashboard maintenance; sandbox file movement is explicit SSH work by the
+connection-file maintenance; sandbox file movement is explicit SSH work by the
 agent.
 """
 
@@ -15,7 +15,7 @@ from ..utils import ValidationError, new_id
 
 if TYPE_CHECKING:
     # Typing-only: a runtime import would load the local worker stack
-    # (workspace, dashboard tunnels) and break import-time separation for
+    # (workspace, keys, conn files) and break import-time separation for
     # `backend.dataplane` as an entry point.
     from .worker import DataPlaneWorker
 
@@ -94,11 +94,6 @@ class InProcessTaskChannel:
                 ),
             )
         if task.type == "teardown":
-            # sandbox_id is None when the row itself was missing: skip tunnel
-            # teardown but still drop the conn file (pre-channel behavior).
-            sandbox_id = payload.get("sandbox_id")
-            if sandbox_id is not None:
-                self.worker.stop_dashboards(sandbox_id=str(sandbox_id))
             self.worker.remove_conn_file(
                 experiment_id=str(payload["experiment_id"]),
                 sandbox_uid=str(payload.get("sandbox_uid") or ""),

@@ -5,7 +5,7 @@ active sandbox↔experiment attachment table, and the sandbox event stream. It
 knows nothing about backends, threads, tunnels, or rsync — callers hand it row
 dicts and field updates. The one outward edge is ``on_terminal``: a hook the
 facade wires so that marking a row failed or terminated also tears down the
-row's runtime attachments (dashboard tunnels, conn files) without the registry
+row's runtime attachments (conn files, management keys) without the registry
 knowing what those are.
 """
 

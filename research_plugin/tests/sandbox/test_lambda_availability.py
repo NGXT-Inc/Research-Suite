@@ -19,7 +19,7 @@ from backend.execution.backends.lambda_labs.sandbox_backend import (
     _sandbox_name,
 )
 from backend.execution.backends.lambda_labs.config import LambdaSandboxConfig
-from backend.execution.vm_bootstrap import DASHBOARD_SCRIPT, MGMT_SSH_USER, REC_SCRIPT
+from backend.execution.vm_bootstrap import MGMT_SSH_USER, REC_SCRIPT
 from backend.execution.vm_ssh import TRANSCRIPT_TAIL_DEFAULT
 from backend.sandbox.sandbox_backend import BackendUnavailableError, BackendValidationError
 from backend.sandbox.sandbox_backend import SandboxRequest
@@ -227,16 +227,9 @@ class LambdaAvailabilityTest(unittest.TestCase):
             "python3 -m pip install --break-system-packages --ignore-installed mlflow==2.18.0",
             user_data,
         )
-        self.assertIn(
-            "python3 -c 'import tensorboard' >/dev/null 2>&1 || "
-            "python3 -m pip install --break-system-packages --ignore-installed tensorboard",
-            user_data,
-        )
-        self.assertNotIn("tensorboard==", user_data)
+        self.assertNotIn("tensorboard", user_data.lower())
         self.assertIn("install_with_uv_or_pip torch torchvision torchaudio", user_data)
-        # Dashboards must start as the SSH login user, never root: root-owned
-        # pids/logs in the sessions dir break the ubuntu-user rsync pull.
-        self.assertIn("sudo -u ubuntu /opt/rp/start_dashboards.sh", user_data)
+        self.assertNotIn("start_dashboards.sh", user_data)
 
     def test_lambda_sandbox_name_is_lambda_hostname_safe(self) -> None:
         self.assertEqual(
@@ -281,27 +274,12 @@ class LambdaAvailabilityTest(unittest.TestCase):
         self.assertIn("RP_WORKDIR=/workspace/exp1", user_data)
         self.assertIn("RP_EXPERIMENT_DIR=/workspace/exp1", user_data)
         self.assertIn("RP_SANDBOX_DATA_DIR=/workspace/data", user_data)
-        self.assertIn("RP_DASH_DIR=/workspace/.research_plugin_sessions/exp1", user_data)
+        self.assertIn("RP_SESSION_DIR=/workspace/.research_plugin_sessions/exp1", user_data)
         self.assertNotIn("MLFLOW_TRACKING_URI", user_data)
         self.assertNotIn("MLFLOW_EXPERIMENT_NAME", user_data)
         self.assertNotIn("export MLFLOW_TRACKING_URI", REC_SCRIPT)
-        self.assertIn("start_dashboards.sh", user_data)
-        self.assertIn("/opt/rp/start_dashboards.sh || true", user_data)
-
-    def test_lambda_backend_advertises_local_dashboard_ports(self) -> None:
-        backend = LambdaLabsSandboxBackend()
-        self.assertEqual(
-            backend.local_dashboard_ports(),
-            {"tensorboard": 6006},
-        )
-
-    def test_lambda_dashboard_script_starts_tensorboard_only(self) -> None:
-        self.assertNotIn("python3 -m mlflow server", DASHBOARD_SCRIPT)
-        self.assertNotIn("--host 127.0.0.1 --port 5000", DASHBOARD_SCRIPT)
-        self.assertNotIn("backend-store-uri", DASHBOARD_SCRIPT)
-        self.assertNotIn("mlflow is not importable yet", DASHBOARD_SCRIPT)
-        self.assertIn("python3 -m tensorboard.main", DASHBOARD_SCRIPT)
-        self.assertIn("--host 127.0.0.1 --port 6006", DASHBOARD_SCRIPT)
+        self.assertNotIn("start_dashboards.sh", user_data)
+        self.assertNotIn("RP_TB_LOGDIR", user_data)
 
     def test_build_sandbox_backend_accepts_lambda_labs_name(self) -> None:
         with patch.dict(

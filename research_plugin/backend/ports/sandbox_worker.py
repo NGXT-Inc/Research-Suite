@@ -3,19 +3,11 @@
 from __future__ import annotations
 
 from pathlib import Path
-from typing import Any, Callable, Protocol
+from typing import Any, Protocol
 
 
 class SandboxWorker(Protocol):
     """Local sandbox duties the services call through the data-plane seam."""
-
-    def set_event_sink(self, emit_event: Callable[..., None]) -> None: ...
-
-    def ensure_local_dashboards(self, *, row: dict[str, Any]) -> dict[str, Any]: ...
-
-    def merge_local_dashboards(self, *, row: dict[str, Any]) -> dict[str, Any]: ...
-
-    def stop_dashboards(self, *, sandbox_id: str = "") -> None: ...
 
     def repo_relative(self, path: str | Path) -> str: ...
 

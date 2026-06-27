@@ -190,11 +190,7 @@ class ResearchPluginHttpApiTest(unittest.TestCase):
         sandbox = self.request("GET", f"/api/projects/{project_id}/experiments/{exp_id}/sandbox")
         self.assertEqual(sandbox["status"], "running")
         self.assertTrue(sandbox["sandbox_id"])
-        # The HTTP row carries provider dashboard URLs. TensorBoard remains a
-        # sandbox dashboard; centralized MLflow is experiment tracking context.
-        self.assertIn("dashboards", sandbox)
-        self.assertIn("tensorboard", sandbox["dashboards"])
-        self.assertNotIn("mlflow", sandbox["dashboards"])
+        self.assertNotIn("dashboards", sandbox)
 
         listed = self.request("GET", f"/api/projects/{project_id}/sandboxes")["sandboxes"]
         self.assertEqual(len(listed), 1)

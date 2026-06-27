@@ -818,7 +818,6 @@ for name in (
     "backend.workspace",
     "backend.dataplane.worker",
 	    "backend.dataplane.metrics_archive",
-	    "backend.dataplane.sandbox_dashboards",
 	    "backend.dataplane.sandbox_conn",
 	    "backend.services.sandbox_conn",
     "backend.state.mgmt_keys",

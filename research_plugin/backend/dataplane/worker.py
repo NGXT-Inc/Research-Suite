@@ -1,8 +1,8 @@
 """The DataPlaneWorker interface and its local-mode implementation.
 
 Every local-IO duty of the sandbox stack routes through this seam: workspace
-folders, SSH keypairs and conn files, dashboard tunnels, and the legacy pulled-
-``mlflow.db`` metrics fallback.
+folders, SSH keypairs and conn files, and the legacy pulled-``mlflow.db``
+metrics fallback.
 Control-plane code (registry, provisioner, facade verbs) calls the interface;
 ``LocalDataPlaneWorker`` binds it to this machine by wrapping the existing
 machinery. In split mode the same duties become the daemon's task loop
@@ -12,17 +12,15 @@ SSH credentials directly to copy out anything it wants to keep before release.
 Since plan Phase 5's management-key switch, ``read_transcript`` and
 ``sample_metrics`` are control-plane duties authenticated by the per-sandbox
 management key; the worker-held user key is data-plane-only (the sbx
-dispatcher and dashboard tunnels).
+dispatcher and copy-out workflows).
 """
 
 from __future__ import annotations
 
 from pathlib import Path
-from typing import Any, Callable, Protocol
+from typing import Any, Protocol
 
-from ..sandbox.sandbox_backend import SandboxBackend
 from .metrics_archive import MetricsArchive, snapshot_mlflow_db
-from .sandbox_dashboards import DashboardTunnels
 from ..sandbox.sandbox_support import ACTIVE_SANDBOX_STATUSES
 from ..workspace import LocalWorkspace
 from .sandbox_conn import SandboxConnFiles
@@ -63,12 +61,6 @@ class DataPlaneWorker(Protocol):
         use_sandbox_uid_command: bool = True,
     ) -> dict[str, Any]: ...
 
-    def ensure_local_dashboards(self, *, row: dict[str, Any]) -> dict[str, Any]: ...
-
-    def merge_local_dashboards(self, *, row: dict[str, Any]) -> dict[str, Any]: ...
-
-    def stop_dashboards(self, *, sandbox_id: str = "") -> None: ...
-
     def pulled_mlflow_db_path(self, *, experiment_id: str, name: str = "") -> Path: ...
 
     def capture_metrics_fallback(
@@ -79,23 +71,19 @@ class DataPlaneWorker(Protocol):
         self, *, row: dict[str, Any], name: str = ""
     ) -> dict[str, Any] | None: ...
 
-    def set_event_sink(self, emit_event: Callable[..., None]) -> None: ...
-
 
 class LocalDataPlaneWorker:
     """Local-mode worker: today's sandbox IO machinery behind the seam.
 
-    Wraps ``SandboxConnFiles`` (keys, dispatcher, conn files),
-    ``DashboardTunnels`` (ssh -L pool), and ``MetricsArchive``; machine-local
-    sandbox facts (key path, local folder, loopback dashboard URLs) persist in
-    ``SandboxLocalState``, never in cloud-bound rows.
+    Wraps ``SandboxConnFiles`` (keys, dispatcher, conn files) and
+    ``MetricsArchive``; machine-local sandbox facts (key path, local folder)
+    persist in ``SandboxLocalState``, never in cloud-bound rows.
     """
 
     def __init__(
         self,
         *,
         workspace: LocalWorkspace,
-        backend: SandboxBackend,
     ) -> None:
         self.workspace = workspace
         keys_dir = workspace.research_dir / "sandboxes" / "keys"
@@ -104,11 +92,6 @@ class LocalDataPlaneWorker:
             db_path=workspace.research_dir / "dataplane_state.sqlite"
         )
         self.metrics_archive = MetricsArchive(repo_root=workspace.repo_root)
-        self.dashboards = DashboardTunnels(
-            backend=backend,
-            key_path=self.key_path,
-            local_state=self.state,
-        )
     # ---------- identity ----------
 
     def client_id(self) -> str:
@@ -208,17 +191,6 @@ class LocalDataPlaneWorker:
             ),
         }
 
-    # ---------- dashboards ----------
-
-    def ensure_local_dashboards(self, *, row: dict[str, Any]) -> dict[str, Any]:
-        return self.dashboards.ensure_local(row=row)
-
-    def merge_local_dashboards(self, *, row: dict[str, Any]) -> dict[str, Any]:
-        return self.dashboards.merged_row(row=row)
-
-    def stop_dashboards(self, *, sandbox_id: str = "") -> None:
-        self.dashboards.stop(sandbox_id=sandbox_id)
-
     # ---------- pulled-metrics fallback ----------
 
     def pulled_mlflow_db_path(self, *, experiment_id: str, name: str = "") -> Path:
@@ -268,13 +240,3 @@ class LocalDataPlaneWorker:
             return portable
         portable["extracted_from"] = self.repo_relative(extracted_from)
         return portable
-
-    # ---------- record-sink wiring ----------
-
-    def set_event_sink(self, emit_event: Callable[..., None]) -> None:
-        """Bind the control-plane event recorder (registry.emit_event).
-
-        Data-plane work that deserves a record (a dashboard tunnel came up)
-        reports through this hook; Phase 4's task channel formalizes it.
-        """
-        self.dashboards.emit_event = emit_event

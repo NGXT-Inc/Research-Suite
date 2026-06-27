@@ -65,7 +65,7 @@ class RecScriptHarness(unittest.TestCase):
             RP_WORKDIR=str(self.workdir),
             RP_EXPERIMENT_DIR=str(self.workdir),
             RP_SANDBOX_DATA_DIR=str(self.data_dir),
-            RP_DASH_DIR=str(self.sessions),
+            RP_SESSION_DIR=str(self.sessions),
             RP_EXPERIMENT_ID="exp_t",
         )
         if path is not None:

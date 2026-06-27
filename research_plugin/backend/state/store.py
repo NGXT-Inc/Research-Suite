@@ -359,11 +359,6 @@ CREATE TABLE IF NOT EXISTS sandboxes (
   -- sandbox. A key-store reference (the sandbox_uid) — never key material.
   mgmt_key_ref TEXT NOT NULL DEFAULT '',
   volume_name TEXT NOT NULL DEFAULT '',
-  -- Sandbox-local observability dashboards (currently TensorBoard at 6006),
-  -- surfaced to the user as provider URLs (Modal HTTPS tunnels) or
-  -- daemon-owned local SSH forwards (Lambda Labs). Centralized MLflow is not
-  -- stored here. JSON object keyed by dashboard name; '{}' when none exposed.
-  dashboards_json TEXT NOT NULL DEFAULT '{}',
   sandbox_name TEXT NOT NULL DEFAULT '',
   phase TEXT NOT NULL DEFAULT '',
   detail TEXT NOT NULL DEFAULT '',
@@ -1026,10 +1021,6 @@ class StateStore(BaseStateStore):
                 "sandbox_data_dir": "TEXT NOT NULL DEFAULT ''",
                 "sync_dir": "TEXT NOT NULL DEFAULT ''",
                 "unsynced_dir": "TEXT NOT NULL DEFAULT ''",
-                # Sandbox-local observability dashboards (currently TensorBoard)
-                # surfaced through provider URLs or daemon-owned local SSH
-                # forwards. Centralized MLflow is exposed separately.
-                "dashboards_json": "TEXT NOT NULL DEFAULT '{}'",
                 # Lambda-default (June 2026): provider-bundled machine SKU +
                 # datacenter for backends that procure a fixed instance type.
                 "instance_type": "TEXT NOT NULL DEFAULT ''",
