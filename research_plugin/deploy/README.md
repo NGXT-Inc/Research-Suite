@@ -113,7 +113,22 @@ app and route it at the ingress layer instead of opening port `5000` publicly:
 
 ```caddy
 backend.example.com {
-  handle_path /mlflow* {
+  handle /mlflow/health {
+    uri strip_prefix /mlflow
+    reverse_proxy 127.0.0.1:5000
+  }
+
+  handle /mlflow/api/* {
+    uri strip_prefix /mlflow
+    reverse_proxy 127.0.0.1:5000
+  }
+
+  handle /mlflow/ajax-api/* {
+    uri strip_prefix /mlflow
+    reverse_proxy 127.0.0.1:5000
+  }
+
+  handle /mlflow* {
     reverse_proxy 127.0.0.1:5000
   }
 
@@ -122,6 +137,11 @@ backend.example.com {
   }
 }
 ```
+
+This split is intentional: MLflow's tracking and artifact APIs stay mounted at
+the server root, so ingress strips `/mlflow` for API routes. The MLflow UI is
+served under the static prefix, so ingress preserves `/mlflow` for UI/static
+routes.
 
 ## What this stack does NOT do (documented seams)
 

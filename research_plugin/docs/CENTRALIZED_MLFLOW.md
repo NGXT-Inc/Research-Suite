@@ -51,7 +51,8 @@ https://backend.example.com         -> control
 
 When using this path layout, set `RESEARCH_PLUGIN_MLFLOW_STATIC_PREFIX=/mlflow`
 for the MLflow container so the UI and static assets are generated under the
-same prefix.
+same prefix. At the ingress layer, strip `/mlflow` only for MLflow API routes
+such as `/mlflow/api/*` and preserve `/mlflow` for the UI/static routes.
 
 The compose stack starts:
 
