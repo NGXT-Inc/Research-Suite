@@ -472,25 +472,28 @@ GET  /api/projects/{project_id}/experiments/{experiment_id}/sandbox
 GET  /api/projects/{project_id}/experiments/{experiment_id}/sandbox/metrics
 GET  /api/projects/{project_id}/experiments/{experiment_id}/sandbox/terminal?tail=50000
 GET  /api/projects/{project_id}/experiments/{experiment_id}/results/metrics
+GET  /api/projects/{project_id}/mlflow
 POST /api/projects/{project_id}/experiments/{experiment_id}/sandbox/release
 ```
 
-### Archived results metrics (outlive the VM)
+### MLflow results metrics view
 
-MLflow tracking is backend-owned. The backend archives a compact structured
-snapshot of the centralized MLflow experiment (runs → params, final metric
-values, and downsampled per-metric history) before release/reap.
-For older sandbox-local runs, the pulled `mlflow.db` fallback remains readable.
+MLflow tracking is backend-owned and is the quantitative ledger. The plugin
+does not own a second durable copy of MLflow. `GET .../results/metrics` is a
+compact compatibility view over the centralized MLflow experiment: runs, params,
+final metric values, and downsampled per-metric history.
 
-`GET .../results/metrics` serves that archive at any time, including long after
-the sandbox is terminated:
+Agents should prefer direct MLflow programmatic access for serious read, sort,
+filter, comparison, metric-history, and artifact-download work. This endpoint
+exists for UI panels and lightweight summaries.
+
+`GET .../results/metrics` returns the current bounded view when MLflow is
+configured and reachable:
 
 ```json
 {
   "experiment_id": "exp_...",
   "available": true,
-  "sandbox_status": "terminated",
-  "captured_at": "2026-06-11T01:23:45+00:00",
   "source": "mlflow",
   "experiments": [
     {
@@ -510,11 +513,15 @@ the sandbox is terminated:
 }
 ```
 
-`available: false` (with a `hint`) means nothing was captured yet — no MLflow
-runs existed, MLflow was unavailable, or the sandbox predates archiving.
-`history` arrays are
-`[step, value]` pairs downsampled to ≤1000 points; `metrics.*.last` is always
-the exact final value. Non-finite values (NaN/Inf) are stored as `null`.
+`available: false` with a `hint` means no matching MLflow runs were found, MLflow
+is not configured, or MLflow is unavailable. `history` arrays are `[step, value]`
+pairs downsampled to at most 1000 points; `metrics.*.last` is the latest value
+reported by MLflow. Non-finite values (NaN/Inf) are returned as `null`.
+
+`GET /api/projects/{project_id}/mlflow` returns the MLflow health/context block
+plus one compact metrics view per plugin experiment, with dashboard deep links
+when the MLflow experiment id can be resolved. It is a project-scoped navigation
+page for humans, not the primary agent query surface.
 
 A sandbox row looks like:
 
