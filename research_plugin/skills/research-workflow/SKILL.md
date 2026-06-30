@@ -138,27 +138,58 @@ Do not reconstruct workflow state from memory.
 For quantitative ML work — training, evaluation, sweeps, ablations, or any run
 where metrics drive the conclusion — use MLflow for params, metrics, and
 artifacts, and save compact plot/table evidence under the experiment folder.
-Before a sandbox or local run, call `experiment.mlflow` or use the `mlflow`
-block returned by `experiment.transition(start_running)`:
+Do not require MLflow for qualitative experiments, literature work, code-only
+probes, or planning tasks.
+Before a sandbox or local run, call `mlflow.context` with `experiment_id` or use
+the `mlflow` block returned by `experiment.transition(start_running)`:
 
 ```sh
-export MLFLOW_TRACKING_URI="<from experiment.mlflow.env>"
-export MLFLOW_EXPERIMENT_NAME="<from experiment.mlflow.env>"
+export MLFLOW_TRACKING_URI="<from mlflow.context.env>"
+export MLFLOW_EXPERIMENT_NAME="<from mlflow.context.env>"
 mkdir -p "$RP_EXPERIMENT_DIR"/results "$RP_EXPERIMENT_DIR"/figures
 ```
 
-For local non-sandbox runs, call `experiment.mlflow` to get the central tracking
-URI, the `rp/<project>/<experiment>` name, and the env vars, then set them in
-the shell command that runs training. A missing `MLFLOW_TRACKING_URI` in your
-current shell is not evidence that the backend lacks MLflow; fetch it with
-`experiment.mlflow`. Do not create a file-backed local MLflow store just
-because the shell env is empty. `experiment.transition` to `start_running`
-also returns that `mlflow` block. To review or compare runs across experiments,
-call `mlflow.traces` (pass `experiment_id` for one experiment's full curves),
-then plot the comparison yourself — a labeled figure you can analyze and post
-to the feed. Do not create a file-backed local MLflow store as the default
-tracking path for Research Plugin experiments. If MLflow is unavailable, say so
-in the report and still save compact result files.
+For local non-sandbox runs, call `mlflow.context` to get the central tracking
+URI. Omit `experiment_id` when you need project-level navigation context and the
+plugin experiment-to-MLflow-name map; include `experiment_id` when you need the
+exact `rp/<project>/<experiment>` name and env vars for a run. A missing
+`MLFLOW_TRACKING_URI` in your current shell is not evidence that the backend
+lacks MLflow; fetch it with `mlflow.context`. Do not create a file-backed local
+MLflow store just because the shell env is empty. `experiment.transition` to
+`start_running` also returns that experiment-scoped `mlflow` block. To review or
+compare runs, use MLflow's own programmatic APIs directly from the returned URI
+and experiment names, e.g. `mlflow.set_tracking_uri(...)`,
+`MlflowClient.search_runs(...)`, `MlflowClient.get_metric_history(...)`,
+`MlflowClient.list_artifacts(...)`, and `MlflowClient.download_artifacts(...)`.
+Plot comparisons yourself from those queries — a labeled figure you can analyze
+and post to the feed. Do not create a file-backed local MLflow store as the
+default tracking path for Research Plugin experiments. If MLflow is unavailable,
+say so in the report and still save compact result files.
+
+For quantitative runs, keep the MLflow run identity lightweight. Log
+`project_id`, `experiment_id`, and a short `run_purpose` / run group. If there is
+a clear primary metric, also log `primary_metric` and `primary_metric_direction`.
+Do not add git metadata or claim ids as a default MLflow requirement; claims are
+traceable through the plugin experiment record, and git/data lineage can be added
+later when the project explicitly needs it. Optional dataset or config notes are
+fine when they are obvious and useful, but do not block the run on dataset
+digests, dataset versioning, or config hashes.
+
+Example MLflow identity pattern for a quantitative run:
+
+```python
+import os
+import mlflow
+
+run_purpose = "seed_0_baseline"
+
+with mlflow.start_run(run_name=run_purpose):
+    mlflow.set_tag("project_id", os.environ["RP_PROJECT_ID"])
+    mlflow.set_tag("experiment_id", os.environ["RP_EXPERIMENT_ID"])
+    mlflow.set_tag("run_purpose", run_purpose)
+    mlflow.set_tag("primary_metric", "validation_accuracy")
+    mlflow.set_tag("primary_metric_direction", "max")
+```
 
 Do not make tracking stores the only submitted result. Save compact evidence
 under the experiment folder, especially `results/*.json`, `results/*.csv`, and
@@ -193,7 +224,7 @@ Keep durable scripts, configs, notes, compact outputs, report figures/tables,
 and deliberate final artifacts under `$RP_EXPERIMENT_DIR` so you can copy them
 off deliberately before release.
 
-Use the centralized MLflow env from `experiment.mlflow` /
+Use the centralized MLflow env from `mlflow.context` /
 `experiment.transition(start_running)` inside the SSH command that performs the
 run. Sandbox provisioning does not automatically export MLflow env vars, and
 sandbox responses are not the source of truth for tracking configuration. Save

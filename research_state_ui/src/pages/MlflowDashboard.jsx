@@ -20,8 +20,8 @@ function seriesValues(points) {
 
 /**
  * MlflowDashboard — the project-scoped MLflow page. The central tracking server
- * spans every project and can't be URL-filtered, so we render this project's
- * runs + metric curves natively (from the durable metrics archive) and offer a
+ * spans every project and can't be URL-filtered, so we render a compact
+ * project view from the backend's MLflow UI compatibility endpoint and offer a
  * per-experiment drill-in that embeds the real MLflow UI for full detail.
  */
 export default function MlflowDashboard() {

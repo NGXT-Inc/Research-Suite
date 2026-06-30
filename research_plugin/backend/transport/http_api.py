@@ -655,10 +655,12 @@ class ResearchHttpApi:
         )
 
     def mlflow_overview_view(self, *, project_id: str) -> dict[str, Any]:
-        """Project-wide MLflow: the central endpoint plus every experiment's
-        runs and metric curves, each with a deep link into the embedded MLflow
-        UI. Powers the dedicated, project-scoped MLflow page (the central
-        dashboard can't be URL-filtered to one project, so we scope it here)."""
+        """Project-wide MLflow context for the UI.
+
+        Agents should use mlflow.context and MLflow's native APIs for
+        analysis. This view keeps the project-scoped dashboard operational when
+        the central MLflow UI spans multiple projects.
+        """
         health = self.app.mlflow_tracking.health()
         dashboard_url = str(health.get("dashboard_url") or "").rstrip("/")
         experiments = self.app.experiments.list_experiments(project_id=project_id)["experiments"]

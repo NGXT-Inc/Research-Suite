@@ -5,6 +5,7 @@ from __future__ import annotations
 from collections.abc import Callable
 from typing import Any
 
+from ..mlflow import mlflow_experiment_name
 from ..services.experiment_views import slim_experiment_state
 
 
@@ -38,6 +39,30 @@ def _mlflow_connection(
     return mlflow_tracking.context(project_id=project_id, experiment_id=experiment_id).to_dict()
 
 
+def _mlflow_project_connection(
+    *, mlflow_tracking: Any, project_id: str, experiments: Any
+) -> dict[str, Any]:
+    """Project-level MLflow connection and namespace map for direct API reads."""
+    if mlflow_tracking is None or not project_id:
+        return {"configured": False}
+    block = dict(mlflow_tracking.project_context(project_id=project_id))
+    listed = experiments.list_experiments(project_id=project_id)["experiments"]
+    block["experiments"] = [
+        {
+            "experiment_id": exp.get("id"),
+            "name": exp.get("name") or exp.get("id"),
+            "status": exp.get("status") or "",
+            "intent": exp.get("intent") or "",
+            "mlflow_experiment_name": mlflow_experiment_name(
+                project_id=project_id, experiment_id=str(exp.get("id") or "")
+            ),
+        }
+        for exp in listed
+        if exp.get("id")
+    ]
+    return block
+
+
 def _mlflow_guidance(block: dict[str, Any]) -> str:
     if not block.get("configured"):
         note = str(block.get("note") or "").strip()
@@ -47,28 +72,36 @@ def _mlflow_guidance(block: dict[str, Any]) -> str:
             "If you run a quantitative experiment, log it to MLflow — but no "
             "central MLflow tracking URI is configured on this backend yet."
         )
+    if block.get("experiment_name"):
+        return (
+            "For this quantitative experiment, set the variables in mlflow.env "
+            "(MLFLOW_TRACKING_URI, MLFLOW_EXPERIMENT_NAME, …), then log params, "
+            "metrics, artifacts, and required tags to the centralized server. "
+            "Use MLflow's native APIs for reads and comparisons."
+        )
     return (
-        "If you run a quantitative experiment, use MLflow: log params, metrics, "
-        "and artifacts to the centralized server. Set the variables in mlflow.env "
-        "(MLFLOW_TRACKING_URI, MLFLOW_EXPERIMENT_NAME, …) before the run, or use "
-        "mlflow.autolog()."
+        "Use MLflow's native APIs with mlflow.env.MLFLOW_TRACKING_URI to browse "
+        "quantitative runs. Search experiment names under "
+        f"{block.get('experiment_namespace_prefix') or 'the project namespace'} "
+        "or use mlflow.experiments as the plugin experiment-to-MLflow-name map."
     )
 
 
-def _trace_run(run: dict[str, Any], *, with_history: bool) -> dict[str, Any]:
-    """One run reduced to what the agent needs to reason about / plot: params,
-    final metric values, and (optionally) the downsampled metric curves."""
-    metrics = run.get("metrics") or {}
-    out: dict[str, Any] = {
-        "run_id": run.get("run_id"),
-        "run_name": run.get("run_name"),
-        "status": run.get("status"),
-        "params": run.get("params") or {},
-        "metrics": {k: v.get("last") for k, v in metrics.items() if isinstance(v, dict)},
+def _mlflow_context_response(
+    *,
+    project_id: str,
+    experiment_id: str | None,
+    mlflow: dict[str, Any],
+) -> dict[str, Any]:
+    result: dict[str, Any] = {
+        "project_id": project_id,
+        "scope": "experiment" if experiment_id else "project",
+        "mlflow": mlflow,
+        "guidance": _mlflow_guidance(mlflow),
     }
-    if with_history:
-        out["history"] = run.get("history") or {}
-    return out
+    if experiment_id:
+        result["experiment_id"] = experiment_id
+    return result
 
 
 def build_control_tool_handlers(
@@ -131,61 +164,32 @@ def build_control_tool_handlers(
             result["mlflow_guidance"] = _mlflow_guidance(block)
         return result
 
-    def experiment_mlflow_agent(
-        *, experiment_id: str, project_id: str | None = None
+    def mlflow_context_agent(
+        *, project_id: str, experiment_id: str | None = None
     ) -> dict[str, Any]:
+        if not experiment_id:
+            block = _mlflow_project_connection(
+                mlflow_tracking=mlflow_tracking,
+                project_id=project_id,
+                experiments=experiments,
+            )
+            return _mlflow_context_response(
+                project_id=project_id,
+                experiment_id=None,
+                mlflow=block,
+            )
         state = experiments.get_state(experiment_id=experiment_id, project_id=project_id)
+        resolved_project_id = str(state.get("project_id") or project_id or "")
         block = _mlflow_connection(
             mlflow_tracking=mlflow_tracking,
-            project_id=str(state.get("project_id") or project_id or ""),
+            project_id=resolved_project_id,
             experiment_id=experiment_id,
         )
-        return {
-            "experiment_id": experiment_id,
-            "mlflow": block,
-            "guidance": _mlflow_guidance(block),
-        }
-
-    def mlflow_traces_agent(
-        *,
-        project_id: str | None = None,
-        experiment_id: str | None = None,
-        include_history: bool | None = None,
-    ) -> dict[str, Any]:
-        with_history = bool(experiment_id) if include_history is None else bool(include_history)
-        if experiment_id:
-            state = experiments.get_state(experiment_id=experiment_id, project_id=project_id)
-            pid = state.get("project_id") or project_id
-            targets = [(experiment_id, state.get("name") or experiment_id, state.get("status") or "")]
-        else:
-            pid = project_id
-            listed = experiments.list_experiments(project_id=project_id)["experiments"]
-            targets = [(e["id"], e.get("name") or e["id"], e.get("status") or "") for e in listed]
-        out = []
-        for eid, name, status in targets:
-            data = (
-                mlflow_tracking.results_metrics(project_id=str(pid or ""), experiment_id=eid)
-                if mlflow_tracking is not None and pid
-                else {
-                    "experiment_id": eid,
-                    "available": False,
-                    "source": "mlflow",
-                    "hint": "Centralized MLflow is not configured.",
-                }
-            )
-            runs = [
-                _trace_run(run, with_history=with_history)
-                for captured in (data.get("experiments") or [])
-                for run in (captured.get("runs") or [])
-            ]
-            out.append({
-                "experiment_id": eid,
-                "name": name,
-                "status": status,
-                "available": bool(data.get("available")),
-                "runs": runs,
-            })
-        return {"experiments": out, "include_history": with_history}
+        return _mlflow_context_response(
+            project_id=resolved_project_id,
+            experiment_id=experiment_id,
+            mlflow=block,
+        )
 
     handlers = {
         "workflow.status_and_next": workflow.status_and_next_agent,
@@ -201,8 +205,7 @@ def build_control_tool_handlers(
         "experiment.list": experiment_list_agent,
         "experiment.get_state": experiment_get_state_agent,
         "experiment.transition": experiment_transition_agent,
-        "experiment.mlflow": experiment_mlflow_agent,
-        "mlflow.traces": mlflow_traces_agent,
+        "mlflow.context": mlflow_context_agent,
         "reflection.create": reflections.create,
         "reflection.get": reflections.get,
         "reflection.list": reflections.list,

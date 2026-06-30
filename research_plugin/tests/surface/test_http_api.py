@@ -381,14 +381,28 @@ class ResearchPluginHttpApiTest(unittest.TestCase):
         self.assertEqual(transitioned["mlflow"]["env"]["MLFLOW_TRACKING_URI"], "https://mlflow.test")
         self.assertIn("MLflow", transitioned["mlflow_guidance"])
 
-        # The standalone tool returns the same block on demand (for local runs).
+        # The standalone MLflow context tool returns the same block on demand.
         ctx = self.app.call_tool(
-            "experiment.mlflow",
+            "mlflow.context",
             {"project_id": project_id, "experiment_id": exp_id},
         )
+        self.assertEqual(ctx["scope"], "experiment")
         self.assertTrue(ctx["mlflow"]["configured"])
         self.assertEqual(ctx["mlflow"]["experiment_name"], f"rp/{project_id}/{exp_id}")
         self.assertIn("MLFLOW_EXPERIMENT_NAME", ctx["mlflow"]["env"])
+
+        # Without an experiment id it gives project-level navigation context.
+        project_ctx = self.app.call_tool("mlflow.context", {"project_id": project_id})
+        self.assertEqual(project_ctx["scope"], "project")
+        self.assertEqual(project_ctx["mlflow"]["tracking_uri"], "https://mlflow.test")
+        self.assertEqual(
+            project_ctx["mlflow"]["experiment_namespace_prefix"], f"rp/{project_id}/"
+        )
+        self.assertEqual(
+            project_ctx["mlflow"]["experiments"][0]["mlflow_experiment_name"],
+            f"rp/{project_id}/{exp_id}",
+        )
+        self.assertNotIn("MLFLOW_EXPERIMENT_NAME", project_ctx["mlflow"]["env"])
 
     def test_server_only_mlflow_does_not_advertise_agent_tracking(self) -> None:
         project = self.request("POST", "/api/projects", {"name": "ML Server Project"})
@@ -404,67 +418,14 @@ class ResearchPluginHttpApiTest(unittest.TestCase):
         )
 
         ctx = self.app.call_tool(
-            "experiment.mlflow",
+            "mlflow.context",
             {"project_id": project_id, "experiment_id": exp_id},
         )
 
         self.assertFalse(ctx["mlflow"]["configured"])
         self.assertNotIn("MLFLOW_TRACKING_URI", ctx["mlflow"]["env"])
-        self.assertIn("agents cannot log", ctx["guidance"])
+        self.assertIn("agents cannot log or browse", ctx["guidance"])
         self.assertIn("RESEARCH_PLUGIN_MLFLOW_TRACKING_URI", ctx["guidance"])
-
-    def test_mlflow_traces_across_experiments(self) -> None:
-        project = self.request("POST", "/api/projects", {"name": "Traces Project"})
-        project_id = project["id"]
-        exp = self.request(
-            "POST", f"/api/projects/{project_id}/experiments", {"name": "exp-tr", "intent": "Train"}
-        )
-        exp_id = exp["id"]
-        self.configure_mlflow(
-            CentralMlflowService(
-                mode="external",
-                tracking_uri="https://mlflow.test",
-                health_check=lambda: True,
-            )
-        )
-        snapshot = {
-            "source": "mlflow",
-            "experiments": [
-                {
-                    "experiment_id": "1",
-                    "name": f"rp/{project_id}/{exp_id}",
-                    "runs": [
-                        {
-                            "run_id": "r1",
-                            "run_name": "seed_0",
-                            "status": "FINISHED",
-                            "params": {"lr": "0.001"},
-                            "metrics": {"acc": {"last": 0.93}},
-                            "history": {"acc": [[1, 0.6], [2, 0.93]]},
-                        }
-                    ],
-                }
-            ],
-        }
-
-        # Summary mode (no experiment_id): final values, no curves.
-        with patch("backend.mlflow.tracking.snapshot_mlflow", return_value=snapshot):
-            summary = self.app.call_tool("mlflow.traces", {"project_id": project_id})
-        self.assertFalse(summary["include_history"])
-        item = next(e for e in summary["experiments"] if e["experiment_id"] == exp_id)
-        self.assertTrue(item["available"])
-        run = item["runs"][0]
-        self.assertEqual(run["metrics"]["acc"], 0.93)
-        self.assertNotIn("history", run)
-
-        # Scoped mode: full downsampled curves for plotting.
-        with patch("backend.mlflow.tracking.snapshot_mlflow", return_value=snapshot):
-            detail = self.app.call_tool(
-                "mlflow.traces", {"project_id": project_id, "experiment_id": exp_id}
-            )
-        self.assertTrue(detail["include_history"])
-        drun = detail["experiments"][0]["runs"][0]
-        self.assertEqual(drun["history"]["acc"], [[1, 0.6], [2, 0.93]])
 
     def test_home_exposes_active_experiments_and_processes(self) -> None:
         project = self.request("POST", "/api/projects", {"name": "Active Work Project"})

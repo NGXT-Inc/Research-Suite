@@ -103,11 +103,17 @@ reported as unconfigured until `TRACKING_URI` is supplied.
 
 ## Agent Contract
 
-`experiment.mlflow` and `experiment.transition(start_running)` return the
-central MLflow bridge block:
+`mlflow.context` is the agent-facing MLflow bridge. With only `project_id`, it
+returns the project-level tracking URI, dashboard URL, namespace prefix, and the
+plugin experiment-to-MLflow-name map needed to browse runs with MLflow's native
+APIs. With `experiment_id`, it also returns the concrete MLflow experiment name
+and env vars for a quantitative run:
 
 ```json
 {
+  "scope": "experiment",
+  "project_id": "proj_123",
+  "experiment_id": "exp_456",
   "mlflow": {
     "configured": true,
     "tracking_uri": "https://backend.example.com/mlflow",
@@ -121,34 +127,41 @@ central MLflow bridge block:
 }
 ```
 
+`experiment.transition(start_running)` also returns the same experiment-scoped
+MLflow block as a convenience when a run begins.
+
 Agents should use those env vars for quantitative experiments, whether running
 locally or inside a sandbox. They should not start MLflow servers in sandboxes.
 The plugin does not rely on ambient shell state for this: a local agent or an
 SSH-driven sandbox run must read this block from MCP and set the returned env
 vars on the command that starts training. If `MLFLOW_TRACKING_URI` is absent
-from the current shell, call `experiment.mlflow`; do not fall back to a
+from the current shell, call `mlflow.context`; do not fall back to a
 file-backed local MLflow store for a Research Plugin experiment.
 
-### Required Run Metadata
+### Quantitative Run Metadata V0
 
-Every quantitative run should log enough metadata for an agent to reconstruct
-the empirical context and for a human to navigate back to the responsible code,
-data, and claim. At minimum:
+MLflow is expected only for quantitative work: training, evaluation, sweeps,
+ablations, or any run where metrics drive the conclusion. It is not required
+for qualitative experiments, literature work, code-only probes, or planning
+tasks.
+
+For now, the ledger contract is deliberately small and soft. Every quantitative
+run should log enough metadata for an agent to connect the MLflow run back to
+the plugin experiment and understand what the run was trying to measure:
 
 ```text
 project_id
 experiment_id
-attempt_id
-git_commit
-git_dirty
-dataset identifiers, versions, digests, or source URIs
-resolved config or config artifact hash
-primary_metric
-primary_metric_direction
-tested claim ids
 run purpose or run group
-execution backend and sandbox id, when applicable
+primary_metric, when there is a clear primary metric
+primary_metric_direction, when there is a clear primary metric
+execution backend or sandbox id, when readily available
 ```
+
+Agents may log lightweight dataset or config notes when they are obvious and
+useful, but dataset digests, dataset versioning, config hashes, git metadata,
+and claim ids are not part of the V0 requirement. Claims remain traceable
+through the plugin experiment record.
 
 Agents should also log compact artifacts that are useful in reports and reviews:
 plots, tables, evaluation JSON, prediction samples, confusion matrices, and
@@ -172,19 +185,20 @@ retrieve run tags and dataset metadata
 
 The plugin should not grow a second query language for MLflow. New custom tools
 should be added only when they supply plugin context that MLflow does not know,
-such as the current project id, experiment id, claim ids, or dashboard links.
+such as the current project id, experiment id, namespace mapping, or dashboard
+links.
 
-## Compatibility Views
+## UI Compatibility Views
 
-The existing `/results/metrics`, project MLflow page, and `mlflow.traces` tool
-expose bounded plugin-side views of MLflow data for UI compatibility and simple
-agent summaries. They are intentionally compact: recent runs, params, final
-metric values, and downsampled metric histories.
+The existing `/results/metrics` endpoint and project MLflow page expose bounded
+plugin-side views of MLflow data for UI compatibility. They are intentionally
+compact: recent runs, params, final metric values, and downsampled metric
+histories.
 
 These views are not the quantitative ledger. They should not be extended into a
-full MLflow mirror. The durable record is the centralized MLflow backend and its
-artifact store. Compatibility views should strip internal server URLs before
-UI/API exposure.
+full MLflow mirror or agent query layer. The durable record is the centralized
+MLflow backend and its artifact store. Compatibility views should strip internal
+server URLs before UI/API exposure.
 
 ## Failure Policy
 

@@ -86,6 +86,29 @@ class CentralMlflowService:
             dashboard_url=resolve_mlflow_dashboard_url(env),
         )
 
+    def project_context(self, *, project_id: str) -> dict[str, object]:
+        """Project-scoped MLflow navigation context for agents.
+
+        This does not query MLflow. It gives agents the endpoint and namespace
+        prefix they need to use MLflow's native APIs directly.
+        """
+        env: dict[str, str] = {"RP_PROJECT_ID": project_id}
+        if self.tracking_uri:
+            env["MLFLOW_TRACKING_URI"] = self.tracking_uri
+        configured = bool(self.tracking_uri)
+        result: dict[str, object] = {
+            "configured": configured,
+            "mode": self.mode or ("external" if configured else "unconfigured"),
+            "tracking_uri": self.tracking_uri,
+            "dashboard_url": self.dashboard_url,
+            "project_id": project_id,
+            "experiment_namespace_prefix": f"rp/{project_id}/",
+            "env": env,
+        }
+        if not configured:
+            result["note"] = self._unconfigured_note()
+        return result
+
     def context(
         self,
         *,
@@ -112,14 +135,6 @@ class CentralMlflowService:
         if execution_backend:
             env["RP_EXECUTION_BACKEND"] = execution_backend
         configured = bool(self.tracking_uri)
-        note = ""
-        if not configured and self.server_uri:
-            note = (
-                "Backend MLflow reads are configured through "
-                "RESEARCH_PLUGIN_MLFLOW_SERVER_URI, but agents cannot log until "
-                "RESEARCH_PLUGIN_MLFLOW_TRACKING_URI is set to a URL reachable "
-                "from the run location."
-            )
         return MlflowTrackingContext(
             configured=configured,
             mode=self.mode or ("external" if configured else "unconfigured"),
@@ -130,9 +145,7 @@ class CentralMlflowService:
             note=(
                 ""
                 if configured
-                else note
-                or self.note
-                or "Centralized MLflow is not configured; set RESEARCH_PLUGIN_MLFLOW_TRACKING_URI."
+                else self._unconfigured_note()
             ),
         )
 
@@ -155,9 +168,9 @@ class CentralMlflowService:
                 result["note"] = "MLflow is configured but not reachable."
         if read_configured and not tracking_configured and not result.get("note"):
             result["note"] = (
-                "Backend MLflow reads are configured, but agents cannot log "
-                "until RESEARCH_PLUGIN_MLFLOW_TRACKING_URI is set to a "
-                "run-reachable URL."
+                "Backend MLflow reads are configured, but agents cannot log or "
+                "browse with MLflow APIs until RESEARCH_PLUGIN_MLFLOW_TRACKING_URI "
+                "is set to a run-reachable URL."
             )
         if self.server_uri and self.server_uri != self.tracking_uri:
             result["server_uri"] = self.server_uri
@@ -208,3 +221,16 @@ class CentralMlflowService:
         except httpx.HTTPError:
             self._last_reachable = False
         return self._last_reachable
+
+    def _unconfigured_note(self) -> str:
+        if self.server_uri:
+            return (
+                "Backend MLflow reads are configured through "
+                "RESEARCH_PLUGIN_MLFLOW_SERVER_URI, but agents cannot log or "
+                "browse with MLflow APIs until RESEARCH_PLUGIN_MLFLOW_TRACKING_URI "
+                "is set to a URL reachable from the run location."
+            )
+        return (
+            self.note
+            or "Centralized MLflow is not configured; set RESEARCH_PLUGIN_MLFLOW_TRACKING_URI."
+        )

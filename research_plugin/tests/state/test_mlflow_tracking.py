@@ -46,6 +46,24 @@ class MlflowTrackingServiceTest(unittest.TestCase):
         self.assertEqual(context["env"]["RP_SANDBOX_ID"], "sb_789")
         self.assertEqual(context["env"]["RP_EXECUTION_BACKEND"], "lambda_labs")
 
+    def test_project_context_exposes_navigation_namespace_without_experiment(self) -> None:
+        service = CentralMlflowService(
+            mode="external",
+            tracking_uri="https://mlflow.example.test/",
+            dashboard_url="https://mlflow-ui.example.test/",
+        )
+
+        context = service.project_context(project_id="proj_123")
+
+        self.assertTrue(context["configured"])
+        self.assertEqual(context["tracking_uri"], "https://mlflow.example.test")
+        self.assertEqual(context["dashboard_url"], "https://mlflow-ui.example.test")
+        self.assertEqual(context["project_id"], "proj_123")
+        self.assertEqual(context["experiment_namespace_prefix"], "rp/proj_123/")
+        self.assertEqual(context["env"]["MLFLOW_TRACKING_URI"], "https://mlflow.example.test")
+        self.assertEqual(context["env"]["RP_PROJECT_ID"], "proj_123")
+        self.assertNotIn("MLFLOW_EXPERIMENT_NAME", context["env"])
+
     def test_unconfigured_context_still_names_experiment(self) -> None:
         context = CentralMlflowService().context(
             project_id="proj_123", experiment_id="exp_456"

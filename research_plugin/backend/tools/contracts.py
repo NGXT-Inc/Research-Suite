@@ -137,9 +137,15 @@ class ExperimentTransitionInput(ProjectScopedInput):
     evidence: dict[str, Any] | None = None
 
 
-class MlflowTracesInput(ProjectScopedInput):
-    experiment_id: str | None = None
-    include_history: bool | None = None
+class MlflowContextInput(ProjectScopedInput):
+    experiment_id: str | None = Field(
+        default=None,
+        description=(
+            "Optional plugin experiment id. Omit for project-level MLflow "
+            "navigation context; provide it for the exact MLflow experiment "
+            "name/env used by a quantitative run."
+        ),
+    )
 
 
 class ReflectionLensInput(ContractModel):
@@ -602,28 +608,17 @@ TOOL_CONTRACTS: dict[str, ToolContract] = {
             "connection block for quantitative logging."
         ),
     ),
-    "experiment.mlflow": ToolContract(
-        input_model=ExperimentGetStateInput,
+    "mlflow.context": ToolContract(
+        input_model=MlflowContextInput,
         description=(
-            "Central MLflow connection details for one experiment: the tracking "
-            "URI, the rp/<project>/<experiment> experiment name, the dashboard "
-            "URL, and the env vars to set (MLFLOW_TRACKING_URI, "
-            "MLFLOW_EXPERIMENT_NAME, …). Use before a quantitative run — "
-            "especially a LOCAL (non-sandbox) one, where the env is not "
-            "pre-exported. Returns configured=false when no tracking server is set."
-        ),
-    ),
-    "mlflow.traces": ToolContract(
-        input_model=MlflowTracesInput,
-        description=(
-            "MLflow metric traces across the project's experiments, for visual "
-            "analysis. Without experiment_id: every experiment's runs with their "
-            "params and final metric values (a compact map to navigate). With "
-            "experiment_id (or include_history=true): also the full downsampled "
-            "curves ({metric: [[step, value], …]}) so you can plot them — e.g. "
-            "overlay val/acc across runs — and post the figure to the feed. Reads "
-            "the durable metrics archive; experiments with no metrics return "
-            "available=false."
+            "Central MLflow bridge context. With no experiment_id, returns the "
+            "project-level tracking URI, dashboard URL, namespace prefix, env, "
+            "and plugin experiment-to-MLflow-name map for direct MlflowClient "
+            "navigation. With experiment_id, also returns the exact "
+            "rp/<project>/<experiment> experiment name and env vars to set "
+            "(MLFLOW_TRACKING_URI, MLFLOW_EXPERIMENT_NAME, …) before a "
+            "quantitative run. Returns configured=false when no tracking server "
+            "is set."
         ),
     ),
     "reflection.create": ToolContract(

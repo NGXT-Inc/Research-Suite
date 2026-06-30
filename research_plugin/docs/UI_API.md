@@ -544,8 +544,8 @@ A sandbox row looks like:
 ```
 
 Sandbox rows do not expose sandbox-local dashboards. Centralized MLflow is
-backend-owned and exposed through the project MLflow endpoints and experiment
-MLflow tool responses, not through sandbox tunnels.
+backend-owned and exposed through the project MLflow endpoints and
+`mlflow.context` tool responses, not through sandbox tunnels.
 
 The terminal endpoint returns `{ experiment_id, sandbox_id, status, transcript }`
 where `transcript` is the recorded command/output log for the sandbox. Fresh

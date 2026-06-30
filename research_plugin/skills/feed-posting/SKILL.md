@@ -206,9 +206,10 @@ glance, but keep a finding inside it.
 - **Reuse what already exists.** If an experiment report already has a figure on
   disk, point `image_path` at it instead of remaking it — any readable repo file
   works, it need not belong to the current experiment.
-- **For metric curves, use `mlflow.traces`.** It returns the downsampled per-run
-  series (`{metric: [[step, value], …]}`) — overlay the runs that matter,
-  annotate the event, save a PNG, and post that.
+- **For metric curves, use MLflow directly.** Get the tracking URI and
+  experiment names from `mlflow.context`, query runs with `MlflowClient`
+  (`search_runs`, `get_metric_history`, `list_artifacts`, `download_artifacts`),
+  overlay the runs that matter, annotate the event, save a PNG, and post that.
 - **A url is a zero-risk payoff.** A bad or blocked link just degrades to a chip,
   so attach the real source (arxiv, github, W&B run, huggingface, openreview,
   nature…) as the payoff instead of teasing it. Those research hosts render as

@@ -25,7 +25,7 @@ Operating rules:
   `sandbox.terminal` / `sandbox.release`), never locally. Copy retained files
   off the box explicitly over SSH, or upload heavy artifacts with storage tools,
   before releasing the sandbox.
-- For quantitative runs, call `experiment.mlflow` before training, then set the
+- For quantitative runs, call `mlflow.context` before training, then set the
   returned `MLFLOW_TRACKING_URI` and `MLFLOW_EXPERIMENT_NAME` in the local or
   SSH command that starts the run. Do not infer tracking from the current shell,
   and do not create a file-backed local MLflow store for plugin experiments.

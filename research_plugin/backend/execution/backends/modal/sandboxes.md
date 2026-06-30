@@ -113,7 +113,7 @@ live from the running sandbox.
 
 Every sandbox installs the MLflow client package, but sandbox provisioning does
 not automatically export tracking env vars. Agents get the central tracking
-URI and experiment name from `experiment.mlflow` or
+URI and experiment name from `mlflow.context` or
 `experiment.transition(start_running)`, then set those env vars in the SSH
 command that runs training. The sandbox does not run an MLflow tracking server,
 TensorBoard server, or sandbox-local dashboard tunnel.
