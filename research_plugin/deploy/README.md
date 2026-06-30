@@ -79,6 +79,10 @@ to log runs. Set `RESEARCH_PLUGIN_MLFLOW_TRACKING_URI` to the public HTTPS URL
 reachable by every run location — local client machines and remote sandboxes —
 before expecting training code to emit MLflow runs. Agents retrieve that URL
 through `experiment.mlflow`; sandbox provisioning does not inject it by itself.
+When serving MLflow through the same host as the control plane, use a path such
+as `https://backend.example.com/mlflow` and set
+`RESEARCH_PLUGIN_MLFLOW_STATIC_PREFIX=/mlflow` so MLflow generates UI/static
+links under that prefix.
 
 ## Operating
 
@@ -103,6 +107,21 @@ TLS-terminating load balancer / reverse proxy** (ALB, nginx, Caddy, Traefik) in
 production — the daemon and proxy must dial `https://`. `/health` and `/api/meta`
 are open for liveness/handshake. All other routes are currently private
 operator/admin routes, not public internet routes.
+
+For the reference single-host deployment, keep MLflow parallel to the control
+app and route it at the ingress layer instead of opening port `5000` publicly:
+
+```caddy
+backend.example.com {
+  handle_path /mlflow* {
+    reverse_proxy 127.0.0.1:5000
+  }
+
+  handle {
+    reverse_proxy 127.0.0.1:8787
+  }
+}
+```
 
 ## What this stack does NOT do (documented seams)
 

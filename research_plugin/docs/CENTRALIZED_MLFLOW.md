@@ -25,6 +25,18 @@ remote sandbox -> RESEARCH_PLUGIN_MLFLOW_TRACKING_URI / public MLflow URL
 backend        -> RESEARCH_PLUGIN_MLFLOW_SERVER_URI / internal MLflow URL
 ```
 
+The recommended hosted ingress is to keep MLflow parallel to the control app and
+route it through the same public HTTPS host, for example:
+
+```text
+https://backend.example.com/mlflow -> MLflow
+https://backend.example.com         -> control
+```
+
+When using this path layout, set `RESEARCH_PLUGIN_MLFLOW_STATIC_PREFIX=/mlflow`
+for the MLflow container so the UI and static assets are generated under the
+same prefix.
+
 The compose stack starts:
 
 - `control`
