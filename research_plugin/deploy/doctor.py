@@ -18,6 +18,7 @@ import time
 from dataclasses import dataclass
 from typing import Any
 from urllib import error as urllib_error
+from urllib import parse as urllib_parse
 from urllib import request as urllib_request
 
 
@@ -35,6 +36,12 @@ class Check:
     name: str
     ok: bool
     detail: str
+
+
+@dataclass(frozen=True)
+class MlflowSmoke:
+    experiment_id: str
+    run_id: str
 
 
 class Doctor:
@@ -110,12 +117,17 @@ class Doctor:
             raise DoctorError("MLflow backend read URI is not configured")
         self._raw_request("GET", f"{tracking_uri}/health")
         if not self.skip_mlflow_write:
-            run_id = self._write_mlflow_smoke(tracking_uri=tracking_uri, project_id=project_id)
-            self._ok("mlflow", f"tracking_uri={tracking_uri}, smoke_run={run_id}")
+            smoke = self._write_mlflow_smoke(tracking_uri=tracking_uri, project_id=project_id)
+            if self._has_path_prefix(tracking_uri):
+                self._check_mlflow_ui_ajax(
+                    tracking_uri=tracking_uri, experiment_id=smoke.experiment_id
+                )
+                self._ok("mlflow-ui", "ajax-api=ok")
+            self._ok("mlflow", f"tracking_uri={tracking_uri}, smoke_run={smoke.run_id}")
         else:
             self._ok("mlflow", f"tracking_uri={tracking_uri}, write skipped")
 
-    def _write_mlflow_smoke(self, *, tracking_uri: str, project_id: str) -> str:
+    def _write_mlflow_smoke(self, *, tracking_uri: str, project_id: str) -> MlflowSmoke:
         experiment_name = f"rp/{project_id}/deploy_doctor"
         base = f"{tracking_uri}/api/2.0/mlflow"
         experiment_id = ""
@@ -162,7 +174,30 @@ class Doctor:
             f"{base}/runs/update",
             {"run_id": run_id, "status": "FINISHED", "end_time": int(time.time() * 1000)},
         )
-        return run_id
+        return MlflowSmoke(experiment_id=experiment_id, run_id=run_id)
+
+    def _check_mlflow_ui_ajax(self, *, tracking_uri: str, experiment_id: str) -> None:
+        base = f"{tracking_uri}/ajax-api/2.0/mlflow"
+        experiment = self._json_request(
+            "GET", f"{base}/experiments/get?experiment_id={experiment_id}"
+        )
+        if str((experiment.get("experiment") or {}).get("experiment_id") or "") != experiment_id:
+            raise DoctorError("MLflow browser AJAX experiment lookup returned the wrong id")
+        runs = self._json_request(
+            "POST",
+            f"{base}/runs/search",
+            {
+                "experiment_ids": [experiment_id],
+                "max_results": 1,
+                "run_view_type": "ACTIVE_ONLY",
+            },
+        )
+        if not isinstance(runs.get("runs") or [], list):
+            raise DoctorError("MLflow browser AJAX run search returned a malformed payload")
+
+    def _has_path_prefix(self, url: str) -> bool:
+        path = urllib_parse.urlsplit(url).path.rstrip("/")
+        return bool(path)
 
     def _check_sandbox(self, *, project_id: str) -> None:
         health = self._control("GET", "/api/sandboxes/health")

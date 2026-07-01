@@ -115,8 +115,9 @@ missing or the lightweight Lambda catalog health check cannot reach the API.
 - **Version floor:** clients send `X-RP-Client-Version`; below-floor clients get
   a `426` with an upgrade message. Floors are constants in `backend/version.py`.
 - **Post-start readiness:** run `python3 deploy/doctor.py` once after each deploy
-  or restart. It checks control, MLflow tracking/write, sandbox provider health
-  and options, and object-storage upload/download.
+  or restart. It checks control, MLflow tracking/write, path-prefixed MLflow UI
+  AJAX routing, sandbox provider health and options, and object-storage
+  upload/download.
 - **Cleanup jobs:** the control plane BUILDS the cleanup sweeps (orphan VMs,
   blob TTL GC, lease expiry, stale-provision reap) but does **not** schedule
   them — POST `/api/admin/cleanup` from a managed cron / sidecar tick on your
@@ -152,8 +153,8 @@ backend.example.com {
     reverse_proxy 127.0.0.1:5000
   }
 
-  handle /mlflow/ajax-api/* {
-    uri strip_prefix /mlflow
+  handle_path /mlflow/ajax-api/* {
+    rewrite * /api{path}
     reverse_proxy 127.0.0.1:5000
   }
 
@@ -184,7 +185,9 @@ backend.example.com {
 This split is intentional: MLflow's tracking and artifact APIs stay mounted at
 the server root, so ingress strips `/mlflow` for API routes. The MLflow UI is
 served under the static prefix, so ingress preserves `/mlflow` for UI/static
-routes.
+routes. MLflow's browser bundle calls relative `/ajax-api/...` endpoints under
+the UI prefix, so the reference Caddy route rewrites `/mlflow/ajax-api/*` to the
+server's root-mounted `/api/*` handlers.
 
 For the reference MinIO stack, set `RESEARCH_PLUGIN_STORAGE_ENDPOINT_URL` and
 `AWS_ENDPOINT_URL_S3` to the public HTTPS origin routed above. Leaving them at

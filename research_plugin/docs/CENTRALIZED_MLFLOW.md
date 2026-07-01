@@ -52,7 +52,9 @@ https://backend.example.com         -> control
 When using this path layout, set `RESEARCH_PLUGIN_MLFLOW_STATIC_PREFIX=/mlflow`
 for the MLflow container so the UI and static assets are generated under the
 same prefix. At the ingress layer, strip `/mlflow` only for MLflow API routes
-such as `/mlflow/api/*` and preserve `/mlflow` for the UI/static routes.
+such as `/mlflow/api/*`, preserve `/mlflow` for the UI/static routes, and
+rewrite `/mlflow/ajax-api/*` to MLflow's root-mounted `/api/*` handlers. The
+browser bundle uses the AJAX path when loading experiment and run data.
 
 The compose stack starts:
 

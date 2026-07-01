@@ -119,6 +119,7 @@ class DeployArtifactsTest(unittest.TestCase):
             "storage.put_object",
             "storage.complete_upload",
             "deploy_doctor_ready",
+            "ajax-api/2.0/mlflow",
             "RP_DOCTOR_URL_REWRITE",
         ):
             self.assertIn(token, text)
