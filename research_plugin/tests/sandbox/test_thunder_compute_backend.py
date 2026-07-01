@@ -225,16 +225,18 @@ class ThunderBackendTest(unittest.TestCase):
         kwargs.update(overrides)
         return SandboxRequest(**kwargs)
 
-    def test_build_sandbox_backend_accepts_thunder_aliases_and_defaults(self) -> None:
-        with patch.dict(os.environ, {}, clear=True):
-            default = build_sandbox_backend(repo_root=Path("/tmp/research-plugin-test"))
-        self.assertEqual(default.capabilities.name, "thunder_compute")
-        self.assertTrue(default.capabilities.requires_hardware_selection)
-        self.assertFalse(default.capabilities.configurable_resources)
-
+    def test_build_sandbox_backend_accepts_thunder_aliases(self) -> None:
         with patch.dict(os.environ, {"RESEARCH_PLUGIN_EXECUTION_BACKEND": "thunder"}, clear=True):
             aliased = build_sandbox_backend(repo_root=Path("/tmp/research-plugin-test"))
         self.assertEqual(aliased.capabilities.name, "thunder_compute")
+
+        with patch.dict(
+            os.environ,
+            {"RESEARCH_PLUGIN_EXECUTION_BACKEND": "thunder_compute"},
+            clear=True,
+        ):
+            canonical = build_sandbox_backend(repo_root=Path("/tmp/research-plugin-test"))
+        self.assertEqual(canonical.capabilities.name, "thunder_compute")
 
     def test_hardware_catalog_lists_thunder_options(self) -> None:
         backend, _, _, _ = self._backend()

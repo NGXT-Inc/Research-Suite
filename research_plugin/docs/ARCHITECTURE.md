@@ -289,7 +289,7 @@ MCP owns policy, state, and visibility:
 - tell Codex when output files should be retained and registered as resources
 
 `execution` owns the `SandboxBackend` implementations. The default backend is
-**Thunder Compute** (VM-backed GPU execution); Lambda Labs and Modal are also
+**Lambda Labs** (VM-backed GPU execution); Thunder Compute and Modal are also
 supported; `fake` is used for tests. Backends only procure SSH-reachable
 machines and expose lifecycle/observability hooks. Backends declare a
 `requires_hardware_selection` capability and may expose an optional

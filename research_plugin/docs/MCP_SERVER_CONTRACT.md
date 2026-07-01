@@ -298,15 +298,9 @@ is the full `ssh -i … user@host` line for use from any directory.
 
 #### Hardware selection (provider-shaped)
 
-Procurement differs by backend, and the **default backend is Thunder Compute**:
+Procurement differs by backend, and the **default backend is Lambda Labs**:
 
-- **Thunder Compute (default)** exposes fixed GPU specs that bundle GPU + vCPU +
-  RAM. When `sandbox.request` arrives with **no `instance_type`** and the
-  experiment has **no live sandbox to reuse**, the server returns
-  `status: "needs_selection"` with a live, cheapest-first `options` menu. The
-  agent re-calls `sandbox.request(experiment_id, instance_type=<choice>)`.
-  Thunder does not expose region selection through the current API.
-- **Lambda Labs** sells fixed machine SKUs that bundle GPU + vCPU + RAM
+- **Lambda Labs (default)** sells fixed machine SKUs that bundle GPU + vCPU + RAM
   together, so the agent picks an `instance_type` rather than independent
   cpu/memory. When `sandbox.request` arrives with **no `instance_type`** and the
   experiment has **no live sandbox to reuse**, the server does **not** provision.
@@ -317,6 +311,12 @@ Procurement differs by backend, and the **default backend is Thunder Compute**:
   Omit `region` to auto-pick a region that currently has capacity. On Lambda,
   `gpu` is a free-form *filter* over the menu and `cpu`/`memory` are ignored (the
   SKU fixes them).
+- **Thunder Compute** exposes fixed GPU specs that bundle GPU + vCPU +
+  RAM. When `sandbox.request` arrives with **no `instance_type`** and the
+  experiment has **no live sandbox to reuse**, the server returns
+  `status: "needs_selection"` with a live, cheapest-first `options` menu. The
+  agent re-calls `sandbox.request(experiment_id, instance_type=<choice>)`.
+  Thunder does not expose region selection through the current API.
 - **Modal** composes the machine from the request: set `gpu` (a concrete
   attachable GPU, e.g. `A100`/`H100`; omit for CPU-only), `cpu` (Modal CPU cores,
   1 core = 2 vCPUs), and `memory` (MiB). Modal never returns `needs_selection`.
@@ -387,14 +387,14 @@ transcript inside the sandbox. `sandbox.terminal` reads it live from the sandbox
 The UI renders it as a terminal window. `workflow.status_and_next` may surface a
 last-known sandbox summary but stays a high-level orientation endpoint.
 
-The default backend is `thunder_compute`. Backend selection is controlled by
+The default backend is `lambda_labs`. Backend selection is controlled by
 `RESEARCH_PLUGIN_EXECUTION_BACKEND`; supported values are `thunder_compute`,
-`lambda_labs`, `modal`, and `fake` (tests). Thunder Compute exposes the VM's
-normal SSH endpoint and needs `RESEARCH_PLUGIN_THUNDER_API_KEY` (or
-`THUNDER_COMPUTE_API_KEY`). Lambda Labs is still available with
-`LAMBDA_LABS_API_KEY` (region/instance type are chosen per request, with optional
+`lambda_labs`, `modal`, and `fake` (tests). Lambda Labs exposes the VM's
+normal SSH endpoint and needs `LAMBDA_LABS_API_KEY` (or
+`RESEARCH_PLUGIN_LAMBDA_API_KEY`; region/instance type are chosen per request, with optional
 `RESEARCH_PLUGIN_LAMBDA_REGION` / `RESEARCH_PLUGIN_LAMBDA_INSTANCE_TYPE`
-fallbacks). Modal exposes SSH over an unencrypted Modal tunnel
+fallbacks). Thunder Compute remains available with `RESEARCH_PLUGIN_THUNDER_API_KEY`
+(or `THUNDER_COMPUTE_API_KEY`). Modal exposes SSH over an unencrypted Modal tunnel
 (`unencrypted_ports=[22]`). The registry generates a per-sandbox SSH keypair
 and authorizes its public key in the sandbox/VM. Output retention is explicit:
 the agent copies selected light files back over SSH, while heavy files should go

@@ -157,7 +157,7 @@ MODAL_TOKEN_SECRET=...
 HF_TOKEN=...
 ```
 
-Thunder Compute is the default sandbox backend. Lambda Labs, Modal, and the fake
+Lambda Labs is the default sandbox backend. Thunder Compute, Modal, and the fake
 test backend are also supported through `RESEARCH_PLUGIN_EXECUTION_BACKEND`.
 
 ## Client Adapters

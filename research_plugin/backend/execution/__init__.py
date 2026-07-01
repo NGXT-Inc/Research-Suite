@@ -38,10 +38,10 @@ def build_sandbox_backend(
     """Select and construct the configured sandbox backend.
 
     Backend name comes from (in order): `name=` arg,
-    `RESEARCH_PLUGIN_EXECUTION_BACKEND` env, or "thunder_compute" by default.
+    `RESEARCH_PLUGIN_EXECUTION_BACKEND` env, or "lambda_labs" by default.
     """
     selected = (
-        name or os.environ.get("RESEARCH_PLUGIN_EXECUTION_BACKEND") or "thunder_compute"
+        name or os.environ.get("RESEARCH_PLUGIN_EXECUTION_BACKEND") or "lambda_labs"
     ).strip().lower()
     if selected == "fake":
         from .backends.fake import FakeSandboxBackend

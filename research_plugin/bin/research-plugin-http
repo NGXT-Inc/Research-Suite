@@ -44,23 +44,27 @@ fi
 
 export PYTHONPATH="$PLUGIN_DIR${PYTHONPATH:+:$PYTHONPATH}"
 
-# Modal/HF credential resolution. Secrets must live OUTSIDE the plugin tree so
-# they are never copied into a Claude Code install cache or accidentally
+# Provider/HF credential resolution. Secrets must live OUTSIDE the plugin tree
+# so they are never copied into a Claude Code install cache or accidentally
 # committed. Priority (first hit wins):
-#   1. $RESEARCH_PLUGIN_MODAL_ENV_FILE             (explicit deployment override)
+#   1. any explicit provider env file override
 #   2. ${CLAUDE_PLUGIN_DATA}/.env                  (Claude Code per-user data dir)
 #   3. ${XDG_CONFIG_HOME:-${HOME}/.config}/research-plugin/.env  (XDG standard)
 #   4. ${HOME}/.research_plugin/.env               (legacy location)
 #   5. $PLUGIN_DIR/.env                            (dev-only; gitignored)
-# If none exist, Modal's SDK falls back to its native auth (~/.modal.toml).
-if [[ -z "${RESEARCH_PLUGIN_MODAL_ENV_FILE:-}" ]]; then
+# If none exist, providers may fall back to their native auth.
+if [[ -z "${RESEARCH_PLUGIN_LAMBDA_ENV_FILE:-}" \
+  && -z "${RESEARCH_PLUGIN_MODAL_ENV_FILE:-}" \
+  && -z "${RESEARCH_PLUGIN_THUNDER_ENV_FILE:-}" ]]; then
   for candidate in \
     "${CLAUDE_PLUGIN_DATA:-/__unset__}/.env" \
     "${XDG_CONFIG_HOME:-${HOME}/.config}/research-plugin/.env" \
     "${HOME}/.research_plugin/.env" \
     "$PLUGIN_DIR/.env"; do
     if [[ -f "$candidate" ]]; then
+      export RESEARCH_PLUGIN_LAMBDA_ENV_FILE="$candidate"
       export RESEARCH_PLUGIN_MODAL_ENV_FILE="$candidate"
+      export RESEARCH_PLUGIN_THUNDER_ENV_FILE="$candidate"
       break
     fi
   done

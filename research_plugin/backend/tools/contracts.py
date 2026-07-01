@@ -393,7 +393,7 @@ class SandboxRequestInput(ProjectScopedInput):
         default=None,
         description=(
             "Provider-bundled machine SKU (GPU + CPU + RAM together). Required by "
-            "the default Thunder Compute and Lambda Labs backends: call this with no instance_type (or "
+            "the Lambda Labs and Thunder Compute backends: call this with no instance_type (or "
             "use sandbox.options) to get a live menu, then pick one of "
             "options[].instance_type. Ignored by Modal (which composes the machine "
             "from gpu/cpu/memory)."

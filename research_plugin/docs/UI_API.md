@@ -554,10 +554,10 @@ automatically: agents fetch code/data on the box and explicitly retain outputs
 before release by copying light files over SSH or uploading heavy artifacts with
 storage tools. Everything left on the VM at release or expiry is destroyed.
 
-Thunder Compute is the **default** backend (`RESEARCH_PLUGIN_EXECUTION_BACKEND`
-unset or `thunder_compute`): sandbox procurement launches a Thunder VM with SSH
-and installs the baseline agent tooling over the management SSH channel. Thunder
-and Lambda Labs both use fixed GPU+CPU+RAM specs, so the sandbox row carries the
+Lambda Labs is the **default** backend (`RESEARCH_PLUGIN_EXECUTION_BACKEND`
+unset or `lambda_labs`): sandbox procurement launches a Lambda Cloud VM with SSH
+and installs the baseline agent tooling over the management SSH channel. Lambda
+Labs and Thunder Compute both use fixed GPU+CPU+RAM specs, so the sandbox row carries the
 chosen `instance_type` alongside `gpu`/`cpu`/`memory`, and the agent selects one
 from live availability (see the `needs_selection` response and `sandbox.options`
 in MCP_SERVER_CONTRACT.md).

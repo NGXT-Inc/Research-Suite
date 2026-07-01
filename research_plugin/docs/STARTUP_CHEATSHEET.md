@@ -69,25 +69,25 @@ Inside Codex:
 
 Install or enable `research-plugin` from the configured local marketplace.
 
-## Terminal 1: Execution Backend (Modal credentials)
+## Terminal 1: Execution Backend (Lambda Labs credentials)
 
-Modal is the default execution backend behind the `sandbox.*` tools. Codex talks
-to the MCP proxy, the proxy talks to the daemon, and the daemon talks to Modal.
-Only the daemon process needs Modal credentials (the MCP proxy does not).
+Lambda Labs is the default execution backend behind the `sandbox.*` tools. Codex
+talks to the MCP proxy, the proxy talks to the daemon, and the daemon talks to
+Lambda Cloud. Only the daemon process needs provider credentials (the MCP proxy
+does not).
 
-Put `MODAL_TOKEN_ID` / `MODAL_TOKEN_SECRET` in a git-ignored `research_plugin/.env`
-(auto-detected by the daemon), or point at a file elsewhere / export them:
+Put `LAMBDA_LABS_API_KEY` / `RESEARCH_PLUGIN_LAMBDA_API_KEY` in a git-ignored
+env file, or point at a file elsewhere / export it:
 
 ```bash
-# research_plugin/.env  (git-ignored, auto-detected)
-MODAL_TOKEN_ID=...
-MODAL_TOKEN_SECRET=...
+# ~/.config/research-plugin/.env
+RESEARCH_PLUGIN_LAMBDA_API_KEY=...
 
 # ...or explicitly:
-export RESEARCH_PLUGIN_MODAL_ENV_FILE=/path/to/backend/.env
+export RESEARCH_PLUGIN_LAMBDA_ENV_FILE=/path/to/backend/.env
 ```
 
-For tests without Modal, use the in-memory fake backend:
+For tests without provider credentials, use the in-memory fake backend:
 
 ```bash
 export RESEARCH_PLUGIN_EXECUTION_BACKEND=fake
@@ -247,21 +247,22 @@ Additional, for the UI:
 
 - Browser UI pointed at `http://127.0.0.1:8787`
 
-Additional, for the default Thunder Compute backend (daemon env only):
+Additional, for the default Lambda Labs backend (daemon env only):
 
+- `LAMBDA_LABS_API_KEY` (or `RESEARCH_PLUGIN_LAMBDA_API_KEY`)
+- `RESEARCH_PLUGIN_LAMBDA_REGION`, for example `us-east-1`
+- `RESEARCH_PLUGIN_LAMBDA_INSTANCE_TYPE`, for example `gpu_1x_a10`
+
+Additional, for the Thunder Compute backend (daemon env only):
+
+- `RESEARCH_PLUGIN_EXECUTION_BACKEND=thunder_compute`
 - `THUNDER_COMPUTE_API_KEY` (or `RESEARCH_PLUGIN_THUNDER_API_KEY`)
 
 Additional, for the Modal backend (daemon env only):
 
+- `RESEARCH_PLUGIN_EXECUTION_BACKEND=modal`
 - `MODAL_TOKEN_ID` and `MODAL_TOKEN_SECRET` available directly or through
   `RESEARCH_PLUGIN_MODAL_ENV_FILE`
-
-Additional, for the Lambda Labs backend (daemon env only):
-
-- `RESEARCH_PLUGIN_EXECUTION_BACKEND=lambda_labs`
-- `LAMBDA_LABS_API_KEY` (or `RESEARCH_PLUGIN_LAMBDA_API_KEY`)
-- `RESEARCH_PLUGIN_LAMBDA_REGION`, for example `us-east-1`
-- `RESEARCH_PLUGIN_LAMBDA_INSTANCE_TYPE`, for example `gpu_1x_a10`
 
 Thunder and Lambda provisioning create SSH-ready VMs with the agent shell/ML
 tooling baseline. Output handoff is explicit: copy retained light files back

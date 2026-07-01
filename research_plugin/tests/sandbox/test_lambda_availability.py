@@ -157,7 +157,20 @@ class LambdaAvailabilityTest(unittest.TestCase):
 
         self.assertEqual(config.api_key, "alias-key")
 
-    def test_env_config_loads_plugin_env_file_when_configured(self) -> None:
+    def test_env_config_loads_lambda_env_file_when_configured(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            env_file = Path(tmp) / ".env"
+            env_file.write_text("LAMBDA_LABS_API_KEY=file-key\n", encoding="utf-8")
+            with patch.dict(
+                os.environ,
+                {"RESEARCH_PLUGIN_LAMBDA_ENV_FILE": str(env_file)},
+                clear=True,
+            ):
+                config = LambdaCloudConfig.from_env()
+
+        self.assertEqual(config.api_key, "file-key")
+
+    def test_env_config_loads_legacy_modal_env_file_alias(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             env_file = Path(tmp) / ".env"
             env_file.write_text("LAMBDA_LABS_API_KEY=file-key\n", encoding="utf-8")
@@ -296,12 +309,12 @@ class LambdaAvailabilityTest(unittest.TestCase):
 
         self.assertEqual(backend.capabilities.name, "lambda_labs")
 
-    def test_default_backend_is_thunder_compute(self) -> None:
-        # No name arg and no RESEARCH_PLUGIN_EXECUTION_BACKEND -> Thunder Compute.
+    def test_default_backend_is_lambda_labs(self) -> None:
+        # No name arg and no RESEARCH_PLUGIN_EXECUTION_BACKEND -> Lambda Labs.
         # Construction is lazy, so this must not resolve credentials yet.
         with patch.dict(os.environ, {}, clear=True):
             backend = build_sandbox_backend(repo_root=Path("/tmp/research-plugin-test"))
-        self.assertEqual(backend.capabilities.name, "thunder_compute")
+        self.assertEqual(backend.capabilities.name, "lambda_labs")
         self.assertTrue(backend.capabilities.requires_hardware_selection)
         self.assertFalse(backend.capabilities.configurable_resources)
 
