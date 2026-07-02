@@ -51,8 +51,47 @@ export default function MlflowDashboard() {
 
   const plan = useMemo(() => (data && mlflow?.configured ? planLedger(data) : null), [data, mlflow]);
   const hasLedger = !!(plan && plan.runs.length > 0);
-  const board = useMemo(() => (hasLedger ? rankRuns(plan) : []), [plan, hasLedger]);
+  const ranked = useMemo(() => (hasLedger ? rankRuns(plan) : []), [plan, hasLedger]);
   const bestI = plan?.summary?.best.i;
+
+  // The leaderboard is the one run table — sortable by any column header.
+  // `ord` is the experiment's age: the project's first experiment is 0.
+  const [sort, setSort] = useState({ col: 'value', asc: null }); // asc null → column default
+  const boardRows = useMemo(() => {
+    if (!hasLedger) return [];
+    const firstSeen = new Map();
+    plan.runs.forEach(r => { if (!firstSeen.has(r.expId)) firstSeen.set(r.expId, firstSeen.size); });
+    return ranked.map(p => {
+      const run = plan.runs[p.i];
+      const anchor = anchorValueOf(run, plan.focus.key);
+      return {
+        i: p.i, run, value: p.v,
+        ord: firstSeen.get(run.expId),
+        name: run.expName,
+        delta: anchor != null ? p.v - anchor : null,
+        when: run.start || 0,
+      };
+    });
+  }, [ranked, plan, hasLedger]);
+  // First click gives the column's useful direction; a second click flips it.
+  const goodFirst = plan?.focus?.direction < 0; // down-good → ascending is best-first
+  const defaultAsc = { ord: true, name: true, value: goodFirst, delta: goodFirst, when: false };
+  const sortAsc = sort.asc ?? defaultAsc[sort.col];
+  const board = useMemo(() => {
+    const cmp = {
+      ord: (a, b) => a.ord - b.ord,
+      name: (a, b) => a.name.localeCompare(b.name),
+      value: (a, b) => a.value - b.value,
+      delta: (a, b) => (a.delta ?? Infinity) - (b.delta ?? Infinity),
+      when: (a, b) => a.when - b.when,
+    }[sort.col];
+    const s = boardRows.slice().sort(cmp);
+    if (!sortAsc) s.reverse();
+    // Runs with no baseline have no delta — they sit last either way.
+    return sort.col === 'delta' ? [...s.filter(r => r.delta != null), ...s.filter(r => r.delta == null)] : s;
+  }, [boardRows, sort, sortAsc]);
+  const onSort = (col) =>
+    setSort(prev => (prev.col === col ? { col, asc: !(prev.asc ?? defaultAsc[col]) } : { col, asc: null }));
 
   // Focus contract shared by every panel: the pinned experiment's runs carry
   // the accent; without a pin, the accent marks the champion run.
@@ -130,20 +169,38 @@ export default function MlflowDashboard() {
             <section className="section">
               <h2 className="section-title">Leaderboard — {plan.focus.key}, delta vs each run&rsquo;s baseline</h2>
               <div className="lgd-board">
-                {board.map((p, rank) => (
+                <div className="lgd-row lgd-row--head">
+                  {[
+                    ['ord', '#', 'lgd-rank'],
+                    ['name', 'experiment', 'lgd-run-name'],
+                    ['value', plan.focus.key, 'lgd-val'],
+                    ['delta', 'Δ', 'lgd-delta'],
+                    ['when', 'date', 'lgd-when'],
+                  ].map(([col, label, cls]) => (
+                    <button key={col} type="button" className={`lgd-hbtn ${cls}${sort.col === col ? ' on' : ''}`} onClick={() => onSort(col)}>
+                      {label}{sort.col === col && <span className="arr"> {sortAsc ? '▲' : '▼'}</span>}
+                    </button>
+                  ))}
+                  <span className="lgd-open" aria-hidden="true" />
+                </div>
+                {board.map((row) => (
                   <BoardRow
-                    key={plan.runs[p.i].runId || p.i}
-                    rank={rank + 1}
-                    run={plan.runs[p.i]}
-                    value={p.v}
+                    key={row.run.runId || row.i}
+                    row={row}
                     plan={plan}
-                    champ={p.i === bestI}
-                    focused={focusExpId === plan.runs[p.i].expId}
-                    onFocus={() => pick(p.i)}
-                    openHref={px(`/experiments/${plan.runs[p.i].expId}`)}
+                    champ={row.i === bestI}
+                    focused={focusExpId === row.run.expId}
+                    onFocus={() => pick(row.i)}
+                    openHref={px(`/experiments/${row.run.expId}`)}
                   />
                 ))}
               </div>
+              {experiments.length > 0 && (() => {
+                const norun = experiments.filter(e => !plan.runs.some(r => r.expId === e.experiment_id)).length;
+                return norun > 0
+                  ? <p className="lgd-note">+ {norun} experiment{norun === 1 ? '' : 's'} without recorded runs</p>
+                  : null;
+              })()}
             </section>
           )}
 
@@ -197,17 +254,6 @@ export default function MlflowDashboard() {
           {hasLedger && (plan.diagnostics.length > 0 || plan.invariants.length > 0 || plan.sparse.length > 0) && (
             <LedgerFootnotes plan={plan} />
           )}
-
-          <section className="section">
-            <h2 className="section-title">Timeline</h2>
-            <Timeline
-              experiments={experiments}
-              plan={plan}
-              focusExpId={focusExpId}
-              onFocus={toggleFocus}
-              hrefOf={(id) => px(`/experiments/${id}`)}
-            />
-          </section>
         </>
       )}
     </div>
@@ -292,9 +338,8 @@ function FocusBanner({ exp, plan, onClear, openHref }) {
   );
 }
 
-function BoardRow({ rank, run, value, plan, champ, focused, onFocus, openHref }) {
-  const anchor = anchorValueOf(run, plan.focus.key);
-  const delta = anchor != null ? value - anchor : null;
+function BoardRow({ row, plan, champ, focused, onFocus, openHref }) {
+  const { run, value, ord, delta, when } = row;
   const improved = delta != null && (plan.focus.direction < 0 ? delta < 0 : delta > 0);
   return (
     <div
@@ -304,7 +349,7 @@ function BoardRow({ rank, run, value, plan, champ, focused, onFocus, openHref })
       onClick={onFocus}
       onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); onFocus(); } }}
     >
-      <span className="lgd-rank">{rank}</span>
+      <span className="lgd-rank">{ord}</span>
       <span className="lgd-run-name">
         {run.expName}
         {run.runName !== run.expName && <span className="lgd-run-sub">{run.runName}</span>}
@@ -313,6 +358,7 @@ function BoardRow({ rank, run, value, plan, champ, focused, onFocus, openHref })
       <span className={`lgd-delta ${delta == null ? 'na' : improved ? 'good' : 'bad'}`}>
         {delta == null ? '—' : `${delta >= 0 ? '+' : '−'}${fmtNum(Math.abs(delta))}`}
       </span>
+      <span className="lgd-when">{fmtStamp(when)}</span>
       <Link className="lgd-open" to={openHref} onClick={(e) => e.stopPropagation()}>open →</Link>
     </div>
   );
@@ -388,93 +434,3 @@ function LedgerFootnotes({ plan }) {
   );
 }
 
-// The record of what was tried, when: flush chronological rows — stamp,
-// state index, intent, and how the attempt landed on the focus metric.
-function Timeline({ experiments, plan, focusExpId, onFocus, hrefOf }) {
-  const entries = experiments.map(exp => {
-    const runsOf = plan ? plan.runs.filter(r => r.expId === exp.experiment_id) : [];
-    const stamp = runsOf.length
-      ? Math.min(...runsOf.map(r => r.start || Infinity))
-      : (exp.metrics?.experiments?.[0]?.last_update_time ?? null);
-    return { exp, runsOf, stamp: Number.isFinite(stamp) ? stamp : null };
-  }).sort((a, b) => (a.stamp ?? Infinity) - (b.stamp ?? Infinity));
-
-  return (
-    <div className="lgd-tl">
-      {entries.map(({ exp, runsOf, stamp }) => (
-        <TimelineRow
-          key={exp.experiment_id}
-          exp={exp}
-          runsOf={runsOf}
-          stamp={stamp}
-          plan={plan}
-          focused={focusExpId === exp.experiment_id}
-          onFocus={() => onFocus(exp.experiment_id)}
-          openHref={hrefOf(exp.experiment_id)}
-        />
-      ))}
-    </div>
-  );
-}
-
-function TimelineRow({ exp, runsOf, stamp, plan, focused, onFocus, openHref }) {
-  const color = statusColor(exp.status);
-  const focusKey = plan?.focus?.key;
-
-  // How the attempt landed: its best focus-metric value and the shift vs its
-  // own recorded baseline.
-  let read = null;
-  if (focusKey && runsOf.length) {
-    const dir = plan.focus.direction;
-    const vals = runsOf
-      .map(r => ({ r, v: r.metrics[focusKey]?.last }))
-      .filter(x => Number.isFinite(x.v));
-    if (vals.length) {
-      const best = vals.reduce((a, b) => (dir < 0 ? (b.v < a.v ? b : a) : (b.v > a.v ? b : a)));
-      const anchor = anchorValueOf(best.r, focusKey);
-      const delta = anchor != null ? best.v - anchor : null;
-      read = { v: best.v, delta, improved: delta != null && (dir < 0 ? delta < 0 : delta > 0) };
-    }
-  }
-
-  return (
-    <div
-      className={`lgd-tlrow${focused ? ' focused' : ''}`}
-      style={{ borderLeftColor: color }}
-      role="button"
-      tabIndex={0}
-      onClick={onFocus}
-      onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); onFocus(); } }}
-    >
-      <span className="lgd-tl-when">{stamp ? fmtStamp(stamp) : '—'}</span>
-      <span className="lgd-tl-main">
-        <span className="lgd-tl-name">{exp.name}</span>
-        <span className="lgd-tl-status" style={{ color }}>{String(exp.status || '').replace(/_/g, ' ')}</span>
-        {exp.intent && <span className="lgd-tl-intent">{exp.intent}</span>}
-      </span>
-      <span className={`lgd-tl-read${read ? '' : ' na'}`}>
-        {read ? (
-          <>
-            {fmtNum(read.v)}
-            {read.delta != null && (
-              <span className={read.improved ? 'good' : 'bad'}>
-                {' '}{read.delta >= 0 ? '+' : '−'}{fmtNum(Math.abs(read.delta))}
-              </span>
-            )}
-            {runsOf.length > 1 && <span className="n"> · {runsOf.length} runs</span>}
-          </>
-        ) : 'no runs'}
-      </span>
-      <Link className="lgd-open" to={openHref} onClick={(e) => e.stopPropagation()}>open →</Link>
-      {exp.dashboard_experiment_url && (
-        <a
-          className="lgd-open"
-          href={exp.dashboard_experiment_url}
-          target="_blank"
-          rel="noreferrer"
-          onClick={(e) => e.stopPropagation()}
-        >mlflow ↗</a>
-      )}
-    </div>
-  );
-}

@@ -4384,20 +4384,30 @@ a.results-metrics-sub:hover { color: var(--active); text-decoration: underline; 
 .lgc-strip::before { content: ''; position: absolute; left: 0; right: 0; top: 50%; border-top: 1px solid var(--line-soft); }
 .lgd-strip-range { font-family: var(--font-mono); font-size: 10px; color: var(--faint); white-space: nowrap; }
 
-.lgd-board { max-width: 720px; }
+.lgd-board { max-width: 820px; }
+/* Header row: same grid as the body rows; each label is the sort control. */
+.lgd-row--head { cursor: default; border-bottom: 1px solid var(--line); padding-top: 0; }
+.lgd-row--head:hover { background: none; }
+.lgd-hbtn { border: none; background: none; padding: 0; font-family: inherit; font-size: var(--text-xs); color: var(--faint); cursor: pointer; }
+.lgd-hbtn:hover { color: var(--muted); }
+.lgd-hbtn.on { color: var(--text); }
+.lgd-hbtn .arr { color: var(--active); font-size: 9px; }
+.lgd-hbtn.lgd-run-name { text-align: left; font-weight: 400; overflow: visible; }
+.lgd-hbtn.lgd-val, .lgd-hbtn.lgd-delta, .lgd-hbtn.lgd-when { font-family: inherit; }
 .lgd-row { display: flex; align-items: baseline; gap: 14px; padding: 8px 10px 8px 11px; border-bottom: 1px solid var(--line-soft); border-left: 3px solid transparent; cursor: pointer; }
 .lgd-row:hover { background: var(--hover); }
 .lgd-row.champ { border-left-color: var(--active); }
 .lgd-row.focused { background: var(--select); }
-.lgd-rank { width: 18px; font-family: var(--font-mono); font-size: var(--text-xs); color: var(--faint); }
+.lgd-rank { width: 24px; font-family: var(--font-mono); font-size: var(--text-xs); color: var(--faint); }
 .lgd-run-name { flex: 1; min-width: 0; font-size: var(--text-sm); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .lgd-run-sub { margin-left: 8px; font-family: var(--font-mono); font-size: var(--text-xs); color: var(--faint); }
-.lgd-val { font-family: var(--font-mono); font-size: var(--text-sm); }
+.lgd-val { width: 88px; text-align: right; font-family: var(--font-mono); font-size: var(--text-sm); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .lgd-delta { width: 84px; text-align: right; font-family: var(--font-mono); font-size: var(--text-xs); }
 .lgd-delta.good { color: var(--supports); }
 .lgd-delta.bad { color: var(--refutes); }
 .lgd-delta.na { color: var(--faint); }
-.lgd-open { font-size: var(--text-xs); white-space: nowrap; }
+.lgd-when { width: 92px; text-align: right; font-family: var(--font-mono); font-size: var(--text-xs); color: var(--faint); white-space: nowrap; }
+.lgd-open { width: 52px; text-align: right; font-size: var(--text-xs); white-space: nowrap; }
 
 /* Knob scatters sit flush on the canvas — their axes are the only lines. */
 .lgd-knobs { display: grid; grid-template-columns: repeat(auto-fill, minmax(240px, 1fr)); gap: 22px 32px; }
@@ -4413,22 +4423,6 @@ a.results-metrics-sub:hover { color: var(--active); text-decoration: underline; 
 .lgd-chip { font-family: var(--font-mono); }
 .lgd-chip.ok { color: var(--supports); }
 .lgd-chip.bad { color: var(--refutes); }
-
-/* Timeline: the project's attempts in order — stamp, state index, intent,
-   and how each landed on the focus metric. Flush rows, no cards. */
-.lgd-tlrow { display: flex; align-items: baseline; gap: 14px; padding: 9px 10px 9px 11px; border-bottom: 1px solid var(--line-soft); border-left: 3px solid var(--steel); cursor: pointer; }
-.lgd-tlrow:hover { background: var(--hover); }
-.lgd-tlrow.focused { background: var(--select); }
-.lgd-tl-when { width: 96px; flex: none; font-family: var(--font-mono); font-size: var(--text-xs); color: var(--faint); }
-.lgd-tl-main { flex: 1; min-width: 0; display: flex; align-items: baseline; gap: 10px; overflow: hidden; }
-.lgd-tl-name { font-size: var(--text-sm); font-weight: 600; white-space: nowrap; }
-.lgd-tl-status { flex: none; font-size: var(--text-xs); }
-.lgd-tl-intent { font-size: var(--text-xs); color: var(--muted); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.lgd-tl-read { flex: none; font-family: var(--font-mono); font-size: var(--text-xs); }
-.lgd-tl-read.na { color: var(--faint); }
-.lgd-tl-read .good { color: var(--supports); }
-.lgd-tl-read .bad { color: var(--refutes); }
-.lgd-tl-read .n { color: var(--faint); }
 
 /* Parachute lifecycle chip (derived from sandbox.parachuted /
    parachute_restored / parachute_failed events). */
