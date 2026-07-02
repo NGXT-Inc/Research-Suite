@@ -672,15 +672,17 @@ Scope checked:
 - `improvement_requests/2026-07-02_research_plugin_improvement_requests.md`
 - Current tool contracts / app tool listing
 - `plugin_improvement_progress.md`
-- Git history through `a04363a`
+- Git history through the sandbox cancellation reverts
 
 Findings:
 
-1. Make sandbox lifecycle more explicit and durable — addressed by Batch 15.
-2. Add a first-class project active VM concept — addressed by Batch 13.
+1. Make sandbox lifecycle more explicit and durable — canceled with Batch 15;
+   pending a cleaner design.
+2. Add a first-class project active VM concept — canceled with Batch 13;
+   pending a cleaner design that does not let a new agent hijack another
+   agent's sandbox.
 3. Provide automatic lease extension or expiry warnings during active runs —
-   addressed by Batch 14 with explicit expiry warnings; provider-specific
-   auto-extension remains intentionally out of scope.
+   canceled with Batch 14; pending a cleaner design.
 4. Persist command status independently of SSH — addressed by Batch 19.
 5. Automatic artifact retention from sandboxes — addressed by Batches 16 and 17.
 6. Expose `workflow.status_and_next` consistently — verified as exposed in the
@@ -714,18 +716,19 @@ Verification:
 
 - `PYTHONPATH=. python - <<'PY' ... app.list_tools() ...` confirmed
   `workflow.status_and_next` is present.
-- Latest full suite after canceling `results.merge_tsv`:
-  `PYTHONPATH=. python -m unittest discover -s tests -v` (889 tests,
+- Latest full suite after canceling the sandbox reuse/warning batches:
+  `PYTHONPATH=. python -m unittest discover -s tests -v` (884 tests,
   25 skipped).
-- Worktree clean after commits `ff4636f`, `0731bb6`, `990038e`, and `a04363a`
-  for the final four batches in this continuation.
+- Sandbox cancellation revert commits recorded: `a199771`, `118c0b1`, and
+  `6e29684`.
 
 Remaining scoped requests:
 
-- None from the saved plugin-wide improvement request list. The two
-  Git/reproducibility requests remain excluded by the saved-list scope;
-  `Protect results.tsv from clobbering` is now also canceled as
-  project-specific.
+- The sandbox lifecycle, project-active VM, and expiry-warning requests are now
+  intentionally unresolved pending a cleaner design. The two
+  Git/reproducibility requests remain excluded by the saved-list scope.
+- `Protect results.tsv from clobbering` is canceled as project-specific rather
+  than a plugin-wide request.
 
 ## Batch 25: cancel generic results.tsv merge
 
@@ -755,3 +758,31 @@ Verification:
 - `git diff --check`
 - `PYTHONPATH=. python -m unittest discover -s tests -v` (889 tests,
   25 skipped)
+
+## Batch 26: cancel sandbox reuse and warning batches
+
+Status: complete
+
+Request addressed:
+
+- Cancel commits `9bdd226`, `f86a0b1`, and `b8d8eb3`.
+
+Implementation notes:
+
+- Removed project-wide sandbox reuse as the default behavior for
+  `sandbox.request`; it no longer scans for the newest live sandbox in the
+  project and attaches it to a different experiment automatically.
+- Removed `workflow.status_and_next` active-sandbox expiry warning generation
+  and the corresponding MCP contract language.
+- Removed sandbox lifecycle reason/detail surfaces and reason-specific terminal
+  row details from the agent-facing sandbox views.
+- Marked Batches 13, 14, and 15 as canceled and updated the completion audit to
+  leave those UX requests pending a cleaner design.
+
+Verification:
+
+- `rg -n 'project_active_sandbox|list_running_project_rows|_project_reuse_candidate|sandbox_expiry|SANDBOX_EXPIRY_WARNING_SECONDS|_with_sandbox_expiry_warning|lifecycle_reason|lifecycle_detail|terminal_reason' backend docs tests plugin_improvement_progress.md` found only the cancellation notes in this file.
+- `git diff --check`
+- `python -m py_compile backend/services/sandbox/sandboxes.py backend/services/sandbox/sandbox_registry.py backend/services/sandbox/sandbox_views.py backend/services/sandbox/sandbox_daemons.py backend/services/sandbox/sandbox_provisioner.py backend/services/workflow.py backend/tools/contracts.py`
+- `PYTHONPATH=. python -m unittest tests.sandbox.test_sandbox_service tests.sandbox.test_sandbox_heartbeat tests.sandbox.test_sandbox_identity tests.workflow.test_workflow_gates tests.surface.test_tool_contracts -v` (128 tests)
+- `PYTHONPATH=. python -m unittest discover -s tests -v` (884 tests, 25 skipped)
