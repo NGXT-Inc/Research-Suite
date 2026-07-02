@@ -123,6 +123,32 @@ class ExperimentGetStateInput(ProjectScopedInput):
     experiment_id: str
 
 
+class ExperimentMaterializeFoldersInput(ProjectScopedInput):
+    experiment_id: str | None = Field(
+        default=None,
+        description=(
+            "Optional experiment id. When provided, materialize only that "
+            "experiment's folder regardless of status."
+        ),
+    )
+    status: Literal[
+        "planned",
+        "design_review",
+        "ready_to_run",
+        "running",
+        "experiment_review",
+        "complete",
+        "failed",
+        "abandoned",
+    ] | None = Field(
+        default="planned",
+        description=(
+            "When experiment_id is omitted, materialize experiments with this "
+            "status. Null materializes every experiment in the project."
+        ),
+    )
+
+
 class ExperimentTransitionInput(ProjectScopedInput):
     experiment_id: str
     transition: Literal[
@@ -697,6 +723,16 @@ TOOL_CONTRACTS: dict[str, ToolContract] = {
             "transitions available from the current status, each with what it "
             "'requires' (e.g. a registered plan resource, a passing review)."
         ),
+    ),
+    "experiment.materialize_folders": ToolContract(
+        input_model=ExperimentMaterializeFoldersInput,
+        description=(
+            "Create canonical local experiment folders under experiments/<name>/ "
+            "for a project. Use after reflection publish or experiment.create "
+            "when planned experiments exist in state but their local folders do "
+            "not yet exist."
+        ),
+        plane="data",
     ),
     "experiment.transition": ToolContract(
         input_model=ExperimentTransitionInput,

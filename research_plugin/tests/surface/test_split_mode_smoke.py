@@ -113,6 +113,7 @@ class DaemonResourceForwardingTest(unittest.TestCase):
         self.assertIn("resource.register_file", names)
         self.assertIn("resource.validate", names)
         self.assertIn("resource.associate", names)
+        self.assertIn("experiment.materialize_folders", names)
         self.assertIn("results.merge_tsv", names)
         self.assertIn("sandbox.get", names)
         self.assertIn("sandbox.request", names)
@@ -180,6 +181,46 @@ class DaemonResourceForwardingTest(unittest.TestCase):
             "a\taccuracy\t0.70\n"
             "b\taccuracy\t0.72\n",
         )
+
+    def test_experiment_materialize_folders_uses_linked_project(self) -> None:
+        class _Control:
+            def list_tools(self):
+                return []
+
+            def call(self, name, arguments):
+                self.last_call = (name, arguments)
+                if name == "experiment.list":
+                    return {
+                        "experiments": [
+                            {
+                                "id": "exp_1",
+                                "name": "planned-one",
+                                "status": "planned",
+                            },
+                            {
+                                "id": "exp_2",
+                                "name": "done-one",
+                                "status": "complete",
+                            },
+                        ]
+                    }
+                raise AssertionError(name)
+
+        control = _Control()
+        result = self._server(control).call_tool(
+            name="experiment.materialize_folders",
+            arguments={},
+            context={"repo_root": str(self.repo)},
+        )
+
+        self.assertEqual(
+            control.last_call,
+            ("experiment.list", {"project_id": "proj_1"}),
+        )
+        self.assertEqual(result["count"], 1)
+        self.assertEqual(result["folders"][0]["folder"], "experiments/planned-one/")
+        self.assertTrue((self.repo / "experiments" / "planned-one").is_dir())
+        self.assertFalse((self.repo / "experiments" / "done-one").exists())
 
     def test_daemon_teardown_removes_conn_file(self) -> None:
         class _Worker:

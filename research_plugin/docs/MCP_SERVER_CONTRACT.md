@@ -66,11 +66,12 @@ event.list(project_id, limit?)
 planned experiment with a short unique `name`, one `intent` string, and
 optional linked claims. `name` is required and folder-safe (letters, digits,
 `.`, `_`, `-`; max 48 chars): it becomes the experiment folder
-`experiments/<name>/`, created on the spot, which is also the folder synced to
-sandboxes. Names are unique per project (case-insensitive) — proposing a name
-that already exists is rejected with "an experiment named '<name>' already
-exists in this project — choose a new name". The create response confirms the
-folder in-band: alongside the experiment state it carries `folder`
+`experiments/<name>/`, which data-plane actions can materialize locally and
+which is also the folder synced to sandboxes. Names are unique per project
+(case-insensitive) — proposing a name that already exists is rejected with "an
+experiment named '<name>' already exists in this project — choose a new name".
+The create response confirms the folder in-band: alongside the experiment state
+it carries `folder`
 (`experiments/<name>/`) and a one-line `folder_guidance` telling the agent to
 work inside it from the start. The MCP schema advertises `name`,
 `intent`, and `tested_claim_ids` as the preferred shape, but the server
@@ -201,9 +202,16 @@ full local ledger.
 workflow.status_and_next(project_id, experiment_id?)
 workflow.next_action(project_id, experiment_id)
 workflow.transition(project_id, experiment_id, transition, evidence?)
+experiment.materialize_folders(project_id, experiment_id?, status?)
 workflow.record_blocker(project_id, experiment_id, reason)
 workflow.request_human_review(project_id, experiment_id, reason)
 ```
+
+`experiment.materialize_folders` creates canonical local folders under
+`experiments/<name>/` without changing experiment state. With no `experiment_id`
+it defaults to planned experiments, which is the common case after reflection
+publish materializes a new wave; pass `status: null` to create folders for every
+experiment in the project.
 
 The server may reject transitions that skip required gates. The agent-facing
 tool returns a **slim** projection — only what the next-action decision and the

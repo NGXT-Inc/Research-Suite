@@ -155,6 +155,7 @@ class ResearchPluginApp:
                 resource_register_file=self.register_resource_file,
                 resource_validate=self.validate_resource_file,
                 resource_associate=self.associate_resource,
+                experiment_materialize_folders=self.materialize_experiment_folders,
                 results_merge_tsv=self.merge_results_tsv,
                 reviews=self.reviews,
                 sandboxes=self.sandboxes,
@@ -333,6 +334,37 @@ class ResearchPluginApp:
             target_path=target_path,
             key_columns=key_columns,
             dry_run=dry_run,
+        )
+
+    def materialize_experiment_folders(
+        self,
+        *,
+        experiment_id: str | None = None,
+        status: str | None = "planned",
+        project_id: str | None = None,
+    ) -> dict[str, Any]:
+        from .dataplane.experiment_folders import materialize_experiment_folders
+
+        if experiment_id:
+            experiments = [
+                self.experiments.get_state(
+                    experiment_id=experiment_id,
+                    project_id=project_id,
+                )
+            ]
+        else:
+            experiments = self.experiments.list_experiments(project_id=project_id)[
+                "experiments"
+            ]
+            if status:
+                experiments = [
+                    experiment
+                    for experiment in experiments
+                    if experiment.get("status") == status
+                ]
+        return materialize_experiment_folders(
+            repo_root=self.workspace.repo_root,
+            experiments=experiments,
         )
 
     def upload_storage_file(

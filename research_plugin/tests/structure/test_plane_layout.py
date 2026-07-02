@@ -292,6 +292,7 @@ class ToolPlanePartitionTest(unittest.TestCase):
         self.assertEqual(
             DATA_PLANE_TOOL_NAMES,
             {
+                "experiment.materialize_folders",
                 "resource.register_file",
                 "resource.validate",
                 "resource.associate",

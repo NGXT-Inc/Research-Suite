@@ -12,6 +12,7 @@ from backend.tools.contracts import (
     AGGREGATE_TOOL_NAMES,
     CONTROL_PLANE_TOOL_NAMES,
     DATA_PLANE_TOOL_NAMES,
+    ExperimentMaterializeFoldersInput,
     ResourceAssociateBatchInput,
     ResourceValidateInput,
     ResultsMergeTsvInput,
@@ -148,6 +149,16 @@ class ToolContractRegistryTest(unittest.TestCase):
         )
         self.assertEqual(TOOL_CONTRACTS["results.merge_tsv"].plane, "data")
 
+    def test_experiment_materialize_folders_is_data_plane(self) -> None:
+        self.assertIs(
+            TOOL_CONTRACTS["experiment.materialize_folders"].input_model,
+            ExperimentMaterializeFoldersInput,
+        )
+        self.assertEqual(
+            TOOL_CONTRACTS["experiment.materialize_folders"].plane,
+            "data",
+        )
+
 
 class StaticCatalogNoSideEffectTest(unittest.TestCase):
     def test_router_tool_listing_creates_no_template_repo(self) -> None:
@@ -190,6 +201,7 @@ class ToolHandlerRegistryTest(unittest.TestCase):
             **_handler_targets(),
             resource_register_file=target.register_file,
             resource_validate=target.validate,
+            experiment_materialize_folders=target.materialize_folders,
             results_merge_tsv=target.merge_tsv,
         )
 

@@ -117,3 +117,31 @@ Verification:
 - `PYTHONPATH=. python -m unittest tests.surface.test_tool_contracts tests.structure.test_plane_layout.ToolPlanePartitionTest -v`
 - `PYTHONPATH=. python -m unittest tests.surface.test_split_mode_smoke.DaemonResourceForwardingTest.test_results_merge_tsv_updates_local_ledger_without_control_mutation tests.surface.test_split_mode_smoke.DaemonResourceForwardingTest.test_daemon_catalog_only_advertises_implemented_data_tools -v`
 - `PYTHONPATH=. python -m unittest discover -s tests -v` (862 tests, 25 skipped)
+
+## Batch 5: explicit experiment folder materialization
+
+Status: complete
+
+Request addressed:
+
+- Create local experiment folders when experiments materialize.
+
+Implementation notes:
+
+- Added `experiment.materialize_folders` as a data-plane helper that creates
+  canonical local `experiments/<name>/` folders without changing experiment
+  state.
+- The tool defaults to planned experiments, matching the reflection-publish
+  case where a new wave appears in MCP before local folders exist; callers can
+  pass `experiment_id` for one folder or `status: null` for all experiments.
+- Preserved existing lazy `experiment.create` semantics and fixed the MCP
+  contract wording that incorrectly claimed folders were created immediately.
+- Wired the tool through local mode and split-mode daemon routing.
+
+Verification:
+
+- `PYTHONPATH=. python -m unittest tests.surface.test_experiment_materialize_folders -v`
+- `PYTHONPATH=. python -m unittest tests.surface.test_split_mode_smoke.DaemonResourceForwardingTest.test_experiment_materialize_folders_uses_linked_project tests.surface.test_split_mode_smoke.DaemonResourceForwardingTest.test_daemon_catalog_only_advertises_implemented_data_tools -v`
+- `PYTHONPATH=. python -m unittest tests.surface.test_tool_contracts tests.structure.test_plane_layout.ToolPlanePartitionTest -v`
+- `PYTHONPATH=. python -m unittest tests.structure.test_plane_layout.PlaneImportLintTest.test_app_import_keeps_local_io_modules_unloaded -v`
+- `PYTHONPATH=. python -m unittest discover -s tests -v` (866 tests, 25 skipped)

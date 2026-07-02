@@ -37,6 +37,7 @@ from ..dataplane.resource_artifacts import LocalResourceArtifactReader
 from ..dataplane.resource_observer import LocalResourceObserver
 from ..dataplane.resource_validation import validate_local_resource_artifact
 from ..dataplane.results_tsv import merge_results_tsv
+from ..dataplane.experiment_folders import materialize_experiment_folders
 from ..secret_tokens import mint_secret
 from ..services.sandbox import sandbox_views
 from ..storage.file_transfer import (
@@ -158,6 +159,8 @@ class DaemonServer:
             return self._associate_resource(arguments=arguments, context=context)
         if name == "resource.associate_batch":
             return self._associate_resource_batch(arguments=arguments, context=context)
+        if name == "experiment.materialize_folders":
+            return self._materialize_experiment_folders(arguments=arguments, context=context)
         if name == "results.merge_tsv":
             return self._merge_results_tsv(arguments=arguments, context=context)
         if name == "feed.post":
@@ -569,6 +572,38 @@ class DaemonServer:
             target_path=self._required_arg(arguments, "target_path"),
             key_columns=[str(column) for column in key_columns],
             dry_run=bool(arguments.get("dry_run") or False),
+        )
+
+    def _materialize_experiment_folders(
+        self, *, arguments: dict[str, Any], context: dict[str, Any]
+    ) -> dict[str, Any]:
+        repo_root, project_id = self._linked_scope(context=context)
+        experiment_id = str(arguments.get("experiment_id") or "").strip()
+        status = arguments.get("status", "planned")
+        if experiment_id:
+            experiments = [
+                self.control.call(
+                    "experiment.get_state",
+                    {
+                        "project_id": project_id,
+                        "experiment_id": experiment_id,
+                    },
+                )
+            ]
+        else:
+            listed = self.control.call("experiment.list", {"project_id": project_id})
+            raw_experiments = listed.get("experiments")
+            if not isinstance(raw_experiments, list):
+                raise ValidationError("experiment.list returned an invalid payload")
+            experiments = [
+                experiment
+                for experiment in raw_experiments
+                if isinstance(experiment, dict)
+                and (status is None or experiment.get("status") == status)
+            ]
+        return materialize_experiment_folders(
+            repo_root=repo_root,
+            experiments=experiments,
         )
 
     def _submit_resource_observation(
