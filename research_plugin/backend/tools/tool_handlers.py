@@ -7,6 +7,7 @@ from typing import Any
 
 from ..mlflow import mlflow_experiment_name, mlflow_visible_for_status
 from ..services.experiment_views import slim_experiment_state
+from ..utils import ValidationError
 
 
 def _experiment_get_state_agent(
@@ -111,6 +112,55 @@ def _mlflow_context_response(
     if experiment_id:
         result["experiment_id"] = experiment_id
     return result
+
+
+def _without_reviewer_capability(request: dict[str, Any]) -> dict[str, Any]:
+    out = dict(request)
+    out.pop("reviewer_capability", None)
+    return out
+
+
+def _review_request_and_start_agent(
+    *,
+    reviews: Any,
+    target_type: str,
+    target_id: str,
+    role: str,
+    reason: str = "",
+    producer_session_id: str = "main",
+    declared_agent: str = "",
+    caller_session_id: str = "",
+    project_id: str | None = None,
+) -> dict[str, Any]:
+    if caller_session_id and caller_session_id == producer_session_id:
+        raise ValidationError("caller_session_id must differ from producer_session_id")
+    request = reviews.request(
+        project_id=project_id,
+        target_type=target_type,
+        target_id=target_id,
+        role=role,
+        reason=reason,
+        producer_session_id=producer_session_id,
+    )
+    session = reviews.start(
+        review_request_id=request["review_request_id"],
+        reviewer_capability=request["reviewer_capability"],
+        declared_agent=declared_agent,
+        caller_session_id=caller_session_id,
+    )
+    handoff = dict(request.get("reviewer_handoff") or {})
+    handoff["review_session_id"] = session["review_session_id"]
+    handoff["capability_required"] = False
+    return {
+        "review_request_id": request["review_request_id"],
+        "review_session_id": session["review_session_id"],
+        "role": session["role"],
+        "target_type": session["target_type"],
+        "target_id": session["target_id"],
+        "review_request": _without_reviewer_capability(request),
+        "review_session": session,
+        "reviewer_handoff": handoff,
+    }
 
 
 def _with_mlflow_if_visible(
@@ -244,6 +294,10 @@ def build_control_tool_handlers(
         "resource.list": resources.list_resources,
         "resource.resolve": resources.resolve,
         "review.request": reviews.request,
+        "review.request_and_start": lambda **kwargs: _review_request_and_start_agent(
+            reviews=reviews,
+            **kwargs,
+        ),
         "review.start": reviews.start,
         "review.submit": reviews.submit,
         "review.status": reviews.status,

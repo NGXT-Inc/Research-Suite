@@ -15,6 +15,7 @@ from backend.tools.contracts import (
     ExperimentMaterializeFoldersInput,
     ResourceAssociateBatchInput,
     ResourceValidateInput,
+    ReviewRequestAndStartInput,
     ResultsMergeTsvInput,
     StorageCompleteUploadInput,
     StorageDownloadFileInput,
@@ -160,6 +161,13 @@ class ToolContractRegistryTest(unittest.TestCase):
             TOOL_CONTRACTS["experiment.materialize_folders"].plane,
             "data",
         )
+
+    def test_review_request_and_start_is_control_plane(self) -> None:
+        self.assertIs(
+            TOOL_CONTRACTS["review.request_and_start"].input_model,
+            ReviewRequestAndStartInput,
+        )
+        self.assertEqual(TOOL_CONTRACTS["review.request_and_start"].plane, "control")
 
 
 class StaticCatalogNoSideEffectTest(unittest.TestCase):

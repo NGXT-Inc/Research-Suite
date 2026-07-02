@@ -282,3 +282,31 @@ Verification:
 - `git diff --check`
 - `PYTHONPATH=. python -m unittest tests.surface.test_http_api.ResearchPluginHttpApiTest.test_running_transition_and_tool_hand_mlflow_block tests.state.test_mlflow_tracking tests.surface.test_tool_contracts tests.structure.test_plane_layout.PlaneImportLintTest -v` (51 tests)
 - `PYTHONPATH=. python -m unittest discover -s tests -v` (868 tests, 25 skipped)
+
+## Batch 11: review request-and-start helper
+
+Status: complete
+
+Request addressed:
+
+- Reduce review boilerplate.
+
+Implementation notes:
+
+- Added `review.request_and_start` as a control-plane helper that creates a
+  review request and immediately starts a read-only reviewer session.
+- The helper returns request/session metadata and a `review_session_id`, but
+  intentionally does not expose the one-time `reviewer_capability` in its
+  response.
+- `workflow.status_and_next` now advertises `review.request_and_start` at
+  review gates alongside the lower-level `review.request` path.
+- Added upfront validation so the helper rejects equal producer/reviewer
+  session ids before minting a capability, avoiding a dangling lost request.
+- Documented when to use the composed helper versus the manual
+  `review.request` / `review.start` split.
+
+Verification:
+
+- `git diff --check`
+- `PYTHONPATH=. python -m unittest tests.workflow.test_workflow_gates.WorkflowGateTest.test_review_request_and_start_opens_read_only_session tests.workflow.test_workflow_gates.WorkflowGateTest.test_review_request_and_start_rejects_same_session_before_mint tests.workflow.test_workflow_gates.WorkflowGateTest.test_pending_review_allows_fresh_request_for_lost_capability tests.surface.test_tool_contracts tests.structure.test_plane_layout.PlaneImportLintTest -v` (43 tests)
+- `PYTHONPATH=. python -m unittest discover -s tests -v` (871 tests, 25 skipped)
