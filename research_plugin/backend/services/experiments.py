@@ -433,6 +433,27 @@ class ExperimentService:
             error = str(run.get("error") or run.get("note") or "")
             if not run_id and not error:
                 return existing
+            if not run_id and str(existing.get("mlflow_run_id") or ""):
+                # An error-only update (e.g. a failed re-create on retry) must
+                # not blank an existing run identity — keep the run, attach
+                # the error beside it.
+                conn.execute(
+                    "UPDATE experiments SET mlflow_run_error = ?, updated_at = ? WHERE id = ?",
+                    (error, now, experiment_id),
+                )
+                self.store.record_event(
+                    conn=conn,
+                    project_id=project_id,
+                    event_type=event_type or "experiment.mlflow_run_unavailable",
+                    target_type="experiment",
+                    target_id=experiment_id,
+                    payload={
+                        "run_id": str(existing.get("mlflow_run_id") or ""),
+                        "error": error,
+                        "previous_run_id": str(existing.get("mlflow_run_id") or ""),
+                    },
+                )
+                return self.get_state(experiment_id=experiment_id, conn=conn)
             conn.execute(
                 """
                 UPDATE experiments
@@ -827,11 +848,17 @@ class ExperimentService:
                 "review can be sent back to planned"
             )
         now = now_iso()
+        # Run identity is per-attempt: clear the persisted MLflow run so the
+        # revised attempt's start_running mints a fresh one instead of telling
+        # the agent to resume the previous attempt's (usually finalized) run.
         conn.execute(
             """
             UPDATE experiments
             SET status = 'planned', attempt_index = attempt_index + 1,
-                revision_context = ?, updated_at = ?
+                revision_context = ?, updated_at = ?,
+                mlflow_run_id = '', mlflow_run_name = '', mlflow_run_status = '',
+                mlflow_run_artifact_uri = '', mlflow_run_created_at = NULL,
+                mlflow_run_error = ''
             WHERE id = ?
             """,
             (revision_context, now, experiment_id),
@@ -842,7 +869,10 @@ class ExperimentService:
             event_type="experiment.returned_to_planned",
             target_type="experiment",
             target_id=experiment_id,
-            payload={"revision_context": revision_context},
+            payload={
+                "revision_context": revision_context,
+                "previous_mlflow_run_id": str(row["mlflow_run_id"] or ""),
+            },
         )
 
     def send_back_to_running(self, *, conn, experiment_id: str, revision_context: str) -> None:

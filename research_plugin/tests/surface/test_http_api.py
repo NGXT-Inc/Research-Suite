@@ -485,6 +485,126 @@ class ResearchPluginHttpApiTest(unittest.TestCase):
         )
         self.assertNotIn("MLFLOW_EXPERIMENT_NAME", project_ctx["mlflow"]["env"])
 
+    def test_attempt_revision_and_retry_rotate_the_mlflow_run(self) -> None:
+        project = self.request("POST", "/api/projects", {"name": "ML Rotate Project"})
+        project_id = project["id"]
+        exp_id = self.request(
+            "POST", f"/api/projects/{project_id}/experiments", {"name": "exp-rotate", "intent": "Train"}
+        )["id"]
+        mlflow = CentralMlflowService(
+            mode="external",
+            tracking_uri="https://mlflow.test",
+            server_uri="http://mlflow.internal:5000",
+            dashboard_url="https://mlflow.test",
+            health_check=lambda: True,
+        )
+        self.configure_mlflow(mlflow)
+        with self.app.store.transaction() as conn:
+            conn.execute("UPDATE experiments SET status = 'ready_to_run' WHERE id = ?", (exp_id,))
+
+        def run_payload(run_id: str, attempt: int) -> dict:
+            return {
+                "created": True,
+                "experiment_id": "7",
+                "run_id": run_id,
+                "run_name": f"{exp_id}-attempt-{attempt}",
+                "status": "RUNNING",
+                "artifact_uri": "",
+                "created_at": "2026-07-02T12:00:00Z",
+            }
+
+        with patch.object(CentralMlflowService, "create_run", return_value=run_payload("run_a1", 1)):
+            self.app.call_tool(
+                "experiment.transition",
+                {"project_id": project_id, "experiment_id": exp_id, "transition": "start_running"},
+            )
+
+        # An infra retry while the run is still open resumes the same run.
+        with patch.object(CentralMlflowService, "create_run") as create_run:
+            retried = self.app.call_tool(
+                "experiment.transition",
+                {"project_id": project_id, "experiment_id": exp_id, "transition": "retry_running"},
+            )
+        create_run.assert_not_called()
+        self.assertEqual(retried["mlflow"]["run"]["run_id"], "run_a1")
+
+        # Once that run was finalized, resuming would log into a closed run —
+        # the retry mints a fresh run for the same attempt.
+        with self.app.store.transaction() as conn:
+            conn.execute("UPDATE experiments SET mlflow_run_status = 'FAILED' WHERE id = ?", (exp_id,))
+        with patch.object(
+            CentralMlflowService, "create_run", return_value=run_payload("run_a1_retry", 1)
+        ) as create_run:
+            retried = self.app.call_tool(
+                "experiment.transition",
+                {"project_id": project_id, "experiment_id": exp_id, "transition": "retry_running"},
+            )
+        create_run.assert_called_once()
+        self.assertEqual(retried["mlflow"]["run"]["run_id"], "run_a1_retry")
+
+        # A review rejection bumps the attempt and clears the run identity...
+        with self.app.store.transaction() as conn:
+            conn.execute("UPDATE experiments SET status = 'experiment_review' WHERE id = ?", (exp_id,))
+            self.app.experiments.send_back_to_planned(
+                conn=conn, experiment_id=exp_id, revision_context="revise the plan"
+            )
+        state = self.app.call_tool(
+            "experiment.get_state", {"project_id": project_id, "experiment_id": exp_id}
+        )
+        self.assertFalse(state.get("mlflow_run"))
+        # ...so the revised attempt's start mints an attempt-2 run instead of
+        # handing back attempt 1's finalized one.
+        with self.app.store.transaction() as conn:
+            conn.execute("UPDATE experiments SET status = 'ready_to_run' WHERE id = ?", (exp_id,))
+        with patch.object(
+            CentralMlflowService, "create_run", return_value=run_payload("run_a2", 2)
+        ) as create_run:
+            transitioned = self.app.call_tool(
+                "experiment.transition",
+                {"project_id": project_id, "experiment_id": exp_id, "transition": "start_running"},
+            )
+        create_run.assert_called_once_with(
+            project_id=project_id,
+            experiment_id=exp_id,
+            attempt_index=2,
+            run_name=f"{exp_id}-attempt-2",
+        )
+        self.assertEqual(transitioned["mlflow"]["run"]["run_id"], "run_a2")
+
+    def test_finalizing_a_foreign_run_id_keeps_the_canonical_run(self) -> None:
+        project = self.request("POST", "/api/projects", {"name": "ML Foreign Run Project"})
+        project_id = project["id"]
+        exp_id = self.request(
+            "POST", f"/api/projects/{project_id}/experiments", {"name": "exp-foreign", "intent": "Train"}
+        )["id"]
+        mlflow = CentralMlflowService(
+            mode="external",
+            tracking_uri="https://mlflow.test",
+            server_uri="http://mlflow.internal:5000",
+            health_check=lambda: True,
+        )
+        self.configure_mlflow(mlflow)
+        with self.app.store.transaction() as conn:
+            conn.execute(
+                "UPDATE experiments SET status = 'running', mlflow_run_id = 'run_mine', "
+                "mlflow_run_status = 'RUNNING' WHERE id = ?",
+                (exp_id,),
+            )
+        finalized = {
+            "configured": True,
+            "terminal": True,
+            "run": {"run_id": "run_other", "status": "FINISHED"},
+        }
+        with patch.object(CentralMlflowService, "finalize_run", return_value=finalized):
+            self.app.call_tool(
+                "mlflow.finalize_run",
+                {"project_id": project_id, "experiment_id": exp_id, "run_id": "run_other"},
+            )
+        state = self.app.call_tool(
+            "experiment.get_state", {"project_id": project_id, "experiment_id": exp_id}
+        )
+        self.assertEqual(state["mlflow_run"]["run_id"], "run_mine")
+
     def test_server_only_mlflow_does_not_advertise_agent_tracking(self) -> None:
         project = self.request("POST", "/api/projects", {"name": "ML Server Project"})
         project_id = project["id"]

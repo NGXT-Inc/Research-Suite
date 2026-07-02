@@ -277,7 +277,11 @@ while the approved plan still stands, `allowed_transitions` includes
 `retry_running`. Calling `experiment.transition` with that transition keeps the
 experiment in `running`, preserves `attempt_index`, and stores the evidence in
 `revision_context` so the next run is explicitly a same-attempt infrastructure
-retry rather than a plan revision.
+retry rather than a plan revision. MLflow run identity follows the retry: an
+open persisted run is resumed as-is, while a finalized (or missing) one is
+replaced with a freshly created run in the transition response. A review
+rejection back to `planned` clears the persisted run entirely, so the revised
+attempt's `start_running` mints an attempt-scoped fresh run.
 Dropped vs. the underlying `experiment.get_state`: the duplicate
 all-attempts `resources` list, per-resource version bookkeeping (`version_token`,
 `mtime_ns`, `*_version_id`, `git_commit`, timestamps), full review

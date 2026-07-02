@@ -238,7 +238,11 @@ while the approved plan still stands, call
 `experiment.transition(transition="retry_running", evidence={...})` before
 requesting or attaching the replacement sandbox. This keeps the same attempt and
 records why execution is being rerun; use a planned retry only when the design
-itself needs to change.
+itself needs to change. The transition response carries the MLflow run to use:
+a still-open run is resumed in place, while one you already finalized (for
+example with `mlflow.finalize_run(status="FAILED")` after the crash) is
+replaced by a fresh run — always take `MLFLOW_RUN_ID` from the retry response
+rather than reusing an old value.
 
 While the sandbox is live, make experiment-folder edits on the VM under
 `$RP_EXPERIMENT_DIR`. No files are copied automatically. Keep datasets, caches,

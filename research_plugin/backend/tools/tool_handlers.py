@@ -5,7 +5,11 @@ from __future__ import annotations
 from collections.abc import Callable
 from typing import Any
 
-from ..mlflow import mlflow_experiment_name, mlflow_visible_for_status
+from ..mlflow import (
+    MLFLOW_TERMINAL_RUN_STATUSES,
+    mlflow_experiment_name,
+    mlflow_visible_for_status,
+)
 from ..services.experiment_views import slim_experiment_state
 from ..utils import ValidationError
 
@@ -148,6 +152,30 @@ def _with_mlflow_if_visible(
     return state
 
 
+def _create_and_record_mlflow_run(
+    *,
+    experiments: Any,
+    mlflow_tracking: Any,
+    state: dict[str, Any],
+    project_id: str,
+    experiment_id: str,
+) -> dict[str, Any]:
+    attempt_index = int(state.get("attempt_index") or 1)
+    run = mlflow_tracking.create_run(
+        project_id=project_id,
+        experiment_id=experiment_id,
+        attempt_index=attempt_index,
+        run_name=f"{experiment_id}-attempt-{attempt_index}",
+    )
+    if not (run.get("run_id") or run.get("error")):
+        return state
+    return experiments.record_mlflow_run(
+        project_id=project_id,
+        experiment_id=experiment_id,
+        run=run,
+    )
+
+
 def _ensure_mlflow_run_for_start(
     *,
     experiments: Any,
@@ -161,18 +189,40 @@ def _ensure_mlflow_run_for_start(
     existing = state.get("mlflow_run") or {}
     if existing.get("run_id"):
         return state
-    run = mlflow_tracking.create_run(
+    return _create_and_record_mlflow_run(
+        experiments=experiments,
+        mlflow_tracking=mlflow_tracking,
+        state=state,
         project_id=project_id,
         experiment_id=experiment_id,
-        attempt_index=int(state.get("attempt_index") or 1),
-        run_name=f"{experiment_id}-attempt-{int(state.get('attempt_index') or 1)}",
     )
-    if not (run.get("run_id") or run.get("error")):
+
+
+def _ensure_mlflow_run_for_retry(
+    *,
+    experiments: Any,
+    mlflow_tracking: Any,
+    state: dict[str, Any],
+    project_id: str,
+    experiment_id: str,
+) -> dict[str, Any]:
+    """An infra retry resumes the persisted run while it is still open. Once
+    that run was finalized (e.g. FAILED after the crash), resuming would log
+    into a closed run — mint a fresh run for the same attempt instead. A
+    retry with no persisted run (creation failed at start_running) is also
+    the natural backfill point."""
+    if mlflow_tracking is None:
         return state
-    return experiments.record_mlflow_run(
+    existing = state.get("mlflow_run") or {}
+    persisted_status = str(existing.get("status") or "").upper()
+    if existing.get("run_id") and persisted_status not in MLFLOW_TERMINAL_RUN_STATUSES:
+        return state
+    return _create_and_record_mlflow_run(
+        experiments=experiments,
+        mlflow_tracking=mlflow_tracking,
+        state=state,
         project_id=project_id,
         experiment_id=experiment_id,
-        run=run,
     )
 
 
@@ -227,6 +277,14 @@ def build_control_tool_handlers(
         resolved_project_id = str(result.get("project_id") or project_id or "")
         if transition == "start_running":
             result = _ensure_mlflow_run_for_start(
+                experiments=experiments,
+                mlflow_tracking=mlflow_tracking,
+                state=result,
+                project_id=resolved_project_id,
+                experiment_id=experiment_id,
+            )
+        elif transition == "retry_running":
+            result = _ensure_mlflow_run_for_retry(
                 experiments=experiments,
                 mlflow_tracking=mlflow_tracking,
                 state=result,
@@ -303,7 +361,15 @@ def build_control_tool_handlers(
         )
         run = result.get("run")
         refreshed_state = state
-        if isinstance(run, dict) and run.get("run_id"):
+        persisted_run_id = str(existing_run.get("run_id") or "")
+        # Only refresh the experiment's canonical run block for the run it
+        # actually owns — finalizing an explicit foreign run_id must not
+        # repoint the persisted identity.
+        if (
+            isinstance(run, dict)
+            and run.get("run_id")
+            and (not persisted_run_id or str(run.get("run_id")) == persisted_run_id)
+        ):
             refreshed_state = experiments.record_mlflow_run(
                 project_id=resolved_project_id,
                 experiment_id=experiment_id,
