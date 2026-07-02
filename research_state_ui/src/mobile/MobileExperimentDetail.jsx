@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useRef, useState } from 'react';
+import { useCallback, useEffect, useState } from 'react';
 import { Link, useParams } from 'react-router-dom';
 import { api } from '../api';
 import { useProjectStore, selectResources, useProjectHref } from '../store/useProjectStore';
@@ -6,15 +6,14 @@ import ExperimentMetrics from '../components/ExperimentMetrics';
 import SandboxTerminal from '../components/SandboxTerminal';
 import MobileGraphSection from './MobileGraphSection';
 import MobileDoc from './MobileDoc';
-import ScrubRail from './ScrubRail';
 import { Skeleton } from './Skeleton';
 import { expName, statusColor, statusLine, TERMINAL_STATUSES } from '../utils/experiment';
 
 /**
  * Mobile experiment detail — one continuous scroll (design handoff, sketch
  * 2b): Status → Plan → Run → Outcomes flow down a single surface, each
- * introduced by a small label and separated by a hairline. No tab strip;
- * the right-edge ScrubRail (experiment-only) is the section index.
+ * introduced by a small label and separated by a hairline. No section
+ * navigator — just scroll.
  *
  * design_philosophy.md is the law here: the artifacts (intent, plan,
  * terminal, report, curves) are the content; everything about the workflow
@@ -34,19 +33,9 @@ export default function MobileExperimentDetail() {
   const [termOpen, setTermOpen] = useState(false);
   const [graphOpen, setGraphOpen] = useState(false);
 
-  const statusRef = useRef(null);
-  const planRef = useRef(null);
-  const runRef = useRef(null);
-  const outcomesRef = useRef(null);
-  // Run only exists while a sandbox is attached — no sandbox, no section
-  // (and no rail stop): a terminal with nothing to attach to is dead chrome.
+  // Run only exists while a sandbox is attached — a terminal with nothing
+  // to attach to is dead chrome.
   const hasSandbox = (statusData?.sandboxes || []).length > 0;
-  const sections = [
-    { id: 'status', label: 'Status', ref: statusRef },
-    { id: 'plan', label: 'Plan', ref: planRef },
-    ...(hasSandbox ? [{ id: 'run', label: 'Run', ref: runRef }] : []),
-    { id: 'outcomes', label: 'Outcomes', ref: outcomesRef },
-  ];
 
   const fetchStatus = useCallback(async () => {
     try {
@@ -131,7 +120,7 @@ export default function MobileExperimentDetail() {
       </header>
 
       {/* ── Status ─────────────────────────────────────────────────── */}
-      <section ref={statusRef} className="mxd-section">
+      <section className="mxd-section">
         <div className="mml">Status</div>
         <StatusStatement experiment={experiment} workflow={isClosed ? null : workflow} />
         {experiment.intent && <p className="mxd-intent">{experiment.intent}</p>}
@@ -148,7 +137,7 @@ export default function MobileExperimentDetail() {
       <div className="mbreak" />
 
       {/* ── Plan ───────────────────────────────────────────────────── */}
-      <section ref={planRef} className="mxd-section">
+      <section className="mxd-section">
         <div className="mml">Plan</div>
         {planRes ? (
           <MobileDoc
@@ -170,7 +159,7 @@ export default function MobileExperimentDetail() {
              (and starts polling) on tap ── */}
       {hasSandbox && (
         <>
-          <section ref={runRef} className="mxd-section">
+          <section className="mxd-section">
             <div className="mml">Run</div>
             <LazyRow open={termOpen} onOpen={() => setTermOpen(true)} label="terminal">
               <SandboxTerminal projectId={projectId} experimentId={experimentId} readOnly />
@@ -182,7 +171,7 @@ export default function MobileExperimentDetail() {
       )}
 
       {/* ── Outcomes ───────────────────────────────────────────────── */}
-      <section ref={outcomesRef} className="mxd-section">
+      <section className="mxd-section">
         <div className="mml">Outcomes</div>
         {reportRes && (
           <MobileDoc
@@ -200,8 +189,6 @@ export default function MobileExperimentDetail() {
           dense
         />
       </section>
-
-      <ScrubRail sections={sections} />
     </div>
   );
 }

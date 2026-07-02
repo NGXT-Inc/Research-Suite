@@ -195,26 +195,7 @@ export default function MlflowDashboard() {
           )}
 
           {hasLedger && (plan.diagnostics.length > 0 || plan.invariants.length > 0 || plan.sparse.length > 0) && (
-            <section className="section">
-              <h2 className="section-title">Diagnostics &amp; constants</h2>
-              {plan.diagnostics.map(fp => <DiagLine key={fp.key} fp={fp} runs={plan.runs} />)}
-              {plan.invariants.length > 0 && (
-                <p className="lgd-line">
-                  shared across runs:&nbsp;
-                  {plan.invariants.map((iv, j) => (
-                    <span key={iv.key}>{j > 0 && ' · '}<span className="lgd-line-k">{iv.key}</span> {fmtNum(iv.value)}</span>
-                  ))}
-                </p>
-              )}
-              {plan.sparse.length > 0 && (
-                <p className="lgd-line">
-                  sparsely logged:&nbsp;
-                  {plan.sparse.map((fp, j) => (
-                    <span key={fp.key}>{j > 0 && ' · '}<span className="lgd-line-k">{fp.key}</span> ({fp.values.length} run{fp.values.length === 1 ? '' : 's'})</span>
-                  ))}
-                </p>
-              )}
-            </section>
+            <LedgerFootnotes plan={plan} />
           )}
 
           <section className="section">
@@ -337,18 +318,73 @@ function BoardRow({ rank, run, value, plan, champ, focused, onFocus, openHref })
   );
 }
 
-// Exit-code style metrics: quiet when uniformly zero, loud per failing run.
-function DiagLine({ fp, runs }) {
-  const failing = fp.values.filter(p => p.v !== 0);
+// Footnotes: failures are verdicts and stay loud; health, shared config, and
+// sparse bookkeeping are reference material behind one quiet disclosure.
+function LedgerFootnotes({ plan }) {
+  const [open, setOpen] = useState(false);
+  const failures = plan.diagnostics
+    .flatMap(fp => fp.values.filter(p => p.v !== 0).map(p => ({ key: fp.key, run: plan.runs[p.i], v: p.v })));
+  const cleanDiags = plan.diagnostics.filter(fp => fp.values.every(p => p.v === 0));
+
+  const foldedLabel = [
+    plan.invariants.length > 0 && `${plan.invariants.length} shared constant${plan.invariants.length === 1 ? '' : 's'}`,
+    plan.sparse.length > 0 && `${plan.sparse.length} sparsely logged`,
+    cleanDiags.length > 0 && 'exit codes clean',
+  ].filter(Boolean).join(' · ');
+
+  if (failures.length === 0 && !foldedLabel) return null;
+
   return (
-    <p className="lgd-line">
-      <span className="lgd-line-k">{fp.key}</span>:&nbsp;
-      {failing.length === 0
-        ? <span className="lgd-chip ok">0 in all {fp.values.length} runs</span>
-        : failing.map((p, j) => (
-          <span key={p.i}>{j > 0 && ' · '}<span className="lgd-chip bad">{runs[p.i].runName} = {fmtNum(p.v)}</span></span>
-        ))}
-    </p>
+    <section className="section">
+      <h2 className="section-title">Diagnostics &amp; constants</h2>
+      {failures.length > 0 && (
+        <p className="lgd-line">
+          {failures.map((f, j) => (
+            <span key={`${f.key}:${f.run.runId}`}>
+              {j > 0 && ' · '}
+              <span className="lgd-chip bad">{f.run.runName} {f.key} = {fmtNum(f.v)}</span>
+            </span>
+          ))}
+        </p>
+      )}
+      {foldedLabel && (
+        <>
+          <button type="button" className="rr-more" onClick={() => setOpen(v => !v)} aria-expanded={open}>
+            {open ? '▾' : '▸'} {foldedLabel}
+          </button>
+          {open && (
+            <>
+              {plan.invariants.length > 0 && (
+                <p className="lgd-line">
+                  shared across all runs:&nbsp;
+                  {plan.invariants.map((iv, j) => (
+                    <span key={iv.key}>{j > 0 && ' · '}<span className="lgd-line-k">{iv.key}</span> {fmtNum(iv.value)}</span>
+                  ))}
+                </p>
+              )}
+              {plan.sparse.length > 0 && (
+                <p className="lgd-line">
+                  sparsely logged:&nbsp;
+                  {plan.sparse.map((fp, j) => (
+                    <span key={fp.key}>{j > 0 && ' · '}<span className="lgd-line-k">{fp.key}</span> ({fp.values.length} run{fp.values.length === 1 ? '' : 's'})</span>
+                  ))}
+                </p>
+              )}
+              {cleanDiags.length > 0 && (
+                <p className="lgd-line">
+                  {cleanDiags.map((fp, j) => (
+                    <span key={fp.key}>
+                      {j > 0 && ' · '}
+                      <span className="lgd-line-k">{fp.key}</span> <span className="lgd-chip ok">0 in all {fp.values.length} runs</span>
+                    </span>
+                  ))}
+                </p>
+              )}
+            </>
+          )}
+        </>
+      )}
+    </section>
   );
 }
 

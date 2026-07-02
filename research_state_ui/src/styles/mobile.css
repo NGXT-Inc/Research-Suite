@@ -1371,7 +1371,6 @@ html[data-surface="mobile"] .results-metrics-drill {
   text-decoration: none;
 }
 html[data-surface="mobile"] .mxd .mbreak { margin: 18px 0 14px; }
-html[data-surface="mobile"] .mxd-section { scroll-margin-top: 74px; }
 html[data-surface="mobile"] .mxd-section > .mml { margin-top: 4px; }
 html[data-surface="mobile"] .mxd-intent {
   font-size: 13px;
@@ -1398,84 +1397,6 @@ html[data-surface="mobile"] .mterm-row {
 html[data-surface="mobile"] .mterm-row:active { background: var(--hover); }
 html[data-surface="mobile"] .mterm-twist { color: var(--faint); font-size: 12px; }
 
-/* The right-edge scrub rail — a pure overlay pinned between the app bar
-   and the bottom nav; content stays full-width behind it. */
-html[data-surface="mobile"] .mrail {
-  position: fixed;
-  top: calc(96px + env(safe-area-inset-top, 0px));
-  bottom: calc(76px + env(safe-area-inset-bottom, 0px));
-  right: 0;
-  width: 15px;
-  z-index: 50;
-  display: flex;
-  flex-direction: column;
-  justify-content: center;
-  align-items: center;
-  gap: 15px;
-  background: color-mix(in srgb, var(--bg) 50%, transparent);
-  backdrop-filter: blur(4px);
-  -webkit-backdrop-filter: blur(4px);
-  border-left: 1px solid color-mix(in srgb, var(--text) 10%, transparent);
-  touch-action: none;
-  transition: width 160ms ease;
-}
-/* An invisible gutter doubles the hit target (a 15px strip alone is under
-   any comfortable touch size) without widening the visible rail. */
-html[data-surface="mobile"] .mrail::before {
-  content: '';
-  position: absolute;
-  top: 0;
-  bottom: 0;
-  left: -14px;
-  width: 14px;
-}
-html[data-surface="mobile"] .mrail-tick {
-  width: 6px;
-  height: 2px;
-  border-radius: 1px;
-  background: var(--line-strong);
-}
-html[data-surface="mobile"] .mrail-tick.on {
-  width: 10px;
-  background: var(--active);
-}
-/* Engaged: a frosted panel with the section labels. */
-html[data-surface="mobile"] .mrail--open {
-  width: 104px;
-  align-items: stretch;
-  gap: 0;
-  padding: 5px 0;
-  background: color-mix(in srgb, var(--bg-elev) 74%, transparent);
-  backdrop-filter: blur(9px);
-  -webkit-backdrop-filter: blur(9px);
-  border-left: 1px solid color-mix(in srgb, var(--text) 14%, transparent);
-}
-html[data-surface="mobile"] .mrail-lab {
-  flex: 1;
-  display: flex;
-  align-items: center;
-  justify-content: flex-end;
-  gap: 9px;
-  padding: 0 13px 0 12px;
-  font-size: 11px;
-  font-weight: 600;
-  color: var(--muted);
-}
-html[data-surface="mobile"] .mrail-lab .mrail-dot {
-  width: 6px;
-  height: 6px;
-  border-radius: 50%;
-  background: var(--line-strong);
-  flex: none;
-}
-html[data-surface="mobile"] .mrail-lab.on {
-  color: var(--text);
-  box-shadow: inset -3px 0 0 var(--active);
-}
-html[data-surface="mobile"] .mrail-lab.on .mrail-dot {
-  background: var(--active);
-  box-shadow: 0 0 0 3px rgba(var(--active-rgb), 0.16);
-}
 /* ── MLflow — the quantitative ledger ──────────────────────────────── */
 html[data-surface="mobile"] .mlfm { padding: 4px 16px 40px; }
 html[data-surface="mobile"] .mlfm-eyebrow {
@@ -1591,17 +1512,4 @@ html[data-surface="mobile"] .mlfm-cell-val {
 }
 html[data-surface="mobile"] .mlfm-cell-val .tr { font-size: 9px; font-weight: 700; }
 html[data-surface="mobile"] .mlfm-cell .msparkline { margin-top: 7px; }
-
-/* While scrubbing, the surface recedes behind a light veil. */
-/* The dim is also the dismiss surface: while the panel is open it catches
-   the tap-away (and keeps stray taps off the content underneath). */
-html[data-surface="mobile"] .mrail-dim {
-  position: fixed;
-  inset: 0;
-  z-index: 49;
-  background: color-mix(in srgb, var(--bg) 34%, transparent);
-}
-@media (prefers-reduced-motion: reduce) {
-  html[data-surface="mobile"] .mrail { transition: none; }
-}
 

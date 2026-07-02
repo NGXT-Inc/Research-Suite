@@ -77,15 +77,23 @@ export function spearman(xs, ys) {
 
 const distinctCount = (vals) => new Set(vals.map(v => (typeof v === 'number' ? v.toPrecision(6) : String(v)))).size;
 
-// baseline_X / base_X pairs with X; delta_X derives from X (suffix-tolerant:
-// delta_bpb pairs with val_bpb).
+// baseline_X / base_X pairs with X; delta_X / X_delta / relative_*_percent
+// derive from some primary metric.
 const anchorTarget = (key) => (key.match(/^base(?:line)?_(.+)$/) || [])[1] || null;
-const deltaTarget = (key) => (key.match(/^delta_(.+)$/) || [])[1] || null;
+const deltaTarget = (key) => {
+  const m = key.match(/^delta_(.+)$|^(.+)_delta$/);
+  return m ? (m[1] || m[2]) : (/^relative_.*_percent$/.test(key) ? key : null);
+};
 const matchesTarget = (keys, self, target) =>
   target != null && [...keys].some(k => k !== self && (k === target || k.endsWith(`_${target}`)));
 
-// Provenance params identify the code, they don't tune it.
-const isProvenanceParam = (key) => /commit|_sha$|hash/i.test(key);
+// Identity and provenance params (ids, uuids, commits, hashes) locate the
+// run, they don't describe it — never rendered anywhere.
+const isProvenanceParam = (key) => /commit|hash|_sha$|(^|_)uu?id$|(^|_)id$/i.test(key);
+
+// Agents may declare the focus explicitly (primary_metric{,_direction}) —
+// workflow metadata to consume, not a constant to exhibit.
+const isContractParam = (key) => /^primary_metric(_direction)?$/i.test(key);
 
 // The run's own recorded anchor for a metric (logged as metric or param).
 export function anchorValueOf(run, key) {
@@ -168,15 +176,26 @@ export function planLedger(payload) {
     };
     fp.role =
       matchesTarget(keys, key, anchorTarget(key)) || keys.has(anchorTarget(key)) ? 'anchor'
-      : matchesTarget(keys, key, deltaTarget(key)) || keys.has(deltaTarget(key)) ? 'derived'
+      : deltaTarget(key) != null ? 'derived'
       : (/_exit(?:_code)?$|_code$/.test(key) || (allBinary && values.length > 1)) ? 'diagnostic'
-      : (values.length > 1 && distinct === 1) ? 'invariant'
+      // "Shared across runs" is a full-coverage claim — a constant logged by
+      // a subset is neither shared nor comparable, so it simply doesn't show.
+      : (values.length === n && n > 1 && distinct === 1) ? 'invariant'
       : (n >= 3 && values.length < Math.max(2, Math.ceil(n / 2))) ? 'sparse'
       : 'compare';
     fps.push(fp);
   }
 
-  // ── focus metric: anchored + directional + covered wins ──
+  // ── the declared contract, when agents logged one (last run wins) ──
+  const contract = {};
+  for (const r of runs) {
+    const pm = r.params.primary_metric;
+    if (pm) contract.key = String(pm);
+    const d = String(r.params.primary_metric_direction || '').toLowerCase();
+    if (d) contract.direction = /min|down|lower/.test(d) ? -1 : /max|up|higher/.test(d) ? 1 : undefined;
+  }
+
+  // ── focus metric: declared contract, else anchored + directional + covered ──
   const spread = (fp) => (fp.max - fp.min) / (Math.abs((fp.max + fp.min) / 2) || 1);
   const candidates = fps.filter(fp => fp.role === 'compare' && fp.distinct > 1);
   candidates.sort((a, b) =>
@@ -184,11 +203,12 @@ export function planLedger(payload) {
     || (Math.abs(b.direction) - Math.abs(a.direction))
     || (b.coverage - a.coverage)
     || (spread(b) - spread(a)));
-  const focusFp = candidates[0] || null;
+  const focusFp = candidates.find(fp => fp.key === contract.key) || candidates[0] || null;
+  const declaredDir = focusFp && focusFp.key === contract.key ? contract.direction : undefined;
   const focus = focusFp && {
     key: focusFp.key,
-    direction: focusFp.direction || -1,
-    directionAssumed: focusFp.direction === 0,
+    direction: declaredDir ?? (focusFp.direction || -1),
+    directionAssumed: declaredDir == null && focusFp.direction === 0,
     anchorKey: focusFp.hasAnchor ? `baseline_${focusFp.key}` : null,
   };
 
@@ -224,12 +244,13 @@ export function planLedger(payload) {
   const knobs = [];
   const config = [];
   for (const key of paramKeys) {
-    if (anchorTarget(key) || isProvenanceParam(key)) continue; // anchors + code identity
+    if (anchorTarget(key) || isProvenanceParam(key) || isContractParam(key)) continue;
     const present = [];
     runs.forEach((r, i) => { if (r.params[key] != null) present.push({ i, raw: String(r.params[key]) }); });
     if (!present.length) continue;
     if (distinctCount(present.map(p => p.raw)) === 1) {
-      if (present.length > 1) config.push({ key, value: present[0].raw });
+      // Same full-coverage bar as metric invariants: "shared" means every run.
+      if (present.length === n && n > 1) config.push({ key, value: present[0].raw });
       continue;
     }
     const nums = present.map(p => parseNumeric(p.raw));
