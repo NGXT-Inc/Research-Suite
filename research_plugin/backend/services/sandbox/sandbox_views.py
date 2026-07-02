@@ -92,53 +92,7 @@ def _expiry_note(
 
 
 def _is_live(*, status: str, ssh: dict[str, Any]) -> bool:
-    return bool(
-        ssh.get("host") and ssh.get("port") and status in ACTIVE_SANDBOX_STATUSES
-    )
-
-
-_TERMINAL_REASON_DETAILS = {
-    "expired": "Sandbox lifetime expired and the reaper terminated the VM.",
-    "idle_timeout": "Sandbox was idle past the configured threshold and was reaped.",
-    "provider_unreachable": (
-        "Provider liveness check reported that the VM is gone or unreachable."
-    ),
-    "user_release": "Sandbox was explicitly released after retention confirmation.",
-    "terminated": "Sandbox reached a terminal terminated state.",
-}
-
-
-def _lifecycle_fields(
-    *, row: dict[str, Any], status: str | None = None
-) -> dict[str, Any]:
-    state = str(status or row.get("status") or "none")
-    if state == "terminated":
-        reason = str(row.get("detail") or "terminated")
-        return {
-            "lifecycle_reason": reason,
-            "lifecycle_detail": _TERMINAL_REASON_DETAILS.get(
-                reason, reason.replace("_", " ")
-            ),
-        }
-    if state == "failed":
-        error = str(row.get("error") or "")
-        reason = (
-            "provisioning_interrupted"
-            if "interrupted" in error
-            else "provisioning_failed"
-        )
-        return {
-            "lifecycle_reason": reason,
-            "lifecycle_detail": error or "Sandbox provisioning failed.",
-        }
-    if state == "provisioning":
-        return {
-            "lifecycle_reason": "provisioning",
-            "lifecycle_detail": str(row.get("detail") or ""),
-        }
-    if state in ACTIVE_SANDBOX_STATUSES:
-        return {"lifecycle_reason": "running", "lifecycle_detail": ""}
-    return {"lifecycle_reason": state, "lifecycle_detail": ""}
+    return bool(ssh.get("host") and ssh.get("port") and status in ACTIVE_SANDBOX_STATUSES)
 
 
 def agent_row_facts(
@@ -195,7 +149,6 @@ def agent_row_facts(
         "region": row.get("region") or None,
         "expires_at": row.get("expires_at"),
         "storage_enabled": bool(storage_enabled),
-        **_lifecycle_fields(row=row, status=status),
     }
     if env_info.get("available_tokens"):
         facts["environment"] = env_info
@@ -330,7 +283,6 @@ def agent_summary(*, row: dict[str, Any]) -> dict[str, Any]:
         "instance_type": row.get("instance_type") or None,
         "region": row.get("region") or None,
         "expires_at": row.get("expires_at"),
-        **_lifecycle_fields(row=row),
     }
 
 
@@ -388,7 +340,6 @@ def sandbox_row_view(
         "terminated_at": row.get("terminated_at"),
         "created_at": row.get("created_at"),
         "updated_at": row.get("updated_at"),
-        **_lifecycle_fields(row=row),
     }
     return view
 

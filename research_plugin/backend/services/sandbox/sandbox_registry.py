@@ -664,14 +664,9 @@ class SandboxRegistry:
             )
         return {**snapshot, "snapshot_at": now}
 
-    def mark_terminated(
-        self, *, experiment_id: str, sandbox_uid: str, reason: str = "terminated"
-    ) -> None:
+    def mark_terminated(self, *, experiment_id: str, sandbox_uid: str) -> None:
         self._mark_terminal(
-            experiment_id=experiment_id,
-            sandbox_uid=sandbox_uid,
-            status="terminated",
-            terminal_reason=reason,
+            experiment_id=experiment_id, sandbox_uid=sandbox_uid, status="terminated"
         )
 
     def mark_failed(self, *, experiment_id: str, error: str, sandbox_uid: str) -> None:
@@ -689,7 +684,6 @@ class SandboxRegistry:
         sandbox_uid: str,
         status: str,
         error: str | None = None,
-        terminal_reason: str = "",
     ) -> None:
         """Drive one sandbox row to a terminal status, closing its attachment
         and spend generation. `error` is set only on the failed path."""
@@ -710,11 +704,10 @@ class SandboxRegistry:
                 conn.execute(
                     """
                     UPDATE sandboxes
-                    SET status = ?, phase = '', detail = ?,
-                        terminated_at = ?, updated_at = ?
+                    SET status = ?, terminated_at = ?, updated_at = ?
                     WHERE sandbox_uid = ?
                     """,
-                    (status, terminal_reason or status, now, now, row_uid),
+                    (status, now, now, row_uid),
                 )
             else:
                 conn.execute(

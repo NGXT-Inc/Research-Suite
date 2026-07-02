@@ -173,9 +173,7 @@ class SandboxDaemons:
             self.provisioner.cleanup_orphan(experiment_id=experiment_id, row=row)
         sandbox_uid = str(row.get("sandbox_uid") or "")
         self.registry.mark_terminated(
-            experiment_id=experiment_id,
-            sandbox_uid=sandbox_uid,
-            reason=self._terminal_reason_for_reap(event_type=event_type),
+            experiment_id=experiment_id, sandbox_uid=sandbox_uid
         )
         payload = {
             "sandbox_id": sandbox_id,
@@ -192,9 +190,3 @@ class SandboxDaemons:
             experiment_id=experiment_id,
             payload=payload,
         )
-
-    @staticmethod
-    def _terminal_reason_for_reap(*, event_type: str) -> str:
-        if event_type == "sandbox.idle_reaped":
-            return "idle_timeout"
-        return "expired"

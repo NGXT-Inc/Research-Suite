@@ -1038,10 +1038,10 @@ TOOL_CONTRACTS: dict[str, ToolContract] = {
     "sandbox.get": ToolContract(
         input_model=SandboxGetInput,
         description=(
-            "Get sandbox status, lifecycle_reason, SSH details, expiry, and "
-            "polling/runtime guidance by sandbox_uid or by an experiment's "
-            "active sandbox association. Use it to poll provisioning and "
-            "inspect terminated or expired sandboxes."
+            "Get sandbox status, SSH details, expiry, and polling/runtime "
+            "guidance by sandbox_uid or by an experiment's active sandbox "
+            "association. Use it to poll provisioning and inspect terminated "
+            "or expired sandboxes."
         ),
         plane="aggregate",
         hosted_control_sandbox_lookup=True,

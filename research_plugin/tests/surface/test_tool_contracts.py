@@ -108,7 +108,6 @@ class ToolContractRegistryTest(unittest.TestCase):
         self.assertNotIn("TensorBoard", tools["sandbox.request"]["description"])
         self.assertIn("durable storage", tools["sandbox.request"]["description"])
         self.assertIn("expiry", tools["sandbox.get"]["description"])
-        self.assertIn("lifecycle_reason", tools["sandbox.get"]["description"])
         self.assertIn("poll provisioning", tools["sandbox.get"]["description"])
         self.assertIn("confirm_retained", tools["sandbox.release"]["description"])
         self.assertIn("retention checklist", tools["sandbox.release"]["description"])

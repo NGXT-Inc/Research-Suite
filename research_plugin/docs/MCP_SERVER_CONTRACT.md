@@ -393,9 +393,8 @@ active experiments, and one experiment can have multiple live sandboxes. The
 response carries `ssh` (host, port, user, key_path, command,
 raw_command), `workdir`, `experiment_dir`, `local_experiment_dir`, `data_dir`,
 `files_pushed` (how many files the initial folder push delivered; null while
-unknown), `status`, `lifecycle_reason`, `lifecycle_detail`, `expires_at`,
-`reused`, and — when set — the reserved hardware (`gpu`, `cpu`, `memory`,
-`instance_type`, `region`).
+unknown), `status`, `expires_at`, `reused`, and — when set — the reserved
+hardware (`gpu`, `cpu`, `memory`, `instance_type`, `region`).
 By default, a request for a new experiment reuses and attaches the newest
 confirmed-live sandbox in the same project before provisioning another VM; pass
 `additional: true` to force a parallel sandbox for that experiment. Project
@@ -499,10 +498,6 @@ background job died (daemon restart) to `failed` so a poll loop always reaches a
 terminal state. `sandbox.release` also cancels an in-flight provision. The agent
 contract: call `request`, then if `provisioning` poll `get` every
 `poll_after_seconds` until `running`/`failed` — never re-call `request` to poll.
-Terminal rows include `lifecycle_reason` so `terminated` is explainable:
-`user_release`, `expired`, `idle_timeout`, `provider_unreachable`, or
-`terminated`; failed rows report `provisioning_failed` or
-`provisioning_interrupted` with the error text in `lifecycle_detail`.
 
 Visibility: every SSH command and its output are recorded to a per-experiment
 transcript inside the sandbox. `sandbox.terminal` reads it live from the sandbox.

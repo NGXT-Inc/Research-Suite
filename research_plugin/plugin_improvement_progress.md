@@ -392,7 +392,7 @@ Verification:
 
 ## Batch 15: sandbox lifecycle reason surface
 
-Status: complete
+Status: canceled
 
 Request addressed:
 
@@ -400,24 +400,15 @@ Request addressed:
 
 Implementation notes:
 
-- Terminal sandbox paths now persist a reason code in the sandbox row's
-  terminal detail: `user_release`, `expired`, `idle_timeout`, or
-  `provider_unreachable`.
-- Shared sandbox projections now expose `lifecycle_reason` and
-  `lifecycle_detail` across `sandbox.request`, `sandbox.get`, `sandbox.list`,
-  workflow sandbox summaries, and HTTP/UI sandbox views.
-- Provider liveness reconciliation now emits `sandbox.terminated` with
-  `reason: "provider_unreachable"` instead of labeling that case as expiry.
-- Failed provisioning rows derive `provisioning_failed` or
-  `provisioning_interrupted` from the existing error text.
-- Updated the MCP contract and `sandbox.get` tool description to make the
-  lifecycle reason field discoverable.
+- The lifecycle reason surface was removed because these sandbox UX changes are
+  being replaced by a cleaner design.
+- The cancellation removes reason-specific terminal row details and the
+  `lifecycle_reason` / `lifecycle_detail` fields from the agent-facing sandbox
+  surface.
 
 Verification:
 
-- `git diff --check`
-- `PYTHONPATH=. python -m unittest tests.sandbox.test_sandbox_service.SandboxServiceTest.test_reaper_does_not_change_experiment_status tests.sandbox.test_sandbox_service.SandboxServiceTest.test_get_reconciles_dead_sandbox tests.sandbox.test_sandbox_service.SandboxServiceTest.test_release_terminates tests.sandbox.test_sandbox_heartbeat.SandboxHeartbeatMonitorTest.test_idle_sandbox_is_reaped_while_busy_sandbox_is_spared tests.surface.test_tool_contracts tests.structure.test_plane_layout.PlaneImportLintTest -v` (44 tests)
-- `PYTHONPATH=. python -m unittest discover -s tests -v` (878 tests, 25 skipped)
+- Superseded by the cancellation batch below.
 
 ## Batch 16: sandbox output pull helper
 

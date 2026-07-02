@@ -566,12 +566,6 @@ class SandboxServiceTest(unittest.TestCase):
                 ("2000-01-01T00:00:00Z", first["sandbox_uid"]),
             )
         self.assertEqual(self.app.sandboxes.reap_expired(), 1)
-        expired = self.call(
-            "sandbox.get",
-            project_id=self.project_id,
-            sandbox_uid=first["sandbox_uid"],
-        )
-        self.assertEqual(expired["lifecycle_reason"], "expired")
         state = self.call("experiment.get_state", project_id=self.project_id, experiment_id=exp_id)
         self.assertEqual(state["status"], "ready_to_run")
 
@@ -678,8 +672,6 @@ class SandboxServiceTest(unittest.TestCase):
         self.backend.kill(sandbox_id=created["sandbox_id"])
         got = self.call("sandbox.get", project_id=self.project_id, experiment_id=exp_id)
         self.assertEqual(got["status"], "terminated")
-        self.assertEqual(got["lifecycle_reason"], "provider_unreachable")
-        self.assertIn("provider", got["lifecycle_detail"].lower())
 
     def test_get_reconcile_does_not_change_experiment_when_sandbox_dies(self) -> None:
         # A sandbox that dies underneath an associated experiment is detected by
@@ -1037,7 +1029,6 @@ class SandboxServiceTest(unittest.TestCase):
             confirm_retained=True,
         )
         self.assertEqual(released["status"], "terminated")
-        self.assertEqual(released["lifecycle_reason"], "user_release")
         self.assertIn("Only files the agent explicitly copied or uploaded", released["hint"])
         self.assertIn(created["sandbox_id"], self.backend.terminated)
 
