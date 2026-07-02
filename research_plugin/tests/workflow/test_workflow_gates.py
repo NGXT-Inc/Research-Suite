@@ -380,6 +380,57 @@ class WorkflowGateTest(unittest.TestCase):
         out = self.call("experiment.transition", project_id=self.project_id, experiment_id=exp_id, transition="submit_results")
         self.assertEqual(out["status"], "experiment_review")
 
+    def test_resource_associate_batch_satisfies_results_gate(self) -> None:
+        exp_id = self._drive_to_running_with_result()
+        files = {
+            "report.md": ("report", VALID_REPORT),
+            "graph.json": ("graph", VALID_GRAPH),
+        }
+        associations = []
+        for path, (role, body) in files.items():
+            (self.repo / path).write_text(body)
+            resource = self.call(
+                "resource.register_file",
+                project_id=self.project_id,
+                path=path,
+                kind=role,
+            )
+            associations.append(
+                {
+                    "resource_id": resource["id"],
+                    "target_type": "experiment",
+                    "target_id": exp_id,
+                    "role": role,
+                }
+            )
+
+        associated = self.call(
+            "resource.associate_batch",
+            project_id=self.project_id,
+            associations=associations,
+        )
+
+        self.assertEqual(associated["count"], 2)
+        self.assertEqual(len(associated["associations"]), 2)
+        state = self.call(
+            "experiment.get_state",
+            project_id=self.project_id,
+            experiment_id=exp_id,
+        )
+        roles = {
+            item["association_role"]
+            for item in state["current_attempt_resources"]
+        }
+        self.assertIn("result", roles)
+        self.assertIn("report", roles)
+        self.assertIn("graph", roles)
+        self.call(
+            "experiment.transition",
+            project_id=self.project_id,
+            experiment_id=exp_id,
+            transition="submit_results",
+        )
+
     def test_logic_graph_node_budget_is_enforced(self) -> None:
         exp_id = self._drive_to_running_with_result()
         self._write_and_associate(exp_id=exp_id, path="report.md", role="report", body=VALID_REPORT)

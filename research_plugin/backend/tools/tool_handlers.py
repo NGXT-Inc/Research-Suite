@@ -265,6 +265,18 @@ def build_local_tool_handlers(
     storage_download_file: Callable[..., dict[str, Any]] | None = None,
 ) -> dict[str, Callable[..., dict[str, Any]]]:
     """Map all local-mode tool names to service methods."""
+    def resource_associate_batch(
+        *, associations: list[dict[str, Any]], project_id: str | None = None
+    ) -> dict[str, Any]:
+        associate = (
+            resource_associate if resource_associate is not None else resources.associate
+        )
+        applied = [
+            associate(project_id=project_id, **dict(association))
+            for association in associations
+        ]
+        return {"associations": applied, "count": len(applied)}
+
     handlers = build_control_tool_handlers(
         workflow=workflow,
         projects=projects,
@@ -285,6 +297,7 @@ def build_local_tool_handlers(
             "resource.associate": (
                 resource_associate if resource_associate is not None else resources.associate
             ),
+            "resource.associate_batch": resource_associate_batch,
             "sandbox.request": sandboxes.request,
             "sandbox.attach": sandboxes.attach,
             "feed.post": feed_post if feed_post is not None else feed.post,

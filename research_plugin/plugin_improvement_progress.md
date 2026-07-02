@@ -41,3 +41,27 @@ Follow-up candidates:
 - Surface storage object associations more clearly in experiment state.
 - Add sandbox output retention helpers that can choose storage automatically for
   large files.
+
+## Batch 2: batch resource association
+
+Status: complete
+
+Request addressed:
+
+- Batch resource association.
+
+Implementation notes:
+
+- Added `resource.associate_batch` as a data-plane helper over the existing
+  `resource.associate` path.
+- Rows are applied in order and preserve the same role validation,
+  gated-artifact byte capture, and attempt scoping as single associations.
+- Added split-mode daemon support so the tool is served anywhere
+  `resource.associate` is served.
+
+Verification:
+
+- `PYTHONPATH=. python -m unittest tests.workflow.test_workflow_gates.WorkflowGateTest.test_resource_associate_batch_satisfies_results_gate -v`
+- `PYTHONPATH=. python -m unittest tests.surface.test_tool_contracts tests.structure.test_plane_layout.ToolPlanePartitionTest -v`
+- `PYTHONPATH=. python -m unittest tests.surface.test_split_mode_smoke.DaemonResourceForwardingTest.test_daemon_catalog_only_advertises_implemented_data_tools -v`
+- `PYTHONPATH=. python -m unittest discover -s tests -v` (846 tests, 25 skipped)

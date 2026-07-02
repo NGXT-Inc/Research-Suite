@@ -12,6 +12,7 @@ from backend.tools.contracts import (
     AGGREGATE_TOOL_NAMES,
     CONTROL_PLANE_TOOL_NAMES,
     DATA_PLANE_TOOL_NAMES,
+    ResourceAssociateBatchInput,
     StorageCompleteUploadInput,
     StorageDownloadFileInput,
     StorageListInput,
@@ -123,6 +124,13 @@ class ToolContractRegistryTest(unittest.TestCase):
         for name, (model, plane) in expected.items():
             self.assertIs(TOOL_CONTRACTS[name].input_model, model)
             self.assertEqual(TOOL_CONTRACTS[name].plane, plane)
+
+    def test_resource_batch_association_is_data_plane(self) -> None:
+        self.assertIs(
+            TOOL_CONTRACTS["resource.associate_batch"].input_model,
+            ResourceAssociateBatchInput,
+        )
+        self.assertEqual(TOOL_CONTRACTS["resource.associate_batch"].plane, "data")
 
 
 class StaticCatalogNoSideEffectTest(unittest.TestCase):

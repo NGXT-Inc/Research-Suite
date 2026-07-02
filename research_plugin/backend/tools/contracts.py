@@ -234,6 +234,26 @@ class ResourceAssociateInput(ProjectScopedInput):
     )
 
 
+class ResourceAssociationItemInput(ContractModel):
+    resource_id: str
+    target_type: str = Field(json_schema_extra={"enum": sorted(RESOURCE_TARGET_TYPES)})
+    target_id: str
+    role: str = Field(
+        description="Resource association role. Use 'result' for experiment output files.",
+        json_schema_extra={"enum": sorted(RESOURCE_ROLES)},
+    )
+
+
+class ResourceAssociateBatchInput(ProjectScopedInput):
+    associations: list[ResourceAssociationItemInput] = Field(
+        min_length=1,
+        description=(
+            "Resource association rows to apply in order. Each row has "
+            "resource_id, target_type, target_id, and role."
+        ),
+    )
+
+
 class ResourceDeleteInput(ProjectScopedInput):
     resource_id: str
 
@@ -709,6 +729,15 @@ TOOL_CONTRACTS: dict[str, ToolContract] = {
             "reflection_doc, reflection_lens_doc, change_spec) are "
             "size-capped at associate time — keep them lean and reference raw "
             "data instead of inlining it."
+        ),
+        plane="data",
+    ),
+    "resource.associate_batch": ToolContract(
+        input_model=ResourceAssociateBatchInput,
+        description=(
+            "Associate multiple resources to claims, experiments, reviews, or "
+            "attempts in one data-plane call. Rows are applied in order through "
+            "the same validation and gated-byte capture path as resource.associate."
         ),
         plane="data",
     ),

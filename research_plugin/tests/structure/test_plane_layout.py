@@ -294,6 +294,7 @@ class ToolPlanePartitionTest(unittest.TestCase):
             {
                 "resource.register_file",
                 "resource.associate",
+                "resource.associate_batch",
                 "storage.upload_file",
                 "storage.download_file",
                 "sandbox.request",

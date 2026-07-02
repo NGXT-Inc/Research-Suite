@@ -156,6 +156,7 @@ but the `project_reflection` side block still carries the signal.
 
 ```text
 resource.register_file(project_id, path?, paths?, kind, title?)  # single file or batch
+resource.associate_batch(project_id, associations=[{resource_id, target_type, target_id, role}, ...])
 resource.resolve(project_id, resource_id, include_history?)       # include_history adds versions
 ```
 
@@ -169,6 +170,10 @@ When a resource is associated with an experiment, MCP stores the experiment's
 current `attempt_index` and current `version_id` on that association. Workflow
 gates only count resources from the current attempt, so stale result files from
 a failed attempt cannot satisfy a rerun.
+
+`resource.associate_batch` is a data-plane convenience wrapper over
+`resource.associate`: rows are applied in order through the same role validation,
+gated-artifact byte capture, and attempt scoping as single associations.
 
 Gates and lints judge the bytes SUBMITTED at `resource.associate` (pinned to
 a version and stored in the blob store), never the live working tree. There is
