@@ -26,6 +26,7 @@ validated IP. Stdlib-only so the same guard can run on the stdlib-only daemon.
 from __future__ import annotations
 
 import ipaddress
+import re
 import socket
 import urllib.error
 import urllib.parse
@@ -159,6 +160,9 @@ class _MetaParser(HTMLParser):
     def __init__(self) -> None:
         super().__init__()
         self.meta: dict[str, str] = {}
+        # citation_author legitimately repeats (one tag per author); every other
+        # key keeps its first value.
+        self.authors: list[str] = []
         self.title: str = ""
         self._in_title = False
 
@@ -169,10 +173,14 @@ class _MetaParser(HTMLParser):
         if tag != "meta":
             return
         a = {k.lower(): (v or "") for k, v in attrs}
-        key = a.get("property") or a.get("name")
+        key = (a.get("property") or a.get("name") or "").lower()
         content = a.get("content")
-        if key and content and key.lower() not in self.meta:
-            self.meta[key.lower()] = content
+        if not key or not content:
+            return
+        if key == "citation_author":
+            self.authors.append(content.strip())
+        elif key not in self.meta:
+            self.meta[key] = content
 
     def handle_endtag(self, tag: str) -> None:
         if tag == "title":
@@ -190,14 +198,39 @@ def _clip(text: str, limit: int) -> str:
     return text if len(text) <= limit else text[: limit - 1].rstrip() + "…"
 
 
-def unfurl(url: str) -> dict[str, Any]:
-    """Fetch ``url`` and extract a static preview card.
+# Hosts whose pages are papers even when the citation_* meta fails to parse.
+_PAPER_HOSTS = ("arxiv.org", "ar5iv.org", "openreview.net")
+_MAX_AUTHORS = 10
 
-    Returns ``{url, title, description, image_url, trusted}``. ``image_url`` is
-    the absolute URL of the preview image (caller re-hosts it). Raises
-    ``UnfurlError`` if the link cannot be safely fetched or is not HTML.
+
+def _matches(host: str, suffixes: tuple[str, ...]) -> bool:
+    return any(host == s or host.endswith("." + s) for s in suffixes)
+
+
+def _classify(host: str, meta: dict[str, str]) -> str:
+    """One coarse kind per card: paper | repo | page.
+
+    ``citation_title`` (Highwire meta, emitted by arXiv/OpenReview/Nature/
+    Semantic Scholar/…) is the paper signal; GitHub is the one repo host that
+    matters to research posts.
     """
-    final_url, content_type, body = safe_fetch(url)
+    if meta.get("citation_title") or _matches(host, _PAPER_HOSTS):
+        return "paper"
+    if _matches(host, ("github.com",)):
+        return "repo"
+    return "page"
+
+
+def _publication_year(meta: dict[str, str]) -> str:
+    for key in ("citation_date", "citation_publication_date", "citation_online_date"):
+        m = re.search(r"(?:19|20)\d{2}", meta.get(key, ""))
+        if m:
+            return m.group(0)
+    return ""
+
+
+def extract_card(final_url: str, content_type: str, body: bytes) -> dict[str, Any]:
+    """Build a preview card from an already-fetched response (pure, testable)."""
     host = (urllib.parse.urlparse(final_url).hostname or "").lower()
     trusted = _is_allowlisted(host)
     if content_type != "text/html":
@@ -208,6 +241,9 @@ def unfurl(url: str) -> dict[str, Any]:
             "description": "",
             "image_url": "",
             "trusted": trusted,
+            "kind": "page",
+            "authors": [],
+            "year": "",
         }
     parser = _MetaParser()
     try:
@@ -215,7 +251,12 @@ def unfurl(url: str) -> dict[str, Any]:
     except Exception as exc:  # noqa: BLE001 - hostile HTML must never crash a post
         raise UnfurlError("could not parse the linked page") from exc
     meta = parser.meta
-    title = meta.get("og:title") or meta.get("twitter:title") or parser.title
+    title = (
+        meta.get("citation_title")
+        or meta.get("og:title")
+        or meta.get("twitter:title")
+        or parser.title
+    )
     description = (
         meta.get("og:description")
         or meta.get("twitter:description")
@@ -230,7 +271,22 @@ def unfurl(url: str) -> dict[str, Any]:
         "description": _clip(description, 280),
         "image_url": image_url,
         "trusted": trusted,
+        "kind": _classify(host, meta),
+        "authors": [_clip(a, 60) for a in parser.authors[:_MAX_AUTHORS]],
+        "year": _publication_year(meta),
     }
+
+
+def unfurl(url: str) -> dict[str, Any]:
+    """Fetch ``url`` and extract a static preview card.
+
+    Returns ``{url, title, description, image_url, trusted, kind, authors,
+    year}``. ``image_url`` is the absolute URL of the preview image (caller
+    re-hosts it); ``kind`` is paper|repo|page with paper cards carrying the
+    citation authors/year when the page exposes them. Raises ``UnfurlError``
+    if the link cannot be safely fetched.
+    """
+    return extract_card(*safe_fetch(url))
 
 
 def fetch_preview_image(image_url: str) -> tuple[bytes, str]:

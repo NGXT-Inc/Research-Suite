@@ -12,7 +12,7 @@ from backend.app import ResearchPluginApp
 from backend.domain import feed_policy
 from backend.domain.feed_images import SERVEABLE_IMAGE_TYPES, sniff_image_type
 from backend.services.feed import POST_TEXT_MAX
-from backend.services.feed_unfurl import UnfurlError, unfurl
+from backend.services.feed_unfurl import UnfurlError, extract_card, unfurl
 from backend.transport.feed_http import _image_headers
 from backend.utils import ValidationError
 
@@ -214,6 +214,73 @@ class FeedServiceTest(unittest.TestCase):
             self.assertTrue(nudge["should_post"])
         finally:
             feed_policy.NUDGE_AFTER_EVENTS, feed_policy.NUDGE_AFTER_HOURS = orig_events, orig_hours
+
+
+_ARXIV_HTML = b"""
+<html><head>
+<title>[1608.03983] SGDR</title>
+<meta name="citation_title" content="SGDR: Stochastic Gradient Descent with Warm Restarts"/>
+<meta name="citation_author" content="Loshchilov, Ilya"/>
+<meta name="citation_author" content="Hutter, Frank"/>
+<meta name="citation_date" content="2016/08/13"/>
+<meta property="og:title" content="SGDR: Stochastic Gradient Descent with Warm Restarts"/>
+<meta property="og:description" content="Restart techniques are common in gradient-free optimization."/>
+<meta property="og:image" content="/static/arxiv-logo.png"/>
+</head><body></body></html>
+"""
+
+_REPO_HTML = b"""
+<html><head>
+<meta property="og:title" content="GitHub - huggingface/peft"/>
+<meta property="og:description" content="Parameter-Efficient Fine-Tuning."/>
+</head><body></body></html>
+"""
+
+_BLOG_HTML = b"""
+<html><head><title>Some post</title>
+<meta property="og:description" content="Thoughts."/>
+</head><body></body></html>
+"""
+
+
+class FeedUnfurlCardTest(unittest.TestCase):
+    def test_paper_card_from_citation_meta(self) -> None:
+        card = extract_card("https://arxiv.org/abs/1608.03983", "text/html", _ARXIV_HTML)
+        self.assertEqual(card["kind"], "paper")
+        self.assertEqual(card["title"], "SGDR: Stochastic Gradient Descent with Warm Restarts")
+        self.assertEqual(card["authors"], ["Loshchilov, Ilya", "Hutter, Frank"])
+        self.assertEqual(card["year"], "2016")
+        self.assertTrue(card["trusted"])
+        self.assertEqual(card["image_url"], "https://arxiv.org/static/arxiv-logo.png")
+
+    def test_citation_meta_marks_paper_on_any_host(self) -> None:
+        card = extract_card("https://journal.example.org/x", "text/html", _ARXIV_HTML)
+        self.assertEqual(card["kind"], "paper")
+        self.assertFalse(card["trusted"])
+
+    def test_repo_card_by_host(self) -> None:
+        card = extract_card("https://github.com/huggingface/peft", "text/html", _REPO_HTML)
+        self.assertEqual(card["kind"], "repo")
+        self.assertEqual(card["authors"], [])
+        self.assertEqual(card["year"], "")
+
+    def test_plain_page_card(self) -> None:
+        card = extract_card("https://blog.example.com/post", "text/html", _BLOG_HTML)
+        self.assertEqual(card["kind"], "page")
+        self.assertEqual(card["title"], "Some post")
+
+    def test_non_html_is_minimal_page_card(self) -> None:
+        card = extract_card("https://example.com/paper.pdf", "application/pdf", b"%PDF-1.5")
+        self.assertEqual(card["kind"], "page")
+        self.assertEqual(card["title"], "")
+        self.assertEqual(card["authors"], [])
+
+    def test_author_list_is_capped(self) -> None:
+        many = b"<html><head><meta name='citation_title' content='T'/>" + b"".join(
+            f"<meta name='citation_author' content='Author {i}'/>".encode() for i in range(30)
+        ) + b"</head></html>"
+        card = extract_card("https://arxiv.org/abs/x", "text/html", many)
+        self.assertEqual(len(card["authors"]), 10)
 
 
 class FeedUnfurlSsrfTest(unittest.TestCase):

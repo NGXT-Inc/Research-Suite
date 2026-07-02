@@ -407,6 +407,9 @@ class FeedService:
             "title": card.get("title", ""),
             "description": card.get("description", ""),
             "trusted": bool(card.get("trusted")),
+            "kind": card.get("kind") or "page",
+            "authors": card.get("authors") or [],
+            "year": card.get("year") or "",
         }
         image_url = card.get("image_url") or ""
         if image_url:
@@ -525,6 +528,7 @@ class FeedService:
         clean_preview: dict[str, Any] | None = None
         if link_preview:
             # Don't leak the blob hash to clients — expose only presence.
+            # kind/authors/year default sanely for rows unfurled before they existed.
             clean_preview = {
                 "url": link_preview.get("url"),
                 "title": link_preview.get("title") or "",
@@ -532,6 +536,9 @@ class FeedService:
                 "trusted": bool(link_preview.get("trusted")),
                 "has_image": bool(link_preview.get("image_sha256")),
                 "error": link_preview.get("error"),
+                "kind": link_preview.get("kind") or "page",
+                "authors": link_preview.get("authors") or [],
+                "year": link_preview.get("year") or "",
             }
         return {
             "id": item.get("id"),
