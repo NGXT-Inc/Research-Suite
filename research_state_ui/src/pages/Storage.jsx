@@ -10,9 +10,9 @@ import './storage.css';
 
 const DAY = 86400000;
 
-// The shelf verdict — one phrase per object. `sort` orders by how loudly the
-// object needs attention: expiring soonest first, then shelf, kept, gone cold.
-function shelfState(o) {
+// The expiry verdict — one phrase per object. `sort` orders by how loudly the
+// object needs attention: expiring soonest first, then the rest, kept, gone cold.
+function expiryState(o) {
   if (o.status === 'expired') {
     const past = o.expires_at ? Date.now() - new Date(o.expires_at).getTime() : 0;
     const ago = past >= DAY ? `${Math.round(past / DAY)}d` : past > 0 ? fmtDuration(past) : '';
@@ -22,7 +22,7 @@ function shelfState(o) {
   const ms = new Date(o.expires_at).getTime() - Date.now();
   if (ms <= 0) return { key: 'cold', label: 'gone cold', sort: 2e15 };
   if (ms < 7 * DAY) return { key: 'soon', label: `expires ${fmtDuration(ms)}`, sort: ms };
-  return { key: 'shelf', label: `expires ${Math.round(ms / DAY)}d`, sort: ms };
+  return { key: 'live', label: `expires ${Math.round(ms / DAY)}d`, sort: ms };
 }
 
 const stamp = (iso) => (iso ? fmtStamp(new Date(iso).getTime()) : '—');
@@ -37,9 +37,9 @@ const COLS = [
 ];
 
 /**
- * Vault — long-term storage as a typed manifest. A ring gauge carries the
+ * Storage — the long-term ledger as a typed manifest. A ring gauge carries the
  * project's preserved mass (tap a segment ↔ focus its row); mono manifest
- * rows carry accession no. / object / kind / mass / saved / shelf state;
+ * rows carry accession no. / object / kind / mass / saved / expiry state;
  * the focused row slides open into a retrieval record. Focus is URL state
  * (/storage/:objectId), the same contract as everywhere else.
  */
@@ -61,7 +61,7 @@ export default function Storage() {
       no: no.get(o.id),
       mass: o.size_bytes || 0,
       saved: o.created_at ? new Date(o.created_at).getTime() : 0,
-      state: shelfState(o),
+      state: expiryState(o),
     }));
   }, [objects]);
 
@@ -83,7 +83,7 @@ export default function Storage() {
   const onSort = (col) =>
     setSort(prev => (prev.col === col ? { col, asc: !(prev.asc ?? defaultAsc[col]) } : { col, asc: null }));
 
-  // The ring holds what still occupies the vault; gone-cold objects live only
+  // The ring holds what still occupies storage; gone-cold objects live only
   // in the manifest, as ghosts. Segment order mirrors the default sort (mass).
   const ring = useMemo(
     () => rows.filter(r => r.state.key !== 'cold').sort((a, b) => b.mass - a.mass),
@@ -91,7 +91,7 @@ export default function Storage() {
   );
   const totalMass = ring.reduce((s, r) => s + r.mass, 0);
   const kept = ring.filter(r => r.state.key === 'kept').length;
-  const onShelf = ring.length - kept;
+  const expiring = ring.length - kept;
   const cold = rows.length - ring.length;
   const soonest = ring.filter(r => r.state.key === 'soon').sort((a, b) => a.state.sort - b.state.sort)[0] || null;
 
@@ -101,8 +101,7 @@ export default function Storage() {
   return (
     <div className="page-stage">
       <header className="page-header page-header--lg">
-        <h1 className="page-title">Vault</h1>
-        <p className="page-summary">Heavy artifacts preserved off-repo. A 60-day shelf life, renewed on touch.</p>
+        <h1 className="page-title">Storage</h1>
       </header>
 
       {error && <div className="error-message">{error}</div>}
@@ -116,17 +115,17 @@ export default function Storage() {
         <div className="empty">Loading…</div>
       ) : objects.length === 0 ? (
         <div className="empty-state">
-          <h2>The vault is empty</h2>
-          <p>Agents preserve precious datasets and trained models with the <span className="mono">storage.*</span> tools. Objects keep a 60-day shelf life that renews on access; kept objects never expire.</p>
+          <h2>Nothing in storage yet</h2>
+          <p>Agents preserve precious datasets and trained models with the <span className="mono">storage.*</span> tools. Objects expire after 60 days unless touched or kept.</p>
         </div>
       ) : (
         <div className="vlt">
           {ring.length > 0 && (
             <div className="vlt-instrument">
-              <VaultRing ring={ring} total={totalMass} focusId={objectId} onPick={toggle} />
+              <MassRing ring={ring} total={totalMass} focusId={objectId} onPick={toggle} />
               <div className="vlt-legend">
                 {kept > 0 && <div className="vlt-leg vlt-leg--kept">{kept} kept</div>}
-                {onShelf > 0 && <div className="vlt-leg">{onShelf} on the shelf</div>}
+                {expiring > 0 && <div className="vlt-leg">{expiring} expiring</div>}
                 {soonest && <div className="vlt-leg vlt-leg--warn">{soonest.o.name} {soonest.state.label}</div>}
                 {cold > 0 && <div className="vlt-leg vlt-leg--cold">{cold} gone cold</div>}
               </div>
@@ -167,7 +166,7 @@ const RING_C = 2 * Math.PI * RING_R;
 // Mass gauge. Arc length is honest byte proportion, with a legibility floor:
 // slivers get ≥6px of arc so they stay visible and tappable, paid for by the
 // segments that can afford it.
-function VaultRing({ ring, total, focusId, onPick }) {
+function MassRing({ ring, total, focusId, onPick }) {
   const GAP = ring.length > 1 ? 2 : 0;
   const MIN = 6;
   const avail = RING_C - GAP * ring.length;
@@ -238,7 +237,7 @@ function ManifestRow({ r, open, onToggle, projectId, exp, px, onChanged, onDisca
 
 // The specimen drawer: one field per line in an aligned label column, notes
 // apart, custodial verbs apart. retrieve = presigned download (also renews
-// the shelf), keep/release = pin/unpin, extend = reset the 60 days.
+// the expiry clock), keep/release = pin/unpin, extend = reset the 60 days.
 function RetrievalRecord({ o, projectId, exp, px, onChanged, onDiscarded }) {
   const [busy, setBusy] = useState('');
   const [err, setErr] = useState(null);

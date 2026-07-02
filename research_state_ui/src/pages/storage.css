@@ -1,5 +1,5 @@
-/* Vault — long-term storage as a typed manifest. Flush mono rows under a
-   mass-gauge ring; the focused row slides open like a specimen drawer (the
+/* Storage — the long-term ledger as a typed manifest. Flush mono rows under
+   a mass-gauge ring; the focused row slides open like a specimen drawer (the
    page's one motion). No cards, no badges — hairlines and type only. */
 
 .vlt { max-width: 860px; }

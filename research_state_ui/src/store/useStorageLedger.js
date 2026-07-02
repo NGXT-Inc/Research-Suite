@@ -4,7 +4,7 @@ import { api } from '../api';
 const POLL_MS = 60000;
 
 /**
- * Self-contained loader for the vault (long-term storage) ledger.
+ * Self-contained loader for the long-term storage ledger.
  *
  * Deliberately NOT part of the project store: storage is an architecturally
  * separate feature, so its page owns its own fetch and degrades gracefully when
