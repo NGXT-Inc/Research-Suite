@@ -938,6 +938,53 @@ class SandboxServiceTest(unittest.TestCase):
         self.assertEqual(term["last_command"]["status"], "succeeded")
         self.assertEqual(term["last_command"]["exit_code"], 0)
 
+    def test_repeated_terminal_reads_do_not_rewrite_the_snapshot(self) -> None:
+        # The UI polls terminal every few seconds; an unchanged snapshot must
+        # not touch the canonical row (updated_at would become meaningless).
+        exp_id = self._experiment()
+        self.call("sandbox.request", project_id=self.project_id, experiment_id=exp_id)
+        self.backend.append_transcript(
+            experiment_id=exp_id,
+            text=self._rec("python train.py", "loss 0.1\n", 0, ts="2026-06-09T12:00:05Z"),
+        )
+        self.call("sandbox.terminal", project_id=self.project_id, experiment_id=exp_id)
+        with self.app.store.transaction() as conn:
+            first = conn.execute("SELECT updated_at FROM sandboxes").fetchone()["updated_at"]
+        for _ in range(3):
+            self.call("sandbox.terminal", project_id=self.project_id, experiment_id=exp_id)
+        with self.app.store.transaction() as conn:
+            row = conn.execute("SELECT updated_at FROM sandboxes").fetchone()
+        self.assertEqual(row["updated_at"], first)
+
+    def test_older_transcript_reader_cannot_regress_a_finished_snapshot(self) -> None:
+        exp_id = self._experiment()
+        self.call("sandbox.request", project_id=self.project_id, experiment_id=exp_id)
+        self.backend.append_transcript(
+            experiment_id=exp_id,
+            text=self._rec("python train.py", "loss 0.1\n", 0, ts="2026-06-09T12:00:05Z"),
+        )
+        term = self.call("sandbox.terminal", project_id=self.project_id, experiment_id=exp_id)
+        finished = term["last_command"]
+        self.assertEqual(finished["status"], "succeeded")
+        with self.app.store.transaction() as conn:
+            uid = conn.execute("SELECT sandbox_uid FROM sandboxes").fetchone()["sandbox_uid"]
+        # A slow reader that parsed an older transcript (same command, no exit
+        # marker yet) must not overwrite the finished snapshot.
+        stale = {
+            "command_id": finished["command_id"],
+            "command": finished["command"],
+            "started_at": finished["started_at"],
+            "status": "running",
+            "exit_code": None,
+            "finished_at": None,
+            "output_tail": "loss 0.1",
+        }
+        result = self.app.sandboxes.registry.record_command_snapshot(
+            sandbox_uid=uid, snapshot=stale
+        )
+        self.assertEqual(result["status"], "succeeded")
+        self.assertEqual(result["exit_code"], 0)
+
     # ---- release ----
 
     def test_release_terminates(self) -> None:

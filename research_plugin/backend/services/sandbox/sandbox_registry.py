@@ -619,6 +619,46 @@ class SandboxRegistry:
             target_uid = str(sandbox_uid or "").strip()
             if not target_uid:
                 return {**snapshot, "snapshot_at": now}
+            row = conn.execute(
+                "SELECT * FROM sandboxes WHERE sandbox_uid = ?", (target_uid,)
+            ).fetchone()
+            existing = (
+                self.command_snapshot(row=row_to_dict(row=row) or {})
+                if row is not None
+                else None
+            )
+            if existing is not None:
+                # Terminal reads are the UI's poll path: skip the row write
+                # when the parsed snapshot brings nothing new, and never let a
+                # reader that parsed an OLDER transcript regress a newer
+                # snapshot (same command finished → back to running, or an
+                # earlier command replacing a later one).
+                unchanged = all(
+                    existing.get(key) == snapshot.get(key)
+                    for key in (
+                        "command_id",
+                        "command",
+                        "started_at",
+                        "status",
+                        "exit_code",
+                        "finished_at",
+                        "output_tail",
+                    )
+                )
+                existing_id = str(existing.get("command_id") or "")
+                same_command_regressed = (
+                    existing_id == command_id
+                    and bool(existing.get("finished_at"))
+                    and not snapshot.get("finished_at")
+                )
+                older_command = (
+                    existing_id != command_id
+                    and bool(existing.get("started_at"))
+                    and bool(snapshot.get("started_at"))
+                    and str(snapshot["started_at"]) < str(existing["started_at"])
+                )
+                if unchanged or same_command_regressed or older_command:
+                    return existing
             conn.execute(
                 """
                 UPDATE sandboxes
