@@ -3,6 +3,7 @@ import { Link } from 'react-router-dom';
 import { feedApi } from './feedApi';
 import { postTime } from './feedModel';
 import Lightbox from './Lightbox';
+import LinkCard from './LinkCard';
 import { useProjectStore, useProjectHref, selectExperiments } from '../store/useProjectStore';
 import { expName } from '../utils/experiment';
 import { authorColor } from '../utils/authorIdentity';
@@ -48,10 +49,6 @@ function refTarget(ref, experiments) {
   if (ref.startsWith('claim_')) return { to: `/claims/${ref}`, label: 'claim' };
   if (ref.startsWith('res_')) return { to: `/resources/${ref}`, label: 'resource' };
   return null;
-}
-
-function hostOf(url) {
-  try { return new URL(url).hostname.replace(/^www\./, ''); } catch { return url; }
 }
 
 /**
@@ -147,38 +144,8 @@ export default function PostCard({ post, projectId, onView, now, grouped = false
         <Lightbox src={image.url} onClose={() => setZoomed(false)} />
       )}
 
-      {post.link_url && preview && !preview.error && (
-        <a
-          className="postcard-link"
-          href={post.link_url}
-          target="_blank"
-          rel="noopener noreferrer nofollow"
-          onClick={() => feedApi.trackFeed(projectId, 'link_clicked', { post_id: post.id }).catch(() => {})}
-        >
-          {preview.has_image && linkThumb.url && (
-            <img src={linkThumb.url} alt="" loading="lazy" className="postcard-link-thumb" />
-          )}
-          <span className="postcard-link-body">
-            <span className="postcard-link-host">
-              {hostOf(preview.url || post.link_url)}
-              {preview.trusted && <span className="postcard-link-trusted" title="known research source">✓</span>}
-            </span>
-            {preview.title && <span className="postcard-link-title">{preview.title}</span>}
-            {preview.description && <span className="postcard-link-desc">{preview.description}</span>}
-          </span>
-        </a>
-      )}
-
-      {post.link_url && (!preview || preview.error) && (
-        <a
-          className="postcard-link postcard-link--bare"
-          href={post.link_url}
-          target="_blank"
-          rel="noopener noreferrer nofollow"
-          onClick={() => feedApi.trackFeed(projectId, 'link_clicked', { post_id: post.id }).catch(() => {})}
-        >
-          {post.link_url}
-        </a>
+      {post.link_url && (
+        <LinkCard post={post} preview={preview} thumbUrl={linkThumb.url} projectId={projectId} />
       )}
 
       {post.ref && (

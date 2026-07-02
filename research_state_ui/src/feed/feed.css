@@ -154,6 +154,21 @@
 .postcard-link-body { display: flex; flex-direction: column; gap: 2px; padding: var(--space-2) var(--space-3); min-width: 0; }
 .postcard-link-host { font-size: var(--text-xs); color: var(--faint); display: flex; align-items: center; gap: 4px; }
 .postcard-link-trusted { color: var(--supports); font-weight: 600; }
+/* Kind tag + year — papers and repos announce themselves in the host row. */
+.postcard-link-kind {
+  color: var(--mcp);
+  border: 1px solid color-mix(in srgb, var(--mcp) 35%, transparent);
+  border-radius: var(--radius-pill);
+  padding: 0 5px;
+  font-size: 10px;
+}
+.postcard-link-kind--repo {
+  color: var(--muted);
+  border-color: var(--line-strong);
+}
+.postcard-link-year::before { content: '· '; }
+.postcard-link-authors { font-size: var(--text-xs); color: var(--muted); }
+.postcard-link-title--mono { font-family: var(--font-mono); font-size: var(--text-xs); }
 .postcard-link-title { font-size: var(--text-sm); font-weight: 600; color: var(--text); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .postcard-link-desc {
   font-size: var(--text-xs); color: var(--muted); line-height: var(--leading-tight);
@@ -300,6 +315,8 @@ html[data-surface="mobile"] .postcard-link-title {
   white-space: normal;
 }
 html[data-surface="mobile"] .postcard-link-desc { display: none; }
+html[data-surface="mobile"] .postcard-link-kind { font-size: 8.5px; padding: 0 4px; }
+html[data-surface="mobile"] .postcard-link-authors { font-size: 10px; }
 /* Entity chip — plain accent text, the post's one orange moment. */
 html[data-surface="mobile"] .postcard-foot { margin-top: 10px; }
 html[data-surface="mobile"] .postcard-ref {
