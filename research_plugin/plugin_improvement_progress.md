@@ -454,3 +454,28 @@ Verification:
 - `PYTHONPATH=. python -m unittest tests.sandbox.test_sandbox_outputs tests.surface.test_tool_contracts tests.structure.test_plane_layout.ToolPlanePartitionTest tests.surface.test_split_mode_smoke.DaemonResourceForwardingTest -v` (33 tests)
 - `PYTHONPATH=. python -m unittest tests.structure.test_plane_layout.PlaneImportLintTest -v` (26 tests)
 - `PYTHONPATH=. python -m unittest discover -s tests -v` (883 tests, 25 skipped)
+
+## Batch 17: retention guidance uses sandbox.pull_outputs
+
+Status: complete
+
+Request addressed:
+
+- Automatic artifact retention from sandboxes.
+- Create local experiment folders when experiments materialize.
+
+Implementation notes:
+
+- Updated the Research Workflow skill so future agents prefer
+  `sandbox.pull_outputs` for light retained files instead of raw `rsync`/`scp`
+  guidance.
+- Clarified that `experiment.create` announces the canonical experiment folder
+  and `experiment.materialize_folders` is the data-plane helper to create it
+  locally when missing.
+- Kept heavy-artifact guidance pointed at durable storage rather than repo
+  resources.
+
+Verification:
+
+- `git diff --check`
+- `PYTHONPATH=. python -m unittest tests.surface.test_plugin_skills -v`

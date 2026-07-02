@@ -86,13 +86,13 @@ inflated (hype you can't back with a number).
 ## The experiment folder
 
 Every experiment owns exactly one folder: `experiments/<name>/`
-(created for you by `experiment.create`). Everything the experiment is lives
-there — plan.md, scripts, configs, results, report.md, graph.json. Resource
-tools only see local repo files. A sandbox is just an ephemeral machine you SSH
-into: fetch code and data on the box, write compact outputs under
-`$RP_EXPERIMENT_DIR`, then explicitly copy retained files back to this local
-folder before registering them. Heavy artifacts should go to durable object
-storage instead of into the repo.
+(announced by `experiment.create`; call `experiment.materialize_folders` if the
+local directory is missing). Everything the experiment is lives there —
+plan.md, scripts, configs, results, report.md, graph.json. Resource tools only
+see local repo files. A sandbox is just an ephemeral machine you SSH into: fetch
+code and data on the box, write compact outputs under `$RP_EXPERIMENT_DIR`, then
+pull retained files back with `sandbox.pull_outputs` before registering them.
+Heavy artifacts should go to durable object storage instead of into the repo.
 
 ## Workflow
 
@@ -119,9 +119,9 @@ storage instead of into the repo.
    request a sandbox with `sandbox.request` and run commands on it yourself over
    SSH (see Execution environment). Prefer CPU-only sandboxes for data profiling
    and preprocessing unless the specific command needs GPU acceleration.
-11. After execution in a sandbox, explicitly copy retained files off the box
-    before registering or associating result resources. Use `rsync`/`scp` over
-    the returned SSH details for light files, and storage tools for heavy files.
+11. After execution in a sandbox, explicitly pull retained files off the box
+    before registering or associating result resources. Use `sandbox.pull_outputs`
+    for light files, and storage tools for heavy files.
 12. Launch a separate read-only reviewer agent when MCP requires design review or
    experiment review.
 13. Make sure the reviewer submits directly to MCP using its review capability.
@@ -221,7 +221,7 @@ While the sandbox is live, make experiment-folder edits on the VM under
 `$RP_EXPERIMENT_DIR`. No files are copied automatically. Keep datasets, caches,
 temporary checkpoints, and other disposable bulk files under `$RP_DATASET_DIR`.
 Keep durable scripts, configs, notes, compact outputs, report figures/tables,
-and deliberate final artifacts under `$RP_EXPERIMENT_DIR` so you can copy them
+and deliberate final artifacts under `$RP_EXPERIMENT_DIR` so you can pull them
 off deliberately before release.
 
 Use the centralized MLflow env from `mlflow.context` /
@@ -230,12 +230,12 @@ run. Sandbox provisioning does not automatically export MLflow env vars, and
 sandbox responses are not the source of truth for tracking configuration. Save
 compact evidence under `$RP_EXPERIMENT_DIR`.
 
-Before registering or associating result resources, use `rsync` or `scp`
-yourself with the returned SSH details, or upload heavy artifacts with
-`storage.put_object`. Resource tools only see local repo files, so remote
-sandbox paths are not valid resources until you have copied the files back
-locally. Do this before `sandbox.release`; release and expiry destroy the VM
-and anything you did not retain.
+Before registering or associating result resources, call `sandbox.pull_outputs`
+for light retained files, or upload heavy artifacts with `storage.put_object`.
+Resource tools only see local repo files, so remote sandbox paths are not valid
+resources until you have pulled the files back locally. Do this before
+`sandbox.release`; release and expiry destroy the VM and anything you did not
+retain.
 
 Do not embed secrets in commands or retained files. Treat the sandbox as
 ephemeral: durable outputs must be explicitly copied or uploaded and then
@@ -387,8 +387,9 @@ Resources are repo files. Prefer one file per resource.
 When the agent creates or changes files during an experiment:
 
 - identify the relevant repo-relative paths
-- if the experiment ran in a sandbox, copy retained files off the box first;
-  resource tools operate on local files and cannot associate remote sandbox files
+- if the experiment ran in a sandbox, pull retained files off the box with
+  `sandbox.pull_outputs` first; resource tools operate on local files and
+  cannot associate remote sandbox files
 - call the MCP resource register tool
 - associate local resources with the current experiment, claim, or review
 - when `workflow.status_and_next` includes `resource_guidance`, follow its
