@@ -91,12 +91,54 @@
   font-size: var(--text-md); line-height: var(--leading-base); color: var(--text);
   white-space: pre-wrap; word-break: break-word;
 }
-.postcard-media { margin-top: var(--space-3); }
-.postcard-image {
-  display: block; width: 100%; height: auto; max-height: 520px;
-  object-fit: contain; border-radius: var(--radius-md);
+/* Media box — reserved at a fixed ratio before the blob arrives, so a loading
+   image never reflows the stream. The image fades in when decoded. */
+.postcard-media {
+  margin-top: var(--space-3);
+  aspect-ratio: 16 / 10;
   background: var(--bg-soft);
+  border-radius: var(--radius-md);
+  overflow: hidden;
 }
+.postcard-media-btn {
+  display: block; width: 100%; height: 100%;
+  padding: 0; border: 0; background: none;
+  cursor: zoom-in;
+}
+.postcard-media-btn:disabled { cursor: default; }
+.postcard-image {
+  display: block; width: 100%; height: 100%;
+  object-fit: contain;
+  opacity: 0;
+  transition: opacity var(--motion-fast, 160ms) ease;
+}
+.postcard-image.is-loaded { opacity: 1; }
+
+/* Zoomed media viewer. */
+.feed-lightbox {
+  position: fixed; inset: 0; z-index: 200;
+  display: flex; align-items: center; justify-content: center;
+  padding: 4vh 4vw;
+  background: rgba(0, 0, 0, 0.85);
+  cursor: zoom-out;
+}
+.feed-lightbox-img {
+  max-width: 100%; max-height: 100%;
+  object-fit: contain;
+  border-radius: var(--radius-md);
+  cursor: default;
+}
+.feed-lightbox-close {
+  position: absolute; top: 14px; right: 14px;
+  width: 34px; height: 34px;
+  border: 1px solid var(--line);
+  border-radius: var(--radius-pill);
+  background: var(--bg-elev);
+  color: var(--text);
+  font-size: 14px;
+  cursor: pointer;
+}
+.feed-lightbox-close:hover { background: var(--bg-soft); }
 .postcard-link {
   display: flex; gap: var(--space-3); align-items: stretch;
   margin-top: var(--space-3); text-decoration: none;
@@ -190,9 +232,8 @@ html[data-surface="mobile"] .postcard-text {
   line-height: 1.5;
   margin-top: 0;
 }
-html[data-surface="mobile"] .postcard-media { margin-top: 11px; }
-html[data-surface="mobile"] .postcard-image {
-  max-height: 60vh;
+html[data-surface="mobile"] .postcard-media {
+  margin-top: 11px;
   border: 1px solid var(--line);
   border-radius: 10px;
 }

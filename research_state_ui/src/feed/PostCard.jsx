@@ -2,33 +2,36 @@ import { useEffect, useRef, useState } from 'react';
 import { Link } from 'react-router-dom';
 import { feedApi } from './feedApi';
 import { postTime } from './feedModel';
+import Lightbox from './Lightbox';
 import { useProjectStore, useProjectHref, selectExperiments } from '../store/useProjectStore';
 import { expName } from '../utils/experiment';
 
 // Load a feed media path through an authenticated fetch and expose it as a
 // blob: object URL. Needed because hosted control mode serves feed bytes behind
 // the Bearer token, which a plain <img src> can't send. Revokes on unmount /
-// path change. Returns null until loaded (or on error → image simply omitted).
+// path change. `failed` lets the card collapse a media box that will never
+// fill, instead of leaving a permanently empty slab.
 function useAuthedImage(relPath) {
-  const [url, setUrl] = useState(null);
+  const [state, setState] = useState({ url: null, failed: false });
   useEffect(() => {
-    if (!relPath) { setUrl(null); return undefined; }
+    if (!relPath) { setState({ url: null, failed: false }); return undefined; }
     let active = true;
     let objectUrl = null;
     const controller = new AbortController();
+    setState({ url: null, failed: false });
     feedApi.imageObjectUrl(relPath, { signal: controller.signal })
       .then((u) => {
-        if (active) { objectUrl = u; setUrl(u); }
+        if (active) { objectUrl = u; setState({ url: u, failed: false }); }
         else { URL.revokeObjectURL(u); }
       })
-      .catch(() => { if (active) setUrl(null); });
+      .catch(() => { if (active) setState({ url: null, failed: true }); });
     return () => {
       active = false;
       controller.abort();
       if (objectUrl) URL.revokeObjectURL(objectUrl);
     };
   }, [relPath]);
-  return url;
+  return state;
 }
 
 // Map a post's optional entity ref to the route that shows it. Experiments
@@ -82,10 +85,17 @@ export default function PostCard({ post, projectId, onView, now }) {
   const timeLabel = postTime(ts, now);
   const ref = refTarget(post.ref, experiments);
   const preview = post.link_preview;
-  const imageSrc = useAuthedImage(post.image_url);
-  const linkThumbSrc = useAuthedImage(
+  const image = useAuthedImage(post.image_url);
+  const linkThumb = useAuthedImage(
     preview && preview.has_image ? preview.image_url : null
   );
+  const [imageLoaded, setImageLoaded] = useState(false);
+  const [zoomed, setZoomed] = useState(false);
+
+  const openZoom = () => {
+    setZoomed(true);
+    feedApi.trackFeed(projectId, 'image_viewed', { post_id: post.id }).catch(() => {});
+  };
 
   return (
     <article className="postcard" ref={cardRef}>
@@ -103,15 +113,31 @@ export default function PostCard({ post, projectId, onView, now }) {
 
       {post.text && <p className="postcard-text">{post.text}</p>}
 
-      {post.image_url && imageSrc && (
+      {/* The media box is reserved as soon as we know a post has an image, so
+          the stream never jumps when blobs arrive; it collapses only if the
+          fetch actually fails. */}
+      {post.image_url && !image.failed && (
         <div className="postcard-media">
-          <img
-            src={imageSrc}
-            alt=""
-            loading="lazy"
-            className="postcard-image"
-          />
+          <button
+            type="button"
+            className="postcard-media-btn"
+            onClick={openZoom}
+            disabled={!image.url}
+            aria-label="View image full size"
+          >
+            {image.url && (
+              <img
+                src={image.url}
+                alt=""
+                className={`postcard-image${imageLoaded ? ' is-loaded' : ''}`}
+                onLoad={() => setImageLoaded(true)}
+              />
+            )}
+          </button>
         </div>
+      )}
+      {zoomed && image.url && (
+        <Lightbox src={image.url} onClose={() => setZoomed(false)} />
       )}
 
       {post.link_url && preview && !preview.error && (
@@ -122,8 +148,8 @@ export default function PostCard({ post, projectId, onView, now }) {
           rel="noopener noreferrer nofollow"
           onClick={() => feedApi.trackFeed(projectId, 'link_clicked', { post_id: post.id }).catch(() => {})}
         >
-          {preview.has_image && linkThumbSrc && (
-            <img src={linkThumbSrc} alt="" loading="lazy" className="postcard-link-thumb" />
+          {preview.has_image && linkThumb.url && (
+            <img src={linkThumb.url} alt="" loading="lazy" className="postcard-link-thumb" />
           )}
           <span className="postcard-link-body">
             <span className="postcard-link-host">
