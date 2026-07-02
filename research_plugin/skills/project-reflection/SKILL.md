@@ -180,8 +180,11 @@ all five reflections, and your reflection artifacts — and verdicts route:
 
 - `pass` → call `reflection.transition(publish)`. The wave pins the graph
   version it published, applies the approved claim changes, and either marks
-  the project stopped or creates the approved planned experiments. The living
-  graph file remains for the next wave to edit.
+  the project stopped or creates the approved planned experiments. When
+  experiments are created, read `post_publish_guidance`: it names the new
+  experiment folders and recommends `experiment.materialize_folders` before
+  starting the next wave. The living graph file remains for the next wave to
+  edit.
 - `needs_changes` with `return_to: "synthesizing"` → the reflections stand;
   revise the graph, reflection doc, and/or change spec and resubmit.
 - `needs_changes` with `return_to: "reflecting"` → the attempt bumps and

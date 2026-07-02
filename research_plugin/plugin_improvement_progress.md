@@ -479,3 +479,27 @@ Verification:
 
 - `git diff --check`
 - `PYTHONPATH=. python -m unittest tests.surface.test_plugin_skills -v`
+
+## Batch 18: reflection publish next-step guidance
+
+Status: complete
+
+Request addressed:
+
+- Materialized experiment visibility after reflection publish.
+
+Implementation notes:
+
+- Published reflection waves that create planned experiments now include
+  `post_publish_guidance` in the publish response and reflection state.
+- The guidance lists each new experiment id/name/folder/status/intent and
+  recommends `experiment.materialize_folders(status="planned")` followed by
+  `workflow.status_and_next` for the first new experiment.
+- Updated the MCP contract and project-reflection skill so agents see the
+  handoff immediately after publish instead of hunting through experiment lists.
+
+Verification:
+
+- `git diff --check`
+- `PYTHONPATH=. python -m unittest tests.workflow.test_synthesis_gates.SynthesisGateTest.test_publish_materializes_claim_changes_and_experiment_wave tests.surface.test_plugin_skills -v`
+- `PYTHONPATH=. python -m unittest tests.workflow.test_synthesis_gates -v` (51 tests)

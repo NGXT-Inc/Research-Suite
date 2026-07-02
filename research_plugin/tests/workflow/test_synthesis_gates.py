@@ -748,6 +748,24 @@ class SynthesisGateTest(unittest.TestCase):
             transition="publish",
         )
         self.assertEqual(published["status"], "published")
+        guidance = published["post_publish_guidance"]
+        self.assertIn("created 2 planned experiments", guidance["summary"])
+        self.assertEqual(
+            {exp["folder"] for exp in guidance["experiments"]},
+            {"experiments/scale-transfer/", "experiments/data-transfer/"},
+        )
+        self.assertEqual(
+            guidance["recommended_actions"][0],
+            {
+                "tool": "experiment.materialize_folders",
+                "arguments": {"status": "planned"},
+                "why": "Create local folders for the newly planned experiment wave.",
+            },
+        )
+        self.assertEqual(
+            guidance["recommended_actions"][1]["tool"],
+            "workflow.status_and_next",
+        )
         claims = self.call("claim.list", project_id=self.project_id)["claims"]
         by_statement = {claim["statement"]: claim for claim in claims}
         self.assertEqual(by_statement["Schedule effect appears local."]["status"], "supported")
@@ -760,6 +778,7 @@ class SynthesisGateTest(unittest.TestCase):
         detail = self._state(syn_id)
         self.assertEqual(len(detail["materialized_claims"]), 2)
         self.assertEqual(len(detail["materialized_experiments"]), 2)
+        self.assertEqual(detail["post_publish_guidance"], guidance)
 
     def test_publish_defensively_rechecks_active_experiment_cap(self) -> None:
         self._create_active_experiments(ACTIVE_EXPERIMENT_CAP - 2)

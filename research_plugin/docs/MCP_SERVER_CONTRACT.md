@@ -134,7 +134,11 @@ links; linked image bytes are captured when the document is associated.
 requires a passing `reflection_reviewer` review at the current snapshot; only
 then does it apply claim changes and either mark the project stopped or create
 the approved planned experiments, while also pinning the published graph
-version. Resource associations on reflection waves are attempt-scoped, exactly like
+version. When publish creates planned experiments, the response includes
+`post_publish_guidance` with the new experiment folders and recommended next
+calls: `experiment.materialize_folders(status="planned")`, then
+`workflow.status_and_next(experiment_id=...)` for the first new experiment.
+Resource associations on reflection waves are attempt-scoped, exactly like
 experiments, so a `return_to: "reflecting"` rejection (attempt bump)
 invalidates the prior reflections.
 

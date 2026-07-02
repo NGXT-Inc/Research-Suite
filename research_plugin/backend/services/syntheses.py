@@ -301,6 +301,10 @@ class SynthesisService:
                 (synthesis_id,),
             ).fetchall()
             data["materialized_experiments"] = rows_to_dicts(rows=experiment_rows)
+            if data.get("status") == "published" and data["materialized_experiments"]:
+                data["post_publish_guidance"] = self._post_publish_guidance(
+                    materialized_experiments=data["materialized_experiments"],
+                )
             review_rows = conn.execute(
                 """
                 SELECT * FROM reviews
@@ -322,6 +326,42 @@ class SynthesisService:
         finally:
             if owns_conn:
                 conn.close()
+
+    def _post_publish_guidance(
+        self, *, materialized_experiments: list[dict[str, Any]]
+    ) -> dict[str, Any]:
+        experiments = [
+            {
+                "experiment_id": row.get("experiment_id"),
+                "name": row.get("name"),
+                "status": row.get("status"),
+                "folder": f"experiments/{row.get('name')}/",
+                "intent": row.get("intent"),
+            }
+            for row in materialized_experiments
+        ]
+        count = len(experiments)
+        noun = "experiment" if count == 1 else "experiments"
+        return {
+            "summary": (
+                f"Reflection publish created {count} planned {noun}. "
+                "Materialize their local folders before editing files, then "
+                "call workflow.status_and_next for the experiment you start."
+            ),
+            "experiments": experiments,
+            "recommended_actions": [
+                {
+                    "tool": "experiment.materialize_folders",
+                    "arguments": {"status": "planned"},
+                    "why": "Create local folders for the newly planned experiment wave.",
+                },
+                {
+                    "tool": "workflow.status_and_next",
+                    "arguments": {"experiment_id": experiments[0]["experiment_id"]},
+                    "why": "Start with the first newly planned experiment.",
+                },
+            ],
+        }
 
     def list_syntheses(self, *, project_id: str | None = None) -> dict[str, Any]:
         conn = self.store.connect()
