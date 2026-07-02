@@ -22,7 +22,11 @@ function fmtUpdatedAgo(ms) {
 // following the OS.
 const NEXT_THEME_MODE = { light: 'dark', dark: 'system', system: 'light' };
 
-export default function Sidebar({ onRefresh }) {
+// Platform-correct label for the sidebar toggle shortcut (also shown on the
+// shell's reveal button, so exported).
+export const SIDEBAR_KB = /Mac|iP/.test(navigator.platform || '') ? '⌘B' : 'Ctrl+B';
+
+export default function Sidebar({ onRefresh, onHide }) {
   const { mode: themeMode, theme, setMode: setThemeMode } = useTheme();
   const home = useProjectStore(s => s.home);
   const stats = useProjectStore(selectStats);
@@ -68,8 +72,19 @@ export default function Sidebar({ onRefresh }) {
   return (
     <aside className="sidebar">
       <div className="sidebar-brand">
-        Research State
-        <small>research_plugin · v{serverVersion || CLIENT_VERSION}</small>
+        <div>
+          Research State
+          <small>research_plugin · v{serverVersion || CLIENT_VERSION}</small>
+        </div>
+        {onHide && (
+          <button
+            type="button"
+            className="sidebar-hide"
+            onClick={onHide}
+            title={`Hide sidebar (${SIDEBAR_KB})`}
+            aria-label="Hide sidebar"
+          >«</button>
+        )}
       </div>
 
       <ProjectSwitcher />

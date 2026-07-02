@@ -1,4 +1,4 @@
-import { fmtNum, fmtStamp } from '../utils/format';
+import { fmtNum } from '../utils/format';
 
 /**
  * LedgerCharts — dependency-free renderer primitives for the project ledger.
@@ -22,9 +22,11 @@ function Dot({ x, y, color, size = 8, title, onPick }) {
   );
 }
 
+// 10% value headroom → extreme dots land ~8% inside the plot, so they stay
+// touchable instead of straddling the top/bottom hairline.
 const pad = (min, max) => {
   const span = (max - min) || Math.abs(max) || 1;
-  return { lo: min - span * 0.07, hi: max + span * 0.07 };
+  return { lo: min - span * 0.1, hi: max + span * 0.1 };
 };
 
 // Chronological dots on the focus metric + cumulative-best step line.
@@ -40,6 +42,15 @@ export function FrontierChart({ runs, values, direction, focusKey, colorOf, size
     return [xPct(j), yPct(best)];
   });
   const d = steps.map(([x, y], j) => (j === 0 ? `M ${x} ${y}` : `H ${x}${y !== steps[j - 1][1] ? ` V ${y}` : ''}`)).join(' ');
+
+  const t0 = runs[values[0].i]?.start;
+  const t1 = runs[values[values.length - 1].i]?.start;
+  const sameDay = t0 > 0 && t1 > 0 && new Date(t0).toDateString() === new Date(t1).toDateString();
+  const stamp = (ms) => (Number.isFinite(ms) && ms > 0
+    ? new Date(ms).toLocaleString([], sameDay
+      ? { hour: '2-digit', minute: '2-digit', hour12: false }
+      : { month: 'short', day: 'numeric' })
+    : '');
 
   return (
     <div className="lgc-frontier">
@@ -64,9 +75,10 @@ export function FrontierChart({ runs, values, direction, focusKey, colorOf, size
           />
         ))}
       </div>
-      {/* The x-axis is time: stamp its ends so the plateau has a duration. */}
-      <span className="lgc-xlab lgc-xlab--left">{fmtStamp(runs[values[0].i]?.start)}</span>
-      <span className="lgc-xlab">{fmtStamp(runs[values[values.length - 1].i]?.start)} →</span>
+      {/* The x-axis is time: stamp its ends so the plateau has a duration.
+          Granularity follows the span — dates across days, times within one. */}
+      <span className="lgc-xlab lgc-xlab--left">{stamp(t0)}</span>
+      <span className="lgc-xlab">{stamp(t1)} →</span>
     </div>
   );
 }

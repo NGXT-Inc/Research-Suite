@@ -1460,21 +1460,29 @@ html[data-surface="mobile"] .mlg-top {
   background: var(--bg);
   padding: 4px 16px 0;
 }
-html[data-surface="mobile"] .mlg .mtitle-lg { padding: 10px 0 3px; }
+/* Title and pulse verdict share one line; the pulse crops from the right
+   (value leads) so the frontier gets the vertical space instead. */
+html[data-surface="mobile"] .mlg-head { display: flex; align-items: baseline; gap: 12px; padding: 10px 0 3px; }
+html[data-surface="mobile"] .mlg .mtitle-lg { padding: 0; flex: none; }
 html[data-surface="mobile"] .mlg-pulse {
-  margin: 2px 0 4px;
+  margin: 0 0 0 auto;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
   font-size: 12px;
   color: var(--muted);
   font-variant-numeric: tabular-nums;
 }
 html[data-surface="mobile"] .mlg-pulse b { font-family: var(--font-mono); font-weight: 700; color: var(--text); }
 html[data-surface="mobile"] .mlg-fail { margin: 2px 0; font-family: var(--font-mono); font-size: 11px; color: var(--refutes); }
-/* Metric chips: one swipeable line, underline = the pivot. */
+/* Metric chips: one swipeable line, underline = the pivot. Vertical padding
+   is the tap target — the text stays one quiet mono line. */
 html[data-surface="mobile"] .mlg-chips {
   display: flex;
-  gap: 16px;
+  gap: 18px;
   overflow-x: auto;
-  padding: 8px 0 2px;
+  padding: 4px 0 2px;
   scrollbar-width: none;
 }
 html[data-surface="mobile"] .mlg-chips::-webkit-scrollbar { display: none; }
@@ -1482,14 +1490,17 @@ html[data-surface="mobile"] .mlg-chips button {
   flex: none;
   border: none;
   background: none;
-  padding: 4px 0 7px;
+  padding: 9px 0;
   font-family: var(--font-mono);
   font-size: 11px;
   color: var(--faint);
 }
 html[data-surface="mobile"] .mlg-chips button.on { color: var(--text); box-shadow: inset 0 -2px 0 var(--active); }
-html[data-surface="mobile"] .mlg .lgc-frontier { padding: 4px 0 18px 42px; }
+html[data-surface="mobile"] .mlg .lgc-frontier { --plot-left: 42px; padding: 4px 0 22px var(--plot-left); margin-bottom: 4px; }
 html[data-surface="mobile"] .mlg .lgc-plot { height: 128px; }
+/* Fat-finger dots: an invisible halo widens each 10-13px mark to a ~32px
+   touch target without changing what's drawn. */
+html[data-surface="mobile"] .lgc-dot::after { content: ''; position: absolute; inset: -11px; border-radius: 50%; }
 /* Pinned experiment vs the field — one line, orange index. */
 html[data-surface="mobile"] .mlg-fstrip {
   display: flex;
@@ -1504,26 +1515,29 @@ html[data-surface="mobile"] .mlg-fstrip-name { font-weight: 600; min-width: 0; o
 html[data-surface="mobile"] .mlg-fstrip-status { font-size: 10px; font-weight: 600; white-space: nowrap; }
 html[data-surface="mobile"] .mlg-fstrip-val { margin-left: auto; font-family: var(--font-mono); white-space: nowrap; }
 html[data-surface="mobile"] .mlg-fstrip-val .r { color: var(--faint); font-size: 10px; }
-html[data-surface="mobile"] .mlg-fstrip-open { font-size: 11px; white-space: nowrap; }
+/* open/× keep their baseline but grow their tap boxes; negative margins
+   give the padding back so the strip stays one tight line. */
+html[data-surface="mobile"] .mlg-fstrip-open { font-size: 11px; white-space: nowrap; padding: 8px 5px; margin: -8px -5px; }
 html[data-surface="mobile"] .mlg-fstrip-x {
   border: none;
   background: none;
-  padding: 0 2px;
-  font-size: 14px;
+  padding: 8px 10px;
+  margin: -8px -10px -8px -5px;
+  font-size: 15px;
   color: var(--faint);
 }
-/* Column headers are the sort controls; widths mirror the rows below. */
+/* Column headers are the sort controls; widths mirror the rows below.
+   The buttons carry the vertical padding so the whole band is tappable. */
 html[data-surface="mobile"] .mlg-thead {
   display: flex;
   align-items: baseline;
   gap: 10px;
-  padding: 6px 0;
   border-bottom: 1px solid var(--line);
 }
 html[data-surface="mobile"] .mlg-thead button {
   border: none;
   background: none;
-  padding: 0;
+  padding: 9px 0;
   font-family: var(--font-body);
   font-size: 10.5px;
   color: var(--faint);

@@ -1,9 +1,9 @@
-import { useEffect } from 'react';
+import { useEffect, useState } from 'react';
 import { Routes, Route, Navigate, Link, Outlet, useParams, useSearchParams } from 'react-router-dom';
 import { useProjectStore, projectPath, useProjectHref, selectActiveExperiments, selectSandboxes } from './store/useProjectStore';
 import { usePolling } from './store/usePolling';
 import { useViewport } from './store/useViewport';
-import Sidebar from './components/Sidebar';
+import Sidebar, { SIDEBAR_KB } from './components/Sidebar';
 import CompatBanner from './components/CompatBanner';
 import LogicGraphHero from './components/LogicGraphHero';
 import MobileShell from './mobile/MobileShell';
@@ -79,6 +79,16 @@ function ProjectScope() {
   return <Outlet />;
 }
 
+// Desktop sidebar visibility — survives reloads, default open.
+const SIDEBAR_KEY = 'rsui:sidebar';
+function readSidebarOpen() {
+  try { return localStorage.getItem(SIDEBAR_KEY) !== 'closed'; } catch { return true; }
+}
+function writeSidebarOpen(open) {
+  try { localStorage.setItem(SIDEBAR_KEY, open ? 'open' : 'closed'); } catch { /* best-effort */ }
+  return open;
+}
+
 // Root ("/") and anything unmatched land on the active project's home.
 function RootRedirect() {
   const storePid = useProjectStore(s => s.projectId);
@@ -108,8 +118,25 @@ export default function App() {
     sandboxes.some(s => s.status === 'running' || s.status === 'provisioning');
   const interval = isMobile ? (somethingLive ? 5000 : 30000) : 3000;
   usePolling(interval);
+  const [sidebarOpen, setSidebarOpen] = useState(readSidebarOpen);
+  const toggleSidebar = () => setSidebarOpen(v => writeSidebarOpen(!v));
 
   useEffect(() => { loadProjects(); }, [loadProjects]);
+
+  // ⌘B / Ctrl+B toggles the sidebar (desktop shell only) — skipped while
+  // typing so contenteditable bold and terminal input stay untouched.
+  useEffect(() => {
+    if (isMobile) return undefined;
+    const onKey = (e) => {
+      if (e.key !== 'b' || !(e.metaKey || e.ctrlKey) || e.shiftKey || e.altKey) return;
+      const t = e.target;
+      if (t && (t.tagName === 'INPUT' || t.tagName === 'TEXTAREA' || t.isContentEditable)) return;
+      e.preventDefault();
+      setSidebarOpen(v => writeSidebarOpen(!v));
+    };
+    window.addEventListener('keydown', onKey);
+    return () => window.removeEventListener('keydown', onKey);
+  }, [isMobile]);
 
   if (!projectsLoaded) {
     return <FullPageStatus>Loading…</FullPageStatus>;
@@ -181,8 +208,19 @@ export default function App() {
   return (
     <>
       <div className="app-bg" aria-hidden="true"><LogicGraphHero /></div>
-      <div className="shell">
-        <Sidebar onRefresh={refreshHome} />
+      <div className={'shell' + (sidebarOpen ? '' : ' shell--nosb')}>
+        <Sidebar onRefresh={refreshHome} onHide={toggleSidebar} />
+        {!sidebarOpen && (
+          <button
+            type="button"
+            className="sb-edge"
+            onClick={toggleSidebar}
+            title={`Show sidebar (${SIDEBAR_KB})`}
+            aria-label="Show sidebar"
+          >
+            <span className="sb-edge-glyph" aria-hidden="true">»</span>
+          </button>
+        )}
         <main className="shell-main">
           <CompatBanner />
         <Routes>

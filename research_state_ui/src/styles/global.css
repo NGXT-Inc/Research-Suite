@@ -481,8 +481,66 @@ input, textarea, select { font-family: inherit; font-size: inherit; color: inher
   overflow-y: auto;
   display: flex;
   flex-direction: column;
+  transition: margin-left var(--motion-base);
+}
+/* Closed: slide off-canvas via margin (not display) so the reading column
+   reflows through the same curve — no pop. Visibility flips after the slide
+   so the off-screen links leave the tab order. */
+.shell--nosb .sidebar {
+  margin-left: calc(-1 * var(--sidebar-w));
+  visibility: hidden;
+  transition: margin-left var(--motion-base), visibility 0s 240ms;
+}
+/* Reopen affordance — a full-height hot strip hugging the left screen edge,
+   invisible at rest. Nearing the edge fades in a hairline and the » glyph
+   (parked where the brand was); clicking anywhere along the strip reopens.
+   The strip sits entirely inside the stage's 40px side padding. */
+.sb-edge {
+  position: fixed;
+  top: 0;
+  left: 0;
+  bottom: 0;
+  width: 18px;
+  z-index: 5;
+  border: 0;
+  background: none;
+  padding: 0;
+  cursor: pointer;
+}
+.sb-edge::before {
+  content: '';
+  position: absolute;
+  inset: 0 auto 0 0;
+  width: 1px;
+  background: var(--line-soft);
+  opacity: 0;
+  transition: opacity var(--motion-fast);
+}
+.sb-edge-glyph {
+  position: absolute;
+  top: 15px;
+  left: 5px;
+  padding: 3px 8px;
+  color: var(--faint);
+  font-size: var(--text-base);
+  line-height: 1;
+  border-radius: var(--radius-md);
+  opacity: 0;
+  transition: opacity var(--motion-fast), color var(--motion-fast), background var(--motion-fast);
+}
+.sb-edge:hover::before,
+.sb-edge:focus-visible::before { opacity: 1; }
+.sb-edge:hover .sb-edge-glyph,
+.sb-edge:focus-visible .sb-edge-glyph { opacity: 1; color: var(--text); background: var(--bg-soft); }
+/* No hover on touch: keep the glyph faintly resting so the way back exists. */
+@media (hover: none) {
+  .sb-edge-glyph { opacity: 1; }
 }
 .sidebar-brand {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 6px;
   font-size: var(--text-base);
   font-weight: 600;
   letter-spacing: -0.005em;
@@ -491,6 +549,19 @@ input, textarea, select { font-family: inherit; font-size: inherit; color: inher
   margin-bottom: 6px;
   border-bottom: 1px solid var(--line-soft);
 }
+.sidebar-hide {
+  border: 0;
+  background: none;
+  padding: 1px 6px;
+  color: var(--faint);
+  font-size: var(--text-base);
+  font-weight: 400;
+  line-height: 1.2;
+  cursor: pointer;
+  border-radius: var(--radius-md);
+  transition: color var(--motion-fast), background var(--motion-fast);
+}
+.sidebar-hide:hover { color: var(--text); background: var(--bg-soft); }
 .sidebar-brand small {
   display: block;
   font-size: 10.5px;
@@ -975,6 +1046,7 @@ html { scroll-behavior: smooth; }
 }
 @media (prefers-reduced-motion: reduce) {
   .gate-live-dot { animation: none; }
+  .sidebar, .shell--nosb .sidebar { transition: none; }
 }
 .gate-banner-blocked {
   display: flex;
@@ -4364,14 +4436,18 @@ a.results-metrics-sub:hover { color: var(--active); text-decoration: underline; 
 .lgc-dot { position: absolute; transform: translate(-50%, -50%); border: none; border-radius: 50%; padding: 0; cursor: pointer; }
 .lgc-dot:hover, .lgc-dot:focus-visible { box-shadow: 0 0 0 3px rgba(var(--active-rgb), 0.25); outline: none; }
 
-.lgc-frontier { position: relative; padding: 6px 0 22px 58px; }
+/* --plot-left = y-axis gutter; the left x-label tracks it so the date sits
+   flush with the plot edge on every surface. */
+.lgc-frontier { position: relative; --plot-left: 58px; padding: 6px 0 22px var(--plot-left); }
 .lgc-plot { position: relative; height: 200px; border-top: 1px solid var(--line); border-bottom: 1px solid var(--line); }
 .lgc-plot > svg { position: absolute; inset: 0; width: 100%; height: 100%; }
-.lgc-y { position: absolute; left: 0; font-family: var(--font-mono); font-size: var(--text-xs); color: var(--faint); }
+/* Axis labels are decoration — never let them intercept a tap meant for a
+   dot whose halo reaches into the label band. */
+.lgc-y { position: absolute; left: 0; font-family: var(--font-mono); font-size: var(--text-xs); color: var(--faint); pointer-events: none; }
 .lgc-y--max { top: 0; }
 .lgc-y--min { bottom: 16px; }
-.lgc-xlab { position: absolute; right: 0; bottom: 0; font-size: var(--text-xs); color: var(--faint); font-family: var(--font-mono); }
-.lgc-xlab--left { right: auto; left: 58px; }
+.lgc-xlab { position: absolute; right: 0; bottom: 0; font-size: var(--text-xs); color: var(--faint); font-family: var(--font-mono); pointer-events: none; }
+.lgc-xlab--left { right: auto; left: var(--plot-left); }
 
 .lgd-strips { display: grid; grid-template-columns: repeat(auto-fill, minmax(340px, 1fr)); gap: 0 44px; }
 .lgd-striprow { display: grid; grid-template-columns: 150px 1fr auto; align-items: center; gap: 12px; padding: 6px 0; border-bottom: 1px solid var(--line-soft); }

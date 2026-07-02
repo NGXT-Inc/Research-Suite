@@ -12,9 +12,9 @@ const REFRESH_MS = 60000;
 
 /**
  * MLflow (mobile) — the project ledger as a split instrument. The top block
- * (pulse verdict → frontier → metric chips → column headers) sticks under
- * the app bar; the run table scrolls beneath it with native physics — the
- * split screen without scroll hijack. One metric is in focus at a time
+ * (title + pulse verdict → metric chips → frontier → column headers) sticks
+ * under the app bar; the run table scrolls beneath it with native physics —
+ * the split screen without scroll hijack. One metric is in focus at a time
  * (chips pivot the chart, the value column, and the sort), tapping a row or
  * a dot pins its experiment (?focus=, same contract as desktop).
  */
@@ -115,7 +115,10 @@ export default function MobileMlflow() {
   return (
     <div className="mlg">
       <div className="mlg-top">
-        <h1 className="mtitle-lg">MLflow</h1>
+        <div className="mlg-head">
+          <h1 className="mtitle-lg">MLflow</h1>
+          {hasLedger && plan.summary && <PulseLine plan={plan} />}
+        </div>
 
         {error && <div className="mbanner">{error}</div>}
         {!data ? (
@@ -126,7 +129,6 @@ export default function MobileMlflow() {
           <div className="mquiet">no runs recorded yet</div>
         ) : (
           <>
-            {plan.summary && <PulseLine plan={plan} />}
             {failures.length > 0 && (
               <div className="mlg-fail">
                 {failures.map((f, j) => (
@@ -221,8 +223,9 @@ export default function MobileMlflow() {
   );
 }
 
-// The project verdict in one standing line — always the primary metric,
-// whatever the chips pivot below. Staleness lives in the chart, not here.
+// The project verdict, sharing the header line — always the primary metric,
+// whatever the chips pivot below. Crops from the right when space runs out,
+// so the value leads. Staleness lives in the chart, not here.
 function PulseLine({ plan }) {
   const { best, projectBaseline, liveCount } = plan.summary;
   const deltaPct = projectBaseline != null
