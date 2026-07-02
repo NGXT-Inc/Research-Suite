@@ -19,7 +19,6 @@ from .tools.contracts import available_tool_names
 from .tools.tool_handlers import build_local_tool_handlers
 from .utils import ValidationError
 from .dataplane.resource_validation import validate_local_resource_artifact
-from .dataplane.results_tsv import merge_results_tsv
 
 if TYPE_CHECKING:
     from .local_runtime import LocalRuntime
@@ -156,7 +155,6 @@ class ResearchPluginApp:
                 resource_validate=self.validate_resource_file,
                 resource_associate=self.associate_resource,
                 experiment_materialize_folders=self.materialize_experiment_folders,
-                results_merge_tsv=self.merge_results_tsv,
                 reviews=self.reviews,
                 sandboxes=self.sandboxes,
                 mlflow_tracking=self.mlflow_tracking,
@@ -313,28 +311,6 @@ class ResearchPluginApp:
             project_id=actual_project_id,
             content_bytes=artifact.get("content_bytes"),
             figures=artifact.get("figures") or [],
-        )
-
-    def merge_results_tsv(
-        self,
-        *,
-        source_path: str,
-        target_path: str,
-        key_columns: list[str] | None = None,
-        dry_run: bool = False,
-        project_id: str | None = None,
-    ) -> dict[str, Any]:
-        conn = self.store.connect()
-        try:
-            self.store.require_project_id(conn=conn, project_id=project_id)
-        finally:
-            conn.close()
-        return merge_results_tsv(
-            repo_root=self.workspace.repo_root,
-            source_path=source_path,
-            target_path=target_path,
-            key_columns=key_columns,
-            dry_run=dry_run,
         )
 
     def materialize_experiment_folders(

@@ -115,7 +115,6 @@ class DaemonResourceForwardingTest(unittest.TestCase):
         self.assertIn("resource.validate", names)
         self.assertIn("resource.associate", names)
         self.assertIn("experiment.materialize_folders", names)
-        self.assertIn("results.merge_tsv", names)
         self.assertIn("sandbox.get", names)
         self.assertIn("sandbox.request", names)
         self.assertIn("sandbox.pull_outputs", names)
@@ -143,45 +142,6 @@ class DaemonResourceForwardingTest(unittest.TestCase):
         self.assertFalse(result["ok"])
         self.assertTrue(
             any("Objective & hypothesis" in problem for problem in result["problems"])
-        )
-
-    def test_results_merge_tsv_updates_local_ledger_without_control_mutation(self) -> None:
-        (self.repo / "results.tsv").write_text(
-            "row_id\tmetric\tvalue\n"
-            "a\taccuracy\t0.70\n",
-            encoding="utf-8",
-        )
-        (self.repo / "incoming.tsv").write_text(
-            "row_id\tmetric\tvalue\n"
-            "b\taccuracy\t0.72\n",
-            encoding="utf-8",
-        )
-
-        class _Control:
-            def list_tools(self):
-                return []
-
-            def submit_resource_observation(self, _payload):
-                raise AssertionError("results.merge_tsv must not register resources")
-
-            def submit_resource_association(self, _payload):
-                raise AssertionError("results.merge_tsv must not associate resources")
-
-        result = self._server(_Control()).call_tool(
-            name="results.merge_tsv",
-            arguments={
-                "source_path": "incoming.tsv",
-                "target_path": "results.tsv",
-            },
-            context={"repo_root": str(self.repo)},
-        )
-
-        self.assertEqual(result["inserted_rows"], 1)
-        self.assertEqual(
-            (self.repo / "results.tsv").read_text(encoding="utf-8"),
-            "row_id\tmetric\tvalue\n"
-            "a\taccuracy\t0.70\n"
-            "b\taccuracy\t0.72\n",
         )
 
     def test_experiment_materialize_folders_uses_linked_project(self) -> None:

@@ -446,7 +446,6 @@ def build_local_tool_handlers(
     resource_register_file: Callable[..., dict[str, Any]],
     resource_validate: Callable[..., dict[str, Any]],
     experiment_materialize_folders: Callable[..., dict[str, Any]],
-    results_merge_tsv: Callable[..., dict[str, Any]],
     resource_associate: Callable[..., dict[str, Any]] | None = None,
     feed_post: Callable[..., dict[str, Any]] | None = None,
     storage_upload_file: Callable[..., dict[str, Any]] | None = None,
@@ -489,7 +488,6 @@ def build_local_tool_handlers(
             ),
             "resource.associate_batch": resource_associate_batch,
             "experiment.materialize_folders": experiment_materialize_folders,
-            "results.merge_tsv": results_merge_tsv,
             "sandbox.request": sandboxes.request,
             "sandbox.attach": sandboxes.attach,
             "sandbox.pull_outputs": (

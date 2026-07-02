@@ -364,32 +364,6 @@ class ResourceResolveInput(ProjectScopedInput):
     )
 
 
-class ResultsMergeTsvInput(ProjectScopedInput):
-    source_path: str = Field(
-        description=(
-            "Repo-relative TSV produced by a sandbox or another run, for example "
-            "experiments/exp/incoming/results.tsv."
-        )
-    )
-    target_path: str = Field(
-        description=(
-            "Repo-relative canonical TSV ledger to update, for example "
-            "experiments/exp/results.tsv."
-        )
-    )
-    key_columns: list[str] = Field(
-        default_factory=list,
-        description=(
-            "Columns that uniquely identify a logical result row. If omitted, "
-            "the tool infers row_id, result_id, id, trial_id, or run_id."
-        ),
-    )
-    dry_run: bool = Field(
-        default=False,
-        description="Validate and report counts without writing target_path.",
-    )
-
-
 class StoragePutObjectInput(ProjectScopedInput):
     name: str
     kind: Literal["dataset", "model", "other"]
@@ -658,7 +632,7 @@ class SandboxPullOutputsInput(ProjectScopedInput):
         description=(
             "Repo-relative paths under the sandbox experiment_dir to pull. Omit "
             "to pull existing common outputs: results/, figures/, report.md, "
-            "graph.json, metrics.json, results.json, and results.tsv."
+            "graph.json, metrics.json, and results.json."
         ),
     )
     destination_path: str = Field(
@@ -944,16 +918,6 @@ TOOL_CONTRACTS: dict[str, ToolContract] = {
             "Resolve one registered resource. Pass include_history=true to also "
             "return its immutable observed versions (the former resource.history)."
         ),
-    ),
-    "results.merge_tsv": ToolContract(
-        input_model=ResultsMergeTsvInput,
-        description=(
-            "Safely merge a sandbox-produced TSV into a canonical local results "
-            "ledger. Rows are matched by stable key columns, identical rows are "
-            "skipped, new rows are appended atomically, and conflicting rows are "
-            "rejected without modifying the target file."
-        ),
-        plane="data",
     ),
     "storage.put_object": ToolContract(
         input_model=StoragePutObjectInput,

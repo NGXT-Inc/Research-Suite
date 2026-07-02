@@ -4,12 +4,12 @@ Date: 2026-07-02
 
 This list comes from hands-on use of the Research Plugin while running the
 `autoresearch_alpha` experiment workflow. The Git and Reproducibility section
-was intentionally omitted per request, except for the results ledger clobbering
-issue explicitly called out as fair game.
+was intentionally omitted per request. The `results.tsv` ledger clobbering issue
+is also canceled as a plugin-wide request because that ledger is specific to
+the current research project, not a universal Research Plugin concept.
 
 Excluded from this saved list: built-in sandbox git sync, and automatic
-candidate reset on discard. `Protect results.tsv from clobbering` is retained
-below because it was explicitly marked fair game.
+candidate reset on discard.
 
 ## Highest Impact
 
@@ -68,12 +68,11 @@ below because it was explicitly marked fair game.
    one by one is noisy and easy to get wrong. A batch association API would
    reduce mistakes, for example a payload of `{resource_id, role, target}` rows.
 
-9. **Protect `results.tsv` from clobbering**
+9. **Canceled: protect `results.tsv` from clobbering**
 
-   Copying a remote `results.tsv` briefly overwrote the full local ledger with
-   a partial one. The plugin should maintain experiment result rows centrally or
-   offer a safe merge/import command that appends by stable row identity and
-   refuses destructive overwrites.
+   This request is not a plugin-wide improvement. `results.tsv` is specific to
+   the current research project, so the Research Plugin should not expose a
+   generic `results.tsv` merge/import tool.
 
 10. **Preflight linter for gated artifacts**
 

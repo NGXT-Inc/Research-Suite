@@ -18,7 +18,6 @@ DEFAULT_OUTPUT_PATHS = (
     "graph.json",
     "metrics.json",
     "results.json",
-    "results.tsv",
 )
 SSH_CONNECT_TIMEOUT_SECONDS = 15
 RSYNC_TIMEOUT_SECONDS = 600

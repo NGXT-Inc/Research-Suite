@@ -36,7 +36,6 @@ from ..dataplane.remote_view import HttpControlPlaneView
 from ..dataplane.resource_artifacts import LocalResourceArtifactReader
 from ..dataplane.resource_observer import LocalResourceObserver
 from ..dataplane.resource_validation import validate_local_resource_artifact
-from ..dataplane.results_tsv import merge_results_tsv
 from ..dataplane.sandbox_outputs import pull_sandbox_outputs
 from ..dataplane.experiment_folders import materialize_experiment_folders
 from ..secret_tokens import mint_secret
@@ -162,8 +161,6 @@ class DaemonServer:
             return self._associate_resource_batch(arguments=arguments, context=context)
         if name == "experiment.materialize_folders":
             return self._materialize_experiment_folders(arguments=arguments, context=context)
-        if name == "results.merge_tsv":
-            return self._merge_results_tsv(arguments=arguments, context=context)
         if name == "feed.post":
             return self._post_feed(arguments=arguments, context=context)
         if name == "storage.upload_file":
@@ -589,21 +586,6 @@ class DaemonServer:
             for association in associations
         ]
         return {"associations": applied, "count": len(applied)}
-
-    def _merge_results_tsv(
-        self, *, arguments: dict[str, Any], context: dict[str, Any]
-    ) -> dict[str, Any]:
-        repo_root, _project_id = self._linked_scope(context=context)
-        key_columns = arguments.get("key_columns") or []
-        if not isinstance(key_columns, list):
-            raise ValidationError("key_columns must be a list")
-        return merge_results_tsv(
-            repo_root=repo_root,
-            source_path=self._required_arg(arguments, "source_path"),
-            target_path=self._required_arg(arguments, "target_path"),
-            key_columns=[str(column) for column in key_columns],
-            dry_run=bool(arguments.get("dry_run") or False),
-        )
 
     def _materialize_experiment_folders(
         self, *, arguments: dict[str, Any], context: dict[str, Any]

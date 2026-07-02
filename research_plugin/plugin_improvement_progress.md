@@ -94,7 +94,7 @@ Verification:
 
 ## Batch 4: safe TSV results merge
 
-Status: complete
+Status: canceled
 
 Request addressed:
 
@@ -102,21 +102,16 @@ Request addressed:
 
 Implementation notes:
 
-- Added `results.merge_tsv` as a data-plane helper for merging a sandbox
-  produced TSV into a canonical local results ledger.
-- The merge parses TSV structurally, requires stable key columns or infers a
-  common row id column, skips identical duplicate rows, atomically appends new
-  rows, and refuses conflicting rows before changing the target file.
-- Wired the tool through local mode and split-mode daemon routing, with docs
-  updates for the MCP contract and control/data-plane split.
+- Originally added `results.merge_tsv` as a generic data-plane helper, then
+  canceled it because `results.tsv` is specific to the current research
+  project and should not become a universal plugin concept.
+- The cancellation removes the tool contract, local handler, daemon route,
+  dataplane helper, feature tests, and docs for generic TSV ledger merging.
 
 Verification:
 
-- `PYTHONPATH=. python -m unittest tests.sandbox.test_results_tsv_merge -v`
-- `PYTHONPATH=. python -m unittest tests.surface.test_results_merge_tool -v`
-- `PYTHONPATH=. python -m unittest tests.surface.test_tool_contracts tests.structure.test_plane_layout.ToolPlanePartitionTest -v`
-- `PYTHONPATH=. python -m unittest tests.surface.test_split_mode_smoke.DaemonResourceForwardingTest.test_results_merge_tsv_updates_local_ledger_without_control_mutation tests.surface.test_split_mode_smoke.DaemonResourceForwardingTest.test_daemon_catalog_only_advertises_implemented_data_tools -v`
-- `PYTHONPATH=. python -m unittest discover -s tests -v` (862 tests, 25 skipped)
+- Historical pre-cancellation verification is superseded by the cancellation
+  batch below.
 
 ## Batch 5: explicit experiment folder materialization
 
@@ -438,8 +433,8 @@ Implementation notes:
   files or directories from a running sandbox's remote `experiment_dir` into
   the local experiment folder over SSH/rsync.
 - With no explicit paths, the tool checks for common retained outputs:
-  `results/`, `figures/`, `report.md`, `graph.json`, `metrics.json`,
-  `results.json`, and `results.tsv`, then pulls only the paths that exist.
+  `results/`, `figures/`, `report.md`, `graph.json`, `metrics.json`, and
+  `results.json`, then pulls only the paths that exist.
 - Existing local files are preserved by default; callers must set
   `overwrite=true` before replacing retained local outputs.
 - Wired the tool through local mode and split-mode daemon routing, including
@@ -718,7 +713,8 @@ Findings:
 7. Create local experiment folders when experiments materialize — addressed by
    Batches 5 and 18.
 8. Batch resource association — addressed by Batch 2.
-9. Protect `results.tsv` from clobbering — addressed by Batch 4.
+9. Protect `results.tsv` from clobbering — canceled as project-specific rather
+   than a plugin-wide request.
 10. Preflight linter for gated artifacts — addressed by Batch 3.
 11. Better attempt retry semantics — addressed by Batch 23.
 12. Auto-suggest claim updates after reviewed completion — addressed by Batch 12.
@@ -742,13 +738,44 @@ Verification:
 
 - `PYTHONPATH=. python - <<'PY' ... app.list_tools() ...` confirmed
   `workflow.status_and_next` is present.
-- Latest full suite: `PYTHONPATH=. python -m unittest discover -s tests -v`
-  (897 tests, 25 skipped).
+- Latest full suite after canceling `results.merge_tsv`:
+  `PYTHONPATH=. python -m unittest discover -s tests -v` (889 tests,
+  25 skipped).
 - Worktree clean after commits `ff4636f`, `0731bb6`, `990038e`, and `a04363a`
   for the final four batches in this continuation.
 
 Remaining scoped requests:
 
-- None from the saved improvement request list. The two Git/reproducibility
-  requests remain excluded by the saved-list scope; `Protect results.tsv from
-  clobbering` was retained and addressed.
+- None from the saved plugin-wide improvement request list. The two
+  Git/reproducibility requests remain excluded by the saved-list scope;
+  `Protect results.tsv from clobbering` is now also canceled as
+  project-specific.
+
+## Batch 25: cancel generic results.tsv merge
+
+Status: complete
+
+Request addressed:
+
+- Cancel Batch 4 / `results.merge_tsv`.
+
+Implementation notes:
+
+- Removed the generic `results.merge_tsv` tool contract, input schema, local
+  handler, app facade, split-mode daemon route, and dataplane helper.
+- Removed feature-specific merge tests and daemon smoke coverage for the
+  canceled tool.
+- Removed `results.tsv` from sandbox output auto-discovery defaults and docs so
+  agents do not treat a project-specific ledger as a universal artifact.
+- Updated the saved improvement request and completion audit to record the
+  cancellation.
+
+Verification:
+
+- `python -m py_compile backend/app.py backend/composition/daemon_mode.py backend/tools/contracts.py backend/tools/tool_handlers.py backend/dataplane/sandbox_outputs.py`
+- `PYTHONPATH=. python - <<'PY' ... app.list_tools() ...` confirmed
+  `results.merge_tsv` is absent and no `results.*` tools remain.
+- `PYTHONPATH=. python -m unittest tests.surface.test_tool_contracts tests.structure.test_plane_layout.ToolPlanePartitionTest tests.surface.test_split_mode_smoke.DaemonResourceForwardingTest.test_daemon_catalog_only_advertises_implemented_data_tools tests.sandbox.test_sandbox_outputs -v` (24 tests)
+- `git diff --check`
+- `PYTHONPATH=. python -m unittest discover -s tests -v` (889 tests,
+  25 skipped)

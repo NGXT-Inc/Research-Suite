@@ -17,7 +17,6 @@ from backend.tools.contracts import (
     ResourceAssociateBatchInput,
     ResourceValidateInput,
     ReviewRequestAndStartInput,
-    ResultsMergeTsvInput,
     SandboxPullOutputsInput,
     StorageCompleteUploadInput,
     StorageDownloadFileInput,
@@ -150,13 +149,6 @@ class ToolContractRegistryTest(unittest.TestCase):
         )
         self.assertEqual(TOOL_CONTRACTS["resource.validate"].plane, "data")
 
-    def test_results_merge_tsv_is_data_plane(self) -> None:
-        self.assertIs(
-            TOOL_CONTRACTS["results.merge_tsv"].input_model,
-            ResultsMergeTsvInput,
-        )
-        self.assertEqual(TOOL_CONTRACTS["results.merge_tsv"].plane, "data")
-
     def test_sandbox_pull_outputs_is_data_plane(self) -> None:
         self.assertIs(
             TOOL_CONTRACTS["sandbox.pull_outputs"].input_model,
@@ -231,7 +223,6 @@ class ToolHandlerRegistryTest(unittest.TestCase):
             resource_register_file=target.register_file,
             resource_validate=target.validate,
             experiment_materialize_folders=target.materialize_folders,
-            results_merge_tsv=target.merge_tsv,
         )
 
         self.assertEqual(set(handlers), set(TOOL_CONTRACTS))

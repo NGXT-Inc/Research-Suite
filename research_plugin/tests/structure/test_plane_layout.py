@@ -297,7 +297,6 @@ class ToolPlanePartitionTest(unittest.TestCase):
                 "resource.validate",
                 "resource.associate",
                 "resource.associate_batch",
-                "results.merge_tsv",
                 "storage.upload_file",
                 "storage.download_file",
                 "sandbox.request",

@@ -178,7 +178,6 @@ resource.register_file(project_id, path?, paths?, kind, title?)  # single file o
 resource.validate(project_id, path, role)                         # preflight local lint
 resource.associate_batch(project_id, associations=[{resource_id, target_type, target_id, role}, ...])
 resource.resolve(project_id, resource_id, include_history?)       # include_history adds versions
-results.merge_tsv(project_id, source_path, target_path, key_columns?, dry_run?)
 ```
 
 The server observes local repo files by path, stores latest metadata in
@@ -207,12 +206,6 @@ a version and stored in the blob store), never the live working tree. There is
 no background reconciliation: editing or deleting a file after association
 changes nothing the workflow can see — re-associate the resource to submit the
 new content. MCP does not scan the repo or register new files.
-
-`results.merge_tsv` is a local safe-import helper for sandbox-produced result
-ledgers. It parses TSV rows by stable key columns, skips identical duplicates,
-atomically appends new rows, and refuses conflicting rows without modifying
-`target_path`; use it instead of copying a partial remote `results.tsv` over a
-full local ledger.
 
 ### Workflow tools
 
@@ -466,12 +459,10 @@ where large ephemeral files were placed outside the folder.
 created under the remote `experiment_dir`. It copies selected repo-relative
 files or directories into the local experiment folder over SSH/rsync; with no
 `paths`, it first checks for common outputs (`results/`, `figures/`,
-`report.md`, `graph.json`, `metrics.json`, `results.json`, `results.tsv`) and
+`report.md`, `graph.json`, `metrics.json`, `results.json`) and
 pulls the ones that exist. Existing local files are preserved/refused unless
 `overwrite: true` is supplied. After pulling files locally, use
-`resource.register_file` / `resource.associate` for retained artifacts and
-`results.merge_tsv` for remote `results.tsv` rows that need to enter a
-canonical local ledger.
+`resource.register_file` / `resource.associate` for retained artifacts.
 
 When the backend has `HF_TOKEN` in its env file or process environment,
 `sandbox.request` / `sandbox.get` include an `environment.available_tokens`
