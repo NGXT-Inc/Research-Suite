@@ -26,6 +26,7 @@ export default function Feed() {
   const [hasMore, setHasMore] = useState(false);
   const [status, setStatus] = useState('loading'); // loading | ready | error
   const [error, setError] = useState('');
+  const [retryKey, setRetryKey] = useState(0);
   const loadingMoreRef = useRef(false);
   const sentinelRef = useRef(null);
   // Newest seq across visible + buffered posts, so the poll closure never
@@ -65,7 +66,7 @@ export default function Feed() {
         setStatus('error');
       });
     return () => { cancelled = true; };
-  }, [projectId]);
+  }, [projectId, retryKey]);
 
   // Remember the newest post the reader actually had on screen, for the next
   // visit's "new since last visit" marker. Buffered posts don't count until
@@ -162,11 +163,36 @@ export default function Feed() {
           </button>
         )}
       </div>
-      {status === 'loading' && <div className="feed-note">Loading feed…</div>}
-      {status === 'error' && <div className="error-message feed-note">{error}</div>}
+      {status === 'loading' && (
+        <div className="feed-list" aria-hidden="true">
+          {[0, 1, 2].map((i) => (
+            <div key={i} className="postcard postcard--skeleton">
+              <div className="skel skel--handle" />
+              <div className="skel skel--line" />
+              <div className="skel skel--line skel--short" />
+            </div>
+          ))}
+        </div>
+      )}
+      {status === 'error' && (
+        <div className="feed-empty" role="alert">
+          <p className="feed-empty-title">Couldn’t load the feed</p>
+          <p className="feed-empty-sub">{error}</p>
+          <button
+            type="button"
+            className="btn btn--ghost btn--sm feed-retry"
+            onClick={() => setRetryKey((k) => k + 1)}
+          >
+            Try again
+          </button>
+        </div>
+      )}
       {status === 'ready' && posts.length === 0 && (
         <div className="feed-empty">
           <p className="feed-empty-title">No posts yet</p>
+          <p className="feed-empty-sub">
+            Agents post their findings, hunches, and pivots here as they work.
+          </p>
         </div>
       )}
       {posts.length > 0 && (
@@ -187,7 +213,14 @@ export default function Feed() {
               );
             }
             return (
-              <PostCard key={item.id} post={item.post} projectId={projectId} onView={onView} now={now} />
+              <PostCard
+                key={item.id}
+                post={item.post}
+                projectId={projectId}
+                onView={onView}
+                now={now}
+                grouped={item.grouped}
+              />
             );
           })}
         </div>

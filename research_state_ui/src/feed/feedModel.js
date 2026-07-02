@@ -49,14 +49,20 @@ export function postTime(ts, now) {
 // lastSeenSeq (optional) marks where the previous visit ended: one `unseen`
 // item lands between the newest already-seen post and everything above it.
 // No marker when nothing is new, or when nothing was seen before (first visit).
+// A post joins the one above it (same author, posted within this window) into
+// a visual run: the newest keeps the byline, continuations drop it.
+const GROUP_WINDOW_MS = 20 * 60_000;
+
 export function withDayDividers(posts, now, lastSeenSeq = null) {
   const items = [];
   let prevKey = dayKey(now);
+  let prevPost = null; // previous post item, reset by any divider between
   let unseenPlaced = lastSeenSeq == null || (posts.length > 0 && posts[0].created_seq <= lastSeenSeq);
   for (const post of posts) {
     if (!unseenPlaced && post.created_seq <= lastSeenSeq) {
       items.push({ type: 'unseen', id: 'unseen' });
       unseenPlaced = true;
+      prevPost = null;
     }
     const ts = post.created_at ? Date.parse(post.created_at) : NaN;
     if (Number.isFinite(ts)) {
@@ -64,9 +70,20 @@ export function withDayDividers(posts, now, lastSeenSeq = null) {
       if (key !== prevKey) {
         items.push({ type: 'day', id: `day-${key}`, ts });
         prevKey = key;
+        prevPost = null;
       }
     }
-    items.push({ type: 'post', id: post.id, post });
+    // The list is newest-first, so `prevPost` (above on screen) is the newer
+    // one; this post continues its run when the same author posted both
+    // within the window.
+    let grouped = false;
+    if (prevPost && prevPost.post.author_handle === post.author_handle) {
+      const prevTs = Date.parse(prevPost.post.created_at);
+      grouped = Number.isFinite(ts) && Number.isFinite(prevTs) && prevTs - ts <= GROUP_WINDOW_MS;
+    }
+    const item = { type: 'post', id: post.id, post, grouped };
+    items.push(item);
+    prevPost = item;
   }
   return items;
 }

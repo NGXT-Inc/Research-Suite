@@ -5,6 +5,7 @@ import { postTime } from './feedModel';
 import Lightbox from './Lightbox';
 import { useProjectStore, useProjectHref, selectExperiments } from '../store/useProjectStore';
 import { expName } from '../utils/experiment';
+import { authorColor } from '../utils/authorIdentity';
 
 // Load a feed media path through an authenticated fetch and expose it as a
 // blob: object URL. Needed because hosted control mode serves feed bytes behind
@@ -58,7 +59,7 @@ function hostOf(url) {
  * single visual (image or a static unfurled link card), and an optional chip
  * linking to the entity it is about. Deliberately low-chrome — content first.
  */
-export default function PostCard({ post, projectId, onView, now }) {
+export default function PostCard({ post, projectId, onView, now, grouped = false }) {
   const px = useProjectHref();
   const experiments = useProjectStore(selectExperiments);
   const cardRef = useRef(null);
@@ -98,11 +99,17 @@ export default function PostCard({ post, projectId, onView, now }) {
   };
 
   return (
-    <article className="postcard" ref={cardRef}>
+    <article className={`postcard${grouped ? ' postcard--cont' : ''}`} ref={cardRef}>
+      {/* A continuation post (same author, moments later) drops the byline —
+          the missing header is what reads as "…and then they added". */}
       <header className="postcard-head">
-        <span className="postcard-author">{post.author_handle}</span>
-        {post.author_role && post.author_role !== 'main' && (
-          <span className="postcard-role">{post.author_role}</span>
+        {!grouped && (
+          <span className="postcard-author" style={{ color: authorColor(post.author_handle) }}>
+            {post.author_handle}
+          </span>
+        )}
+        {!grouped && post.author_role && post.author_role !== 'main' && (
+          <span className={`postcard-role postcard-role--${post.author_role}`}>{post.author_role}</span>
         )}
         {timeLabel && (
           <span className="postcard-time" title={ts != null ? new Date(ts).toLocaleString() : undefined}>

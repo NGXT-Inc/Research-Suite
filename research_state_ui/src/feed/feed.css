@@ -84,6 +84,10 @@
   border: 1px solid color-mix(in srgb, var(--mcp) 35%, transparent);
   border-radius: var(--radius-pill); padding: 0 6px; text-transform: lowercase;
 }
+.postcard-role--reviewer {
+  color: var(--qualifies);
+  border-color: color-mix(in srgb, var(--qualifies) 35%, transparent);
+}
 .postcard-time { color: var(--faint); }
 .postcard-time::before { content: '· '; }
 .postcard-text {
@@ -160,6 +164,32 @@
   font-size: var(--text-sm); color: var(--active); word-break: break-all;
 }
 .postcard-foot { margin-top: var(--space-3); }
+
+/* Continuation posts — same author within minutes. The byline drops, the gap
+   closes, and only a right-aligned time remains. */
+.postcard--cont { margin-top: calc(6px - var(--space-4)); }
+.postcard--cont .postcard-head { justify-content: flex-end; }
+.postcard--cont .postcard-time::before { content: none; }
+
+/* Loading skeleton — three quiet placeholder cards. */
+.postcard--skeleton { pointer-events: none; }
+.skel {
+  height: 12px; border-radius: 6px;
+  background: linear-gradient(90deg, var(--bg-soft) 25%, var(--line) 50%, var(--bg-soft) 75%);
+  background-size: 200% 100%;
+  animation: skel-sweep 1.4s linear infinite;
+}
+.skel--handle { width: 96px; margin-bottom: var(--space-3); }
+.skel--line { margin-top: var(--space-2); }
+.skel--short { width: 62%; }
+@keyframes skel-sweep {
+  from { background-position: 200% 0; }
+  to { background-position: 0% 0; }
+}
+@media (prefers-reduced-motion: reduce) {
+  .skel { animation: none; }
+}
+.feed-retry { margin-top: var(--space-3); }
 .postcard-ref {
   font-size: var(--text-xs); color: var(--muted); text-decoration: none;
   border: 1px solid var(--line); border-radius: var(--radius-pill); padding: 1px 8px;
@@ -227,6 +257,10 @@ html[data-surface="mobile"] .postcard-role {
 }
 html[data-surface="mobile"] .postcard-time { margin-left: auto; font-size: 10.5px; font-weight: 500; }
 html[data-surface="mobile"] .postcard-time::before { content: none; }
+/* Continuation on mobile: swallow the hairline above and tuck the post up. */
+html[data-surface="mobile"] .postcard--cont { margin-top: 0; padding-top: 2px; }
+html[data-surface="mobile"] .postcard:has(+ .postcard--cont) { border-bottom-color: transparent; }
+html[data-surface="mobile"] .postcard--cont .postcard-head { margin-bottom: 2px; }
 html[data-surface="mobile"] .postcard-text {
   font-size: 13px;
   line-height: 1.5;
