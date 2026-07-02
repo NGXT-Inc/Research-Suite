@@ -226,7 +226,7 @@ html[data-surface="mobile"] .btn--sm { min-height: 34px; padding: 4px 12px; }
 html[data-surface="mobile"] .tab { padding: 7px 13px; min-height: 34px; }
 
 /* Key/value + timeline label columns sized for ~390px. */
-html[data-surface="mobile"] .kv-row { grid-template-columns: 104px 1fr; }
+html[data-surface="mobile"] .kv-row { grid-template-columns: var(--kv-label-narrow) 1fr; }
 html[data-surface="mobile"] .timeline-row { grid-template-columns: 86px 1fr; }
 html[data-surface="mobile"] .timeline-time { font-size: 10.5px; }
 

@@ -176,8 +176,13 @@ export default function MlflowDashboard() {
                     ['delta', 'Δ', 'lgd-delta'],
                     ['when', 'date', 'lgd-when'],
                   ].map(([col, label, cls]) => (
-                    <button key={col} type="button" className={`lgd-hbtn ${cls}${sort.col === col ? ' on' : ''}`} onClick={() => onSort(col)}>
-                      {label}{sort.col === col && <span className="arr"> {sortAsc ? '▲' : '▼'}</span>}
+                    <button
+                      key={col}
+                      type="button"
+                      className={`th th--led ${cls}${['value', 'delta', 'when'].includes(col) ? ' th--r' : ''}${sort.col === col ? ' on' : ''}`}
+                      onClick={() => onSort(col)}
+                    >
+                      {label}{sort.col === col && <span className="arr">{sortAsc ? '▲' : '▼'}</span>}
                     </button>
                   ))}
                   <span className="lgd-open" aria-hidden="true" />

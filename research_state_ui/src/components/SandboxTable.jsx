@@ -62,15 +62,15 @@ export default function SandboxTable({ sandboxes, experiments, events, projectId
   return (
     <div className="sbxt-scroll">
       <div className="sbxt">
-        <div className="sbxt-head">
+        <div className="sbxt-head con-head">
           <span aria-hidden="true" />
-          <span className="sbxt-th">Status</span>
-          <span className="sbxt-th">Experiment</span>
-          <span className="sbxt-th">Hardware</span>
-          <span className="sbxt-th sbxt-th--r">Uptime</span>
-          <span className="sbxt-th sbxt-th--r">Expires</span>
-          <span className="sbxt-th">SSH endpoint</span>
-          <span className="sbxt-th sbxt-th--r">Links</span>
+          <span className="th th--con">Status</span>
+          <span className="th th--con">Experiment</span>
+          <span className="th th--con">Hardware</span>
+          <span className="th th--con th--r">Uptime</span>
+          <span className="th th--con th--r">Expires</span>
+          <span className="th th--con">SSH endpoint</span>
+          <span className="th th--con th--r">Links</span>
         </div>
         {rows.map(s => {
           const rowId = sandboxRowId(s);
@@ -124,7 +124,7 @@ function SandboxRow({ sandbox, experiment, experimentId, projectId, now, parachu
         onClick={onToggle}
         onKeyDown={onKey}
       >
-        <span className={`sbxt-twist${open ? ' open' : ''}`} aria-hidden="true">▸</span>
+        <span className={`twist${open ? ' open' : ''}`} aria-hidden="true">▸</span>
         <span className="sbxt-status">
           <span className={`sbxt-dot sbxt-dot--${s.status}`} />
           <span className="sbxt-status-label">{s.status}</span>

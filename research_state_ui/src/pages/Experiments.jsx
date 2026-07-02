@@ -110,11 +110,11 @@ export default function Experiments() {
 }
 
 const COLUMNS = [
-  { key: 'title', label: 'Experiment' },
-  { key: 'status', label: 'Status' },
-  { key: 'created', label: 'Created' },
-  { key: 'finished', label: 'Finished' },
-  { key: 'duration', label: 'Duration', right: true },
+  { key: 'title', label: 'experiment' },
+  { key: 'status', label: 'status' },
+  { key: 'created', label: 'created' },
+  { key: 'finished', label: 'finished' },
+  { key: 'duration', label: 'duration', right: true },
 ];
 
 function WhenCell({ parts, title }) {
@@ -141,16 +141,17 @@ function ExperimentTable({ rows, sortKey, sortDir, onSort }) {
               role="columnheader"
               aria-sort={sortKey === col.key ? (sortDir === 'asc' ? 'ascending' : 'descending') : 'none'}
               className={[
-                'expt-th',
-                col.right ? 'expt-th--r' : '',
-                sortKey === col.key ? 'active' : '',
+                'th',
+                'th--led',
+                col.right ? 'th--r' : '',
+                sortKey === col.key ? 'on' : '',
               ].filter(Boolean).join(' ')}
               onClick={() => onSort(col.key)}
             >
               {col.label}
-              <span className="expt-sort" aria-hidden="true">
-                {sortKey === col.key ? (sortDir === 'asc' ? '▲' : '▼') : ''}
-              </span>
+              {sortKey === col.key && (
+                <span className="arr" aria-hidden="true">{sortDir === 'asc' ? '▲' : '▼'}</span>
+              )}
             </button>
           ))}
         </div>

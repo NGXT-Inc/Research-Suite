@@ -340,17 +340,17 @@ export default function Debug() {
               onClick={() => setAggOpen(o => !o)}
               aria-expanded={aggOpen}
             >
-              <span className={`act-twist${aggOpen ? ' open' : ''}`} aria-hidden="true">▸</span>
+              <span className={`twist${aggOpen ? ' open' : ''}`} aria-hidden="true">▸</span>
               By tool · {byTool.length} tools<span className="dbg-hint"> · click a row to filter the stream</span>
             </button>
             {aggOpen && (
               <div className="dbg-table">
-                <div className="dbg-row dbg-row--head">
+                <div className="dbg-row dbg-row--head con-head">
                   {TOOL_COLS.map(c => (
                     <SortCell key={c.key} align={c.align} active={toolSort.key === c.key}
                       dir={toolSort.dir} onClick={() => sortTool(c.key)}>{c.label}</SortCell>
                   ))}
-                  <span className="dbg-c-bar">share</span>
+                  <span className="th th--con dbg-c-bar">share</span>
                 </div>
                 {byTool.map((t) => {
                   const hot = t.max_received_chars >= HOT_RECEIVED_CHARS;
@@ -391,16 +391,16 @@ export default function Debug() {
               Calls · {fmtNum(visibleCalls.length)}{toolQuery && <> · <span className="mono">{toolQuery}</span></>}<span className="dbg-hint"> · newest first · click to inspect I/O</span>
             </div>
             <div className="activity-list">
-              <div className="act-row act-row--head">
+              <div className="act-row act-row--head con-head">
                 {STREAM_COLS.map(col => (
                   <button
                     key={col.key}
                     type="button"
-                    className={`act-head-cell${col.align === 'right' ? ' act-head-cell--right' : ''}${col.key === 'tool' ? ' act-head-cell--tool' : ''}${callSort.key === col.key ? ' act-head-cell--active' : ''}`}
+                    className={`th th--con${col.align === 'right' ? ' th--r' : ''}${col.key === 'tool' ? ' act-head-cell--tool' : ''}${callSort.key === col.key ? ' on' : ''}`}
                     onClick={() => sortCall(col.key)}
                   >
-                    {col.label}{' '}
-                    <span className="act-sort-ind">{callSort.key === col.key ? (callSort.order === 'asc' ? '↑' : '↓') : '↕'}</span>
+                    {col.label}
+                    {callSort.key === col.key && <span className="arr">{callSort.order === 'asc' ? '▲' : '▼'}</span>}
                   </button>
                 ))}
               </div>
@@ -444,7 +444,7 @@ function StreamRow({ call, expById, open, onToggle, onFilterTool }) {
       <div className="act-row-main">
         <span className="act-time">{tsToTime(call.ts)}</span>
         <span className="act-tool-cell">
-          <span className={`act-twist${open ? ' open' : ''}`} aria-hidden="true">▸</span>
+          <span className={`twist${open ? ' open' : ''}`} aria-hidden="true">▸</span>
           <span className="act-tool mono">{call.tool || 'n/a'}</span>
           {call.target_type && (
             <span className="act-target-chip" onClick={(e) => e.stopPropagation()}>
@@ -510,12 +510,12 @@ function StreamDetail({ call, onFilterTool }) {
 function SortCell({ children, align, active, dir, onClick }) {
   return (
     <span
-      className={`${align === 'left' ? 'dbg-c-left' : 'dbg-c-num'} dbg-sortable${active ? ' active' : ''}`}
+      className={`th th--con${align === 'left' ? '' : ' th--r'}${active ? ' on' : ''}`}
       onClick={onClick}
       role="button"
     >
       {children}
-      <span className="dbg-sort-caret">{active ? (dir === 'asc' ? '▲' : '▼') : ''}</span>
+      {active && <span className="arr">{dir === 'asc' ? '▲' : '▼'}</span>}
     </span>
   );
 }

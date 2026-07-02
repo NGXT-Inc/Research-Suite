@@ -135,8 +135,13 @@ export default function Storage() {
           <div className="vlt-board">
             <div className="vlt-head">
               {COLS.map(([col, label, cls]) => (
-                <button key={col} type="button" className={`vlt-hbtn ${cls}`} onClick={() => onSort(col)}>
-                  {label}{sort.col === col && <span className="arr"> {sortAsc ? '▲' : '▼'}</span>}
+                <button
+                  key={col}
+                  type="button"
+                  className={`th th--led ${cls}${col === 'mass' || col === 'state' ? ' th--r' : ''}${sort.col === col ? ' on' : ''}`}
+                  onClick={() => onSort(col)}
+                >
+                  {label}{sort.col === col && <span className="arr">{sortAsc ? '▲' : '▼'}</span>}
                 </button>
               ))}
             </div>

@@ -26,19 +26,15 @@
   gap: 12px;
   align-items: baseline;
 }
+/* Header cells are DS .th--led. */
 .vlt-head { padding: 0 0 6px 16px; border-bottom: 1px solid var(--line); }
-.vlt-hbtn {
-  background: none; border: 0; padding: 0; cursor: pointer;
-  font: inherit; font-size: 11px; color: var(--faint); text-align: left;
-}
-.vlt-hbtn:hover { color: var(--text); }
-.vlt-hbtn .arr { color: var(--active); }
 
 /* 3px index + 13px inset on every row so the focus rupture never shifts text. */
 .vlt-obj { border-left: 3px solid transparent; padding-left: 13px; }
 .vlt-obj.is-open { border-left-color: var(--active); }
 
 .vlt-row { padding: 10px 0; border-bottom: 1px solid var(--line); cursor: pointer; }
+.vlt-row:focus-visible { outline: 2px solid var(--active); outline-offset: -2px; }
 /* Hover tint only where hover exists — on touch it would stick after a tap. */
 @media (hover: hover) {
   .vlt-row:hover { background: var(--hover); }
@@ -74,7 +70,7 @@
 }
 
 .vlt-fields { padding-top: 14px; display: flex; flex-direction: column; gap: 7px; }
-.vlt-field { display: grid; grid-template-columns: 112px minmax(0, 1fr); gap: 12px; }
+.vlt-field { display: grid; grid-template-columns: var(--kv-label) minmax(0, 1fr); gap: 12px; }
 .vlt-k { color: var(--faint); }
 .vlt-v { color: var(--text); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .vlt-from { color: var(--text); text-decoration: none; }
@@ -104,8 +100,8 @@
   .vlt-instrument { gap: 14px 24px; }
   .vlt-head, .vlt-row { grid-template-columns: 30px minmax(0, 1fr) 64px 104px; gap: 9px; }
   .vlt-c-kind, .vlt-c-saved { display: none; }
-  .vlt-field { grid-template-columns: 96px minmax(0, 1fr); }
+  .vlt-field { grid-template-columns: var(--kv-label-narrow) minmax(0, 1fr); }
   .vlt-verbs { gap: 22px; padding: 10px 0 8px; }
   .vlt-verb { padding: 10px 0; }
-  .vlt-hbtn { padding: 6px 0; }
+  .vlt-head .th { padding: 6px 0; }
 }

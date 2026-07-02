@@ -47,6 +47,10 @@
   --radius-lg: 10px;
   --radius-pill: 999px;
 
+  /* One label-column scale for every key/value row. */
+  --kv-label: 140px;
+  --kv-label-narrow: 96px;
+
   --space-1: 4px;
   --space-2: 8px;
   --space-3: 12px;
@@ -290,7 +294,7 @@ input, textarea, select { font-family: inherit; font-size: inherit; color: inher
 }
 .kv-row {
   display: grid;
-  grid-template-columns: 140px 1fr;
+  grid-template-columns: var(--kv-label) 1fr;
   gap: var(--space-4);
   padding: 10px 18px;
   border-bottom: 1px solid var(--line-soft);
@@ -311,6 +315,24 @@ input, textarea, select { font-family: inherit; font-size: inherit; color: inher
    navigate. One glyph, one motion, product-wide. */
 .twist { display: inline-block; flex: none; color: var(--muted); font-size: 10px; transition: transform var(--motion-fast); }
 .twist.open { transform: rotate(90deg); }
+
+/* --- DS: TABLE HEADER — one sort mechanic, two dialect voices ---------- */
+/* The column label is the button; the active column carries ▲/▼ in the
+   accent. Consoles speak uppercase on a --bg-soft band (.con-head), ledgers
+   quiet lowercase over a hairline. */
+.th {
+  display: inline-flex; align-items: center; gap: 4px;
+  border: 0; background: none; padding: 0; margin: 0;
+  font: inherit; color: var(--muted);
+  text-align: left; white-space: nowrap;
+}
+button.th, [role="button"].th { cursor: pointer; user-select: none; }
+.th:hover, .th.on { color: var(--text); }
+.th--r { justify-content: flex-end; text-align: right; }
+.th .arr { color: var(--active); font-size: 9px; }
+.th--con { font-size: 10px; font-weight: 600; text-transform: uppercase; letter-spacing: 0.07em; }
+.th--led { font-size: 11px; color: var(--faint); }
+.con-head { background: var(--bg-soft); border-bottom: 1px solid var(--line); }
 
 /* --- DS: TAB ROW ----------------------------------------------------- */
 .tab-row {
@@ -2695,61 +2717,12 @@ button.review-stepper-version:hover {
 }
 .act-head-cell--tool { padding-left: 16px; }
 
-.act-row {
-  background: var(--bg-soft);
-  color: var(--faint);
-  text-transform: uppercase;
-  letter-spacing: 0.07em;
-  border-bottom: 1px solid var(--line-soft);
-}
-
+/* Band + cell voice come from the DS .con-head / .th--con classes. */
 .act-row--head {
-  background: var(--bg-soft);
-  color: var(--faint);
-  font-size: var(--text-xs);
-  text-transform: uppercase;
   cursor: default;
   /* Matches the rows' 3px rail so head and body cells stay aligned. */
   border-left: 3px solid transparent;
 }
-
-.act-head-cell--right {
-  text-align: right;
-  justify-content: flex-end;
-}
-
-.act-head-cell {
-  display: inline-flex;
-  align-items: center;
-  justify-content: flex-start;
-  gap: 5px;
-  border: 0;
-  background: transparent;
-  color: inherit;
-  padding: 0;
-  margin: 0;
-  text-align: inherit;
-  text-transform: inherit;
-  letter-spacing: 0.06em;
-  font-size: inherit;
-  font-family: inherit;
-  cursor: pointer;
-}
-.act-head-cell:hover {
-  color: var(--text);
-}
-.act-head-cell--active {
-  color: var(--text);
-}
-
-.act-sort-ind {
-  color: var(--line-strong);
-  font-size: 9px;
-  min-width: 10px;
-  text-align: center;
-}
-/* Active sort arrow reads in the accent, same as every other table. */
-.act-head-cell--active .act-sort-ind { color: var(--active); }
 
 .act-row-main {
   background: transparent;
@@ -2779,13 +2752,6 @@ button.review-stepper-version:hover {
   min-width: 0;
   overflow: hidden;
 }
-.act-twist {
-  flex: none;
-  color: var(--faint);
-  font-size: 9px;
-  transition: transform var(--motion-fast);
-}
-.act-twist.open { transform: rotate(90deg); }
 .act-tool {
   color: var(--text);
   overflow: hidden;
@@ -3441,19 +3407,8 @@ button.review-stepper-version:hover {
   gap: 10px;
   padding: 0 14px;
 }
-.sbxt-head {
-  height: 30px;
-  background: var(--bg-soft);
-  border-bottom: 1px solid var(--line);
-}
-.sbxt-th {
-  font-size: 10px;
-  text-transform: uppercase;
-  letter-spacing: 0.07em;
-  font-weight: 600;
-  color: var(--muted);
-}
-.sbxt-th--r { text-align: right; }
+/* Band + cell voice come from the DS .con-head / .th--con classes. */
+.sbxt-head { height: 30px; }
 
 .sbxt-row {
   min-height: 44px;
@@ -3469,12 +3424,6 @@ button.review-stepper-version:hover {
 .sbxt-rowgroup.open .sbxt-row { background: var(--bg-soft); }
 .sbxt-row:focus-visible { outline: 2px solid var(--active); outline-offset: -2px; }
 
-.sbxt-twist {
-  color: var(--muted);
-  font-size: 10px;
-  transition: transform 0.12s ease;
-}
-.sbxt-twist.open { transform: rotate(90deg); }
 
 .sbxt-status { display: inline-flex; align-items: center; gap: 7px; min-width: 0; }
 .sbxt-status-label { font-size: var(--text-xs); text-transform: capitalize; color: var(--text); }
@@ -3631,7 +3580,7 @@ button.review-stepper-version:hover {
   cursor: pointer;
 }
 .dbg-section-toggle:hover { color: var(--text); }
-.dbg-section-toggle .act-twist { font-size: 9px; }
+.dbg-section-toggle .twist { font-size: 9px; }
 .dbg-table {
   border: 1px solid var(--line);
   border-radius: 8px;
@@ -3655,13 +3604,9 @@ button.review-stepper-version:hover {
   grid-template-columns: 82px minmax(140px, 1.6fr) 72px 90px 66px 72px;
   min-width: 580px;
 }
-.dbg-row--head {
-  background: var(--bg-soft);
-  color: var(--muted);
-  text-transform: uppercase;
-  letter-spacing: 0.03em;
-  font-size: 10px;
-}
+/* Band + cell voice come from the DS .con-head / .th--con classes; only the
+   heavier head rule differs from body hairlines. */
+.dbg-row--head { border-bottom-color: var(--line); }
 .dbg-row--tool { cursor: pointer; }
 @media (hover: hover) {
   .dbg-row--tool:hover, .dbg-row--clickable:hover { background: var(--hover); }
@@ -3676,15 +3621,6 @@ button.review-stepper-version:hover {
 .dbg-c-left { text-align: left; color: var(--text); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .dbg-c-tool { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .dbg-c-bar { min-width: 0; }
-.dbg-sortable { cursor: pointer; user-select: none; white-space: nowrap; }
-.dbg-sortable:hover { color: var(--text); }
-.dbg-sortable.active { color: var(--text); }
-.dbg-sort-caret { font-size: 8px; margin-left: 3px; color: var(--active); }
-.dbg-twist {
-  display: inline-block; width: 10px; margin-right: 5px;
-  color: var(--faint); transition: transform var(--motion-fast);
-}
-.dbg-twist.open { transform: rotate(90deg); }
 .dbg-bar-track {
   display: block;
   height: 6px;
@@ -4236,8 +4172,9 @@ button.review-stepper-version:hover {
 .refl-versions-meta .fsm-strip { opacity: .85; }
 
 /* =====================================================================
-   Experiments — structured, sortable run table. Mirrors the sandbox
-   infra-table idiom (.sbxt) so the two consoles read as one family.
+   Experiments — the record of attempts as a ledger: flush hairline rows,
+   quiet lowercase headers (.th--led). Character kept: two-line title+intent
+   cell, StatusPill, live duration dot.
    ===================================================================== */
 .expt-scroll { overflow-x: auto; margin-top: 16px; }
 .expt {
@@ -4245,10 +4182,6 @@ button.review-stepper-version:hover {
      lines. The trailing facts columns hold the minimum their content needs. */
   --expt-cols: minmax(280px, 1fr) 126px 84px 84px 90px;
   min-width: 720px;
-  border: 1px solid var(--line);
-  border-radius: var(--radius-md);
-  overflow: hidden;
-  background: var(--bg-elev);
 }
 .expt-head,
 .expt-row {
@@ -4256,33 +4189,8 @@ button.review-stepper-version:hover {
   grid-template-columns: var(--expt-cols);
   align-items: center;
   gap: 10px;
-  padding: 0 14px;
 }
-.expt-head {
-  height: 32px;
-  background: var(--bg-soft);
-  border-bottom: 1px solid var(--line);
-}
-.expt-th {
-  display: inline-flex;
-  align-items: center;
-  gap: 4px;
-  border: 0;
-  background: none;
-  padding: 0;
-  font: inherit;
-  font-size: 10px;
-  text-transform: uppercase;
-  letter-spacing: 0.07em;
-  font-weight: 600;
-  color: var(--muted);
-  cursor: pointer;
-  user-select: none;
-  white-space: nowrap;
-}
-.expt-th:hover, .expt-th.active { color: var(--text); }
-.expt-th--r { justify-content: flex-end; }
-.expt-sort { font-size: 8px; width: 10px; color: var(--active); }
+.expt-head { padding: 0 0 6px; border-bottom: 1px solid var(--line); }
 
 .expt-row {
   min-height: 52px;
@@ -4291,7 +4199,6 @@ button.review-stepper-version:hover {
   text-align: left;
   transition: background var(--motion-fast);
 }
-.expt-row:last-child { border-bottom: none; }
 @media (hover: hover) {
   .expt-row:hover { background: var(--hover); }
 }
@@ -4481,7 +4388,7 @@ a.results-metrics-sub:hover { color: var(--active); text-decoration: underline; 
 .lgc-xlab--left { right: auto; left: var(--plot-left); }
 
 .lgd-strips { display: grid; grid-template-columns: repeat(auto-fill, minmax(340px, 1fr)); gap: 0 44px; }
-.lgd-striprow { display: grid; grid-template-columns: 150px 1fr auto; align-items: center; gap: 12px; padding: 6px 0; border-bottom: 1px solid var(--line-soft); }
+.lgd-striprow { display: grid; grid-template-columns: var(--kv-label) 1fr auto; align-items: center; gap: 12px; padding: 6px 0; border-bottom: 1px solid var(--line-soft); }
 .lgd-strip-key { font-size: var(--text-xs); color: var(--muted); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .lgd-strip-key .dir { color: var(--faint); }
 .lgc-strip { position: relative; height: 28px; }
@@ -4494,16 +4401,14 @@ a.results-metrics-sub:hover { color: var(--active); text-decoration: underline; 
 /* Header row: same grid as the body rows; each label is the sort control. */
 .lgd-row--head { cursor: default; border-bottom: 1px solid var(--line); padding-top: 0; }
 .lgd-row--head:hover { background: none; }
-.lgd-hbtn { border: none; background: none; padding: 0; font-family: inherit; font-size: var(--text-xs); color: var(--faint); cursor: pointer; }
-.lgd-hbtn:hover { color: var(--muted); }
-.lgd-hbtn.on { color: var(--text); }
-.lgd-hbtn .arr { color: var(--active); font-size: 9px; }
-.lgd-hbtn.lgd-run-name { text-align: left; font-weight: 400; overflow: visible; }
-.lgd-hbtn.lgd-val, .lgd-hbtn.lgd-delta, .lgd-hbtn.lgd-when { font-family: inherit; }
+/* Header cells are DS .th--led; only column-width/family overrides remain. */
+.th.lgd-run-name { text-align: left; font-weight: 400; overflow: visible; }
+.th.lgd-val, .th.lgd-delta, .th.lgd-when { font-family: inherit; }
 .lgd-row { display: flex; align-items: baseline; gap: 14px; padding: 8px 10px 8px 11px; border-bottom: 1px solid var(--line-soft); border-left: 3px solid transparent; cursor: pointer; }
 @media (hover: hover) {
   .lgd-row:hover { background: var(--hover); }
 }
+.lgd-row:focus-visible { outline: 2px solid var(--active); outline-offset: -2px; }
 .lgd-row.champ { border-left-color: var(--active); }
 .lgd-row.focused { background: var(--select); }
 .lgd-rank { width: 24px; font-family: var(--font-mono); font-size: var(--text-xs); color: var(--faint); }
