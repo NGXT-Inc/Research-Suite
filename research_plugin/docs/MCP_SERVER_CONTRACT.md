@@ -535,7 +535,12 @@ review.submit(review_session_id, verdict, notes, findings, evidence?)
 `review.status` and the HTTP review queue expose the same `target_snapshot`
 shape on review request and submitted review records. Frontends should use
 `target_snapshot.resources[].version_id` for exact reviewed resource versions and
-treat `target_snapshot_id` as an opaque backend fingerprint.
+treat `target_snapshot_id` as an opaque backend fingerprint. Review request
+records also include `recovery`: a non-secret hint for lost one-time
+capabilities, for example `{capability_returned_once: true,
+capability_available: false, can_request_fresh_capability: true, tool:
+"review.request", arguments: {target_type, target_id, role}}`. The plaintext
+reviewer capability is still returned only by `review.request` at creation time.
 
 MCP should reject a review when:
 

@@ -226,3 +226,30 @@ Verification:
 - `PYTHONPATH=. python -m unittest tests.storage.test_storage_ledger tests.surface.test_storage_http tests.sandbox.test_sandbox_service -v`
 - `PYTHONPATH=. python -m unittest tests.surface.test_tool_contracts tests.structure.test_plane_layout.ToolPlanePartitionTest tests.structure.test_plane_layout.PlaneImportLintTest -v`
 - `PYTHONPATH=. python -m unittest discover -s tests -v` (868 tests, 25 skipped)
+
+## Batch 9: reviewer capability recovery guidance
+
+Status: complete
+
+Request addressed:
+
+- Reviewer capability recovery.
+
+Implementation notes:
+
+- Added non-secret `recovery` metadata to review request records returned by
+  `review.status` and the review queue.
+- The recovery block makes the one-time capability behavior explicit:
+  capabilities are not recoverable from state, but open requests can be
+  refreshed by calling `review.request` again for the same target and role.
+- Preserved the existing trust model: plaintext reviewer capabilities are still
+  returned only at creation time, and no stored capability material is exposed.
+- Documented the recovery shape in the MCP contract and updated the
+  `review.status` tool description.
+
+Verification:
+
+- `PYTHONPATH=. python -m unittest tests.workflow.test_workflow_gates.WorkflowGateTest.test_pending_review_allows_fresh_request_for_lost_capability tests.surface.test_tool_contracts.ToolContractRegistryTest.test_registered_tools_match_contracts_and_have_descriptions -v`
+- `PYTHONPATH=. python -m unittest tests.workflow.test_workflow_gates tests.workflow.test_synthesis_gates tests.surface.test_tenancy -v`
+- `PYTHONPATH=. python -m unittest tests.surface.test_tool_contracts tests.surface.test_http_api -v`
+- `PYTHONPATH=. python -m unittest discover -s tests -v` (868 tests, 25 skipped)

@@ -947,7 +947,10 @@ TOOL_CONTRACTS: dict[str, ToolContract] = {
     ),
     "review.status": ToolContract(
         input_model=ReviewStatusInput,
-        description="Inspect review requests and submissions for a target.",
+        description=(
+            "Inspect review requests and submissions for a target, including "
+            "recovery guidance for lost or expired one-time reviewer capabilities."
+        ),
     ),
     "sandbox.request": ToolContract(
         input_model=SandboxRequestInput,

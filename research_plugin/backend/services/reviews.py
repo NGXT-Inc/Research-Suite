@@ -535,6 +535,8 @@ class ReviewService:
         if "target_type" in data:
             data["target_type"] = external_reflection_target_type(data["target_type"])
         data["target_snapshot"] = self.snapshot_from_id(snapshot_id=data.get("target_snapshot_id", ""))
+        if "status" in data and "expires_at" in data:
+            data["recovery"] = self._request_recovery(request=data)
         return data
 
     def reviewer_handoff(self, *, role: str, target_type: str, target_id: str) -> dict[str, Any]:
@@ -691,7 +693,36 @@ class ReviewService:
         if "target_type" in data:
             data["target_type"] = external_reflection_target_type(data["target_type"])
         data["target_snapshot"] = self.snapshot_from_id(snapshot_id=data.get("target_snapshot_id", ""))
+        data["recovery"] = self._request_recovery(request=data)
         return data
+
+    def _request_recovery(self, *, request: dict[str, Any]) -> dict[str, Any]:
+        status = str(request.get("status") or "")
+        expires = parse_iso(str(request.get("expires_at") or ""))
+        expired = expires is None or datetime.now(UTC) > expires
+        open_status = status in {"requested", "started"}
+        can_refresh = open_status
+        reason = (
+            "capability lost or expired; request a fresh reviewer capability "
+            "for the same target and role"
+            if can_refresh
+            else "review request is closed; inspect submitted reviews instead"
+        )
+        recovery: dict[str, Any] = {
+            "capability_returned_once": True,
+            "capability_available": False,
+            "expired": expired,
+            "can_request_fresh_capability": can_refresh,
+            "reason": reason,
+        }
+        if can_refresh:
+            recovery["tool"] = "review.request"
+            recovery["arguments"] = {
+                "target_type": request.get("target_type"),
+                "target_id": request.get("target_id"),
+                "role": request.get("role"),
+            }
+        return recovery
 
     def _hydrate_review(self, *, row) -> dict[str, Any]:
         data = row_to_dict(row=row) or {}

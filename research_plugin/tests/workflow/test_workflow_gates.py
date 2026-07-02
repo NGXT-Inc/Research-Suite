@@ -575,6 +575,16 @@ class WorkflowGateTest(unittest.TestCase):
         self.assertEqual(review_item["id"], "review:design_reviewer")
         self.assertEqual(review_item["status"], "requested")
         self.assertFalse(review_item["satisfied"])
+        review_status = self.call(
+            "review.status",
+            project_id=self.project_id,
+            target_type="experiment",
+            target_id=exp["id"],
+        )
+        recovery = review_status["requests"][0]["recovery"]
+        self.assertTrue(recovery["can_request_fresh_capability"])
+        self.assertEqual(recovery["tool"], "review.request")
+        self.assertEqual(recovery["arguments"]["role"], "design_reviewer")
         wf = self.call("workflow.status_and_next", project_id=self.project_id, experiment_id=exp["id"])
         workflow = wf.get("workflow") or wf
         self.assertEqual(workflow["review_gate"]["status"], "requested")
