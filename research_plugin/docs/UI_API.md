@@ -373,6 +373,12 @@ Each wave state (also returned by `/syntheses/{synthesis_id}`) carries:
   `attempt_index`, `created_at`;
 - `reflection_coverage`: `{ lenses: [{ lens_id, covered, path, version_id }],
   missing, complete }` — per-lens reflection coverage for the current attempt;
+- `gate_checklist`: the current forward gate as checklist data. `reflecting`
+  lists one `reflection_lens:<lens_id>` item per roster lens; `synthesizing`
+  lists the `project_graph`, `reflection_doc`, and `change_spec` resources with
+  missing/valid/invalid status and validator `problems`; `synthesis_review`
+  lists the `review:reflection_reviewer` item with pending/requested/started/
+  passed status;
 - `project_graph_diff`: previous-published-vs-current graph comparison when a
   current project graph is associated. The block includes `available`,
   base/current reflection and graph version ids, a summary, and node/edge

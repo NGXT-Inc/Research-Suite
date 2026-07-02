@@ -44,6 +44,41 @@ class ReflectionProjectionTest(unittest.TestCase):
             },
         )
 
+    def test_state_rewrites_gate_checklist(self) -> None:
+        state = {
+            "status": "synthesis_review",
+            "gate_checklist": {
+                "status": "synthesis_review",
+                "transition": "submit_synthesis",
+                "leads_to": "synthesis_review",
+                "ready": False,
+                "items": [
+                    {
+                        "id": "resource:project_graph",
+                        "gate": "synthesis_review",
+                        "action": "submit_synthesis",
+                    }
+                ],
+            },
+        }
+
+        self.assertEqual(
+            external_reflection_state(state)["gate_checklist"],
+            {
+                "status": "reflection_review",
+                "transition": "submit_reflection_artifacts",
+                "leads_to": "reflection_review",
+                "ready": False,
+                "items": [
+                    {
+                        "id": "resource:project_graph",
+                        "gate": "reflection_review",
+                        "action": "submit_reflection_artifacts",
+                    }
+                ],
+            },
+        )
+
     def test_transition_ignores_non_dict_items(self) -> None:
         self.assertEqual(external_reflection_transition("ready"), "ready")
 

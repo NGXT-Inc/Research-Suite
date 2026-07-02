@@ -414,6 +414,28 @@ class SynthesisGateTest(unittest.TestCase):
             set(coverage["missing"]), {"avoid", "entropy", "rigor", "cost"}
         )
 
+    def test_gate_checklist_tracks_missing_reflection_lenses(self) -> None:
+        syn_id = self._create_wave()
+        self._submit_reflection(syn_id=syn_id, lens_id="amplify")
+
+        checklist = self._state(syn_id)["gate_checklist"]
+        self.assertEqual(checklist["status"], "reflecting")
+        self.assertEqual(checklist["transition"], "submit_reflections")
+        self.assertEqual(checklist["leads_to"], "synthesizing")
+        self.assertFalse(checklist["ready"])
+        items = {item["id"]: item for item in checklist["items"]}
+        self.assertTrue(items["reflection_lens:amplify"]["satisfied"])
+        self.assertEqual(items["reflection_lens:amplify"]["status"], "present")
+        self.assertFalse(items["reflection_lens:cost"]["satisfied"])
+        self.assertEqual(items["reflection_lens:cost"]["status"], "missing")
+        self.assertIn("cost", items["reflection_lens:cost"]["missing"])
+
+        for lens_id in ("avoid", "entropy", "rigor", "cost"):
+            self._submit_reflection(syn_id=syn_id, lens_id=lens_id)
+        checklist = self._state(syn_id)["gate_checklist"]
+        self.assertTrue(checklist["ready"])
+        self.assertTrue(all(item["satisfied"] for item in checklist["items"]))
+
     def test_legacy_reflection_role_is_rejected_for_new_associations(self) -> None:
         syn_id = self._create_wave()
         with self.assertRaises(ValidationError) as ctx:
@@ -475,6 +497,58 @@ class SynthesisGateTest(unittest.TestCase):
             transition="submit_reflection_artifacts",
         )
         self.assertEqual(out["status"], "reflection_review")
+
+    def test_gate_checklist_tracks_reflection_artifacts(self) -> None:
+        syn_id = self._drive_to_synthesizing()
+
+        checklist = self._state(syn_id)["gate_checklist"]
+        self.assertEqual(checklist["status"], "synthesizing")
+        self.assertEqual(checklist["transition"], "submit_reflection_artifacts")
+        self.assertEqual(checklist["leads_to"], "reflection_review")
+        self.assertFalse(checklist["ready"])
+        items = {item["id"]: item for item in checklist["items"]}
+        self.assertEqual(items["resource:project_graph"]["status"], "missing")
+
+        self._associate_file(
+            syn_id=syn_id,
+            path="project/logic_graph.json",
+            role="project_graph",
+            body=VALID_PROJECT_GRAPH,
+        )
+        checklist = self._state(syn_id)["gate_checklist"]
+        items = {item["id"]: item for item in checklist["items"]}
+        self.assertEqual(items["resource:project_graph"]["status"], "valid")
+        self.assertTrue(items["resource:project_graph"]["satisfied"])
+        self.assertEqual(items["resource:reflection_doc"]["status"], "missing")
+
+        self._associate_file(
+            syn_id=syn_id,
+            path="project/reflection.md",
+            role="reflection_doc",
+            body=VALID_REFLECTION_DOC,
+        )
+        self._associate_file(
+            syn_id=syn_id,
+            path="project/change_spec.json",
+            role="change_spec",
+            body="## old markdown change spec\n",
+        )
+        checklist = self._state(syn_id)["gate_checklist"]
+        items = {item["id"]: item for item in checklist["items"]}
+        self.assertEqual(items["resource:reflection_doc"]["status"], "valid")
+        self.assertEqual(items["resource:change_spec"]["status"], "invalid")
+        self.assertFalse(items["resource:change_spec"]["satisfied"])
+        self.assertIn("not valid JSON", items["resource:change_spec"]["problems"][0])
+
+        self._associate_file(
+            syn_id=syn_id,
+            path="project/change_spec.json",
+            role="change_spec",
+            body=VALID_CHANGE_SPEC,
+        )
+        checklist = self._state(syn_id)["gate_checklist"]
+        self.assertTrue(checklist["ready"])
+        self.assertTrue(all(item["satisfied"] for item in checklist["items"]))
 
     def test_legacy_synthesis_doc_role_is_rejected_for_new_associations(self) -> None:
         syn_id = self._drive_to_synthesizing()
@@ -971,6 +1045,48 @@ class SynthesisGateTest(unittest.TestCase):
         self.assertEqual(out["status"], "published")
         self.assertTrue(out["published_at"])
         self.assertTrue(out["published_graph_version_id"])
+
+    def test_gate_checklist_tracks_reflection_review(self) -> None:
+        syn_id = self._drive_to_synthesis_review()
+
+        checklist = self._state(syn_id)["gate_checklist"]
+        self.assertEqual(checklist["status"], "reflection_review")
+        self.assertEqual(checklist["transition"], "publish")
+        self.assertFalse(checklist["ready"])
+        review_item = checklist["items"][0]
+        self.assertEqual(review_item["id"], "review:reflection_reviewer")
+        self.assertEqual(review_item["status"], "pending")
+
+        req = self.call(
+            "review.request",
+            project_id=self.project_id,
+            target_type="reflection",
+            target_id=syn_id,
+            role="reflection_reviewer",
+        )
+        checklist = self._state(syn_id)["gate_checklist"]
+        review_item = checklist["items"][0]
+        self.assertEqual(review_item["status"], "requested")
+        self.assertEqual(review_item["request_id"], req["review_request_id"])
+
+        session = self.call(
+            "review.start",
+            review_request_id=req["review_request_id"],
+            reviewer_capability=req["reviewer_capability"],
+            caller_session_id="reflection-reviewer",
+        )
+        checklist = self._state(syn_id)["gate_checklist"]
+        self.assertEqual(checklist["items"][0]["status"], "started")
+
+        self.call(
+            "review.submit",
+            review_session_id=session["review_session_id"],
+            verdict="pass",
+        )
+        checklist = self._state(syn_id)["gate_checklist"]
+        self.assertTrue(checklist["ready"])
+        self.assertEqual(checklist["items"][0]["status"], "passed")
+        self.assertEqual(checklist["items"][0]["action"], "publish_reflection")
 
     def test_review_request_role_must_match_the_synthesis_gate(self) -> None:
         syn_id = self._create_wave()

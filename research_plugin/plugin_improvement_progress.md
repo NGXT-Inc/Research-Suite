@@ -656,3 +656,38 @@ Verification:
 - `PYTHONPATH=. python -m unittest tests.workflow.test_workflow_gates.WorkflowGateTest.test_retry_running_keeps_current_attempt_and_records_infra_context tests.workflow.test_workflow_gates.WorkflowGateTest.test_retry_running_is_rejected_outside_running_status tests.workflow.test_workflow_gates.WorkflowGateTest.test_disallowed_transition_error_lists_allowed_options tests.surface.test_tool_contracts tests.surface.test_plugin_skills -v` (21 tests)
 - `PYTHONPATH=. python -m unittest tests.workflow.test_workflow_gates tests.workflow.test_system_transitions tests.workflow.test_workflow_slim tests.surface.test_tool_contracts tests.surface.test_control_plane_contract tests.surface.test_http_api tests.surface.test_plugin_skills tests.structure.test_plane_layout.PlaneImportLintTest -v` (129 tests)
 - `PYTHONPATH=. python -m unittest discover -s tests -v` (893 tests, 25 skipped)
+
+## Batch 24: reflection gate checklist dashboard
+
+Status: complete
+
+Request addressed:
+
+- Reflection is powerful but heavy.
+
+Implementation notes:
+
+- Added `gate_checklist` to reflection wave state, derived from the same
+  synthesis gate table that enforces transitions.
+- The checklist reports one item per missing/present roster lens during
+  `reflecting`, validator-backed project graph / reflection document / change
+  spec items during `synthesizing`, and pending/requested/started/passed
+  `reflection_reviewer` state during `reflection_review`.
+- Artifact checklist items run the same pinned-byte validators used by
+  transitions, so invalid submitted graph/doc/spec artifacts show problems
+  before `submit_reflection_artifacts` is attempted.
+- Review checklist readiness matches the current snapshot id, preserving the
+  existing snapshot pinning guarantees.
+- Extended the reflection projection layer so tool-facing `reflection.get`
+  shows external `submit_reflection_artifacts` and `reflection_review` names
+  inside the checklist as well as in `allowed_transitions`.
+- Updated MCP/UI/workflow docs and the project-reflection skill to tell agents
+  to use the checklist as the guided publish dashboard.
+
+Verification:
+
+- `python -m py_compile backend/services/syntheses.py backend/domain/reflection_projection.py`
+- `PYTHONPATH=. python -m unittest tests.workflow.test_reflection_projection tests.workflow.test_synthesis_gates.SynthesisGateTest.test_gate_checklist_tracks_missing_reflection_lenses tests.workflow.test_synthesis_gates.SynthesisGateTest.test_gate_checklist_tracks_reflection_artifacts tests.workflow.test_synthesis_gates.SynthesisGateTest.test_gate_checklist_tracks_reflection_review -v` (10 tests)
+- `git diff --check`
+- `PYTHONPATH=. python -m unittest tests.workflow.test_synthesis_gates tests.workflow.test_reflection_projection tests.surface.test_tool_contracts tests.surface.test_plugin_skills -v` (80 tests)
+- `PYTHONPATH=. python -m unittest discover -s tests -v` (897 tests, 25 skipped)

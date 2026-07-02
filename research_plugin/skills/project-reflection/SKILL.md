@@ -53,9 +53,9 @@ reflection.create (declare the 5-lens roster; corpus is snapshotted)
   → publish        (or return_to 'synthesizing' / 'reflecting' on rejection)
 ```
 
-One wave may be open at a time. `reflection.get` shows per-lens coverage and
-`allowed_transitions`; `workflow.status_and_next` carries the wave's gate
-guidance under `project_reflection` while it is open.
+One wave may be open at a time. `reflection.get` shows per-lens coverage,
+`gate_checklist`, and `allowed_transitions`; `workflow.status_and_next` carries
+the wave's gate guidance under `project_reflection` while it is open.
 
 ## Step 1 — declare the roster
 
@@ -167,10 +167,11 @@ Produce three artifacts and associate each to the reflection wave:
 Do not create the experiments yourself during reflection. They are materialized
 only when `reflection.transition(publish)` succeeds after reviewer approval.
 
-Before requesting review, call `reflection.get` and inspect
-`project_graph_diff` when it is available. Use it as a compact previous-vs-new
-check: what nodes/edges were added, pruned, or changed relative to the last
-published project graph.
+Before requesting review, call `reflection.get` and inspect `gate_checklist`.
+It should show valid `project_graph`, `reflection_doc`, and `change_spec`
+items before you transition. Also inspect `project_graph_diff` when it is
+available. Use it as a compact previous-vs-new check: what nodes/edges were
+added, pruned, or changed relative to the last published project graph.
 
 Then `reflection.transition(submit_reflection_artifacts)`.
 

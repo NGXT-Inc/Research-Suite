@@ -276,6 +276,11 @@ Gates (envelope-only, same philosophy as experiment gates):
    experiment reviews. Rejections must route via `return_to`: `synthesizing`
    or `reflecting`.
 
+`reflection.get.gate_checklist` exposes the current gate as checklist data:
+missing per-lens reflections in `reflecting`, missing/invalid graph-doc-spec
+artifacts in `synthesizing`, and pending/requested/started/passed review state
+in `reflection_review`.
+
 On publish the record pins `published_graph_version_id`, so the single living
 graph file still yields an immutable per-wave history. The same publish
 transaction applies approved claim changes and either marks the project

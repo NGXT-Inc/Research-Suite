@@ -144,6 +144,15 @@ invalidates the prior reflections.
 
 Graph node `refs` resolve `syn_` ids too, so experiment graphs and the
 project graph can cross-link to the reflection that motivated them.
+`reflection.get` includes `gate_checklist`, a machine-readable dashboard of the
+current forward gate. During `reflecting` it lists one
+`reflection_lens:<lens_id>` item per roster lens, with `present`/`missing`
+coverage and the submitted path/version when available. During `synthesizing`
+it lists the required `project_graph`, `reflection_doc`, and `change_spec`
+resources, running the same pinned-byte validators that the transition uses so
+invalid artifacts surface as checklist `problems`. During `reflection_review`
+it exposes the `review:reflection_reviewer` item with `pending`, `requested`,
+`started`, or `passed` status at the current review snapshot.
 `reflection.get` includes `project_graph_diff`: when the current wave has a
 submitted project graph and a previous published graph exists, it compares the
 two pinned graph versions and reports added, removed, changed, and unchanged
