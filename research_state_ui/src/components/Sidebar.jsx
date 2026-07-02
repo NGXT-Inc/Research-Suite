@@ -116,6 +116,9 @@ export default function Sidebar({ onRefresh, onHide }) {
         <NavLink to={px('/feed')} className={({ isActive }) => 'sidebar-link' + (isActive ? ' active' : '')}>
           Feed
         </NavLink>
+
+        {/* The epistemic core: what we know and the evidence behind it. */}
+        <div className="sidebar-section">Research</div>
         <NavLink to={px('/claims')} className={({ isActive }) => 'sidebar-link' + (isActive ? ' active' : '')}>
           <span>Claims</span>
           <span className="sidebar-link-count">{stats.claims ?? home?.claims?.length ?? 0}</span>
@@ -124,6 +127,21 @@ export default function Sidebar({ onRefresh, onHide }) {
           <span>Experiments</span>
           <span className="sidebar-link-count">{stats.experiments ?? home?.experiments?.length ?? 0}</span>
         </NavLink>
+        <NavLink to={px('/reviews')} className={({ isActive }) => 'sidebar-link' + (isActive ? ' active' : '')}>
+          <span>Reviews</span>
+          <span className="sidebar-link-count">{stats.open_reviews ?? stats.reviews ?? 0}</span>
+        </NavLink>
+        {mlflowConfigured && (
+          <NavLink to={px('/mlflow')} className={({ isActive }) => 'sidebar-link' + (isActive ? ' active' : '')}>
+            MLflow
+          </NavLink>
+        )}
+        <NavLink to={px('/visual/dag')} className={({ isActive }) => 'sidebar-link' + (isActive ? ' active' : '')}>
+          Logic DAG
+        </NavLink>
+
+        {/* The substrate research runs on: files, objects, machines. */}
+        <div className="sidebar-section">Operations</div>
 
         {/* Resources — expands inline; clicking does not change route.
             Chevron sits on the LEFT (VSCode-style) — `>` collapsed, `v`
@@ -158,11 +176,6 @@ export default function Sidebar({ onRefresh, onHide }) {
         <NavLink to={px('/storage')} className={({ isActive }) => 'sidebar-link' + (isActive ? ' active' : '')}>
           Storage
         </NavLink>
-
-        <NavLink to={px('/reviews')} className={({ isActive }) => 'sidebar-link' + (isActive ? ' active' : '')}>
-          <span>Reviews</span>
-          <span className="sidebar-link-count">{stats.open_reviews ?? stats.reviews ?? 0}</span>
-        </NavLink>
         <NavLink to={px('/sandboxes')} className={({ isActive }) => 'sidebar-link' + (isActive ? ' active' : '')}>
           <span>Sandboxes</span>
           {runningSandboxes > 0 && (
@@ -171,27 +184,17 @@ export default function Sidebar({ onRefresh, onHide }) {
             </span>
           )}
         </NavLink>
-        {mlflowConfigured && (
-          <NavLink to={px('/mlflow')} className={({ isActive }) => 'sidebar-link' + (isActive ? ' active' : '')}>
-            MLflow
-          </NavLink>
-        )}
+
+        {/* Projects intentionally has no link here — scope switching lives in
+            the project chip's popover ("Manage projects →"). */}
+        <div className="sidebar-section">Activity</div>
+        <NavLink to={px('/events')} className={({ isActive }) => 'sidebar-link' + (isActive ? ' active' : '')}>
+          Events
+        </NavLink>
+        <NavLink to={px('/activity')} className={({ isActive }) => 'sidebar-link' + (isActive ? ' active' : '')}>
+          Traffic &amp; Tool I/O
+        </NavLink>
       </nav>
-
-      <NavLink to={px('/visual/dag')} className={({ isActive }) => 'sidebar-link' + (isActive ? ' active' : '')}>
-        Logic DAG
-      </NavLink>
-
-      <div className="sidebar-section">Activity</div>
-      <NavLink to={px('/events')} className={({ isActive }) => 'sidebar-link' + (isActive ? ' active' : '')}>
-        Events
-      </NavLink>
-      <NavLink to={px('/activity')} className={({ isActive }) => 'sidebar-link' + (isActive ? ' active' : '')}>
-        Traffic &amp; Tool I/O
-      </NavLink>
-      <NavLink to="/projects" className={({ isActive }) => 'sidebar-link' + (isActive ? ' active' : '')}>
-        Projects
-      </NavLink>
 
       <div className="sidebar-foot">
         <SandboxRetentionIndicator />
