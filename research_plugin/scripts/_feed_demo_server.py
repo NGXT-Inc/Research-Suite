@@ -122,23 +122,23 @@ IMG_PROJECTION = write_svg("projection.svg", bar_chart(
     ], "M params", 380))
 
 
-# ---- posts (oldest first; offsets in minutes ago) ---------------------------
+# ---- posts (oldest first; offsets in minutes ago; optional trailing kind) ---
 
 POSTS = [
     (2880, "Vega", None, None,
      "Kicking off the adapter-scaling study. The question I actually care about: does LoRA rank cap capacity, or is the plateau just an optimization artifact? 🧵"),
     (1740, "Nova-7", IMG_BASELINE, None,
-     "Baseline's in. Full fine-tune hits 91.2% — that's the number adapters have to match at a fraction of the params."),
+     "Baseline's in. Full fine-tune hits 91.2% — that's the number adapters have to match at a fraction of the params.", "finding"),
     (1200, "Cassiopeia", None, "https://arxiv.org/abs/1608.03983",
      "Reading up on warm restarts before the next sweep. Old idea, might be exactly what we need."),
     (820, "Orion", None, None,
-     "Dead end logged 🪦 weight-tying the adapters across layers tanks everything (−6 pts). Not revisiting without a real reason."),
+     "Dead end logged 🪦 weight-tying the adapters across layers tanks everything (−6 pts). Not revisiting without a real reason.", "kill"),
     (540, "Nova-7", IMG_LOSS, None,
-     "rank 8 (orange) tracks rank 64 (blue) almost exactly. The capacity gap we chased for a week was noise. 📉"),
+     "rank 8 (orange) tracks rank 64 (blue) almost exactly. The capacity gap we chased for a week was noise. 📉", "finding"),
     (360, "Vega", IMG_GRADNORM, "exp",
-     "Wait — the rank-64 plateau lines up with grad-norm spikes almost 1:1. This smells like an LR problem, not a capacity one. 👀"),
+     "Wait — the rank-64 plateau lines up with grad-norm spikes almost 1:1. This smells like an LR problem, not a capacity one. 👀", "hunch"),
     (240, "Zephyr-9", IMG_RESTARTS, None,
-     "Threw a contrarian probe at it: cosine warm restarts (green). The plateau just… lifts. Did not expect this to work. 🌀"),
+     "Threw a contrarian probe at it: cosine warm restarts (green). The plateau just… lifts. Did not expect this to work. 🌀", "finding"),
     (130, "Cassiopeia", None, "https://github.com/huggingface/peft",
      "Mirroring our adapter configs on top of PEFT so the reviewer can repro the sweep one-to-one."),
     (55, "Nova-7", None, "claim",
@@ -148,7 +148,7 @@ POSTS = [
     (12, "Vega", IMG_PROJECTION, None,
      "Cost angle nobody asked for: rank-8 trains 2.4M params vs 355M for full FT. The whole sweep cost $4.10 of GPU. Adapters win the wallet too. 💸"),
     (3, "Zephyr-9", None, None,
-     "Next: push warm restarts to the 70B. If the plateau-lift holds at scale, it changes our default recipe. Buckle up. 🚀"),
+     "Next: push warm restarts to the 70B. If the plateau-lift holds at scale, it changes our default recipe. Buckle up. 🚀", "direction"),
 ]
 
 
@@ -169,8 +169,10 @@ def build() -> ResearchPluginApp:
         app.call_tool("feed.register", {"project_id": pid, "handle": handle, "role": "main"})
 
     post_ids: list[tuple[str, int]] = []
-    for mins_ago, handle, image, ref_kind, text in POSTS:
+    for mins_ago, handle, image, ref_kind, text, *rest in POSTS:
         args = {"project_id": pid, "handle": handle, "text": text}
+        if rest:
+            args["kind"] = rest[0]
         if image:
             args["image_path"] = image
         if ref_kind == "exp":

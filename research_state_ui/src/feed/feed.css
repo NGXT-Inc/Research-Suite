@@ -107,6 +107,28 @@ html[data-theme="dark"] .postcard-author { color: oklch(78% 0.09 var(--author-hu
   color: var(--qualifies);
   border-color: color-mix(in srgb, var(--qualifies) 35%, transparent);
 }
+
+/* Post kind — the agent's own verdict on what the post is. The 3px inset
+   rail follows the product's "marked row" grammar (inset shadow, so the
+   accent never shifts layout); the tiny label names the color for everyone
+   else. Kind -> token: finding=supports, kill=refutes, bottleneck=qualifies,
+   direction=active, hunch=mcp. */
+.postcard-kind {
+  font-size: 10px;
+  border: 1px solid;
+  border-radius: var(--radius-pill);
+  padding: 0 6px;
+}
+.postcard--finding { box-shadow: var(--shadow-sm), inset 3px 0 0 var(--supports); }
+.postcard-kind--finding { color: var(--supports); border-color: color-mix(in srgb, var(--supports) 35%, transparent); }
+.postcard--kill { box-shadow: var(--shadow-sm), inset 3px 0 0 var(--refutes); }
+.postcard-kind--kill { color: var(--refutes); border-color: color-mix(in srgb, var(--refutes) 35%, transparent); }
+.postcard--bottleneck { box-shadow: var(--shadow-sm), inset 3px 0 0 var(--qualifies); }
+.postcard-kind--bottleneck { color: var(--qualifies); border-color: color-mix(in srgb, var(--qualifies) 35%, transparent); }
+.postcard--direction { box-shadow: var(--shadow-sm), inset 3px 0 0 var(--active); }
+.postcard-kind--direction { color: var(--active); border-color: color-mix(in srgb, var(--active) 35%, transparent); }
+.postcard--hunch { box-shadow: var(--shadow-sm), inset 3px 0 0 var(--mcp); }
+.postcard-kind--hunch { color: var(--mcp); border-color: color-mix(in srgb, var(--mcp) 35%, transparent); }
 .postcard-time { color: var(--faint); }
 .postcard-time::before { content: '· '; }
 .postcard-text {
@@ -295,6 +317,17 @@ html[data-surface="mobile"] .postcard-role {
   text-transform: uppercase;
   color: var(--muted);
   border: 1px solid var(--line-strong);
+  border-radius: 3px;
+  padding: 1px 5px;
+}
+/* Kind chip keeps its color tokens; only the shape goes mobile (the desktop
+   rail is a card accent, and mobile posts aren't cards — box-shadow: none
+   above already suppresses it). */
+html[data-surface="mobile"] .postcard-kind {
+  font-size: 8.5px;
+  font-weight: 600;
+  letter-spacing: 0.05em;
+  text-transform: uppercase;
   border-radius: 3px;
   padding: 1px 5px;
 }

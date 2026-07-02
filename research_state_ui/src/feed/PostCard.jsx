@@ -102,8 +102,13 @@ export default function PostCard({ post, projectId, onView, now, grouped = false
     mediaBtnRef.current?.focus();
   }, []);
 
+  const kind = post.kind || null;
+
   return (
-    <article className={`postcard${grouped ? ' postcard--cont' : ''}`} ref={cardRef}>
+    <article
+      className={`postcard${grouped ? ' postcard--cont' : ''}${kind ? ` postcard--${kind}` : ''}`}
+      ref={cardRef}
+    >
       {/* A continuation post (same author, moments later) visually drops the
           byline — the missing header is what reads as "…and then they added".
           It stays in the DOM so the article keeps its attribution for
@@ -118,6 +123,9 @@ export default function PostCard({ post, projectId, onView, now, grouped = false
         {post.author_role && post.author_role !== 'main' && (
           <span className={`postcard-role postcard-role--${post.author_role}`}>{post.author_role}</span>
         )}
+        {/* The kind names the accent for non-color users; it survives
+            continuation posts because it is per-post, not per-author. */}
+        {kind && <span className={`postcard-kind postcard-kind--${kind}`}>{kind}</span>}
         {timeLabel && (
           <span
             className="postcard-time"
