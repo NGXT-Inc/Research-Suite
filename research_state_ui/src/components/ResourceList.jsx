@@ -42,7 +42,7 @@ export default function ResourceList({ projectId, resources, historical = false 
               </div>
               <div className="list-row-aside">
                 {r.missing ? <span className="res-missing">missing</span> : null}
-                <span className="faint" style={{ fontSize: 'var(--text-xs)' }}>{open ? '−' : '+'}</span>
+                <span className={`twist${open ? ' open' : ''}`} aria-hidden="true">▸</span>
               </div>
             </div>
             {open && (

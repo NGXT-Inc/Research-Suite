@@ -1,4 +1,9 @@
-import { useEffect, useMemo, useRef, useState } from 'react';
+import { useEffect, useLayoutEffect, useMemo } from 'react';
+import { useProjectStore } from '../store/useProjectStore';
+import {
+  useExpandedFolders, togglePath, expandPaths, autoExpandNewTops,
+  selectionHandled, markSelectionHandled,
+} from '../store/useTreeExpansion';
 import FileIcon from './FileIcon';
 
 /**
@@ -10,10 +15,9 @@ import FileIcon from './FileIcon';
  * registered resource set.
  *
  * Selection is controlled by the parent (`selectedId` + `onSelect`) so the
- * page can keep the preview pane wired to a single resource.
- *
- * Search auto-expands every folder that contains a matching descendant so
- * matches are visible without manual fiddling.
+ * page can keep the preview pane wired to a single resource. Expansion lives
+ * in the useTreeExpansion module store, keyed by project, so it survives
+ * remounts (drawer toggles, transient empty payloads) and the 3s poll.
  */
 
 function buildTree(resources) {
@@ -27,12 +31,16 @@ function buildTree(resources) {
       const part = parts[i];
       const isLast = i === parts.length - 1;
       if (isLast) {
-        node.children.set(part, {
-          name: part,
-          path: r.path,
-          kind: 'file',
-          resource: r,
-        });
+        // On a file/dir name collision the dir wins: another resource already
+        // nests beneath this path, and dropping its subtree would be worse.
+        if (node.children.get(part)?.kind !== 'dir') {
+          node.children.set(part, {
+            name: part,
+            path: r.path,
+            kind: 'file',
+            resource: r,
+          });
+        }
       } else {
         const segPath = parts.slice(0, i + 1).join('/');
         if (!node.children.has(part) || node.children.get(part).kind !== 'dir') {
@@ -61,12 +69,6 @@ function sortTree(node) {
   return { ...node, sortedChildren: sorted };
 }
 
-function collectFolderPaths(node, out) {
-  if (node.kind !== 'dir') return;
-  if (node.path) out.add(node.path);
-  for (const c of node.sortedChildren || []) collectFolderPaths(c, out);
-}
-
 function topLevelFolderPaths(root) {
   const out = new Set();
   for (const c of root.sortedChildren || []) {
@@ -75,22 +77,12 @@ function topLevelFolderPaths(root) {
   return out;
 }
 
-function matchesQuery(node, q) {
-  if (!q) return true;
-  if (node.kind === 'file') return node.path.toLowerCase().includes(q);
-  for (const c of node.sortedChildren || []) {
-    if (matchesQuery(c, q)) return true;
-  }
-  return false;
-}
-
-function TreeNode({ node, selectedId, onSelect, expanded, toggle, query }) {
+function TreeNode({ node, selectedId, onSelect, expanded, toggle }) {
   // Indent + vertical-line guides come from `.ft-subtree` wrappers around each
   // expanded folder (see CSS), so each row itself only carries a small base
   // padding. No depth-based padding here — that lets us keep nesting visually
   // tight regardless of how deep the folder goes.
   if (node.kind === 'file') {
-    if (query && !node.path.toLowerCase().includes(query)) return null;
     const selected = selectedId && node.resource?.id === selectedId;
     return (
       <button
@@ -107,7 +99,6 @@ function TreeNode({ node, selectedId, onSelect, expanded, toggle, query }) {
     );
   }
 
-  if (!matchesQuery(node, query)) return null;
   const isOpen = expanded.has(node.path);
 
   return (
@@ -131,7 +122,6 @@ function TreeNode({ node, selectedId, onSelect, expanded, toggle, query }) {
               onSelect={onSelect}
               expanded={expanded}
               toggle={toggle}
-              query={query}
             />
           ))}
         </div>
@@ -140,66 +130,34 @@ function TreeNode({ node, selectedId, onSelect, expanded, toggle, query }) {
   );
 }
 
-export default function FileTree({ resources, selectedId, onSelect, query = '' }) {
+export default function FileTree({ resources, selectedId, onSelect }) {
+  const projectId = useProjectStore(s => s.projectId);
   const tree = useMemo(() => buildTree(resources || []), [resources]);
-  // Initialize expansion lazily: the user's clicks must survive the 3s
-  // polling refresh, so we only seed from `tree` once. Newly-appearing
-  // top-level folders auto-expand on first sight; existing user state stays.
-  const [expanded, setExpanded] = useState(() => topLevelFolderPaths(tree));
-  const seenTopRef = useRef(new Set(topLevelFolderPaths(tree)));
-  const normalized = query.trim().toLowerCase();
+  const expanded = useExpandedFolders(projectId);
 
-  useEffect(() => {
-    const tops = topLevelFolderPaths(tree);
-    setExpanded(prev => {
-      const next = new Set(prev);
-      let changed = false;
-      for (const p of tops) {
-        if (!seenTopRef.current.has(p)) {
-          next.add(p);
-          seenTopRef.current.add(p);
-          changed = true;
-        }
-      }
-      return changed ? next : prev;
-    });
-  }, [tree]);
+  // Newly appearing top-level folders auto-expand on first sight; layout
+  // effect so the very first mount paints them open (no collapsed flash).
+  useLayoutEffect(() => {
+    autoExpandNewTops(projectId, topLevelFolderPaths(tree));
+  }, [projectId, tree]);
 
-  // When a file is selected via URL deep-link, expand its ancestor folders
-  // so the highlight is visible without the user manually drilling in.
+  // When a file is selected, expand its ancestors so the highlight is
+  // visible — once per selection, tracked in the store (not a ref, which
+  // would replay on remount). `resources` stays a dep only so a deep link
+  // can resolve once the payload lands; the handled mark stops the re-runs
+  // the 3s poll triggers (each poll is a new `resources` identity) from
+  // reopening folders the user has since collapsed.
   useEffect(() => {
-    if (!selectedId) return;
+    if (!selectedId || selectionHandled(projectId, selectedId)) return;
     const r = (resources || []).find(x => x.id === selectedId);
-    if (!r?.path) return;
+    if (!r?.path) return; // selection precedes payload — retry when resources land
+    markSelectionHandled(projectId, selectedId);
     const parts = String(r.path).split('/').filter(Boolean);
     if (parts.length <= 1) return;
-    setExpanded(prev => {
-      const next = new Set(prev);
-      let changed = false;
-      for (let i = 0; i < parts.length - 1; i++) {
-        const p = parts.slice(0, i + 1).join('/');
-        if (!next.has(p)) { next.add(p); changed = true; }
-      }
-      return changed ? next : prev;
-    });
-  }, [selectedId, resources]);
+    expandPaths(projectId, parts.slice(0, -1).map((_, i) => parts.slice(0, i + 1).join('/')));
+  }, [selectedId, resources, projectId]);
 
-  // While searching, force-expand every folder so matches are visible.
-  const effectiveExpanded = useMemo(() => {
-    if (!normalized) return expanded;
-    const all = new Set();
-    collectFolderPaths(tree, all);
-    return all;
-  }, [normalized, expanded, tree]);
-
-  const toggle = (p) => {
-    setExpanded(prev => {
-      const next = new Set(prev);
-      if (next.has(p)) next.delete(p);
-      else next.add(p);
-      return next;
-    });
-  };
+  const toggle = (p) => togglePath(projectId, p);
 
   const children = tree.sortedChildren || [];
   if (children.length === 0) {
@@ -214,9 +172,8 @@ export default function FileTree({ resources, selectedId, onSelect, query = '' }
           node={child}
           selectedId={selectedId}
           onSelect={onSelect}
-          expanded={effectiveExpanded}
+          expanded={expanded}
           toggle={toggle}
-          query={normalized}
         />
       ))}
     </div>

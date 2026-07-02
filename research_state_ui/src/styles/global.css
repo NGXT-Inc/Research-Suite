@@ -306,6 +306,12 @@ input, textarea, select { font-family: inherit; font-size: inherit; color: inher
 }
 .kv-value { color: var(--text); word-break: break-word; }
 
+/* --- DS: TWIST — the one expand-in-place signal ------------------------ */
+/* A row that expands in place carries a ▸ that rotates; rows without it
+   navigate. One glyph, one motion, product-wide. */
+.twist { display: inline-block; flex: none; color: var(--muted); font-size: 10px; transition: transform var(--motion-fast); }
+.twist.open { transform: rotate(90deg); }
+
 /* --- DS: TAB ROW ----------------------------------------------------- */
 .tab-row {
   display: inline-flex;
@@ -1096,7 +1102,9 @@ html { scroll-behavior: smooth; }
   cursor: pointer;
   transition: background var(--motion-fast);
 }
-.list-row:hover { background: var(--hover); }
+@media (hover: hover) {
+  .list-row:hover { background: var(--hover); }
+}
 .list-row + .list-row { border-top: 1px solid var(--line-soft); border-radius: 0; }
 .list-row:first-child { border-top: 0; }
 .list-row-main {
@@ -1477,7 +1485,9 @@ html { scroll-behavior: smooth; }
   margin-left: 6px;
   border-left: 1px solid var(--line);
 }
-.ft-row:hover { background: var(--hover); }
+@media (hover: hover) {
+  .ft-row:hover { background: var(--hover); }
+}
 .ft-row.is-selected {
   background: var(--bg-elev);
   border-color: rgba(var(--active-rgb), 0.55);
@@ -1937,7 +1947,6 @@ html[data-theme="dark"] .ft-fi--shell   { color: #a3a19a; }
   font-weight: 600;
   color: var(--text);
 }
-.markdown-body tr:nth-child(2n) td { background: color-mix(in srgb, var(--bg-soft) 40%, transparent); }
 
 /* Timeline */
 .timeline { display: flex; flex-direction: column; gap: 6px; }
@@ -2663,10 +2672,10 @@ button.review-stepper-version:hover {
   display: flex;
   flex-direction: column;
   border-bottom: 1px solid var(--line-soft);
-  border-left: 2px solid transparent;
+  border-left: 3px solid transparent;
   cursor: pointer;
 }
-.act-call--err { background: rgba(var(--refutes-rgb), 0.045); border-left-color: rgba(var(--refutes-rgb), 0.8); }
+.act-call--err { background: rgba(var(--refutes-rgb), 0.045); border-left-color: var(--refutes); }
 .act-call--open { background: var(--bg-soft); }
 .act-call:last-child { border-bottom: 0; }
 .act-call:focus-visible {
@@ -2700,6 +2709,8 @@ button.review-stepper-version:hover {
   font-size: var(--text-xs);
   text-transform: uppercase;
   cursor: default;
+  /* Matches the rows' 3px rail so head and body cells stay aligned. */
+  border-left: 3px solid transparent;
 }
 
 .act-head-cell--right {
@@ -2737,6 +2748,8 @@ button.review-stepper-version:hover {
   min-width: 10px;
   text-align: center;
 }
+/* Active sort arrow reads in the accent, same as every other table. */
+.act-head-cell--active .act-sort-ind { color: var(--active); }
 
 .act-row-main {
   background: transparent;
@@ -2749,7 +2762,9 @@ button.review-stepper-version:hover {
   color: var(--text);
   transition: background var(--motion-fast);
 }
-.act-row-main:hover { background: var(--bg-soft); }
+@media (hover: hover) {
+  .act-row-main:hover { background: var(--hover); }
+}
 
 .act-time {
   font-family: var(--font-mono);
@@ -3448,7 +3463,9 @@ button.review-stepper-version:hover {
   text-align: left;
 }
 .sbxt-rowgroup:last-child .sbxt-row { border-bottom: none; }
-.sbxt-row:hover { background: var(--bg-soft); }
+@media (hover: hover) {
+  .sbxt-row:hover { background: var(--hover); }
+}
 .sbxt-rowgroup.open .sbxt-row { background: var(--bg-soft); }
 .sbxt-row:focus-visible { outline: 2px solid var(--active); outline-offset: -2px; }
 
@@ -3646,10 +3663,11 @@ button.review-stepper-version:hover {
   font-size: 10px;
 }
 .dbg-row--tool { cursor: pointer; }
-.dbg-row--tool:hover { background: var(--hover); }
+@media (hover: hover) {
+  .dbg-row--tool:hover, .dbg-row--clickable:hover { background: var(--hover); }
+}
 .dbg-row--tool.active { background: var(--select); }
 .dbg-row--clickable { cursor: pointer; }
-.dbg-row--clickable:hover { background: var(--hover); }
 .dbg-c-num { text-align: right; color: var(--text); min-width: 0; }
 .dbg-c-num.hot { color: var(--refutes); font-weight: 600; }
 .dbg-c-num.faint { color: var(--faint); }
@@ -4274,7 +4292,9 @@ button.review-stepper-version:hover {
   transition: background var(--motion-fast);
 }
 .expt-row:last-child { border-bottom: none; }
-.expt-row:hover { background: var(--hover); }
+@media (hover: hover) {
+  .expt-row:hover { background: var(--hover); }
+}
 .expt-row:focus-visible { outline: 2px solid var(--active); outline-offset: -2px; }
 
 .expt-main { display: flex; flex-direction: column; gap: 3px; min-width: 0; padding: 10px 0; }
@@ -4481,7 +4501,9 @@ a.results-metrics-sub:hover { color: var(--active); text-decoration: underline; 
 .lgd-hbtn.lgd-run-name { text-align: left; font-weight: 400; overflow: visible; }
 .lgd-hbtn.lgd-val, .lgd-hbtn.lgd-delta, .lgd-hbtn.lgd-when { font-family: inherit; }
 .lgd-row { display: flex; align-items: baseline; gap: 14px; padding: 8px 10px 8px 11px; border-bottom: 1px solid var(--line-soft); border-left: 3px solid transparent; cursor: pointer; }
-.lgd-row:hover { background: var(--hover); }
+@media (hover: hover) {
+  .lgd-row:hover { background: var(--hover); }
+}
 .lgd-row.champ { border-left-color: var(--active); }
 .lgd-row.focused { background: var(--select); }
 .lgd-rank { width: 24px; font-family: var(--font-mono); font-size: var(--text-xs); color: var(--faint); }
