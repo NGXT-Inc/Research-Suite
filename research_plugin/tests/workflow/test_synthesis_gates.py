@@ -22,6 +22,13 @@ VALID_PROJECT_GRAPH = (
     ' "edges": [{"from": "lesson", "to": "open", "label": "raises"}]}\n'
 )
 
+REVISED_PROJECT_GRAPH = (
+    '{"version": 1, "title": "Project logic", "nodes": ['
+    '{"id": "lesson", "kind": "lesson", "label": "LR schedule is conditional"},'
+    '{"id": "scale", "kind": "open_question", "label": "Scale is the discriminator"}],'
+    ' "edges": [{"from": "lesson", "to": "scale", "label": "prioritizes"}]}\n'
+)
+
 VALID_REFLECTION_DOC = (
     "# Synthesis\n\n"
     "## Summary\n"
@@ -779,6 +786,44 @@ class SynthesisGateTest(unittest.TestCase):
         self.assertEqual(len(detail["materialized_claims"]), 2)
         self.assertEqual(len(detail["materialized_experiments"]), 2)
         self.assertEqual(detail["post_publish_guidance"], guidance)
+
+    def test_reflection_state_diffs_project_graph_against_previous_publish(self) -> None:
+        first_syn_id = self._drive_to_published()
+        second_syn_id = self._drive_to_synthesizing()
+        self._associate_file(
+            syn_id=second_syn_id,
+            path="project/logic_graph.json",
+            role="project_graph",
+            body=REVISED_PROJECT_GRAPH,
+        )
+
+        diff = self._state(second_syn_id)["project_graph_diff"]
+        self.assertTrue(diff["available"])
+        self.assertEqual(diff["base_reflection_id"], first_syn_id)
+        self.assertEqual(diff["current_reflection_id"], second_syn_id)
+        self.assertTrue(diff["base_graph_version_id"])
+        self.assertTrue(diff["current_graph_version_id"])
+        self.assertIn("1 nodes added", diff["summary"])
+        self.assertEqual(
+            [node["id"] for node in diff["nodes"]["added"]],
+            ["scale"],
+        )
+        self.assertEqual(
+            [node["id"] for node in diff["nodes"]["removed"]],
+            ["open"],
+        )
+        self.assertEqual(
+            [(item["id"], item["changed_fields"]) for item in diff["nodes"]["changed"]],
+            [("lesson", ["label"])],
+        )
+        self.assertEqual(
+            [edge["to"] for edge in diff["edges"]["added"]],
+            ["scale"],
+        )
+        self.assertEqual(
+            [edge["to"] for edge in diff["edges"]["removed"]],
+            ["open"],
+        )
 
     def test_publish_defensively_rechecks_active_experiment_cap(self) -> None:
         self._create_active_experiments(ACTIVE_EXPERIMENT_CAP - 2)

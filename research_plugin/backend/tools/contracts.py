@@ -826,7 +826,9 @@ TOOL_CONTRACTS: dict[str, ToolContract] = {
         description=(
             "Get one reflection wave state: roster, per-lens "
             "reflection coverage, current-attempt resources, reviews, and "
-            "allowed_transitions with preconditions."
+            "allowed_transitions with preconditions. Includes project_graph_diff "
+            "when a submitted project graph can be compared with the previous "
+            "published graph."
         ),
     ),
     "reflection.list": ToolContract(

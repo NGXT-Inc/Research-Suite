@@ -319,6 +319,9 @@ class SynthesisService:
                 review["evidence"] = json.loads(review.pop("evidence_json", "{}"))
             data["reviews"] = reviews
             data["reflection_coverage"] = self._reflection_coverage(synthesis=data)
+            data["project_graph_diff"] = self._project_graph_diff(
+                conn=conn, synthesis=data
+            )
             data["allowed_transitions"] = allowed_synthesis_transitions_for(
                 str(data.get("status", ""))
             )
@@ -469,6 +472,211 @@ class SynthesisService:
             resources=synthesis.get("resources", []),
             attempt=synthesis.get("attempt_index"),
             roles=PROJECT_GRAPH_ROLES,
+        )
+
+    def _project_graph_diff(self, *, conn, synthesis: dict[str, Any]) -> dict[str, Any]:
+        current_resource = self._project_graph_resource(synthesis=synthesis)
+        current_version_id = str(
+            (
+                synthesis.get("published_graph_version_id")
+                if synthesis.get("status") == "published"
+                else None
+            )
+            or (current_resource or {}).get("association_version_id")
+            or ""
+        )
+        base = self._previous_published_graph_ref(conn=conn, synthesis=synthesis)
+        result: dict[str, Any] = {
+            "available": False,
+            "reason": "",
+            "summary": "",
+            "base_reflection_id": base.get("reflection_id") if base else None,
+            "base_graph_version_id": base.get("graph_version_id") if base else None,
+            "current_reflection_id": synthesis.get("id"),
+            "current_graph_version_id": current_version_id or None,
+            "problems": [],
+        }
+        if not current_version_id:
+            result.update(
+                {
+                    "reason": "no_current_project_graph",
+                    "summary": "No current project graph is associated for this reflection wave.",
+                }
+            )
+            return result
+        if base is None or not base.get("graph_version_id"):
+            result.update(
+                {
+                    "reason": "no_previous_project_graph",
+                    "summary": "No previous published project graph is available to compare.",
+                }
+            )
+            return result
+
+        base_graph, base_problems = self._load_graph_for_diff(
+            conn=conn,
+            version_id=str(base["graph_version_id"]),
+            role="project_graph",
+            what="previous project logic graph",
+        )
+        current_graph, current_problems = self._load_graph_for_diff(
+            conn=conn,
+            version_id=current_version_id,
+            role=str((current_resource or {}).get("association_role") or "project_graph"),
+            what="current project logic graph",
+        )
+        problems = [*base_problems, *current_problems]
+        if problems or base_graph is None or current_graph is None:
+            result.update(
+                {
+                    "reason": "graph_unavailable",
+                    "summary": "Project graph diff is unavailable because one graph cannot be read.",
+                    "problems": problems,
+                }
+            )
+            return result
+
+        diff = self._diff_graphs(base_graph=base_graph, current_graph=current_graph)
+        result.update(diff)
+        result["available"] = True
+        result["reason"] = ""
+        result["summary"] = self._graph_diff_summary(diff=diff)
+        return result
+
+    def _previous_published_graph_ref(
+        self, *, conn, synthesis: dict[str, Any]
+    ) -> dict[str, Any] | None:
+        project_id = str(synthesis.get("project_id") or "")
+        status = str(synthesis.get("status") or "")
+        current_id = str(synthesis.get("id") or "")
+        params: tuple[Any, ...]
+        if status == "published":
+            query = """
+                SELECT id, published_graph_version_id
+                FROM syntheses
+                WHERE project_id = ? AND status = 'published'
+                  AND id != ? AND created_seq < ?
+                ORDER BY published_at DESC, created_seq DESC
+                LIMIT 1
+                """
+            params = (project_id, current_id, int(synthesis.get("created_seq") or 0))
+        else:
+            query = """
+                SELECT id, published_graph_version_id
+                FROM syntheses
+                WHERE project_id = ? AND status = 'published'
+                ORDER BY published_at DESC, created_seq DESC
+                LIMIT 1
+                """
+            params = (project_id,)
+        row = conn.execute(query, params).fetchone()
+        if row is None:
+            return None
+        return {
+            "reflection_id": row["id"],
+            "graph_version_id": row["published_graph_version_id"],
+        }
+
+    def _load_graph_for_diff(
+        self, *, conn, version_id: str, role: str, what: str
+    ) -> tuple[dict[str, Any] | None, list[str]]:
+        if self.blobs is None:
+            return None, [f"{what}: no blob store is configured"]
+        try:
+            text = pinned_text_for_version(
+                conn=conn,
+                blobs=self.blobs,
+                version_id=version_id,
+                what=what,
+                role=role,
+            )
+        except WorkflowError as exc:
+            return None, [str(exc)]
+        problems = graph_problems(text)
+        if problems:
+            return None, [f"{what}: {problem}" for problem in problems]
+        data = json.loads(text)
+        return data, []
+
+    def _diff_graphs(
+        self, *, base_graph: dict[str, Any], current_graph: dict[str, Any]
+    ) -> dict[str, Any]:
+        base_nodes = self._graph_node_index(graph=base_graph)
+        current_nodes = self._graph_node_index(graph=current_graph)
+        base_edges = self._graph_edge_index(graph=base_graph)
+        current_edges = self._graph_edge_index(graph=current_graph)
+        return {
+            "nodes": self._diff_indexed_items(base=base_nodes, current=current_nodes),
+            "edges": self._diff_indexed_items(base=base_edges, current=current_edges),
+        }
+
+    def _graph_node_index(self, *, graph: dict[str, Any]) -> dict[str, dict[str, Any]]:
+        indexed: dict[str, dict[str, Any]] = {}
+        for node in graph.get("nodes") or []:
+            if not isinstance(node, dict):
+                continue
+            node_id = str(node.get("id") or "")
+            if node_id:
+                indexed[node_id] = self._sorted_json_object(node)
+        return indexed
+
+    def _graph_edge_index(self, *, graph: dict[str, Any]) -> dict[str, dict[str, Any]]:
+        indexed: dict[str, dict[str, Any]] = {}
+        for edge in graph.get("edges") or []:
+            if not isinstance(edge, dict):
+                continue
+            frm = str(edge.get("from") or "")
+            to = str(edge.get("to") or "")
+            if frm and to:
+                indexed[f"{frm}->{to}"] = self._sorted_json_object(edge)
+        return indexed
+
+    @staticmethod
+    def _sorted_json_object(item: dict[str, Any]) -> dict[str, Any]:
+        return {key: item[key] for key in sorted(item)}
+
+    def _diff_indexed_items(
+        self, *, base: dict[str, dict[str, Any]], current: dict[str, dict[str, Any]]
+    ) -> dict[str, Any]:
+        base_keys = set(base)
+        current_keys = set(current)
+        changed = []
+        for key in sorted(base_keys & current_keys):
+            before = base[key]
+            after = current[key]
+            if before == after:
+                continue
+            changed.append(
+                {
+                    "id": key,
+                    "before": before,
+                    "after": after,
+                    "changed_fields": [
+                        field
+                        for field in sorted(set(before) | set(after))
+                        if before.get(field) != after.get(field)
+                    ],
+                }
+            )
+        return {
+            "added": [current[key] for key in sorted(current_keys - base_keys)],
+            "removed": [base[key] for key in sorted(base_keys - current_keys)],
+            "changed": changed,
+            "unchanged_count": len(base_keys & current_keys) - len(changed),
+        }
+
+    @staticmethod
+    def _graph_diff_summary(*, diff: dict[str, Any]) -> str:
+        nodes = diff.get("nodes") or {}
+        edges = diff.get("edges") or {}
+        return (
+            "Project graph diff: "
+            f"{len(nodes.get('added') or [])} nodes added, "
+            f"{len(nodes.get('removed') or [])} removed, "
+            f"{len(nodes.get('changed') or [])} changed; "
+            f"{len(edges.get('added') or [])} edges added, "
+            f"{len(edges.get('removed') or [])} removed, "
+            f"{len(edges.get('changed') or [])} changed."
         )
 
     def _reflection_coverage(self, *, synthesis: dict[str, Any]) -> dict[str, Any]:

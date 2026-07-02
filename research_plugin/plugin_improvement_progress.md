@@ -532,3 +532,32 @@ Verification:
 - `PYTHONPATH=. python -m unittest tests.sandbox.test_sandbox_service.SandboxServiceTest.test_terminal_parses_successful_exit_code tests.sandbox.test_sandbox_service.SandboxServiceTest.test_terminal_reports_nonzero_exit_code tests.sandbox.test_sandbox_service.SandboxServiceTest.test_terminal_command_running_when_no_exit_marker_yet tests.sandbox.test_sandbox_service.SandboxServiceTest.test_terminal_keeps_last_finished_exit_while_next_command_runs tests.sandbox.test_sandbox_service.SandboxServiceTest.test_terminal_exit_code_survives_since_cursor tests.sandbox.test_sandbox_service.SandboxServiceTest.test_terminal_returns_stale_command_status_when_read_unavailable -v` (6 tests)
 - `PYTHONPATH=. python -m unittest tests.sandbox.test_sandbox_service tests.surface.test_tool_contracts tests.structure.test_plane_layout.PlaneImportLintTest -v` (107 tests)
 - `PYTHONPATH=. python -m unittest discover -s tests -v` (885 tests, 25 skipped)
+
+## Batch 20: reflection project graph diff
+
+Status: complete
+
+Request addressed:
+
+- Better graph diffing between reflections.
+
+Implementation notes:
+
+- Added `project_graph_diff` to reflection state. When a current wave has a
+  submitted project graph and a previous published project graph exists, the
+  block compares the pinned graph versions.
+- The diff reports base/current reflection ids, graph version ids, a summary,
+  and node/edge `added`, `removed`, `changed`, and `unchanged_count` groups.
+- If either graph is missing, invalid, or cannot be read from pinned bytes,
+  reflection state remains readable and the diff reports `available: false`
+  with a reason and problems.
+- Updated MCP/UI docs, the `reflection.get` tool description, and the
+  project-reflection skill so agents inspect the diff before review.
+
+Verification:
+
+- `git diff --check`
+- `PYTHONPATH=. python -m unittest tests.workflow.test_synthesis_gates.SynthesisGateTest.test_reflection_state_diffs_project_graph_against_previous_publish -v`
+- `PYTHONPATH=. python -m unittest tests.workflow.test_synthesis_gates tests.surface.test_tool_contracts tests.surface.test_plugin_skills -v` (69 tests)
+- `PYTHONPATH=. python -m unittest tests.workflow.test_workflow_slim tests.surface.test_http_api.ResearchPluginHttpApiTest.test_synthesis_endpoints_and_project_graph tests.structure.test_plane_layout.PlaneImportLintTest -v` (31 tests)
+- `PYTHONPATH=. python -m unittest discover -s tests -v` (886 tests, 25 skipped)

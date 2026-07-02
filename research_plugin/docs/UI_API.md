@@ -361,6 +361,10 @@ Each wave state (also returned by `/syntheses/{synthesis_id}`) carries:
   `attempt_index`, `created_at`;
 - `reflection_coverage`: `{ lenses: [{ lens_id, covered, path, version_id }],
   missing, complete }` — per-lens reflection coverage for the current attempt;
+- `project_graph_diff`: previous-published-vs-current graph comparison when a
+  current project graph is associated. The block includes `available`,
+  base/current reflection and graph version ids, a summary, and node/edge
+  `added`, `removed`, `changed`, and `unchanged_count` groups;
 - `allowed_transitions`.
 
 `GET /syntheses/current/graph` renders the open wave's project graph (else the

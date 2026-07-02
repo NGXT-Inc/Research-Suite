@@ -167,6 +167,11 @@ Produce three artifacts and associate each to the reflection wave:
 Do not create the experiments yourself during reflection. They are materialized
 only when `reflection.transition(publish)` succeeds after reviewer approval.
 
+Before requesting review, call `reflection.get` and inspect
+`project_graph_diff` when it is available. Use it as a compact previous-vs-new
+check: what nodes/edges were added, pruned, or changed relative to the last
+published project graph.
+
 Then `reflection.transition(submit_reflection_artifacts)`.
 
 ## Step 4 — review

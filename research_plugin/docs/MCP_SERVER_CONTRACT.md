@@ -144,6 +144,11 @@ invalidates the prior reflections.
 
 Graph node `refs` resolve `syn_` ids too, so experiment graphs and the
 project graph can cross-link to the reflection that motivated them.
+`reflection.get` includes `project_graph_diff`: when the current wave has a
+submitted project graph and a previous published graph exists, it compares the
+two pinned graph versions and reports added, removed, changed, and unchanged
+node/edge groups. When either graph cannot be read, the block is present with
+`available: false` and an explanatory `reason`/`problems` list.
 `workflow.status_and_next` carries a `project_reflection` block while a wave
 is open (slim wave state + gate guidance) or when the project has drifted
 from the last published reflection (computed on read, never stored). Drift has
