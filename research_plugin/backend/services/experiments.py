@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+import re
 from typing import Any
 
 from ..domain.artifacts import plan_sections_missing, report_problems
@@ -29,6 +30,55 @@ from ..utils import NotFoundError, ValidationError, WorkflowError
 from ..utils import new_id
 from ..utils import now_iso
 from .pinned import pinned_artifact_text
+
+# Claim-status inference markers: (pattern, plain vote, vote when negated in
+# the same clause). A None vote means the direction is unclear — inference
+# bails entirely rather than guessing (see _infer_claim_status_from_conclusion).
+_CLAIM_STATUS_MARKERS: tuple[tuple[re.Pattern[str], str | None, str | None], ...] = (
+    # Refutation stems: "does not contradict" tells us what did NOT happen,
+    # not whether the claim is supported or merely weakened.
+    (re.compile(r"\bcontradict\w*"), "contradicted", None),
+    (re.compile(r"\brefut\w*"), "contradicted", None),
+    (re.compile(r"\bfalsif\w*"), "contradicted", None),
+    (re.compile(r"\bdisprov\w*"), "contradicted", None),
+    # Support stems: negated forms ("could not confirm", "did not improve")
+    # are evidence against, i.e. weakened.
+    (re.compile(r"\bsupport(?:s|ed|ing)?\b"), "supported", "weakened"),
+    (re.compile(r"\bconfirm\w*"), "supported", "weakened"),
+    (re.compile(r"\bbeats?\b"), "supported", "weakened"),
+    (re.compile(r"\bimprov\w*"), "supported", "weakened"),
+    (re.compile(r"\bpositive result\w*"), "supported", "weakened"),
+    (re.compile(r"\b(?:target|criterion|criteria|threshold) met\b"), "supported", "weakened"),
+    # Plain negatives ("beaten by the baseline" is the passive of beat).
+    (re.compile(r"\bunsupported\b"), "weakened", None),
+    (re.compile(r"\bnegative result\w*"), "weakened", None),
+    (re.compile(r"\bweaken\w*"), "weakened", None),
+    (re.compile(r"\binconclusive\b"), "weakened", None),
+    (re.compile(r"\bmixed (?:results?|evidence|findings|signals?)\b"), "weakened", None),
+    (re.compile(r"\bpartial(?:ly)? support\w*"), "weakened", None),
+    (re.compile(r"\bno (?:significant )?effect\b"), "weakened", None),
+    (re.compile(r"\bnot significant\b|\binsignificant\b"), "weakened", None),
+    (re.compile(r"\bbelow (?:the )?baseline\b"), "weakened", None),
+    (re.compile(r"\bbeaten\b"), "weakened", None),
+    (re.compile(r"\bworse than\b"), "weakened", None),
+    (re.compile(r"\bunderperform\w*"), "weakened", None),
+)
+
+_NEGATION_RE = re.compile(
+    r"\b(?:not|no|never|neither|nor|without|cannot|can't|couldn't|didn't|"
+    r"doesn't|wasn't|weren't|fail(?:ed|s)?(?:\s+to)?|unable\s+to|far\s+from)\b"
+)
+# Negation scope ends at a clause boundary.
+_CLAUSE_BOUNDARIES = (". ", "; ", ", ", " but ", " however ", " although ", " yet ")
+
+
+def _negated_in_clause(text: str, match_start: int) -> bool:
+    window = text[max(0, match_start - 40):match_start]
+    for boundary in _CLAUSE_BOUNDARIES:
+        idx = window.rfind(boundary)
+        if idx >= 0:
+            window = window[idx + len(boundary):]
+    return bool(_NEGATION_RE.search(window))
 
 
 class ExperimentService:
@@ -509,21 +559,27 @@ class ExperimentService:
         if not conclusion:
             return []
         suggested_status = self._infer_claim_status_from_conclusion(conclusion)
+        # No inferable direction → no prefilled tool call. A claim.update
+        # skeleton with nothing to update is malformed guidance.
+        if suggested_status is None:
+            return []
         suggestions: list[dict[str, Any]] = []
         for claim in experiment.get("tested_claims") or []:
             claim_id = str(claim.get("id") or "")
             if not claim_id:
                 continue
-            arguments: dict[str, Any] = {
-                "project_id": experiment.get("project_id"),
-                "claim_id": claim_id,
-            }
-            if suggested_status is not None:
-                arguments["status"] = suggested_status
+            if str(claim.get("status") or "") == suggested_status:
+                # Already applied (or already true) — resurfacing an
+                # actionable update forever invites double-application.
+                continue
             suggestions.append(
                 {
                     "tool": "claim.update",
-                    "arguments": arguments,
+                    "arguments": {
+                        "project_id": experiment.get("project_id"),
+                        "claim_id": claim_id,
+                        "status": suggested_status,
+                    },
                     "claim": {
                         "id": claim_id,
                         "statement": claim.get("statement"),
@@ -544,51 +600,30 @@ class ExperimentService:
         return suggestions
 
     def _infer_claim_status_from_conclusion(self, conclusion: str) -> str | None:
-        text = conclusion.lower()
-        contradicted_markers = (
-            "contradict",
-            "refut",
-            "falsif",
-            "opposite",
-        )
-        weakened_markers = (
-            "negative result",
-            "not supported",
-            "not support",
-            "does not support",
-            "did not support",
-            "failed to support",
-            "weaken",
-            "mixed",
-            "inconclusive",
-            "partial",
-            "no effect",
-            "not significant",
-            "did not improve",
-            "failed to improve",
-            "did not beat",
-            "failed to beat",
-            "below baseline",
-        )
-        supported_markers = (
-            "supported",
-            "support the claim",
-            "confirmed",
-            "confirm",
-            "target met",
-            "criterion met",
-            "criteria met",
-            "beat",
-            "improved",
-            "positive result",
-        )
-        if any(marker in text for marker in contradicted_markers):
-            return "contradicted"
-        if any(marker in text for marker in weakened_markers):
-            return "weakened"
-        if any(marker in text for marker in supported_markers):
-            return "supported"
-        return None
+        """Conservative status hint from a free-text conclusion.
+
+        Word-bounded markers vote for a status; a negation cue in the same
+        clause flips the marker to its negated vote, and any ambiguity — an
+        unclear negated marker (e.g. "does not contradict") or votes for more
+        than one status — returns None rather than guessing. A wrong
+        suggestion here can flip a canonical claim the wrong way, so silence
+        beats cleverness.
+        """
+        text = " ".join(conclusion.lower().split())
+        votes: set[str] = set()
+        for pattern, plain_vote, negated_vote in _CLAIM_STATUS_MARKERS:
+            for match in pattern.finditer(text):
+                vote = (
+                    negated_vote
+                    if _negated_in_clause(text, match.start())
+                    else plain_vote
+                )
+                if vote is None:
+                    return None
+                votes.add(vote)
+        if len(votes) != 1:
+            return None
+        return votes.pop()
 
     def _gate_checklist(self, *, conn, experiment: dict[str, Any]) -> dict[str, Any]:
         """Current forward gate as machine-readable checklist data.

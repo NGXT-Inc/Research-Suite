@@ -714,6 +714,72 @@ class WorkflowGateTest(unittest.TestCase):
         self.assertEqual(review_item["status"], "passed")
         self.assertTrue(review_item["satisfied"])
 
+    def test_claim_status_inference_is_negation_safe(self) -> None:
+        infer = self.app.experiments._infer_claim_status_from_conclusion
+        # Negative phrasings must never read as their positive stems.
+        self.assertEqual(infer("The claim is unsupported by the data."), "weakened")
+        self.assertEqual(infer("We could not confirm the hypothesis."), "weakened")
+        self.assertEqual(infer("The new model was beaten by the baseline."), "weakened")
+        self.assertEqual(infer("Accuracy did not improve over the baseline."), "weakened")
+        # Unclear or off-topic conclusions return None instead of a guess.
+        self.assertIsNone(infer("Results do not contradict the claim."))
+        self.assertIsNone(infer("We failed to refute the null."))
+        self.assertIsNone(infer("We mixed the two datasets before training."))
+        self.assertIsNone(infer("The run finished; see the report for details."))
+        # Conflicting directions bail rather than picking a tier.
+        self.assertIsNone(
+            infer("Metric A improved, however metric B contradicts the claim.")
+        )
+        # Clear directions still infer.
+        self.assertEqual(
+            infer("The threshold rule beat the baseline; the claim is supported."),
+            "supported",
+        )
+        self.assertEqual(infer("Results were inconclusive."), "weakened")
+        self.assertEqual(infer("The experiment refutes the claim."), "contradicted")
+
+    def test_no_suggestion_without_an_inferable_status(self) -> None:
+        claim = self.call(
+            "claim.create",
+            project_id=self.project_id,
+            statement="Thresholding beats the majority baseline.",
+        )
+        self._drive_to_complete_with_claims(
+            claim_ids=[claim["id"]],
+            conclusion="The run finished; see the report for details.",
+        )
+
+    def _drive_to_complete_with_claims(
+        self, *, claim_ids: list[str], conclusion: str
+    ) -> None:
+        exp = self.call(
+            "experiment.create",
+            name="no-suggestion",
+            project_id=self.project_id,
+            intent="No inferable status.",
+            tested_claim_ids=claim_ids,
+        )
+        exp_id = exp["id"]
+        self._write_and_associate(exp_id=exp_id, path="plan.md", role="plan", body=VALID_PLAN)
+        self.call("experiment.transition", project_id=self.project_id, experiment_id=exp_id, transition="submit_design")
+        self._pass_review(exp_id=exp_id, role="design_reviewer")
+        self.call("experiment.transition", project_id=self.project_id, experiment_id=exp_id, transition="mark_ready_to_run")
+        self.call("experiment.transition", project_id=self.project_id, experiment_id=exp_id, transition="start_running")
+        self._write_and_associate(exp_id=exp_id, path="results.json", role="result", body='{"metric": 1}\n')
+        self._write_and_associate(exp_id=exp_id, path="report.md", role="report", body=VALID_REPORT)
+        self._write_and_associate(exp_id=exp_id, path="graph.json", role="graph", body=VALID_GRAPH)
+        self.call("experiment.transition", project_id=self.project_id, experiment_id=exp_id, transition="submit_results")
+        self._pass_review(exp_id=exp_id, role="experiment_reviewer")
+        self.call(
+            "experiment.transition",
+            project_id=self.project_id,
+            experiment_id=exp_id,
+            transition="complete",
+            evidence={"conclusion": conclusion},
+        )
+        state = self.call("experiment.get_state", project_id=self.project_id, experiment_id=exp_id)
+        self.assertEqual(state.get("claim_update_suggestions", []), [])
+
     def test_fresh_capability_revokes_the_open_request(self) -> None:
         exp = self.call("experiment.create", name="revoke-on-refresh", project_id=self.project_id, intent="Revoke on refresh.")
         self._write_and_associate(exp_id=exp["id"], path="plan.md", role="plan", body=VALID_PLAN)
