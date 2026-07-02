@@ -691,3 +691,64 @@ Verification:
 - `git diff --check`
 - `PYTHONPATH=. python -m unittest tests.workflow.test_synthesis_gates tests.workflow.test_reflection_projection tests.surface.test_tool_contracts tests.surface.test_plugin_skills -v` (80 tests)
 - `PYTHONPATH=. python -m unittest discover -s tests -v` (897 tests, 25 skipped)
+
+## Completion audit
+
+Status: complete
+
+Scope checked:
+
+- `improvement_requests/2026-07-02_research_plugin_improvement_requests.md`
+- Current tool contracts / app tool listing
+- `plugin_improvement_progress.md`
+- Git history through `a04363a`
+
+Findings:
+
+1. Make sandbox lifecycle more explicit and durable — addressed by Batch 15.
+2. Add a first-class project active VM concept — addressed by Batch 13.
+3. Provide automatic lease extension or expiry warnings during active runs —
+   addressed by Batch 14 with explicit expiry warnings; provider-specific
+   auto-extension remains intentionally out of scope.
+4. Persist command status independently of SSH — addressed by Batch 19.
+5. Automatic artifact retention from sandboxes — addressed by Batches 16 and 17.
+6. Expose `workflow.status_and_next` consistently — verified as exposed in the
+   current tool list (`workflow.status_and_next`) and covered by workflow,
+   proxy, local-shipping, and contract tests.
+7. Create local experiment folders when experiments materialize — addressed by
+   Batches 5 and 18.
+8. Batch resource association — addressed by Batch 2.
+9. Protect `results.tsv` from clobbering — addressed by Batch 4.
+10. Preflight linter for gated artifacts — addressed by Batch 3.
+11. Better attempt retry semantics — addressed by Batch 23.
+12. Auto-suggest claim updates after reviewed completion — addressed by Batch 12.
+13. Create the MLflow run at experiment start — addressed by Batch 21.
+14. Fix stale immediate MLflow readbacks — addressed by Batch 22.
+15. Surface MLflow links directly in experiment state — addressed by Batch 10,
+    extended by Batches 21 and 22.
+16. Make storage easier to use end-to-end — addressed by Batch 1.
+17. Associate storage objects with experiments and reports more visibly —
+    addressed by Batch 7.
+18. Give clearer guidance on what belongs in storage — addressed by Batch 8.
+19. Reduce review boilerplate — addressed by Batch 11.
+20. Show review gate checklist in experiment state — addressed by Batch 6.
+21. Reviewer capability recovery — addressed by Batch 9.
+22. Reflection is powerful but heavy — addressed by Batch 24.
+23. Better graph diffing between reflections — addressed by Batch 20.
+24. Materialized experiment visibility after reflection publish — addressed by
+    Batch 18.
+
+Verification:
+
+- `PYTHONPATH=. python - <<'PY' ... app.list_tools() ...` confirmed
+  `workflow.status_and_next` is present.
+- Latest full suite: `PYTHONPATH=. python -m unittest discover -s tests -v`
+  (897 tests, 25 skipped).
+- Worktree clean after commits `ff4636f`, `0731bb6`, `990038e`, and `a04363a`
+  for the final four batches in this continuation.
+
+Remaining scoped requests:
+
+- None from the saved improvement request list. The two Git/reproducibility
+  requests remain excluded by the saved-list scope; `Protect results.tsv from
+  clobbering` was retained and addressed.
