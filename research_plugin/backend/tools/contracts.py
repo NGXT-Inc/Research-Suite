@@ -773,8 +773,8 @@ TOOL_CONTRACTS: dict[str, ToolContract] = {
             "Get one experiment state. Includes 'allowed_transitions': the "
             "transitions available from the current status, each with what it "
             "'requires' (e.g. a registered plan resource, a passing review). "
-            "Once running or later, includes the central 'mlflow' context for "
-            "quantitative logging."
+            "Once running or later, includes the central 'mlflow' context and "
+            "any plugin-created 'mlflow_run' identity for quantitative logging."
         ),
     ),
     "experiment.materialize_folders": ToolContract(
@@ -794,7 +794,8 @@ TOOL_CONTRACTS: dict[str, ToolContract] = {
             "experiment.get_state.allowed_transitions for valid transitions "
             "and their preconditions from the current status. When a transition "
             "starts the experiment running, the result includes an 'mlflow' "
-            "connection block for quantitative logging."
+            "connection block for quantitative logging and, when the backend "
+            "MLflow write URI is configured, a plugin-created run id to resume."
         ),
     ),
     "mlflow.context": ToolContract(
@@ -806,8 +807,8 @@ TOOL_CONTRACTS: dict[str, ToolContract] = {
             "navigation. With experiment_id, also returns the exact "
             "rp/<project>/<experiment> experiment name and env vars to set "
             "(MLFLOW_TRACKING_URI, MLFLOW_EXPERIMENT_NAME, …) before a "
-            "quantitative run. Returns configured=false when no tracking server "
-            "is set."
+            "quantitative run, plus the plugin-created run id when available. "
+            "Returns configured=false when no tracking server is set."
         ),
     ),
     "reflection.create": ToolContract(

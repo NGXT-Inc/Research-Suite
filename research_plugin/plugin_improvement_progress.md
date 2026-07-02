@@ -561,3 +561,34 @@ Verification:
 - `PYTHONPATH=. python -m unittest tests.workflow.test_synthesis_gates tests.surface.test_tool_contracts tests.surface.test_plugin_skills -v` (69 tests)
 - `PYTHONPATH=. python -m unittest tests.workflow.test_workflow_slim tests.surface.test_http_api.ResearchPluginHttpApiTest.test_synthesis_endpoints_and_project_graph tests.structure.test_plane_layout.PlaneImportLintTest -v` (31 tests)
 - `PYTHONPATH=. python -m unittest discover -s tests -v` (886 tests, 25 skipped)
+
+## Batch 21: MLflow run identity at experiment start
+
+Status: complete
+
+Request addressed:
+
+- Create the MLflow run at experiment start.
+
+Implementation notes:
+
+- Added durable MLflow run columns to experiment state and project them as a
+  compact `mlflow_run` block.
+- Added a best-effort `CentralMlflowService.create_run` path that uses the
+  backend MLflow write URI to create the MLflow experiment if needed, then
+  creates the initial RUNNING run with Research Plugin tags.
+- `experiment.transition(start_running)` now attempts that run creation once,
+  persists the run id, and returns it through `mlflow.run` plus
+  `MLFLOW_RUN_ID` / `RP_MLFLOW_RUN_ID` env vars for resume-in-place logging.
+- `experiment.get_state`, `mlflow.context`, and HTTP experiment state keep
+  surfacing the same persisted run identity after the transition.
+- Updated MLflow docs, MCP/UI docs, tool descriptions, and the research
+  workflow skill to tell agents to resume the plugin-created run.
+
+Verification:
+
+- `git diff --check`
+- `PYTHONPATH=. python -m unittest tests.state.test_mlflow_tracking tests.surface.test_http_api.ResearchPluginHttpApiTest.test_running_transition_and_tool_hand_mlflow_block tests.surface.test_tool_contracts tests.surface.test_plugin_skills -v` (31 tests)
+- `PYTHONPATH=. python -m unittest tests.workflow.test_experiment_slim tests.structure.test_plane_layout.PlaneImportLintTest -v` (31 tests)
+- `PYTHONPATH=. python -m unittest tests.state.test_mlflow_tracking tests.state.test_store_migrations tests.surface.test_http_api tests.workflow.test_experiment_slim tests.surface.test_tool_contracts tests.surface.test_plugin_skills tests.structure.test_plane_layout.PlaneImportLintTest -v` (100 tests)
+- `PYTHONPATH=. python -m unittest discover -s tests -v` (888 tests, 25 skipped)

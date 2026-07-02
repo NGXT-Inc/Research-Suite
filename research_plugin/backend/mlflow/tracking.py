@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import time
 from dataclasses import dataclass
+from datetime import datetime, timezone
 from typing import Callable, Mapping
 
 import httpx
@@ -76,7 +77,8 @@ class CentralMlflowService:
     ) -> None:
         self.mode = mode.strip().lower()
         self.tracking_uri = tracking_uri.strip().rstrip("/")
-        self.server_uri = server_uri.strip().rstrip("/") or self.tracking_uri
+        self._control_uri = server_uri.strip().rstrip("/")
+        self.server_uri = self._control_uri or self.tracking_uri
         self.dashboard_url = (dashboard_url.strip().rstrip("/") or self.tracking_uri)
         self.note = note.strip()
         self._health_check = health_check
@@ -156,6 +158,137 @@ class CentralMlflowService:
                 else self._unconfigured_note()
             ),
         )
+
+    def create_run(
+        self,
+        *,
+        project_id: str,
+        experiment_id: str,
+        attempt_index: int = 1,
+        run_name: str = "",
+    ) -> dict[str, object]:
+        """Best-effort control-plane creation of the initial MLflow run.
+
+        The backend uses ``RESEARCH_PLUGIN_MLFLOW_SERVER_URI`` for this write.
+        Agents still need ``RESEARCH_PLUGIN_MLFLOW_TRACKING_URI`` to resume the
+        returned run id from their execution location, so both endpoints are
+        required before the plugin creates a run.
+        """
+        context = self.context(project_id=project_id, experiment_id=experiment_id)
+        name = run_name.strip() or f"{experiment_id}-attempt-{attempt_index}"
+        result: dict[str, object] = {
+            "created": False,
+            "configured": context.configured,
+            "control_configured": bool(self._control_uri),
+            "experiment_name": context.experiment_name,
+            "run_name": name,
+        }
+        if not context.configured:
+            result["note"] = context.note
+            return result
+        if not self._control_uri:
+            result["note"] = (
+                "MLflow run creation requires RESEARCH_PLUGIN_MLFLOW_SERVER_URI "
+                "so the control plane can create the run before handing its id "
+                "to the agent."
+            )
+            return result
+        try:
+            start_ms = int(time.time() * 1000)
+            with httpx.Client(timeout=3.0) as client:
+                mlflow_experiment_id = self._ensure_mlflow_experiment(
+                    client=client,
+                    base=self._control_uri,
+                    experiment_name=context.experiment_name,
+                )
+                payload = {
+                    "experiment_id": mlflow_experiment_id,
+                    "start_time": start_ms,
+                    "run_name": name,
+                    "tags": [
+                        {"key": "project_id", "value": project_id},
+                        {"key": "experiment_id", "value": experiment_id},
+                        {"key": "attempt_index", "value": str(attempt_index)},
+                        {"key": "created_by", "value": "research_plugin"},
+                    ],
+                }
+                response = client.post(
+                    f"{self._control_uri}/api/2.0/mlflow/runs/create",
+                    json=payload,
+                )
+                response.raise_for_status()
+                run = response.json().get("run") or {}
+                info = run.get("info") or {}
+        except Exception as exc:  # noqa: BLE001 - run creation is advisory
+            result["error"] = f"MLflow run creation failed: {exc}"
+            return result
+
+        run_id = str(info.get("run_id") or info.get("run_uuid") or "")
+        mlflow_experiment_id = str(info.get("experiment_id") or mlflow_experiment_id)
+        result.update(
+            {
+                "created": bool(run_id),
+                "experiment_id": mlflow_experiment_id,
+                "run_id": run_id,
+                "run_name": str(info.get("run_name") or name),
+                "status": str(info.get("status") or "RUNNING"),
+                "artifact_uri": str(info.get("artifact_uri") or ""),
+                "created_at": _mlflow_ms_to_iso(info.get("start_time") or start_ms),
+            }
+        )
+        if self.dashboard_url and mlflow_experiment_id and run_id:
+            result["dashboard_run_url"] = (
+                f"{self.dashboard_url}/#/experiments/{mlflow_experiment_id}/runs/{run_id}"
+            )
+        return result
+
+    def _ensure_mlflow_experiment(
+        self, *, client: httpx.Client, base: str, experiment_name: str
+    ) -> str:
+        found = self._find_mlflow_experiment_id(
+            client=client,
+            base=base,
+            experiment_name=experiment_name,
+        )
+        if found:
+            return found
+        try:
+            response = client.post(
+                f"{base}/api/2.0/mlflow/experiments/create",
+                json={"name": experiment_name},
+            )
+            response.raise_for_status()
+            created = str(response.json().get("experiment_id") or "")
+            if created:
+                return created
+        except httpx.HTTPError:
+            # A concurrent creator may have won the race. Search once more
+            # before letting the caller report the failure.
+            pass
+        found = self._find_mlflow_experiment_id(
+            client=client,
+            base=base,
+            experiment_name=experiment_name,
+        )
+        if found:
+            return found
+        raise RuntimeError(f"MLflow experiment could not be created: {experiment_name}")
+
+    def _find_mlflow_experiment_id(
+        self, *, client: httpx.Client, base: str, experiment_name: str
+    ) -> str:
+        response = client.get(
+            f"{base}/api/2.0/mlflow/experiments/search",
+            params={
+                "max_results": 1000,
+                "filter": "name = '" + experiment_name.replace("'", "\\'") + "'",
+            },
+        )
+        response.raise_for_status()
+        for experiment in response.json().get("experiments") or []:
+            if str(experiment.get("name") or "") == experiment_name:
+                return str(experiment.get("experiment_id") or "")
+        return ""
 
     def health(self) -> dict[str, object]:
         tracking_configured = bool(self.tracking_uri)
@@ -266,3 +399,13 @@ class CentralMlflowService:
             self.note
             or "Centralized MLflow is not configured; set RESEARCH_PLUGIN_MLFLOW_TRACKING_URI."
         )
+
+
+def _mlflow_ms_to_iso(value: object) -> str:
+    try:
+        millis = int(value)
+    except (TypeError, ValueError):
+        return ""
+    return datetime.fromtimestamp(millis / 1000, tz=timezone.utc).isoformat().replace(
+        "+00:00", "Z"
+    )

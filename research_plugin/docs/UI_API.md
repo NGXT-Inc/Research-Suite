@@ -311,6 +311,10 @@ experiment. Use these for large retained artifacts such as checkpoints, logs,
 or datasets that should be visible to reviewers but are not repo resources.
 Once an experiment is `running` or later, experiment state also includes
 `mlflow`, the central tracking context and dashboard link for that experiment.
+If `start_running` created a backend-owned MLflow run, state also includes
+`mlflow_run`; the `mlflow` block nests it as `mlflow.run` and adds
+`MLFLOW_RUN_ID` / `RP_MLFLOW_RUN_ID` to `mlflow.env` for resume-in-place
+logging.
 Completed experiments with tested claims and a conclusion include
 `claim_update_suggestions`, a list of scoped `claim.update` call skeletons that
 the UI can show as follow-up actions after review.

@@ -130,18 +130,25 @@ and env vars for a quantitative run:
 ```
 
 `experiment.transition(start_running)` also returns the same experiment-scoped
-MLflow block as a convenience when a run begins. After that point,
-`experiment.get_state` and the HTTP experiment state endpoint keep surfacing the
-experiment-scoped block so agents and the UI do not need to rediscover the
-tracking namespace.
+MLflow block as a convenience when a run begins. When
+`RESEARCH_PLUGIN_MLFLOW_SERVER_URI` is configured, the control plane also
+creates an initial MLflow run and persists its identity on the experiment. The
+returned block then includes `mlflow.run.run_id`, and `mlflow.env` includes
+`MLFLOW_RUN_ID` / `RP_MLFLOW_RUN_ID` so an agent can resume that run rather
+than accidentally creating a sibling run. After that point, `mlflow.context`,
+`experiment.get_state`, and the HTTP experiment state endpoint keep surfacing
+the experiment-scoped block and run identity so agents and the UI do not need
+to rediscover the tracking namespace.
 
 Agents should use those env vars for quantitative experiments, whether running
-locally or inside a sandbox. They should not start MLflow servers in sandboxes.
-The plugin does not rely on ambient shell state for this: a local agent or an
-SSH-driven sandbox run must read this block from MCP and set the returned env
-vars on the command that starts training. If `MLFLOW_TRACKING_URI` is absent
-from the current shell, call `mlflow.context`; do not fall back to a
-file-backed local MLflow store for a Research Plugin experiment.
+locally or inside a sandbox. If `MLFLOW_RUN_ID` is present, resume it with
+MLflow's native API (for example `mlflow.start_run(run_id=...)`) before logging.
+They should not start MLflow servers in sandboxes. The plugin does not rely on
+ambient shell state for this: a local agent or an SSH-driven sandbox run must
+read this block from MCP and set the returned env vars on the command that
+starts training. If `MLFLOW_TRACKING_URI` is absent from the current shell, call
+`mlflow.context`; do not fall back to a file-backed local MLflow store for a
+Research Plugin experiment.
 
 ### Quantitative Run Metadata V0
 
@@ -162,6 +169,11 @@ primary_metric, when there is a clear primary metric
 primary_metric_direction, when there is a clear primary metric
 execution backend or sandbox id, when readily available
 ```
+
+When the plugin-created run is available, it already has `project_id`,
+`experiment_id`, `attempt_index`, and `created_by=research_plugin` tags. Agents
+may add run-purpose, metric-direction, backend, dataset, and config metadata to
+that same run as the experiment executes.
 
 Agents may log lightweight dataset or config notes when they are obvious and
 useful, but dataset digests, dataset versioning, config hashes, git metadata,

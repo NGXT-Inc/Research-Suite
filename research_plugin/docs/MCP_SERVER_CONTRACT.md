@@ -331,7 +331,12 @@ content_type, status, expires_at, producing_run, source_uri, notes}` for every
 non-deleted storage object produced by the experiment. Once status is `running`
 or later, `experiment.get_state` also includes the experiment-scoped `mlflow`
 block and `mlflow_guidance`, matching the central tracking context returned by
-`experiment.transition(start_running)` and `mlflow.context`. Completed
+`experiment.transition(start_running)` and `mlflow.context`. When the backend
+MLflow write URI is configured, `start_running` creates the initial MLflow run;
+state includes `mlflow_run`, and the `mlflow` block nests the same object as
+`mlflow.run` while adding `MLFLOW_RUN_ID` / `RP_MLFLOW_RUN_ID` to `mlflow.env`.
+Agents should resume that plugin-created run instead of creating a sibling run.
+Completed
 experiments with tested claims and a conclusion include
 `claim_update_suggestions`: conservative `claim.update` call skeletons scoped
 by `project_id` and `claim_id`, with an inferred `suggested_status` only when

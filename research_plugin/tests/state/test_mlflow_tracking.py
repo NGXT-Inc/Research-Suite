@@ -15,6 +15,57 @@ from backend.mlflow.tracking import CentralMlflowService
 from backend.utils import ValidationError
 
 
+class _JsonResponse:
+    def __init__(self, payload: dict, status_code: int = 200) -> None:
+        self.payload = payload
+        self.status_code = status_code
+
+    def json(self) -> dict:
+        return self.payload
+
+    def raise_for_status(self) -> None:
+        if self.status_code >= 400:
+            raise RuntimeError(f"HTTP {self.status_code}")
+
+
+class _RunCreateClient:
+    def __init__(self) -> None:
+        self.gets: list[tuple[str, dict]] = []
+        self.posts: list[tuple[str, dict]] = []
+
+    def __enter__(self):
+        return self
+
+    def __exit__(self, *_args) -> None:
+        return None
+
+    def get(self, url: str, params: dict | None = None) -> _JsonResponse:
+        self.gets.append((url, params or {}))
+        return _JsonResponse({"experiments": []})
+
+    def post(self, url: str, json: dict | None = None) -> _JsonResponse:
+        payload = json or {}
+        self.posts.append((url, payload))
+        if url.endswith("/experiments/create"):
+            return _JsonResponse({"experiment_id": "7"})
+        if url.endswith("/runs/create"):
+            return _JsonResponse(
+                {
+                    "run": {
+                        "info": {
+                            "experiment_id": payload["experiment_id"],
+                            "run_id": "run_123",
+                            "run_name": payload["run_name"],
+                            "status": "RUNNING",
+                            "artifact_uri": "s3://mlflow/run_123",
+                            "start_time": payload["start_time"],
+                        }
+                    }
+                }
+            )
+        raise AssertionError(f"unexpected POST {url}")
+
+
 class MlflowTrackingServiceTest(unittest.TestCase):
     def test_context_uses_stable_project_and_experiment_ids(self) -> None:
         service = CentralMlflowService(
@@ -132,6 +183,65 @@ class MlflowTrackingServiceTest(unittest.TestCase):
         )
         self.assertTrue(metrics["available"])
         self.assertNotIn("base_url", metrics)
+
+    def test_create_run_creates_experiment_and_returns_resume_identity(self) -> None:
+        service = CentralMlflowService(
+            mode="external",
+            tracking_uri="https://mlflow.agent.test",
+            server_uri="http://mlflow.internal:5000",
+            dashboard_url="https://mlflow.ui.test",
+        )
+        client = _RunCreateClient()
+
+        with (
+            patch("backend.mlflow.tracking.httpx.Client", return_value=client),
+            patch("backend.mlflow.tracking.time.time", return_value=1234.0),
+        ):
+            run = service.create_run(
+                project_id="proj_123",
+                experiment_id="exp_456",
+                attempt_index=2,
+            )
+
+        self.assertTrue(run["created"])
+        self.assertEqual(run["experiment_name"], "rp/proj_123/exp_456")
+        self.assertEqual(run["experiment_id"], "7")
+        self.assertEqual(run["run_id"], "run_123")
+        self.assertEqual(run["run_name"], "exp_456-attempt-2")
+        self.assertEqual(run["status"], "RUNNING")
+        self.assertEqual(run["artifact_uri"], "s3://mlflow/run_123")
+        self.assertEqual(
+            run["dashboard_run_url"],
+            "https://mlflow.ui.test/#/experiments/7/runs/run_123",
+        )
+        self.assertEqual(
+            client.gets[0][0],
+            "http://mlflow.internal:5000/api/2.0/mlflow/experiments/search",
+        )
+        run_payload = client.posts[-1][1]
+        self.assertEqual(run_payload["experiment_id"], "7")
+        self.assertEqual(
+            {tag["key"]: tag["value"] for tag in run_payload["tags"]},
+            {
+                "project_id": "proj_123",
+                "experiment_id": "exp_456",
+                "attempt_index": "2",
+                "created_by": "research_plugin",
+            },
+        )
+
+    def test_create_run_requires_backend_write_uri(self) -> None:
+        service = CentralMlflowService(
+            mode="external",
+            tracking_uri="https://mlflow.agent.test",
+        )
+
+        run = service.create_run(project_id="proj_123", experiment_id="exp_456")
+
+        self.assertFalse(run["created"])
+        self.assertTrue(run["configured"])
+        self.assertFalse(run["control_configured"])
+        self.assertIn("RESEARCH_PLUGIN_MLFLOW_SERVER_URI", run["note"])
 
 
 class LocalMlflowServerTest(unittest.TestCase):

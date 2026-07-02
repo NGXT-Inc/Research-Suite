@@ -146,6 +146,10 @@ the `mlflow` block returned by `experiment.transition(start_running)`:
 ```sh
 export MLFLOW_TRACKING_URI="<from mlflow.context.env>"
 export MLFLOW_EXPERIMENT_NAME="<from mlflow.context.env>"
+export RP_PROJECT_ID="<from mlflow.context.env>"
+export RP_EXPERIMENT_ID="<from mlflow.context.env>"
+# Optional: present when the plugin created the initial run at start_running.
+export MLFLOW_RUN_ID="<from mlflow.context.env, if present>"
 mkdir -p "$RP_EXPERIMENT_DIR"/results "$RP_EXPERIMENT_DIR"/figures
 ```
 
@@ -166,9 +170,11 @@ and post to the feed. Do not create a file-backed local MLflow store as the
 default tracking path for Research Plugin experiments. If MLflow is unavailable,
 say so in the report and still save compact result files.
 
-For quantitative runs, keep the MLflow run identity lightweight. Log
-`project_id`, `experiment_id`, and a short `run_purpose` / run group. If there is
-a clear primary metric, also log `primary_metric` and `primary_metric_direction`.
+For quantitative runs, resume the plugin-created run when `MLFLOW_RUN_ID` is
+present; otherwise create one with MLflow's native API. Keep the MLflow run
+identity lightweight. Log `project_id`, `experiment_id`, and a short
+`run_purpose` / run group. If there is a clear primary metric, also log
+`primary_metric` and `primary_metric_direction`.
 Do not add git metadata or claim ids as a default MLflow requirement; claims are
 traceable through the plugin experiment record, and git/data lineage can be added
 later when the project explicitly needs it. Optional dataset or config notes are
@@ -183,7 +189,9 @@ import mlflow
 
 run_purpose = "seed_0_baseline"
 
-with mlflow.start_run(run_name=run_purpose):
+run_id = os.environ.get("MLFLOW_RUN_ID")
+run = mlflow.start_run(run_id=run_id) if run_id else mlflow.start_run(run_name=run_purpose)
+with run:
     mlflow.set_tag("project_id", os.environ["RP_PROJECT_ID"])
     mlflow.set_tag("experiment_id", os.environ["RP_EXPERIMENT_ID"])
     mlflow.set_tag("run_purpose", run_purpose)

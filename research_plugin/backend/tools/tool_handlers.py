@@ -49,6 +49,20 @@ def _mlflow_connection(
     return mlflow_tracking.context(project_id=project_id, experiment_id=experiment_id).to_dict()
 
 
+def _attach_mlflow_run(block: dict[str, Any], run: dict[str, Any] | None) -> dict[str, Any]:
+    if not run:
+        return block
+    out = dict(block)
+    out["run"] = run
+    run_id = str(run.get("run_id") or "")
+    if run_id:
+        env = dict(out.get("env") or {})
+        env["MLFLOW_RUN_ID"] = run_id
+        env["RP_MLFLOW_RUN_ID"] = run_id
+        out["env"] = env
+    return out
+
+
 def _mlflow_project_connection(
     *, mlflow_tracking: Any, project_id: str, experiments: Any
 ) -> dict[str, Any]:
@@ -177,9 +191,38 @@ def _with_mlflow_if_visible(
         project_id=project_id,
         experiment_id=experiment_id,
     )
+    block = _attach_mlflow_run(block, state.get("mlflow_run"))
     state["mlflow"] = block
     state["mlflow_guidance"] = _mlflow_guidance(block)
     return state
+
+
+def _ensure_mlflow_run_for_start(
+    *,
+    experiments: Any,
+    mlflow_tracking: Any,
+    state: dict[str, Any],
+    project_id: str,
+    experiment_id: str,
+) -> dict[str, Any]:
+    if mlflow_tracking is None:
+        return state
+    existing = state.get("mlflow_run") or {}
+    if existing.get("run_id"):
+        return state
+    run = mlflow_tracking.create_run(
+        project_id=project_id,
+        experiment_id=experiment_id,
+        attempt_index=int(state.get("attempt_index") or 1),
+        run_name=f"{experiment_id}-attempt-{int(state.get('attempt_index') or 1)}",
+    )
+    if not (run.get("run_id") or run.get("error")):
+        return state
+    return experiments.record_mlflow_run(
+        project_id=project_id,
+        experiment_id=experiment_id,
+        run=run,
+    )
 
 
 def build_control_tool_handlers(
@@ -231,6 +274,14 @@ def build_control_tool_handlers(
             project_id=project_id,
         )
         resolved_project_id = str(result.get("project_id") or project_id or "")
+        if transition == "start_running":
+            result = _ensure_mlflow_run_for_start(
+                experiments=experiments,
+                mlflow_tracking=mlflow_tracking,
+                state=result,
+                project_id=resolved_project_id,
+                experiment_id=experiment_id,
+            )
         slim = slim_experiment_state(result)
         # The moment an experiment starts running, hand the agent the MLflow
         # connection block so a quantitative run — including a local, non-sandbox
@@ -265,6 +316,7 @@ def build_control_tool_handlers(
             project_id=resolved_project_id,
             experiment_id=experiment_id,
         )
+        block = _attach_mlflow_run(block, state.get("mlflow_run"))
         return _mlflow_context_response(
             project_id=resolved_project_id,
             experiment_id=experiment_id,

@@ -119,10 +119,20 @@ class ResearchHttpApi:
         if not mlflow_visible_for_status(state.get("status")):
             return self._present(state)
         enriched = dict(state)
-        enriched["mlflow"] = self.app.mlflow_tracking.context(
+        mlflow = self.app.mlflow_tracking.context(
             project_id=project_id,
             experiment_id=experiment_id,
         ).to_dict()
+        run = state.get("mlflow_run")
+        if isinstance(run, dict):
+            mlflow["run"] = run
+            run_id = str(run.get("run_id") or "")
+            if run_id:
+                env = dict(mlflow.get("env") or {})
+                env["MLFLOW_RUN_ID"] = run_id
+                env["RP_MLFLOW_RUN_ID"] = run_id
+                mlflow["env"] = env
+        enriched["mlflow"] = mlflow
         return self._present(enriched)
 
     @classmethod

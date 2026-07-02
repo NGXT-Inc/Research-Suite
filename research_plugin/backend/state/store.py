@@ -111,6 +111,12 @@ CREATE TABLE IF NOT EXISTS experiments (
   attempt_index INTEGER NOT NULL DEFAULT 1,
   revision_context TEXT NOT NULL DEFAULT '',
   conclusion TEXT NOT NULL DEFAULT '',
+  mlflow_run_id TEXT NOT NULL DEFAULT '',
+  mlflow_run_name TEXT NOT NULL DEFAULT '',
+  mlflow_run_status TEXT NOT NULL DEFAULT '',
+  mlflow_run_artifact_uri TEXT NOT NULL DEFAULT '',
+  mlflow_run_created_at TEXT,
+  mlflow_run_error TEXT NOT NULL DEFAULT '',
   created_at TEXT NOT NULL,
   updated_at TEXT NOT NULL,
   FOREIGN KEY(project_id) REFERENCES projects(id)
@@ -1003,6 +1009,14 @@ class StateStore(BaseStateStore):
             columns={
                 "conclusion": "TEXT NOT NULL DEFAULT ''",
                 "name": "TEXT NOT NULL DEFAULT ''",
+                # MLflow run identity (July 2026): best-effort run created by
+                # the control plane when an experiment enters `running`.
+                "mlflow_run_id": "TEXT NOT NULL DEFAULT ''",
+                "mlflow_run_name": "TEXT NOT NULL DEFAULT ''",
+                "mlflow_run_status": "TEXT NOT NULL DEFAULT ''",
+                "mlflow_run_artifact_uri": "TEXT NOT NULL DEFAULT ''",
+                "mlflow_run_created_at": "TEXT",
+                "mlflow_run_error": "TEXT NOT NULL DEFAULT ''",
             },
         )
         self._ensure_columns(

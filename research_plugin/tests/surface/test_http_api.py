@@ -40,6 +40,7 @@ class ResearchPluginHttpApiTest(unittest.TestCase):
     def configure_mlflow(self, service: CentralMlflowService) -> None:
         self.app.mlflow_tracking.mode = service.mode
         self.app.mlflow_tracking.tracking_uri = service.tracking_uri
+        self.app.mlflow_tracking._control_uri = service._control_uri
         self.app.mlflow_tracking.server_uri = service.server_uri
         self.app.mlflow_tracking.dashboard_url = service.dashboard_url
         self.app.mlflow_tracking.note = service.note
@@ -363,6 +364,7 @@ class ResearchPluginHttpApiTest(unittest.TestCase):
         mlflow = CentralMlflowService(
             mode="external",
             tracking_uri="https://mlflow.test",
+            server_uri="http://mlflow.internal:5000",
             dashboard_url="https://mlflow.test",
             health_check=lambda: True,
         )
@@ -377,14 +379,34 @@ class ResearchPluginHttpApiTest(unittest.TestCase):
         self.assertNotIn("mlflow", before_start)
 
         # Transitioning into running hands back the MLflow connection block.
-        transitioned = self.app.call_tool(
-            "experiment.transition",
-            {"project_id": project_id, "experiment_id": exp_id, "transition": "start_running"},
+        run_created = {
+            "created": True,
+            "experiment_name": f"rp/{project_id}/{exp_id}",
+            "experiment_id": "7",
+            "run_id": "run_123",
+            "run_name": f"{exp_id}-attempt-1",
+            "status": "RUNNING",
+            "artifact_uri": "s3://mlflow/run_123",
+            "created_at": "2026-07-02T12:00:00Z",
+            "dashboard_run_url": "https://mlflow.test/#/experiments/7/runs/run_123",
+        }
+        with patch.object(CentralMlflowService, "create_run", return_value=run_created) as create_run:
+            transitioned = self.app.call_tool(
+                "experiment.transition",
+                {"project_id": project_id, "experiment_id": exp_id, "transition": "start_running"},
+            )
+        create_run.assert_called_once_with(
+            project_id=project_id,
+            experiment_id=exp_id,
+            attempt_index=1,
+            run_name=f"{exp_id}-attempt-1",
         )
         self.assertEqual(transitioned["status"], "running")
         self.assertTrue(transitioned["mlflow"]["configured"])
         self.assertEqual(transitioned["mlflow"]["experiment_name"], f"rp/{project_id}/{exp_id}")
         self.assertEqual(transitioned["mlflow"]["env"]["MLFLOW_TRACKING_URI"], "https://mlflow.test")
+        self.assertEqual(transitioned["mlflow"]["run"]["run_id"], "run_123")
+        self.assertEqual(transitioned["mlflow"]["env"]["MLFLOW_RUN_ID"], "run_123")
         self.assertIn("MLflow", transitioned["mlflow_guidance"])
 
         state = self.app.call_tool(
@@ -393,11 +415,14 @@ class ResearchPluginHttpApiTest(unittest.TestCase):
         )
         self.assertTrue(state["mlflow"]["configured"])
         self.assertEqual(state["mlflow"]["experiment_name"], f"rp/{project_id}/{exp_id}")
+        self.assertEqual(state["mlflow_run"]["run_id"], "run_123")
+        self.assertEqual(state["mlflow"]["run"]["run_id"], "run_123")
         self.assertIn("MLflow", state["mlflow_guidance"])
 
         http_state = self.request("GET", f"/api/projects/{project_id}/experiments/{exp_id}")
         self.assertTrue(http_state["mlflow"]["configured"])
         self.assertEqual(http_state["mlflow"]["experiment_name"], f"rp/{project_id}/{exp_id}")
+        self.assertEqual(http_state["mlflow"]["run"]["run_id"], "run_123")
 
         # The standalone MLflow context tool returns the same block on demand.
         ctx = self.app.call_tool(
@@ -408,6 +433,8 @@ class ResearchPluginHttpApiTest(unittest.TestCase):
         self.assertTrue(ctx["mlflow"]["configured"])
         self.assertEqual(ctx["mlflow"]["experiment_name"], f"rp/{project_id}/{exp_id}")
         self.assertIn("MLFLOW_EXPERIMENT_NAME", ctx["mlflow"]["env"])
+        self.assertEqual(ctx["mlflow"]["run"]["run_id"], "run_123")
+        self.assertEqual(ctx["mlflow"]["env"]["MLFLOW_RUN_ID"], "run_123")
 
         # Without an experiment id it gives project-level navigation context.
         project_ctx = self.app.call_tool("mlflow.context", {"project_id": project_id})

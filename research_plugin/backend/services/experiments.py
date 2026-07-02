@@ -368,6 +368,7 @@ class ExperimentService:
                 project_id=str(data["project_id"]),
                 experiment_id=experiment_id,
             )
+            data["mlflow_run"] = self._mlflow_run_from_row(experiment=data)
             review_rows = conn.execute(
                 """
                 SELECT * FROM reviews
@@ -390,6 +391,89 @@ class ExperimentService:
         finally:
             if owns_conn:
                 conn.close()
+
+    def _mlflow_run_from_row(self, *, experiment: dict[str, Any]) -> dict[str, Any] | None:
+        run_id = str(experiment.get("mlflow_run_id") or "")
+        error = str(experiment.get("mlflow_run_error") or "")
+        if not run_id and not error:
+            return None
+        result: dict[str, Any] = {
+            "run_id": run_id or None,
+            "run_name": str(experiment.get("mlflow_run_name") or ""),
+            "status": str(experiment.get("mlflow_run_status") or ""),
+            "artifact_uri": str(experiment.get("mlflow_run_artifact_uri") or ""),
+            "created_at": experiment.get("mlflow_run_created_at"),
+            "created_by_plugin": bool(run_id),
+        }
+        if error:
+            result["error"] = error
+        return result
+
+    def record_mlflow_run(
+        self,
+        *,
+        project_id: str | None = None,
+        experiment_id: str,
+        run: dict[str, Any],
+    ) -> dict[str, Any]:
+        with self.store.transaction() as conn:
+            project_id = self.store.require_project_id(conn=conn, project_id=project_id)
+            existing = self.get_state(
+                experiment_id=experiment_id,
+                project_id=project_id,
+                conn=conn,
+            )
+            now = now_iso()
+            run_id = str(run.get("run_id") or "")
+            run_name = str(run.get("run_name") or "")
+            status = str(run.get("status") or "")
+            artifact_uri = str(run.get("artifact_uri") or "")
+            created_at = str(run.get("created_at") or "") or now
+            error = str(run.get("error") or run.get("note") or "")
+            if not run_id and not error:
+                return existing
+            conn.execute(
+                """
+                UPDATE experiments
+                SET mlflow_run_id = ?,
+                    mlflow_run_name = ?,
+                    mlflow_run_status = ?,
+                    mlflow_run_artifact_uri = ?,
+                    mlflow_run_created_at = ?,
+                    mlflow_run_error = ?,
+                    updated_at = ?
+                WHERE id = ?
+                """,
+                (
+                    run_id,
+                    run_name,
+                    status,
+                    artifact_uri,
+                    created_at if (run_id or error) else None,
+                    "" if run_id else error,
+                    now,
+                    experiment_id,
+                ),
+            )
+            self.store.record_event(
+                conn=conn,
+                project_id=project_id,
+                event_type=(
+                    "experiment.mlflow_run_created"
+                    if run_id
+                    else "experiment.mlflow_run_unavailable"
+                ),
+                target_type="experiment",
+                target_id=experiment_id,
+                payload={
+                    "run_id": run_id,
+                    "run_name": run_name,
+                    "status": status,
+                    "error": "" if run_id else error,
+                    "previous_run_id": existing.get("mlflow_run_id") or "",
+                },
+            )
+            return self.get_state(experiment_id=experiment_id, conn=conn)
 
     def _claim_update_suggestions(
         self, *, experiment: dict[str, Any]

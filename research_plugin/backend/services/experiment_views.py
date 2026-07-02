@@ -48,6 +48,7 @@ def slim_experiment_state(full: dict[str, Any]) -> dict[str, Any]:
         "updated_at": full.get("updated_at"),
         "allowed_transitions": full.get("allowed_transitions", []),
         "gate_checklist": full.get("gate_checklist", {}),
+        "mlflow_run": full.get("mlflow_run"),
         "claim_update_suggestions": full.get("claim_update_suggestions", []),
         "tested_claims": [
             {field: claim.get(field) for field in _SLIM_CLAIM_FIELDS}
