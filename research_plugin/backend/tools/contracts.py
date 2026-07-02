@@ -864,9 +864,13 @@ TOOL_CONTRACTS: dict[str, ToolContract] = {
         input_model=ResourceValidateInput,
         description=(
             "Preflight-lint a repo file before resource.register_file or "
-            "resource.associate. For gated roles such as plan, report, and graph, "
-            "this checks the same byte caps, required sections, report figures, "
-            "and graph envelope constraints enforced at workflow transitions."
+            "resource.associate. Covers every gated role — plan, report, "
+            "graph/project_graph, reflection_doc, reflection_lens_doc, and "
+            "change_spec — with the same byte caps and structural lints the "
+            "workflow transitions enforce. Two checks remain gate-only: "
+            "change-spec claim/experiment existence (needs canonical state) "
+            "and pinned-byte staleness — gates lint the bytes captured at "
+            "associate, so re-associate after editing the file."
         ),
         plane="data",
     ),

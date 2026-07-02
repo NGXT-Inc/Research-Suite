@@ -10,18 +10,23 @@ from ..domain.graph_lint import graph_problems
 from ..domain.markdown_images import (
     MARKDOWN_FIGURE_MAX_BYTES,
     MARKDOWN_FIGURE_ROLES,
+    markdown_image_links,
+)
+from ..domain.reflection_artifacts import (
+    change_spec_structure_problems,
+    reflection_doc_problems,
+    reflection_lens_doc_problems,
 )
 from ..domain.vocabulary import (
     GATED_ROLE_BYTE_CAPS,
+    LEGACY_REFLECTION_DOC_ROLE,
     PROJECT_GRAPH_ROLE,
+    REFLECTION_LENS_DOC_ROLES,
     RESOURCE_ROLES,
 )
 from ..utils import NotFoundError, ValidationError
 from .repo_paths import resolve_repo_path
-from .resource_artifacts import (
-    LocalResourceArtifactReader,
-    reject_absolute_markdown_image_targets,
-)
+from .resource_artifacts import reject_absolute_markdown_image_targets
 
 
 def validate_local_resource_artifact(
@@ -44,8 +49,9 @@ def validate_local_resource_artifact(
             raise NotFoundError(f"resource file does not exist: {path}")
         if not file_path.is_file():
             raise ValidationError("v0.0001 resources must be files")
-        data = file_path.read_bytes()
-        size_bytes = len(data)
+        # Stat before reading: non-gated roles (results, models) are routinely
+        # huge and only need the size, matching read_for_association.
+        size_bytes = file_path.stat().st_size
     except (OSError, NotFoundError, ValidationError) as exc:
         return _result(
             path=rel_path,
@@ -65,12 +71,21 @@ def validate_local_resource_artifact(
             problems=problems,
         )
     if size_bytes > max_bytes:
+        # Over-cap parity with the gate: association refuses on size before
+        # reading content, so content lints are noise here too.
         problems.append(
             f"{rel_path} is {size_bytes} bytes; the maximum for a role-{role!r} "
             f"artifact is {max_bytes} bytes"
         )
+        return _result(
+            path=rel_path,
+            role=role,
+            size_bytes=size_bytes,
+            max_bytes=max_bytes,
+            problems=problems,
+        )
 
-    text = data.decode("utf-8", errors="replace")
+    text = file_path.read_bytes().decode("utf-8", errors="replace")
     if role in MARKDOWN_FIGURE_ROLES:
         try:
             reject_absolute_markdown_image_targets(
@@ -84,25 +99,30 @@ def validate_local_resource_artifact(
         if missing:
             problems.append("missing required sections: " + ", ".join(missing))
     elif role == "report":
-        submitted_links = _submitted_figure_links(
-            repo_root=repo_root,
-            rel_path=rel_path,
-            text=text,
-            problems=problems,
-        )
         problems.extend(
             report_problems(
                 text,
                 figure_problem=lambda link: _figure_problem(
-                    repo_root=repo_root,
-                    rel_path=rel_path,
-                    link=link,
-                    submitted_links=submitted_links,
+                    repo_root=repo_root, rel_path=rel_path, link=link
                 ),
             )
         )
     elif role in {"graph", PROJECT_GRAPH_ROLE}:
         problems.extend(graph_problems(text))
+    elif role in {"reflection_doc", LEGACY_REFLECTION_DOC_ROLE}:
+        problems.extend(reflection_doc_problems(text))
+        for link in markdown_image_links(text):
+            problem = _figure_problem(
+                repo_root=repo_root, rel_path=rel_path, link=link
+            )
+            if problem:
+                problems.append(problem)
+    elif role in REFLECTION_LENS_DOC_ROLES:
+        problems.extend(reflection_lens_doc_problems(text))
+    elif role == "change_spec":
+        # Structure only: claim/experiment existence and active-experiment
+        # caps need canonical state and are checked at the transition gate.
+        problems.extend(change_spec_structure_problems(text))
 
     return _result(
         path=rel_path,
@@ -113,33 +133,10 @@ def validate_local_resource_artifact(
     )
 
 
-def _submitted_figure_links(
-    *, repo_root: Path, rel_path: str, text: str, problems: list[str]
-) -> set[str]:
-    try:
-        figures = LocalResourceArtifactReader(repo_root=repo_root).submitted_figures(
-            markdown_rel_path=rel_path,
-            markdown_text=text,
-        )
-    except ValidationError as exc:
-        problems.append(str(exc))
-        return set()
-    return {
-        str(figure.get("link_path") or "")
-        for figure in figures
-        if figure.get("link_path")
-    }
-
-
-def _figure_problem(
-    *,
-    repo_root: Path,
-    rel_path: str,
-    link: str,
-    submitted_links: set[str],
-) -> str | None:
-    if link in submitted_links:
-        return None
+def _figure_problem(*, repo_root: Path, rel_path: str, link: str) -> str | None:
+    # Per-link on-disk check — the same acceptance rule association's figure
+    # capture applies (exists, is a file, within the size cap). Checking each
+    # link independently means one bad link can't fail its siblings.
     resolved = ((repo_root / rel_path).parent / link).resolve()
     try:
         resolved.relative_to(repo_root)
@@ -155,7 +152,7 @@ def _figure_problem(
             f"figure {link!r} is {size} bytes; the maximum figure size is "
             f"{MARKDOWN_FIGURE_MAX_BYTES} bytes"
         )
-    return f"figure {link!r} has no submitted content"
+    return None
 
 
 def _result(

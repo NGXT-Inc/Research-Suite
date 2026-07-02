@@ -111,6 +111,95 @@ class ResourceArtifactValidationTest(unittest.TestCase):
         self.assertFalse(result["gated"])
         self.assertIn("does not exist", result["problems"][0])
 
+    def test_reflection_doc_runs_the_gate_lint(self) -> None:
+        # Same lint the reflection transition runs: a doc without the
+        # required sections must not preflight green.
+        with tempfile.TemporaryDirectory() as tmp:
+            repo = Path(tmp)
+            (repo / "reflection.md").write_text(
+                "## Summary\nOnly a summary.\n", encoding="utf-8"
+            )
+
+            result = validate_local_resource_artifact(
+                repo_root=repo,
+                path="reflection.md",
+                role="reflection_doc",
+            )
+
+        self.assertFalse(result["ok"])
+        self.assertTrue(
+            any("Critical reading" in problem for problem in result["problems"])
+        )
+
+    def test_reflection_lens_doc_rejects_empty_text(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            repo = Path(tmp)
+            (repo / "lens.md").write_text("   \n", encoding="utf-8")
+
+            result = validate_local_resource_artifact(
+                repo_root=repo,
+                path="lens.md",
+                role="reflection_lens_doc",
+            )
+
+        self.assertFalse(result["ok"])
+        self.assertIn("reflection lens document is empty", result["problems"])
+
+    def test_change_spec_runs_the_structural_lint(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            repo = Path(tmp)
+            (repo / "spec.json").write_text(
+                '{"version": 99, "claim_changes": "nope"}', encoding="utf-8"
+            )
+
+            result = validate_local_resource_artifact(
+                repo_root=repo,
+                path="spec.json",
+                role="change_spec",
+            )
+
+        self.assertFalse(result["ok"])
+        self.assertIn("version must be 1", result["problems"])
+        self.assertIn("claim_changes must be a list", result["problems"])
+        self.assertIn("decision must be an object", result["problems"])
+
+    def test_one_escaping_figure_does_not_fail_its_siblings(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            repo = Path(tmp)
+            (repo / "figs").mkdir()
+            (repo / "figs" / "ok.png").write_bytes(b"png bytes")
+            (repo / "report.md").write_text(
+                VALID_REPORT + "\n![bad](../outside.png)\n![good](figs/ok.png)\n",
+                encoding="utf-8",
+            )
+
+            result = validate_local_resource_artifact(
+                repo_root=repo,
+                path="report.md",
+                role="report",
+            )
+
+        escapes = [p for p in result["problems"] if "escapes the repo" in p]
+        self.assertEqual(len(escapes), 1)
+        self.assertFalse(any("ok.png" in problem for problem in result["problems"]))
+
+    def test_oversized_gated_file_skips_content_lint(self) -> None:
+        # Parity with association: the gate refuses on size before reading
+        # content, so the preflight reports the cap and nothing else.
+        with tempfile.TemporaryDirectory() as tmp:
+            repo = Path(tmp)
+            (repo / "plan.md").write_text("x" * 20_000, encoding="utf-8")
+
+            result = validate_local_resource_artifact(
+                repo_root=repo,
+                path="plan.md",
+                role="plan",
+            )
+
+        self.assertFalse(result["ok"])
+        self.assertEqual(len(result["problems"]), 1)
+        self.assertIn("maximum for a role-'plan' artifact", result["problems"][0])
+
 
 if __name__ == "__main__":
     unittest.main()
