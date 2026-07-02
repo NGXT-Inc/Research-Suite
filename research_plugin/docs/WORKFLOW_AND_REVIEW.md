@@ -138,15 +138,16 @@ Local reviewer identity should be modeled by MCP-issued capabilities.
 5. MCP verifies role, target snapshot, capability, and session lineage before
    satisfying the gate.
 
-When the reviewer agent/session identity is already known, Main Codex may call
-`review.request_and_start` instead. That helper performs steps 1, 2, and 4 in
-one control-plane call, returns a `review_session_id`, and withholds the
-plaintext capability from the response.
+Step 3 is deliberate and cannot be skipped: `review.request` returns a
+`reviewer_handoff.spawn_prompt` that already contains the skill name, request
+id, and one-time capability, but only the spawned reviewer consumes it via
+`review.start`. A helper that started the session server-side was removed —
+it let the requesting session submit against its own gate.
 
 `workflow.status_and_next` keeps the user-facing stage as `design_review` or
 `experiment_review`, but exposes `workflow.review_gate.status` for the substate:
 
-- `none`: no request exists; call `review.request` or `review.request_and_start`.
+- `none`: no request exists; call `review.request`.
 - `requested`: request exists, but no reviewer has started; launch the reviewer.
 - `started`: reviewer is active; wait and poll `review.status`.
 

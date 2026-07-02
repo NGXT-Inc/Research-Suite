@@ -16,7 +16,6 @@ from backend.tools.contracts import (
     MlflowFinalizeRunInput,
     ResourceAssociateBatchInput,
     ResourceValidateInput,
-    ReviewRequestAndStartInput,
     SandboxPullOutputsInput,
     StorageCompleteUploadInput,
     StorageDownloadFileInput,
@@ -165,12 +164,11 @@ class ToolContractRegistryTest(unittest.TestCase):
             "data",
         )
 
-    def test_review_request_and_start_is_control_plane(self) -> None:
-        self.assertIs(
-            TOOL_CONTRACTS["review.request_and_start"].input_model,
-            ReviewRequestAndStartInput,
-        )
-        self.assertEqual(TOOL_CONTRACTS["review.request_and_start"].plane, "control")
+    def test_review_request_and_start_is_removed(self) -> None:
+        # Removed: it started the reviewer session server-side, letting the
+        # producer submit against its own gate. review.request's spawn-ready
+        # handoff is the sanctioned one-call path.
+        self.assertNotIn("review.request_and_start", TOOL_CONTRACTS)
 
     def test_mlflow_finalize_run_is_control_plane(self) -> None:
         self.assertIs(

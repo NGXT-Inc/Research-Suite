@@ -454,17 +454,6 @@ class ReviewRequestInput(ProjectScopedInput):
     producer_session_id: str = "main"
 
 
-class ReviewRequestAndStartInput(ReviewRequestInput):
-    declared_agent: str = ""
-    caller_session_id: str = Field(
-        default="",
-        description=(
-            "Reviewer session identity. Use a value distinct from "
-            "producer_session_id when the reviewer agent is known."
-        ),
-    )
-
-
 class ReviewStartInput(ContractModel):
     review_request_id: str
     reviewer_capability: str
@@ -975,14 +964,11 @@ TOOL_CONTRACTS: dict[str, ToolContract] = {
     ),
     "review.request": ToolContract(
         input_model=ReviewRequestInput,
-        description="Create a review request and reviewer capability.",
-    ),
-    "review.request_and_start": ToolContract(
-        input_model=ReviewRequestAndStartInput,
         description=(
-            "Create a review request and immediately start a read-only reviewer "
-            "session. Returns request/session metadata without exposing the "
-            "one-time reviewer capability."
+            "Create a review request and one-time reviewer capability. The "
+            "response's reviewer_handoff.spawn_prompt is a ready-to-use prompt "
+            "for the reviewer subagent — the reviewer itself consumes the "
+            "capability via review.start, never the requesting session."
         ),
     ),
     "review.start": ToolContract(

@@ -415,7 +415,7 @@ class WorkflowService:
             return self._next(
                 gate=gate,
                 action=f"launch_{action_name}er",
-                allowed=["review.request", "review.request_and_start"],
+                allowed=["review.request"],
                 review_gate=self._review_gate(
                     role=role,
                     skill=skill,
@@ -428,7 +428,7 @@ class WorkflowService:
             return self._next(
                 gate=gate,
                 action=f"launch_{action_name}er",
-                allowed=["review.status", "review.request", "review.request_and_start"],
+                allowed=["review.status", "review.request"],
                 review_gate=self._review_gate(
                     role=role,
                     skill=skill,

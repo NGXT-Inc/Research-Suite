@@ -708,7 +708,6 @@ class WorkflowGateTest(unittest.TestCase):
         self.assertEqual(workflow["review_gate"]["status"], "requested")
         self.assertIn("review.status", workflow["allowed_actions"])
         self.assertIn("review.request", workflow["allowed_actions"])
-        self.assertIn("review.request_and_start", workflow["allowed_actions"])
         self._pass_review(exp_id=exp["id"], role="design_reviewer")
         state = self.call("experiment.get_state", project_id=self.project_id, experiment_id=exp["id"])
         review_item = state["gate_checklist"]["items"][0]
@@ -802,66 +801,46 @@ class WorkflowGateTest(unittest.TestCase):
                     revision_context="should not apply",
                 )
 
-    def test_review_request_and_start_opens_read_only_session(self) -> None:
+    def test_review_request_returns_a_spawn_ready_handoff(self) -> None:
         exp = self.call("experiment.create", name="review-helper", project_id=self.project_id, intent="Review helper.")
         self._write_and_associate(exp_id=exp["id"], path="plan.md", role="plan", body=VALID_PLAN)
         self.call("experiment.transition", project_id=self.project_id, experiment_id=exp["id"], transition="submit_design")
 
-        wf = self.call("workflow.status_and_next", project_id=self.project_id, experiment_id=exp["id"])
-        self.assertIn("review.request_and_start", wf["workflow"]["allowed_actions"])
-        handoff = self.call(
-            "review.request_and_start",
+        req = self.call(
+            "review.request",
             project_id=self.project_id,
             target_type="experiment",
             target_id=exp["id"],
             role="design_reviewer",
-            declared_agent="design-review-agent",
-            caller_session_id="design-review-agent",
         )
+        handoff = req["reviewer_handoff"]
+        self.assertEqual(handoff["skill"], "experiment-design-review")
+        self.assertEqual(handoff["start_tool"], "review.start")
+        # The spawn prompt carries everything the reviewer subagent needs to
+        # start on its own — the requesting session never opens the session.
+        self.assertIn(req["review_request_id"], handoff["spawn_prompt"])
+        self.assertIn(req["reviewer_capability"], handoff["spawn_prompt"])
+        self.assertIn("experiment-design-review", handoff["spawn_prompt"])
 
-        self.assertIn("review_request_id", handoff)
-        self.assertIn("review_session_id", handoff)
-        self.assertNotIn("reviewer_capability", handoff)
-        self.assertNotIn("reviewer_capability", handoff["review_request"])
-        self.assertEqual(handoff["review_session"]["independence"], "verified_agent_review")
-        self.assertFalse(handoff["reviewer_handoff"]["capability_required"])
-
-        status = self.call(
-            "review.status",
-            project_id=self.project_id,
-            target_type="experiment",
-            target_id=exp["id"],
-        )
-        self.assertEqual(status["requests"][0]["status"], "started")
-        self.call("review.submit", review_session_id=handoff["review_session_id"], verdict="pass")
-        state = self.call("experiment.get_state", project_id=self.project_id, experiment_id=exp["id"])
-        review_item = state["gate_checklist"]["items"][0]
-        self.assertEqual(review_item["status"], "passed")
-        self.assertTrue(review_item["satisfied"])
-
-    def test_review_request_and_start_rejects_same_session_before_mint(self) -> None:
+    def test_review_session_cannot_be_opened_by_the_producer(self) -> None:
         exp = self.call("experiment.create", name="review-helper-bad", project_id=self.project_id, intent="Review helper.")
         self._write_and_associate(exp_id=exp["id"], path="plan.md", role="plan", body=VALID_PLAN)
         self.call("experiment.transition", project_id=self.project_id, experiment_id=exp["id"], transition="submit_design")
-
-        with self.assertRaises(ValidationError):
-            self.call(
-                "review.request_and_start",
-                project_id=self.project_id,
-                target_type="experiment",
-                target_id=exp["id"],
-                role="design_reviewer",
-                producer_session_id="same-session",
-                caller_session_id="same-session",
-            )
-
-        status = self.call(
-            "review.status",
+        req = self.call(
+            "review.request",
             project_id=self.project_id,
             target_type="experiment",
             target_id=exp["id"],
+            role="design_reviewer",
+            producer_session_id="same-session",
         )
-        self.assertEqual(status["requests"], [])
+        with self.assertRaises(PermissionDeniedError):
+            self.call(
+                "review.start",
+                review_request_id=req["review_request_id"],
+                reviewer_capability=req["reviewer_capability"],
+                caller_session_id="same-session",
+            )
 
     # ---- review rejection routing (return_to) ----
 

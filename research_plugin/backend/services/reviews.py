@@ -153,6 +153,8 @@ class ReviewService:
                     role=role,
                     target_type=external_target_type,
                     target_id=target_id,
+                    review_request_id=request_id,
+                    reviewer_capability=capability,
                 ),
             }
 
@@ -579,21 +581,42 @@ class ReviewService:
             data["recovery"] = self._request_recovery(request=data)
         return data
 
-    def reviewer_handoff(self, *, role: str, target_type: str, target_id: str) -> dict[str, Any]:
+    def reviewer_handoff(
+        self,
+        *,
+        role: str,
+        target_type: str,
+        target_id: str,
+        review_request_id: str = "",
+        reviewer_capability: str = "",
+    ) -> dict[str, Any]:
         skill = {
             "design_reviewer": "experiment-design-review",
             "experiment_reviewer": "experiment-attempt-review",
             "reflection_reviewer": "project-reflection-review",
         }.get(role, "")
-        return {
+        external_type = external_reflection_target_type(target_type)
+        handoff: dict[str, Any] = {
             "role": role,
             "skill": skill,
-            "target_type": external_reflection_target_type(target_type),
+            "target_type": external_type,
             "target_id": target_id,
             "read_only": True,
             "start_tool": "review.start",
             "submit_tool": "review.submit",
         }
+        # A ready-to-paste prompt for the reviewer subagent. The capability is
+        # already in this same one-time response; only the spawned reviewer —
+        # never the requesting session — consumes it via review.start.
+        if review_request_id and reviewer_capability and skill:
+            handoff["spawn_prompt"] = (
+                f"You are the {role} for {external_type} {target_id}. "
+                f"Follow the {skill} skill. Begin by calling review.start with "
+                f"review_request_id={review_request_id} and "
+                f"reviewer_capability={reviewer_capability}. You are read-only: "
+                "your sole permitted mutation is review.submit."
+            )
+        return handoff
 
     def snapshot_from_id(self, *, snapshot_id: str) -> dict[str, Any]:
         if "|" not in snapshot_id:

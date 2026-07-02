@@ -527,7 +527,6 @@ to use before creating the folder's project.
 ```text
 review.require(project_id, target_type, target_id, reason)
 review.request(project_id, target_type, target_id, role, reason)
-review.request_and_start(project_id, target_type, target_id, role, reason?, declared_agent?, caller_session_id?)
 review.start(review_request_id, reviewer_capability, declared_agent?)
 review.submit(review_session_id, verdict, notes, findings, evidence?)
 review.status(project_id, target_type, target_id)
@@ -559,7 +558,6 @@ the review satisfies the gate.
 
 ```text
 review.request(project_id, target_type, target_id, role, reason)
-review.request_and_start(project_id, target_type, target_id, role, reason?, declared_agent?, caller_session_id?)
 review.start(review_request_id, reviewer_capability, declared_agent)
 review.submit(review_session_id, verdict, notes, findings, evidence?)
 ```
@@ -585,13 +583,13 @@ review.submit(review_session_id, verdict, notes, findings, evidence?)
 }
 ```
 
-`review.request_and_start` is a convenience wrapper for the common agent
-handoff path. It creates a request, immediately starts a read-only reviewer
-session, and returns `review_request`, `review_session`, `review_request_id`,
-and `review_session_id`. It intentionally does **not** return
-`reviewer_capability`; use the separate `review.request` / `review.start` calls
-when the plaintext capability must be handed to another process before session
-creation.
+The response's `reviewer_handoff.spawn_prompt` is a ready-to-paste prompt for
+the reviewer subagent (skill name, `review_request_id`, and the one-time
+capability). The session is deliberately NOT started server-side: only the
+spawned reviewer consumes the capability via `review.start`, so the requesting
+session can never submit against its own gate. (An earlier
+`review.request_and_start` helper that auto-started the session was removed
+for exactly that reason.)
 
 `review.status` and the HTTP review queue expose the same `target_snapshot`
 shape on review request and submitted review records. Frontends should use
