@@ -45,10 +45,19 @@ export function postTime(ts, now) {
 // Interleave day dividers into a newest-first post list. The leading "Today"
 // divider is skipped (a feed that opens on today needs no announcement); any
 // other day change gets one, including a non-today first group.
-export function withDayDividers(posts, now) {
+//
+// lastSeenSeq (optional) marks where the previous visit ended: one `unseen`
+// item lands between the newest already-seen post and everything above it.
+// No marker when nothing is new, or when nothing was seen before (first visit).
+export function withDayDividers(posts, now, lastSeenSeq = null) {
   const items = [];
   let prevKey = dayKey(now);
+  let unseenPlaced = lastSeenSeq == null || (posts.length > 0 && posts[0].created_seq <= lastSeenSeq);
   for (const post of posts) {
+    if (!unseenPlaced && post.created_seq <= lastSeenSeq) {
+      items.push({ type: 'unseen', id: 'unseen' });
+      unseenPlaced = true;
+    }
     const ts = post.created_at ? Date.parse(post.created_at) : NaN;
     if (Number.isFinite(ts)) {
       const key = dayKey(ts);

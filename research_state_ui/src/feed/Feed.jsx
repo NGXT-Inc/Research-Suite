@@ -20,12 +20,22 @@ const POLL_MS = 10000;
 export default function Feed() {
   const projectId = useProjectStore(s => s.projectId);
   const [posts, setPosts] = useState([]);
+  const [pending, setPending] = useState([]); // polled posts held behind the pill
+  const [lastSeenSeq, setLastSeenSeq] = useState(null);
   const [cursor, setCursor] = useState(null);
   const [hasMore, setHasMore] = useState(false);
   const [status, setStatus] = useState('loading'); // loading | ready | error
   const [error, setError] = useState('');
   const loadingMoreRef = useRef(false);
   const sentinelRef = useRef(null);
+  // Newest seq across visible + buffered posts, so the poll closure never
+  // re-fetches what it already holds.
+  const topSeqRef = useRef(0);
+  useEffect(() => {
+    topSeqRef.current = pending[0]?.created_seq ?? posts[0]?.created_seq ?? 0;
+  }, [posts, pending]);
+
+  const seenKey = projectId ? `rsui:feed:lastSeen:${projectId}` : null;
 
   // Initial load (and reload on project switch).
   useEffect(() => {
@@ -33,8 +43,13 @@ export default function Feed() {
     let cancelled = false;
     setStatus('loading');
     setPosts([]);
+    setPending([]);
     setCursor(null);
     setHasMore(false);
+    // Where the previous visit ended — frozen for this session so the marker
+    // doesn't chase the reader down the page.
+    const stored = Number(localStorage.getItem(`rsui:feed:lastSeen:${projectId}`));
+    setLastSeenSeq(Number.isFinite(stored) && stored > 0 ? stored : null);
     feedApi.getFeed(projectId, { limit: PAGE_SIZE })
       .then((data) => {
         if (cancelled) return;
@@ -52,24 +67,52 @@ export default function Feed() {
     return () => { cancelled = true; };
   }, [projectId]);
 
-  // Poll for newer posts (prepend, deduped) without disturbing scroll position.
+  // Remember the newest post the reader actually had on screen, for the next
+  // visit's "new since last visit" marker. Buffered posts don't count until
+  // they are revealed.
+  useEffect(() => {
+    if (status !== 'ready' || !seenKey) return;
+    const top = posts[0]?.created_seq;
+    if (top == null) return;
+    const stored = Number(localStorage.getItem(seenKey)) || 0;
+    if (top > stored) localStorage.setItem(seenKey, String(top));
+  }, [posts, status, seenKey]);
+
+  // Poll for newer posts. Fresh posts are buffered, never prepended straight
+  // into the list — a stream that shoves content under the reader teaches them
+  // not to trust their scroll position. The pill releases the buffer; when the
+  // reader is already at the top, it releases itself.
   useEffect(() => {
     if (!projectId || status !== 'ready') return;
     const t = setInterval(() => {
       feedApi.getFeed(projectId, { limit: PAGE_SIZE })
         .then((data) => {
-          const incoming = data.posts || [];
-          setPosts((prev) => {
-            if (!prev.length) return incoming;
-            const top = prev[0].created_seq;
-            const fresh = incoming.filter((p) => p.created_seq > top);
-            return fresh.length ? [...fresh, ...prev] : prev;
-          });
+          const fresh = (data.posts || []).filter((p) => p.created_seq > topSeqRef.current);
+          if (fresh.length) setPending((prev) => [...fresh, ...prev]);
         })
         .catch(() => {});
     }, POLL_MS);
     return () => clearInterval(t);
   }, [projectId, status]);
+
+  const revealPending = useCallback((scroll) => {
+    setPending((buffered) => {
+      if (buffered.length) {
+        setPosts((prev) => {
+          const seen = new Set(prev.map((p) => p.id));
+          return [...buffered.filter((p) => !seen.has(p.id)), ...prev];
+        });
+      }
+      return [];
+    });
+    if (scroll) window.scrollTo({ top: 0 });
+  }, []);
+
+  // At (or near) the top, new posts just appear — the pill is only for readers
+  // who have scrolled into the past.
+  useEffect(() => {
+    if (pending.length && window.scrollY <= 80) revealPending(false);
+  }, [pending, revealPending]);
 
   const loadMore = useCallback(() => {
     if (!projectId || loadingMoreRef.current || cursor == null) return;
@@ -105,13 +148,20 @@ export default function Feed() {
   // One shared clock: every card's relative time ages in step, and the day
   // dividers roll over correctly at midnight.
   const now = useNow();
-  const items = useMemo(() => withDayDividers(posts, now), [posts, now]);
+  const items = useMemo(() => withDayDividers(posts, now, lastSeenSeq), [posts, now, lastSeenSeq]);
 
   return (
     <div className="feed-stage">
       {/* Visually hidden on desktop; the mobile surface styles it as the
           page title (One-Surface redesign). */}
       <h1 className="feed-title">Feed</h1>
+      <div className="feed-newpill-wrap" aria-live="polite">
+        {pending.length > 0 && (
+          <button type="button" className="feed-newpill" onClick={() => revealPending(true)}>
+            ↑ {pending.length} new post{pending.length === 1 ? '' : 's'}
+          </button>
+        )}
+      </div>
       {status === 'loading' && <div className="feed-note">Loading feed…</div>}
       {status === 'error' && <div className="error-message feed-note">{error}</div>}
       {status === 'ready' && posts.length === 0 && (
@@ -121,15 +171,25 @@ export default function Feed() {
       )}
       {posts.length > 0 && (
         <div className="feed-list">
-          {items.map((item) => (
-            item.type === 'day' ? (
-              <div key={item.id} className="feed-day" role="separator">
-                {dayLabel(item.ts, now)}
-              </div>
-            ) : (
+          {items.map((item) => {
+            if (item.type === 'day') {
+              return (
+                <div key={item.id} className="feed-day" role="separator">
+                  {dayLabel(item.ts, now)}
+                </div>
+              );
+            }
+            if (item.type === 'unseen') {
+              return (
+                <div key={item.id} className="feed-unseen" role="separator">
+                  new since your last visit
+                </div>
+              );
+            }
+            return (
               <PostCard key={item.id} post={item.post} projectId={projectId} onView={onView} now={now} />
-            )
-          ))}
+            );
+          })}
         </div>
       )}
       {hasMore && (

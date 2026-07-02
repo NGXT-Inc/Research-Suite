@@ -25,6 +25,36 @@
 .feed-list { display: flex; flex-direction: column; gap: var(--space-4); }
 .feed-sentinel { display: flex; justify-content: center; padding: var(--space-4) 0 var(--space-6); }
 
+/* "N new posts" pill — floats over the column while fresh posts wait in the
+   buffer. Zero-height wrapper so appearing/disappearing never shifts layout. */
+.feed-newpill-wrap {
+  position: sticky; top: 14px; z-index: 30;
+  height: 0; overflow: visible;
+  display: flex; justify-content: center;
+}
+.feed-newpill {
+  border: 1px solid var(--active);
+  color: var(--active);
+  background: var(--bg-elev);
+  border-radius: var(--radius-pill);
+  padding: 4px 14px;
+  font: inherit; font-size: var(--text-sm); font-weight: 600;
+  cursor: pointer;
+  box-shadow: var(--shadow-md, 0 4px 16px rgba(0, 0, 0, 0.35));
+}
+.feed-newpill:hover { background: var(--bg-soft); }
+
+/* Last-visit marker — one accent-colored rule so a returning reader can see
+   exactly where the new material ends. */
+.feed-unseen {
+  display: flex; align-items: center; gap: var(--space-3);
+  color: var(--active); font-size: var(--text-xs);
+}
+.feed-unseen::before, .feed-unseen::after {
+  content: ''; height: 1px; flex: 1;
+  background: color-mix(in srgb, var(--active) 40%, transparent);
+}
+
 /* Day divider — the stream's calendar rhythm. Quiet by design: the label is
    the signal, the hairlines just seat it in the column. */
 .feed-day {
@@ -120,6 +150,11 @@ html[data-surface="mobile"] .feed-title {
   color: var(--text);
 }
 html[data-surface="mobile"] .feed-list { gap: 0; }
+/* The pill clears the sticky top app bar. */
+html[data-surface="mobile"] .feed-newpill-wrap {
+  top: calc(60px + env(safe-area-inset-top, 0px));
+}
+html[data-surface="mobile"] .feed-unseen { padding: 12px 0; font-size: 11px; }
 /* Mobile posts already end in a hairline — the divider is just a quiet label. */
 html[data-surface="mobile"] .feed-day {
   margin: 0; padding: 16px 0 2px;
