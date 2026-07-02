@@ -323,6 +323,56 @@ def build_control_tool_handlers(
             mlflow=block,
         )
 
+    def mlflow_finalize_run_agent(
+        *,
+        project_id: str,
+        experiment_id: str,
+        run_id: str | None = None,
+        status: str | None = "FINISHED",
+        wait_seconds: float = 2.0,
+    ) -> dict[str, Any]:
+        state = experiments.get_state(experiment_id=experiment_id, project_id=project_id)
+        resolved_project_id = str(state.get("project_id") or project_id or "")
+        existing_run = state.get("mlflow_run") or {}
+        resolved_run_id = str(run_id or existing_run.get("run_id") or "")
+        if mlflow_tracking is None:
+            return {
+                "project_id": resolved_project_id,
+                "experiment_id": experiment_id,
+                "configured": False,
+                "run_id": resolved_run_id,
+                "error": "MLflow tracking is not configured on this backend.",
+            }
+        result = mlflow_tracking.finalize_run(
+            project_id=resolved_project_id,
+            experiment_id=experiment_id,
+            run_id=resolved_run_id,
+            status=status,
+            wait_seconds=wait_seconds,
+        )
+        run = result.get("run")
+        refreshed_state = state
+        if isinstance(run, dict) and run.get("run_id"):
+            refreshed_state = experiments.record_mlflow_run(
+                project_id=resolved_project_id,
+                experiment_id=experiment_id,
+                run=run,
+                event_type="experiment.mlflow_run_refreshed",
+            )
+        slim = slim_experiment_state(refreshed_state)
+        if mlflow_visible_for_status(slim.get("status")):
+            slim = _with_mlflow_if_visible(
+                state=slim,
+                mlflow_tracking=mlflow_tracking,
+                project_id=resolved_project_id,
+                experiment_id=experiment_id,
+            )
+        out = dict(result)
+        out["project_id"] = resolved_project_id
+        out["experiment_id"] = experiment_id
+        out["experiment"] = slim
+        return out
+
     handlers = {
         "workflow.status_and_next": workflow.status_and_next_agent,
         "project.create": projects.create,
@@ -338,6 +388,7 @@ def build_control_tool_handlers(
         "experiment.get_state": experiment_get_state_agent,
         "experiment.transition": experiment_transition_agent,
         "mlflow.context": mlflow_context_agent,
+        "mlflow.finalize_run": mlflow_finalize_run_agent,
         "reflection.create": reflections.create,
         "reflection.get": reflections.get,
         "reflection.list": reflections.list,

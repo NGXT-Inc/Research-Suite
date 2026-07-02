@@ -415,6 +415,7 @@ class ExperimentService:
         project_id: str | None = None,
         experiment_id: str,
         run: dict[str, Any],
+        event_type: str | None = None,
     ) -> dict[str, Any]:
         with self.store.transaction() as conn:
             project_id = self.store.require_project_id(conn=conn, project_id=project_id)
@@ -459,9 +460,12 @@ class ExperimentService:
                 conn=conn,
                 project_id=project_id,
                 event_type=(
-                    "experiment.mlflow_run_created"
-                    if run_id
-                    else "experiment.mlflow_run_unavailable"
+                    event_type
+                    or (
+                        "experiment.mlflow_run_created"
+                        if run_id
+                        else "experiment.mlflow_run_unavailable"
+                    )
                 ),
                 target_type="experiment",
                 target_id=experiment_id,

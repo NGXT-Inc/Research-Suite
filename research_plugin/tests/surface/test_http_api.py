@@ -436,6 +436,42 @@ class ResearchPluginHttpApiTest(unittest.TestCase):
         self.assertEqual(ctx["mlflow"]["run"]["run_id"], "run_123")
         self.assertEqual(ctx["mlflow"]["env"]["MLFLOW_RUN_ID"], "run_123")
 
+        finalized = {
+            "configured": True,
+            "control_configured": True,
+            "experiment_name": f"rp/{project_id}/{exp_id}",
+            "run_id": "run_123",
+            "requested_status": "FINISHED",
+            "update": {"attempted": True, "status": "FINISHED", "applied": True},
+            "readback_attempts": 2,
+            "terminal": True,
+            "run": {
+                "experiment_id": "7",
+                "run_id": "run_123",
+                "run_name": f"{exp_id}-attempt-1",
+                "status": "FINISHED",
+                "artifact_uri": "s3://mlflow/run_123",
+                "created_at": "2026-07-02T12:00:00Z",
+                "ended_at": "2026-07-02T12:05:00Z",
+            },
+        }
+        with patch.object(CentralMlflowService, "finalize_run", return_value=finalized) as finalize_run:
+            final = self.app.call_tool(
+                "mlflow.finalize_run",
+                {"project_id": project_id, "experiment_id": exp_id},
+            )
+        finalize_run.assert_called_once_with(
+            project_id=project_id,
+            experiment_id=exp_id,
+            run_id="run_123",
+            status="FINISHED",
+            wait_seconds=2.0,
+        )
+        self.assertTrue(final["terminal"])
+        self.assertEqual(final["run"]["status"], "FINISHED")
+        self.assertEqual(final["experiment"]["mlflow_run"]["status"], "FINISHED")
+        self.assertEqual(final["experiment"]["mlflow"]["run"]["status"], "FINISHED")
+
         # Without an experiment id it gives project-level navigation context.
         project_ctx = self.app.call_tool("mlflow.context", {"project_id": project_id})
         self.assertEqual(project_ctx["scope"], "project")

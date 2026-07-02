@@ -24,6 +24,7 @@ def mlflow_experiment_name(*, project_id: str, experiment_id: str) -> str:
 
 
 MLFLOW_STATE_STATUSES = frozenset({"running", "experiment_review", "complete", "failed"})
+MLFLOW_TERMINAL_RUN_STATUSES = frozenset({"FINISHED", "FAILED", "KILLED"})
 
 
 def mlflow_visible_for_status(status: object) -> bool:
@@ -241,6 +242,142 @@ class CentralMlflowService:
                 f"{self.dashboard_url}/#/experiments/{mlflow_experiment_id}/runs/{run_id}"
             )
         return result
+
+    def finalize_run(
+        self,
+        *,
+        project_id: str,
+        experiment_id: str,
+        run_id: str,
+        status: str | None = "FINISHED",
+        wait_seconds: float = 2.0,
+    ) -> dict[str, object]:
+        """Finalize a run through MLflow REST, then read it back.
+
+        This gives agents one canonical post-execution call: set the terminal
+        status when the backend write URI is configured, then poll the MLflow
+        read API briefly so stale immediate ``RUNNING`` readbacks do not leak
+        into plugin state.
+        """
+        context = self.context(project_id=project_id, experiment_id=experiment_id)
+        run_id = run_id.strip()
+        normalized_status = str(status or "").strip().upper()
+        result: dict[str, object] = {
+            "configured": bool(self.server_uri or self.tracking_uri),
+            "control_configured": bool(self._control_uri),
+            "experiment_name": context.experiment_name,
+            "run_id": run_id,
+            "requested_status": normalized_status or None,
+        }
+        if not run_id:
+            result["error"] = "MLflow run id is required."
+            return result
+        if normalized_status and normalized_status not in MLFLOW_TERMINAL_RUN_STATUSES:
+            result["error"] = (
+                "MLflow terminal status must be one of: "
+                + ", ".join(sorted(MLFLOW_TERMINAL_RUN_STATUSES))
+            )
+            return result
+        read_uri = self.server_uri or self.tracking_uri
+        if not read_uri:
+            result["note"] = self._unconfigured_note()
+            return result
+
+        update_attempted = bool(normalized_status and self._control_uri)
+        result["update"] = {
+            "attempted": update_attempted,
+            "status": normalized_status or None,
+            "applied": False,
+        }
+        if normalized_status and not self._control_uri:
+            result["update"] = {
+                "attempted": False,
+                "status": normalized_status,
+                "applied": False,
+                "note": (
+                    "MLflow run status update requires "
+                    "RESEARCH_PLUGIN_MLFLOW_SERVER_URI; readback only."
+                ),
+            }
+
+        wait = max(0.0, min(float(wait_seconds or 0.0), 10.0))
+        deadline = time.monotonic() + wait
+        attempts = 0
+        try:
+            with httpx.Client(timeout=3.0) as client:
+                if update_attempted:
+                    try:
+                        response = client.post(
+                            f"{self._control_uri}/api/2.0/mlflow/runs/update",
+                            json={
+                                "run_id": run_id,
+                                "status": normalized_status,
+                                "end_time": int(time.time() * 1000),
+                            },
+                        )
+                        response.raise_for_status()
+                        result["update"] = {
+                            "attempted": True,
+                            "status": normalized_status,
+                            "applied": True,
+                        }
+                    except Exception as exc:  # noqa: BLE001
+                        result["update"] = {
+                            "attempted": True,
+                            "status": normalized_status,
+                            "applied": False,
+                            "error": f"MLflow run status update failed: {exc}",
+                        }
+                run: dict[str, object] = {}
+                while True:
+                    attempts += 1
+                    run = self._read_run(client=client, base=read_uri, run_id=run_id)
+                    status_seen = str(run.get("status") or "")
+                    if (
+                        not normalized_status
+                        or status_seen == normalized_status
+                        or status_seen in MLFLOW_TERMINAL_RUN_STATUSES
+                        or time.monotonic() >= deadline
+                    ):
+                        break
+                    time.sleep(min(0.25, max(0.0, deadline - time.monotonic())))
+        except Exception as exc:  # noqa: BLE001 - readback is advisory
+            result["error"] = f"MLflow run finalize/readback failed: {exc}"
+            result["readback_attempts"] = attempts
+            return result
+
+        result["readback_attempts"] = attempts
+        result["terminal"] = str(run.get("status") or "") in MLFLOW_TERMINAL_RUN_STATUSES
+        result["run"] = run
+        return result
+
+    def _read_run(
+        self, *, client: httpx.Client, base: str, run_id: str
+    ) -> dict[str, object]:
+        response = client.get(
+            f"{base}/api/2.0/mlflow/runs/get",
+            params={"run_id": run_id},
+        )
+        response.raise_for_status()
+        run = response.json().get("run") or {}
+        info = run.get("info") or {}
+        mlflow_experiment_id = str(info.get("experiment_id") or "")
+        record: dict[str, object] = {
+            "run_id": str(info.get("run_id") or info.get("run_uuid") or run_id),
+            "run_name": str(info.get("run_name") or ""),
+            "status": str(info.get("status") or ""),
+            "artifact_uri": str(info.get("artifact_uri") or ""),
+            "created_at": _mlflow_ms_to_iso(info.get("start_time")),
+            "ended_at": _mlflow_ms_to_iso(info.get("end_time")),
+        }
+        if mlflow_experiment_id:
+            record["experiment_id"] = mlflow_experiment_id
+        if self.dashboard_url and mlflow_experiment_id and record["run_id"]:
+            record["dashboard_run_url"] = (
+                f"{self.dashboard_url}/#/experiments/"
+                f"{mlflow_experiment_id}/runs/{record['run_id']}"
+            )
+        return record
 
     def _ensure_mlflow_experiment(
         self, *, client: httpx.Client, base: str, experiment_name: str

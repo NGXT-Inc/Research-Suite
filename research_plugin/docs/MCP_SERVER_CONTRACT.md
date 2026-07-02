@@ -336,6 +336,10 @@ MLflow write URI is configured, `start_running` creates the initial MLflow run;
 state includes `mlflow_run`, and the `mlflow` block nests the same object as
 `mlflow.run` while adding `MLFLOW_RUN_ID` / `RP_MLFLOW_RUN_ID` to `mlflow.env`.
 Agents should resume that plugin-created run instead of creating a sibling run.
+After the quantitative command exits, agents should call `mlflow.finalize_run`
+before `submit_results`; the helper defaults to the persisted run id, sets a
+terminal MLflow status when the backend write URI is available, performs a short
+REST readback loop, and refreshes `mlflow_run.status` in experiment state.
 Completed
 experiments with tested claims and a conclusion include
 `claim_update_suggestions`: conservative `claim.update` call skeletons scoped

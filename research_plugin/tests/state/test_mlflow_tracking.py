@@ -66,6 +66,42 @@ class _RunCreateClient:
         raise AssertionError(f"unexpected POST {url}")
 
 
+class _FinalizeRunClient:
+    def __init__(self, statuses: list[str], update_status_code: int = 200) -> None:
+        self.statuses = statuses
+        self.update_status_code = update_status_code
+        self.gets: list[tuple[str, dict]] = []
+        self.posts: list[tuple[str, dict]] = []
+
+    def __enter__(self):
+        return self
+
+    def __exit__(self, *_args) -> None:
+        return None
+
+    def post(self, url: str, json: dict | None = None) -> _JsonResponse:
+        self.posts.append((url, json or {}))
+        if url.endswith("/runs/update"):
+            return _JsonResponse({}, status_code=self.update_status_code)
+        raise AssertionError(f"unexpected POST {url}")
+
+    def get(self, url: str, params: dict | None = None) -> _JsonResponse:
+        payload = params or {}
+        self.gets.append((url, payload))
+        status = self.statuses.pop(0) if self.statuses else "FINISHED"
+        info = {
+            "experiment_id": "7",
+            "run_id": payload["run_id"],
+            "run_name": "exp_456-attempt-1",
+            "status": status,
+            "artifact_uri": "s3://mlflow/run_123",
+            "start_time": 1234000,
+        }
+        if status != "RUNNING":
+            info["end_time"] = 2000000
+        return _JsonResponse({"run": {"info": info}})
+
+
 class MlflowTrackingServiceTest(unittest.TestCase):
     def test_context_uses_stable_project_and_experiment_ids(self) -> None:
         service = CentralMlflowService(
@@ -242,6 +278,73 @@ class MlflowTrackingServiceTest(unittest.TestCase):
         self.assertTrue(run["configured"])
         self.assertFalse(run["control_configured"])
         self.assertIn("RESEARCH_PLUGIN_MLFLOW_SERVER_URI", run["note"])
+
+    def test_finalize_run_updates_status_and_reads_back_terminal_state(self) -> None:
+        service = CentralMlflowService(
+            mode="external",
+            tracking_uri="https://mlflow.agent.test",
+            server_uri="http://mlflow.internal:5000",
+            dashboard_url="https://mlflow.ui.test",
+        )
+        client = _FinalizeRunClient(["RUNNING", "FINISHED"])
+
+        with (
+            patch("backend.mlflow.tracking.httpx.Client", return_value=client),
+            patch("backend.mlflow.tracking.time.time", return_value=2000.0),
+            patch("backend.mlflow.tracking.time.sleep") as sleep,
+        ):
+            result = service.finalize_run(
+                project_id="proj_123",
+                experiment_id="exp_456",
+                run_id="run_123",
+                status="FINISHED",
+                wait_seconds=1.0,
+            )
+
+        self.assertEqual(
+            client.posts[0][0],
+            "http://mlflow.internal:5000/api/2.0/mlflow/runs/update",
+        )
+        self.assertEqual(
+            client.posts[0][1],
+            {"run_id": "run_123", "status": "FINISHED", "end_time": 2000000},
+        )
+        self.assertEqual(len(client.gets), 2)
+        self.assertTrue(result["update"]["applied"])
+        self.assertTrue(result["terminal"])
+        self.assertEqual(result["readback_attempts"], 2)
+        self.assertEqual(result["run"]["run_id"], "run_123")
+        self.assertEqual(result["run"]["status"], "FINISHED")
+        self.assertEqual(result["run"]["ended_at"], "1970-01-01T00:33:20Z")
+        self.assertEqual(
+            result["run"]["dashboard_run_url"],
+            "https://mlflow.ui.test/#/experiments/7/runs/run_123",
+        )
+        sleep.assert_called()
+
+    def test_finalize_run_reads_back_even_when_status_update_fails(self) -> None:
+        service = CentralMlflowService(
+            mode="external",
+            tracking_uri="https://mlflow.agent.test",
+            server_uri="http://mlflow.internal:5000",
+        )
+        client = _FinalizeRunClient(["FINISHED"], update_status_code=500)
+
+        with (
+            patch("backend.mlflow.tracking.httpx.Client", return_value=client),
+            patch("backend.mlflow.tracking.time.time", return_value=2000.0),
+        ):
+            result = service.finalize_run(
+                project_id="proj_123",
+                experiment_id="exp_456",
+                run_id="run_123",
+            )
+
+        self.assertFalse(result["update"]["applied"])
+        self.assertIn("status update failed", result["update"]["error"])
+        self.assertEqual(result["readback_attempts"], 1)
+        self.assertTrue(result["terminal"])
+        self.assertEqual(result["run"]["status"], "FINISHED")
 
 
 class LocalMlflowServerTest(unittest.TestCase):

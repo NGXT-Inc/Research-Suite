@@ -13,6 +13,7 @@ from backend.tools.contracts import (
     CONTROL_PLANE_TOOL_NAMES,
     DATA_PLANE_TOOL_NAMES,
     ExperimentMaterializeFoldersInput,
+    MlflowFinalizeRunInput,
     ResourceAssociateBatchInput,
     ResourceValidateInput,
     ReviewRequestAndStartInput,
@@ -179,6 +180,13 @@ class ToolContractRegistryTest(unittest.TestCase):
             ReviewRequestAndStartInput,
         )
         self.assertEqual(TOOL_CONTRACTS["review.request_and_start"].plane, "control")
+
+    def test_mlflow_finalize_run_is_control_plane(self) -> None:
+        self.assertIs(
+            TOOL_CONTRACTS["mlflow.finalize_run"].input_model,
+            MlflowFinalizeRunInput,
+        )
+        self.assertEqual(TOOL_CONTRACTS["mlflow.finalize_run"].plane, "control")
 
 
 class StaticCatalogNoSideEffectTest(unittest.TestCase):

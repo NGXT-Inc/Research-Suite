@@ -199,6 +199,13 @@ with run:
     mlflow.set_tag("primary_metric_direction", "max")
 ```
 
+After the command exits, call `mlflow.finalize_run` before submitting results.
+Omit `run_id` when `MLFLOW_RUN_ID` came from the plugin; pass
+`status="FAILED"` or `"KILLED"` if execution did not finish successfully, or
+`status=null` when the script already ended the MLflow run and you only need
+canonical readback. This refreshes experiment state so stale immediate MLflow
+`RUNNING` statuses do not confuse the report/review loop.
+
 Do not make tracking stores the only submitted result. Save compact evidence
 under the experiment folder, especially `results/*.json`, `results/*.csv`, and
 `figures/*.png`, so `report.md` can cite files that can be registered and

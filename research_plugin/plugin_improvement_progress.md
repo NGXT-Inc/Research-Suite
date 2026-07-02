@@ -592,3 +592,36 @@ Verification:
 - `PYTHONPATH=. python -m unittest tests.workflow.test_experiment_slim tests.structure.test_plane_layout.PlaneImportLintTest -v` (31 tests)
 - `PYTHONPATH=. python -m unittest tests.state.test_mlflow_tracking tests.state.test_store_migrations tests.surface.test_http_api tests.workflow.test_experiment_slim tests.surface.test_tool_contracts tests.surface.test_plugin_skills tests.structure.test_plane_layout.PlaneImportLintTest -v` (100 tests)
 - `PYTHONPATH=. python -m unittest discover -s tests -v` (888 tests, 25 skipped)
+
+## Batch 22: MLflow finalize/readback helper
+
+Status: complete
+
+Request addressed:
+
+- Fix stale immediate MLflow readbacks.
+
+Implementation notes:
+
+- Added `mlflow.finalize_run` as a control-plane helper for the post-execution
+  MLflow step. It defaults to the plugin-created run id persisted on the
+  experiment.
+- The helper can set a terminal MLflow status (`FINISHED`, `FAILED`, or
+  `KILLED`) through the backend write URI, or run in readback-only mode with
+  `status: null`.
+- After the optional status update, it polls the MLflow REST `runs/get`
+  endpoint briefly so an immediate stale `RUNNING` readback does not remain in
+  plugin state.
+- Successful readback refreshes the experiment's persisted `mlflow_run` block,
+  so `experiment.get_state`, `mlflow.context`, and UI state surface the same
+  terminal status.
+- Updated central MLflow docs, MCP/UI docs, and the research workflow skill so
+  agents call `mlflow.finalize_run` before submitting quantitative results.
+
+Verification:
+
+- `git diff --check`
+- `python -m py_compile backend/mlflow/tracking.py backend/tools/tool_handlers.py backend/services/experiments.py backend/tools/contracts.py`
+- `PYTHONPATH=. python -m unittest tests.state.test_mlflow_tracking tests.surface.test_http_api.ResearchPluginHttpApiTest.test_running_transition_and_tool_hand_mlflow_block tests.surface.test_tool_contracts tests.surface.test_plugin_skills -v` (34 tests)
+- `PYTHONPATH=. python -m unittest tests.state.test_mlflow_tracking tests.state.test_store_migrations tests.surface.test_http_api tests.workflow.test_experiment_slim tests.surface.test_tool_contracts tests.surface.test_plugin_skills tests.structure.test_plane_layout.PlaneImportLintTest -v` (103 tests)
+- `PYTHONPATH=. python -m unittest discover -s tests -v` (891 tests, 25 skipped)

@@ -150,6 +150,14 @@ starts training. If `MLFLOW_TRACKING_URI` is absent from the current shell, call
 `mlflow.context`; do not fall back to a file-backed local MLflow store for a
 Research Plugin experiment.
 
+After a quantitative command finishes, call `mlflow.finalize_run` for the
+experiment before submitting result resources. By default it uses the persisted
+plugin-created run id, sets terminal status to `FINISHED` through the backend
+MLflow write URI, then performs a short REST readback loop so stale immediate
+`RUNNING` statuses do not remain in experiment state. Pass `status="FAILED"` or
+`"KILLED"` for unsuccessful executions, or `status=null` when the script has
+already finalized the run and only readback is needed.
+
 ### Quantitative Run Metadata V0
 
 MLflow is expected only for quantitative work: training, evaluation, sweeps,
@@ -203,7 +211,9 @@ retrieve run tags and dataset metadata
 The plugin should not grow a second query language for MLflow. New custom tools
 should be added only when they supply plugin context that MLflow does not know,
 such as the current project id, experiment id, namespace mapping, or dashboard
-links.
+links. `mlflow.finalize_run` is in that category: it closes the plugin-created
+run and refreshes the persisted `mlflow_run` status, but it is not a general run
+search or artifact browser.
 
 ## UI Compatibility Views
 

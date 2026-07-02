@@ -314,7 +314,9 @@ Once an experiment is `running` or later, experiment state also includes
 If `start_running` created a backend-owned MLflow run, state also includes
 `mlflow_run`; the `mlflow` block nests it as `mlflow.run` and adds
 `MLFLOW_RUN_ID` / `RP_MLFLOW_RUN_ID` to `mlflow.env` for resume-in-place
-logging.
+logging. `mlflow.finalize_run` refreshes that same `mlflow_run` object after
+execution so UI state does not keep showing a stale immediate `RUNNING` status
+once the backend readback sees a terminal MLflow run.
 Completed experiments with tested claims and a conclusion include
 `claim_update_suggestions`, a list of scoped `claim.update` call skeletons that
 the UI can show as follow-up actions after review.

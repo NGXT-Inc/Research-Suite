@@ -175,6 +175,29 @@ class MlflowContextInput(ProjectScopedInput):
     )
 
 
+class MlflowFinalizeRunInput(ProjectScopedInput):
+    experiment_id: str
+    run_id: str | None = Field(
+        default=None,
+        description=(
+            "MLflow run id to finalize/read back. Omit to use the "
+            "plugin-created run persisted on the experiment."
+        ),
+    )
+    status: Literal["FINISHED", "FAILED", "KILLED"] | None = Field(
+        default="FINISHED",
+        description=(
+            "Terminal status to set before readback. Pass null for readback only."
+        ),
+    )
+    wait_seconds: float = Field(
+        default=2.0,
+        ge=0.0,
+        le=10.0,
+        description="Maximum seconds to poll until MLflow readback is terminal.",
+    )
+
+
 class ReflectionLensInput(ContractModel):
     id: str = Field(
         description=(
@@ -809,6 +832,16 @@ TOOL_CONTRACTS: dict[str, ToolContract] = {
             "(MLFLOW_TRACKING_URI, MLFLOW_EXPERIMENT_NAME, …) before a "
             "quantitative run, plus the plugin-created run id when available. "
             "Returns configured=false when no tracking server is set."
+        ),
+    ),
+    "mlflow.finalize_run": ToolContract(
+        input_model=MlflowFinalizeRunInput,
+        description=(
+            "Finalize a plugin experiment's MLflow run and read it back through "
+            "the backend MLflow API. Omit run_id to use the plugin-created run "
+            "from experiment state; pass status=null for readback only. The "
+            "helper updates the persisted mlflow_run status so immediate stale "
+            "RUNNING readbacks do not linger in experiment state."
         ),
     ),
     "reflection.create": ToolContract(
