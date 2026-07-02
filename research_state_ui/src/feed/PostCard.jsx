@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState } from 'react';
 import { Link } from 'react-router-dom';
 import { feedApi } from './feedApi';
-import { fmtAgo } from '../utils/format';
+import { postTime } from './feedModel';
 import { useProjectStore, useProjectHref, selectExperiments } from '../store/useProjectStore';
 import { expName } from '../utils/experiment';
 
@@ -55,7 +55,7 @@ function hostOf(url) {
  * single visual (image or a static unfurled link card), and an optional chip
  * linking to the entity it is about. Deliberately low-chrome — content first.
  */
-export default function PostCard({ post, projectId, onView }) {
+export default function PostCard({ post, projectId, onView, now }) {
   const px = useProjectHref();
   const experiments = useProjectStore(selectExperiments);
   const cardRef = useRef(null);
@@ -78,9 +78,8 @@ export default function PostCard({ post, projectId, onView }) {
     return () => io.disconnect();
   }, [post.id, onView]);
 
-  // fmtAgo expects an elapsed duration (ms), not an absolute timestamp.
   const ts = post.created_at ? new Date(post.created_at).getTime() : null;
-  const ago = ts != null ? Date.now() - ts : null;
+  const timeLabel = postTime(ts, now);
   const ref = refTarget(post.ref, experiments);
   const preview = post.link_preview;
   const imageSrc = useAuthedImage(post.image_url);
@@ -95,7 +94,11 @@ export default function PostCard({ post, projectId, onView }) {
         {post.author_role && post.author_role !== 'main' && (
           <span className="postcard-role">{post.author_role}</span>
         )}
-        {ago != null && <span className="postcard-time">{fmtAgo(ago)}</span>}
+        {timeLabel && (
+          <span className="postcard-time" title={ts != null ? new Date(ts).toLocaleString() : undefined}>
+            {timeLabel}
+          </span>
+        )}
       </header>
 
       {post.text && <p className="postcard-text">{post.text}</p>}

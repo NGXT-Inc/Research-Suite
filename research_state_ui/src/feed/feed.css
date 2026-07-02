@@ -25,6 +25,18 @@
 .feed-list { display: flex; flex-direction: column; gap: var(--space-4); }
 .feed-sentinel { display: flex; justify-content: center; padding: var(--space-4) 0 var(--space-6); }
 
+/* Day divider — the stream's calendar rhythm. Quiet by design: the label is
+   the signal, the hairlines just seat it in the column. */
+.feed-day {
+  display: flex; align-items: center; gap: var(--space-3);
+  margin-top: var(--space-2);
+  color: var(--faint); font-size: var(--text-xs);
+}
+.feed-day::before, .feed-day::after {
+  content: ''; height: 1px; flex: 1;
+  background: var(--line);
+}
+
 .postcard {
   background: var(--bg-elev);
   border: 1px solid var(--line);
@@ -108,6 +120,13 @@ html[data-surface="mobile"] .feed-title {
   color: var(--text);
 }
 html[data-surface="mobile"] .feed-list { gap: 0; }
+/* Mobile posts already end in a hairline — the divider is just a quiet label. */
+html[data-surface="mobile"] .feed-day {
+  margin: 0; padding: 16px 0 2px;
+  font-size: 11px; font-weight: 500;
+}
+html[data-surface="mobile"] .feed-day::before,
+html[data-surface="mobile"] .feed-day::after { content: none; }
 /* No cards: a post is a flush block, the hairline the only divider. */
 html[data-surface="mobile"] .postcard {
   background: none;

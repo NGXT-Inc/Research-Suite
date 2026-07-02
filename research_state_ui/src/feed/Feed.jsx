@@ -1,7 +1,8 @@
-import { useCallback, useEffect, useRef, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useProjectStore } from '../store/useProjectStore';
 import { feedApi } from './feedApi';
 import PostCard from './PostCard';
+import { useNow, dayLabel, withDayDividers } from './feedModel';
 import './feed.css';
 
 const PAGE_SIZE = 20;
@@ -101,6 +102,11 @@ export default function Feed() {
     if (projectId) feedApi.trackFeed(projectId, 'post_viewed', { post_id: postId }).catch(() => {});
   }, [projectId]);
 
+  // One shared clock: every card's relative time ages in step, and the day
+  // dividers roll over correctly at midnight.
+  const now = useNow();
+  const items = useMemo(() => withDayDividers(posts, now), [posts, now]);
+
   return (
     <div className="feed-stage">
       {/* Visually hidden on desktop; the mobile surface styles it as the
@@ -115,8 +121,14 @@ export default function Feed() {
       )}
       {posts.length > 0 && (
         <div className="feed-list">
-          {posts.map((post) => (
-            <PostCard key={post.id} post={post} projectId={projectId} onView={onView} />
+          {items.map((item) => (
+            item.type === 'day' ? (
+              <div key={item.id} className="feed-day" role="separator">
+                {dayLabel(item.ts, now)}
+              </div>
+            ) : (
+              <PostCard key={item.id} post={item.post} projectId={projectId} onView={onView} now={now} />
+            )
           ))}
         </div>
       )}
