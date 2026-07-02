@@ -206,6 +206,11 @@ export default function Sidebar({ onRefresh, onHide }) {
         </div>
         <div className="sidebar-foot-actions">
           <button className="btn btn--ghost btn--sm" onClick={onRefresh}>Refresh now</button>
+          <button className="btn btn--ghost btn--sm" onClick={() => setSurfaceOverride('mobile')}>
+            Switch to mobile
+          </button>
+        </div>
+        <div className="sidebar-foot-actions" style={{ marginTop: 6 }}>
           <button
             className="btn btn--ghost btn--sm"
             onClick={() => setThemeMode(NEXT_THEME_MODE[themeMode])}
@@ -221,9 +226,6 @@ export default function Sidebar({ onRefresh, onHide }) {
           >
             <span aria-hidden="true">{backdropOn ? '◈' : '◇'}</span>
             backdrop
-          </button>
-          <button className="btn btn--ghost btn--sm" onClick={() => setSurfaceOverride('mobile')}>
-            Switch to mobile
           </button>
         </div>
         {lastSyncError && <div className="error-message" style={{ fontSize: 11 }}>{lastSyncError}</div>}
