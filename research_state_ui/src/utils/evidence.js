@@ -65,3 +65,17 @@ const OUTCOME_GLYPHS = {
 export function outcomeGlyph(outcome) {
   return OUTCOME_GLYPHS[outcome] || '·';
 }
+
+// A claim's own lifecycle color — the same palette as experiment outcomes,
+// since "supported"/"contradicted"/"weakened" are the claim-side names for
+// exactly the evidence buckets classifyExperiment already computes.
+const CLAIM_STATUS_PALETTE = {
+  supported:    'var(--supports)',
+  contradicted: 'var(--refutes)',
+  weakened:     'var(--qualifies)',
+  active:       'var(--active)',
+  abandoned:    'var(--faint)',
+};
+export function claimStatusColor(status) {
+  return CLAIM_STATUS_PALETTE[(status || '').toLowerCase()] || 'var(--steel)'; // draft
+}

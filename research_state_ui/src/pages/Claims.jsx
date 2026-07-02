@@ -2,10 +2,9 @@ import { useMemo, useState } from 'react';
 import { Link } from 'react-router-dom';
 import { useProjectStore, selectClaims, selectExperiments, useProjectHref } from '../store/useProjectStore';
 import { api } from '../api';
-import { expName } from '../utils/experiment';
+import { ConfidenceDots, ClaimExperimentList } from '../components/ClaimEvidence';
 
 const TABS = ['all', 'active', 'supported', 'weakened', 'contradicted', 'draft', 'abandoned'];
-const CONFIDENCE_LEVELS = { low: 1, medium: 2, high: 3 };
 
 export default function Claims() {
   const projectId = useProjectStore(s => s.projectId);
@@ -107,55 +106,13 @@ function ClaimEntry({ claim, linkedExperiments }) {
       </Link>
 
       <div className="claim-entry-meta">
-        <ConfidenceMark level={claim.confidence} />
+        <ConfidenceDots level={claim.confidence} />
         {claim.scope && <span className="claim-entry-scope">scoped to {claim.scope}</span>}
       </div>
 
-      {linkedExperiments.length > 0 && (
-        <ul className="claim-entry-tests">
-          {linkedExperiments.map(e => {
-            const title = expName(e);
-            const cat = categorize(e.status);
-            return (
-              <li key={e.id}>
-                <Link to={px(`/experiments/${e.id}`)} className="claim-exp-line">
-                  <span className={`claim-exp-mark claim-exp-mark--${cat}`} aria-hidden="true">
-                    {cat === 'success' ? '✓' : cat === 'against' ? '✗' : '·'}
-                  </span>
-                  <span className="claim-exp-title">{title}</span>
-                  <span className="claim-exp-status">{(e.status || '').replace(/_/g, ' ')}</span>
-                </Link>
-              </li>
-            );
-          })}
-        </ul>
-      )}
+      <ClaimExperimentList experiments={linkedExperiments} />
     </article>
   );
-}
-
-function ConfidenceMark({ level }) {
-  const n = CONFIDENCE_LEVELS[(level || '').toLowerCase()] || 0;
-  const label = level ? `${level} confidence` : 'confidence unset';
-  return (
-    <span className="claim-conf" title={label} aria-label={label}>
-      {[1, 2, 3].map(i => (
-        <span key={i} className={`claim-conf-dot${i <= n ? ' is-on' : ''}`} aria-hidden="true" />
-      ))}
-    </span>
-  );
-}
-
-const SUPPORT_STATUSES = new Set(['supports', 'supported', 'complete', 'completed', 'pass', 'accepted', 'succeeded']);
-const AGAINST_STATUSES = new Set(['refutes', 'contradicted', 'weakened', 'failed', 'fail', 'rejected']);
-const LIVE_STATUSES = new Set(['running', 'queued', 'design_review', 'experiment_review', 'needs_changes', 'ready_to_run', 'qualified', 'awaiting']);
-
-function categorize(status) {
-  const s = (status || '').toLowerCase();
-  if (SUPPORT_STATUSES.has(s)) return 'success';
-  if (AGAINST_STATUSES.has(s)) return 'against';
-  if (LIVE_STATUSES.has(s)) return 'live';
-  return 'idle';
 }
 
 function NewClaimForm({ projectId, onCancel, onCreated }) {

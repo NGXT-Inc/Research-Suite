@@ -13,6 +13,7 @@ import MobileExperimentDetail from './mobile/MobileExperimentDetail';
 import SandboxCardList from './mobile/SandboxCardList';
 import MobileResources from './mobile/MobileResources';
 import MobileClaims from './mobile/MobileClaims';
+import MobileClaimDetail from './mobile/MobileClaimDetail';
 import MobileReviews from './mobile/MobileReviews';
 import MobileProjects from './mobile/MobileProjects';
 import MobileProjectCreateNotice from './mobile/MobileProjectCreateNotice';
@@ -154,7 +155,7 @@ export default function App() {
             <Route index element={<HomeScreen />} />
             <Route path="feed" element={<Feed />} />
             <Route path="claims" element={<MobileClaims />} />
-            <Route path="claims/:claimId" element={<ClaimDetail />} />
+            <Route path="claims/:claimId" element={<MobileClaimDetail />} />
             <Route path="experiments" element={<ExperimentCardList />} />
             <Route path="experiments/:experimentId" element={<MobileExperimentDetail />} />
             <Route path="synthesis" element={<MobileSynthesisScreen />} />

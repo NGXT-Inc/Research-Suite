@@ -45,7 +45,7 @@ export default function ExperimentCardList() {
 
   if (!home) {
     return (
-      <div className="mexps">
+      <div className="mlist">
         <h1 className="mtitle-lg">Experiments</h1>
         <SkeletonCards />
       </div>
@@ -53,7 +53,7 @@ export default function ExperimentCardList() {
   }
 
   return (
-    <div className="mexps">
+    <div className="mlist">
       <h1 className="mtitle-lg">Experiments</h1>
 
       <div className="mefilt" role="tablist" aria-label="Filter by state">

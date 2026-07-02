@@ -2899,9 +2899,6 @@ button.review-stepper-version:hover {
   text-align: center;
   line-height: 1;
 }
-.claim-exp-mark--success { color: var(--supports); }
-.claim-exp-mark--against { color: var(--refutes); }
-.claim-exp-mark--live    { color: var(--active); }
 .claim-exp-title {
   color: var(--text);
   overflow: hidden;

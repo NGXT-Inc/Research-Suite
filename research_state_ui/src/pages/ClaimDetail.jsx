@@ -4,8 +4,8 @@ import { api } from '../api';
 import { useProjectStore, selectExperiments, useProjectHref } from '../store/useProjectStore';
 import ObjId from '../components/ObjId';
 import StatusPill from '../components/StatusPill';
-import KvList from '../components/KvList';
-import { expName } from '../utils/experiment';
+import { ConfidenceDots, ClaimExperimentList } from '../components/ClaimEvidence';
+import { fmtStamp } from '../utils/format';
 
 export default function ClaimDetail() {
   const { claimId } = useParams();
@@ -48,41 +48,20 @@ export default function ClaimDetail() {
           <Link to={px('/claims')}>Claims</Link> · <ObjId id={claim.id} className="page-eyebrow-id" />
         </div>
         <h1 className="page-title page-title--statement">{claim.statement}</h1>
-        <div className="cluster">
+        <div className="claim-entry-meta">
           <StatusPill value={claim.status} />
-          <span className="faint" style={{ fontSize: 'var(--text-xs)' }}>{claim.confidence}</span>
+          <ConfidenceDots level={claim.confidence} />
+          {claim.scope && <span className="claim-entry-scope">scoped to {claim.scope}</span>}
+          {claim.created_at && <span>created {fmtStamp(Date.parse(claim.created_at))}</span>}
         </div>
       </header>
-
-      {/* Status + confidence already sit in the header cluster above — the
-          KvList carries only what isn't shown there. */}
-      <KvList
-        rows={[
-          { key: 'Scope', value: claim.scope || <span className="faint">—</span> },
-          { key: 'Created', value: <span className="mono" style={{ fontSize: 'var(--text-xs)' }}>{claim.created_at}</span> },
-        ]}
-      />
 
       <section className="section" style={{ marginTop: 32 }}>
         <div className="section-title">Experiments testing this claim</div>
         {linkedExperiments.length === 0 ? (
           <div className="empty">No experiments link to this claim yet.</div>
         ) : (
-          <div className="list card card--flush">
-            {linkedExperiments.map(e => (
-              <Link key={e.id} to={px(`/experiments/${e.id}`)} className="list-row">
-                <div className="list-row-main">
-                  <div className="list-row-title">{e.intent}</div>
-                  <div className="list-row-sub">
-                    {expName(e)} · attempt {e.attempt_index}
-                  </div>
-                </div>
-                <div className="list-row-aside">
-                  <StatusPill value={e.status} />
-                </div>
-              </Link>
-            ))}
-          </div>
+          <ClaimExperimentList experiments={linkedExperiments} />
         )}
       </section>
     </div>

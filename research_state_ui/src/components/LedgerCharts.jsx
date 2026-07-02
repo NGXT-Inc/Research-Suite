@@ -46,7 +46,8 @@ export function FrontierChart({ runs, values, direction, focusKey, colorOf, size
       <span className="lgc-y lgc-y--max">{fmtNum(hi)}</span>
       <span className="lgc-y lgc-y--min">{fmtNum(lo)}</span>
       <div className="lgc-plot">
-        {values.length > 1 && (
+        {/* The best-so-far line is a directional claim — no direction, no line. */}
+        {values.length > 1 && direction !== 0 && (
           <svg viewBox="0 0 100 100" preserveAspectRatio="none" aria-hidden="true">
             <path d={d} fill="none" stroke="var(--active)" strokeWidth="1.5" opacity="0.75" vectorEffect="non-scaling-stroke" />
           </svg>

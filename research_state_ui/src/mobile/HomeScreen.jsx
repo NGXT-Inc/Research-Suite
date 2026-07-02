@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState } from 'react';
+import { useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import { Link } from 'react-router-dom';
 import { api } from '../api';
 import {
@@ -133,10 +133,11 @@ function useLiveMetric(projectId, experimentId) {
 
 /**
  * Home — the "Instrument snapshot" (design_handoff_mobile_redesign, Home Page
- * option 3a/3b). The supervisor's glance as an instrument: a one-line
- * standing, a 24h snapshot band, what's live now with real GPU-util + the
- * run's metric curve, then a compact Needs-you. One Surface: hairlines only
- * at section breaks, the 3px orange index the sole rupture.
+ * option 3a/3b). The supervisor's glance as an instrument: what this project
+ * IS (a clamped project.summary — the name's already in the app bar), a
+ * one-line standing, a 24h snapshot band, what's live now with real GPU-util
+ * + the run's metric curve, then a compact Needs-you. One Surface: hairlines
+ * only at section breaks, the 3px orange index the sole rupture.
  */
 export default function HomeScreen() {
   const px = useProjectHref();
@@ -149,6 +150,16 @@ export default function HomeScreen() {
   const sandboxes = useProjectStore(selectSandboxes);
   const experiments = useProjectStore(selectExperiments);
   const needsRef = useRef(null);
+  const summaryRef = useRef(null);
+  const [summaryOpen, setSummaryOpen] = useState(false);
+  // Whether the clamped summary actually truncates — the toggle only
+  // appears "if needed" (a short summary that already fits gets no button).
+  const [summaryClamped, setSummaryClamped] = useState(false);
+  useLayoutEffect(() => {
+    const el = summaryRef.current;
+    if (!el) { setSummaryClamped(false); return; }
+    setSummaryClamped(el.scrollHeight > el.clientHeight + 1);
+  }, [project?.summary]);
 
   // Minute tick keeps the standing line and elapsed times honest.
   const [now, setNow] = useState(Date.now());
@@ -233,6 +244,30 @@ export default function HomeScreen() {
     <div className="mhome">
       {lastSyncError && (
         <div className="mbanner">Backend unreachable — showing last known state. {lastSyncError}</div>
+      )}
+
+      {project.summary && (
+        <div className="mhome-summary-wrap">
+          <p
+            ref={summaryRef}
+            className={`mhome-summary${summaryOpen ? ' mhome-summary--open' : ''}`}
+          >
+            {project.summary}
+            {summaryOpen && summaryClamped && (
+              <button type="button" className="mhome-summary-less" onClick={() => setSummaryOpen(false)}>
+                less
+              </button>
+            )}
+          </p>
+          {/* Overlaid, not appended: line-clamp truncates wherever the browser
+              likes, so this fades over the last visible characters rather than
+              trying to land a real inline link exactly at the cut. */}
+          {!summaryOpen && summaryClamped && (
+            <button type="button" className="mhome-summary-more" onClick={() => setSummaryOpen(true)}>
+              … more
+            </button>
+          )}
+        </div>
       )}
 
       <div className="mstand">

@@ -72,7 +72,7 @@ export default function MobileExperimentDetail() {
 
   if (error) {
     return (
-      <div className="mxd">
+      <div className="mdetail">
         <div className="error-message">{error}</div>
         <Link className="btn" to={px('/experiments')} style={{ marginTop: 12 }}>← Experiments</Link>
       </div>
@@ -80,7 +80,7 @@ export default function MobileExperimentDetail() {
   }
   if (!experiment) {
     return (
-      <div className="mxd">
+      <div className="mdetail">
         <header className="page-header"><Skeleton lines={1} /></header>
         <Skeleton lines={5} />
       </div>
@@ -110,7 +110,7 @@ export default function MobileExperimentDetail() {
   const experimentReviews = allReviews.filter(r => !(r.role || '').toLowerCase().includes('design'));
 
   return (
-    <div className="mxd">
+    <div className="mdetail">
       <header className="page-header">
         <div className="page-eyebrow">
           <Link to={px('/experiments')}>‹ Experiments</Link>
@@ -120,10 +120,10 @@ export default function MobileExperimentDetail() {
       </header>
 
       {/* ── Status ─────────────────────────────────────────────────── */}
-      <section className="mxd-section">
+      <section className="mdetail-section">
         <div className="mml">Status</div>
         <StatusStatement experiment={experiment} workflow={isClosed ? null : workflow} />
-        {experiment.intent && <p className="mxd-intent">{experiment.intent}</p>}
+        {experiment.intent && <p className="mdetail-lead">{experiment.intent}</p>}
         <LazyRow open={graphOpen} onOpen={() => setGraphOpen(true)} label="graph">
           <MobileGraphSection
             projectId={projectId}
@@ -137,7 +137,7 @@ export default function MobileExperimentDetail() {
       <div className="mbreak" />
 
       {/* ── Plan ───────────────────────────────────────────────────── */}
-      <section className="mxd-section">
+      <section className="mdetail-section">
         <div className="mml">Plan</div>
         {planRes ? (
           <MobileDoc
@@ -159,7 +159,7 @@ export default function MobileExperimentDetail() {
              (and starts polling) on tap ── */}
       {hasSandbox && (
         <>
-          <section className="mxd-section">
+          <section className="mdetail-section">
             <div className="mml">Run</div>
             <LazyRow open={termOpen} onOpen={() => setTermOpen(true)} label="terminal">
               <SandboxTerminal projectId={projectId} experimentId={experimentId} readOnly />
@@ -171,7 +171,7 @@ export default function MobileExperimentDetail() {
       )}
 
       {/* ── Outcomes ───────────────────────────────────────────────── */}
-      <section className="mxd-section">
+      <section className="mdetail-section">
         <div className="mml">Outcomes</div>
         {reportRes && (
           <MobileDoc
@@ -197,6 +197,8 @@ export default function MobileExperimentDetail() {
 // color (the same facet language as the list rows), the state sentence, and
 // — only while live — the server's next move, humanized from its snake_case.
 // FSM enumeration, gate cards, and counts are struck (design_philosophy §II).
+// Renders on the shared .mstatus* grammar (mobile.css) — any mobile detail
+// page can reuse it for its own one-line lifecycle statement.
 function StatusStatement({ experiment, workflow }) {
   const status = (experiment.status || 'planned').toLowerCase();
   const color = statusColor(status);
@@ -206,15 +208,15 @@ function StatusStatement({ experiment, workflow }) {
   const missing = workflow?.missing_evidence || [];
 
   return (
-    <div className="mxd-status">
-      <span className="mxd-status-ix" style={{ background: color }} aria-hidden="true" />
-      <div className="mxd-status-body">
-        <div className="mxd-status-line" style={{ color }}>
+    <div className="mstatus">
+      <span className="mstatus-ix" style={{ background: color }} aria-hidden="true" />
+      <div className="mstatus-body">
+        <div className="mstatus-line" style={{ color }}>
           {statusLine(experiment, status, Date.now())}
         </div>
-        {next && <div className="mxd-status-next">{next}</div>}
+        {next && <div className="mstatus-next">{next}</div>}
         {missing.map((m, i) => (
-          <div key={i} className="mxd-status-next">missing · {String(m).replace(/_/g, ' ')}</div>
+          <div key={i} className="mstatus-next">missing · {String(m).replace(/_/g, ' ')}</div>
         ))}
       </div>
     </div>

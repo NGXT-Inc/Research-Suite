@@ -7,7 +7,7 @@ import { setSurfaceOverride } from '../store/useViewport';
 import BottomSheet from './BottomSheet';
 import ToastHost from './Toast';
 import { usePullToRefresh } from './usePullToRefresh';
-import { IconFeed, IconHome, IconExperiments, IconMore } from './icons';
+import { IconFeed, IconHome, IconExperiments, IconActivity, IconMore } from './icons';
 
 const NEXT_THEME_MODE = { light: 'dark', dark: 'system', system: 'light' };
 
@@ -23,7 +23,7 @@ function fmtSyncedAgo(ms, now) {
 
 /**
  * Mobile app shell: top bar (project · freshness · theme), pull-to-refresh,
- * routed content, 4-tab bottom nav, and a More sheet hosting everything that
+ * routed content, 5-tab bottom nav, and a More sheet hosting everything that
  * lives in the desktop sidebar. While mounted it tags <html
  * data-surface="mobile"> so mobile.css applies — desktop styling is untouched
  * by construction.
@@ -89,6 +89,10 @@ export default function MobileShell({ children, onRefresh }) {
           <IconExperiments className="mnav-glyph" />
           Exps
         </NavLink>
+        <NavLink to={px('/mlflow')} className={({ isActive }) => 'mnav-tab' + (isActive ? ' active' : '')}>
+          <IconActivity className="mnav-glyph" />
+          MLflow
+        </NavLink>
         <button
           type="button"
           className={'mnav-tab' + (sheetOpen ? ' active' : '')}
@@ -147,7 +151,6 @@ function MoreSheet({ open, onClose, onRefresh }) {
       <SheetLink to={px('/claims')} label="Claims" count={stats.claims ?? home?.claims?.length ?? 0} />
       <SheetLink to={px('/reviews')} label="Reviews" count={stats.open_reviews ?? stats.reviews ?? 0} />
       <SheetLink to={px('/synthesis')} label="Synthesis" />
-      <SheetLink to={px('/mlflow')} label="MLflow" />
       <SheetLink to={px('/resources')} label="Resources" count={stats.resources ?? 0} />
       <SheetLink to={px('/sandboxes')} label="Sandboxes" count={runningSandboxes ? `${runningSandboxes} running` : null} />
       <SheetLink to="/projects" label="Projects" />
