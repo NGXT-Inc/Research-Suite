@@ -549,18 +549,17 @@ input, textarea, select { font-family: inherit; font-size: inherit; color: inher
 @media (hover: none) {
   .sb-edge-glyph { opacity: 1; }
 }
-.sidebar-brand {
+/* Top row: the project chip is the header; the hide toggle rides beside it. */
+.sidebar-top {
   display: flex;
-  align-items: flex-start;
-  justify-content: space-between;
-  gap: 6px;
-  font-size: var(--text-base);
-  font-weight: 600;
-  letter-spacing: -0.005em;
-  color: var(--text);
-  padding: 0 6px 14px;
-  margin-bottom: 6px;
-  border-bottom: 1px solid var(--line-soft);
+  align-items: center;
+  gap: 4px;
+  margin-bottom: 14px;
+}
+.sidebar-top .proj-switcher {
+  flex: 1;
+  min-width: 0;
+  margin: 0;
 }
 .sidebar-hide {
   border: 0;
@@ -573,15 +572,6 @@ input, textarea, select { font-family: inherit; font-size: inherit; color: inher
   transition: color var(--motion-fast), background var(--motion-fast);
 }
 .sidebar-hide:hover { color: var(--text); background: var(--bg-soft); }
-.sidebar-brand small {
-  display: block;
-  font-size: 10.5px;
-  font-weight: 500;
-  color: var(--faint);
-  letter-spacing: 0.06em;
-  text-transform: uppercase;
-  margin-top: 2px;
-}
 .sidebar-nav {
   display: flex;
   flex-direction: column;
@@ -631,7 +621,17 @@ input, textarea, select { font-family: inherit; font-size: inherit; color: inher
 .sync-indicator {
   display: inline-flex;
   align-items: center;
+  gap: 7px;
+}
+/* Foot rows share the sidebar's 24px text rail (nav-link text, the retention
+   card's inner content): dot on the rail like the card's dots… */
+.sidebar-foot .sync-indicator { padding-left: 10px; }
+/* …and ghost-button labels on it too (8px .btn--sm pad + 2 = 10). */
+.sidebar-foot-actions {
+  display: flex;
   gap: 6px;
+  flex-wrap: wrap;
+  padding-left: 2px;
 }
 .sync-dot {
   width: 6px;

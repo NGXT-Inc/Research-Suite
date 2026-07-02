@@ -94,11 +94,10 @@ export default function Sidebar({ onRefresh, onHide }) {
 
   return (
     <aside className="sidebar">
-      <div className="sidebar-brand">
-        <div>
-          Research State
-          <small>research_plugin · v{serverVersion || CLIENT_VERSION}</small>
-        </div>
+      {/* The active project IS the sidebar's header — no app self-branding.
+          The backend/UI version lives on as the sync indicator's tooltip. */}
+      <div className="sidebar-top">
+        <ProjectSwitcher />
         {onHide && (
           <button
             type="button"
@@ -109,8 +108,6 @@ export default function Sidebar({ onRefresh, onHide }) {
           ><IconSidebar /></button>
         )}
       </div>
-
-      <ProjectSwitcher />
 
       <nav className="sidebar-nav">
         <NavLink to={px('')} end className={({ isActive }) => 'sidebar-link' + (isActive ? ' active' : '')}>
@@ -198,11 +195,11 @@ export default function Sidebar({ onRefresh, onHide }) {
 
       <div className="sidebar-foot">
         <SandboxRetentionIndicator />
-        <div className="sync-indicator">
+        <div className="sync-indicator" title={`research_plugin · v${serverVersion || CLIENT_VERSION}`}>
           <span className={dotClass} />
           <span>ui {pollLabel} · updated {fmtUpdatedAgo(lastSyncedAt)}</span>
         </div>
-        <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap' }}>
+        <div className="sidebar-foot-actions">
           <button className="btn btn--ghost btn--sm" onClick={onRefresh}>Refresh now</button>
           <button
             className="btn btn--ghost btn--sm"

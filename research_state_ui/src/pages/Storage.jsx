@@ -270,7 +270,13 @@ function RetrievalRecord({ o, projectId, exp, px, onChanged, onDiscarded }) {
           ) : o.producing_experiment_id && (
             <Field k="from"><ObjId id={o.producing_experiment_id} /></Field>
           )}
-          {o.producing_run && <Field k="run">{o.producing_run}</Field>}
+          {o.producing_run && (
+            <Field k="run">
+              {/^[0-9a-f]{32}$/i.test(o.producing_run)
+                ? <span title={o.producing_run}>{o.producing_run.slice(0, 8)}…</span>
+                : o.producing_run}
+            </Field>
+          )}
           {o.source_uri && <Field k="source">{o.source_uri}</Field>}
         </div>
 

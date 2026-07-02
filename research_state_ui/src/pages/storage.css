@@ -39,7 +39,10 @@
 .vlt-obj.is-open { border-left-color: var(--active); }
 
 .vlt-row { padding: 10px 0; border-bottom: 1px solid var(--line); cursor: pointer; }
-.vlt-row:hover { background: var(--hover); }
+/* Hover tint only where hover exists — on touch it would stick after a tap. */
+@media (hover: hover) {
+  .vlt-row:hover { background: var(--hover); }
+}
 .vlt-c-no { color: var(--faint); }
 .vlt-c-name { color: var(--text); font-weight: 600; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .vlt-ver { color: var(--faint); font-weight: 400; }
@@ -95,11 +98,14 @@
 
 .vlt-err { color: var(--refutes); font-size: var(--text-sm); padding-bottom: 12px; }
 
-/* Narrow surfaces: kind + saved fold away; the record's label column tightens. */
+/* Narrow surfaces: kind + saved fold away; the record's label column tightens;
+   verbs and sort headers grow thumb-sized hit areas (padding, not visual bulk). */
 @media (max-width: 640px) {
   .vlt-instrument { gap: 14px 24px; }
   .vlt-head, .vlt-row { grid-template-columns: 30px minmax(0, 1fr) 64px 104px; gap: 9px; }
   .vlt-c-kind, .vlt-c-saved { display: none; }
   .vlt-field { grid-template-columns: 96px minmax(0, 1fr); }
-  .vlt-verbs { gap: 20px; }
+  .vlt-verbs { gap: 22px; padding: 10px 0 8px; }
+  .vlt-verb { padding: 10px 0; }
+  .vlt-hbtn { padding: 6px 0; }
 }
