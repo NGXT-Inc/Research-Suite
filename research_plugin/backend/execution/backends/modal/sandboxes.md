@@ -29,11 +29,15 @@ happened for user visibility.
 1. Look up an active sandbox attached to the experiment.
 2. If a matching row exists and the Modal sandbox is still alive, return its stored SSH
    details (`reused: true`).
-3. Otherwise create a fresh sandbox, wire SSH, persist the row, and return the
+3. Otherwise look up the newest live sandbox in the project, attach it to the
+   experiment, and return its SSH details (`reuse_source:
+   "project_active_sandbox"`).
+4. Otherwise create a fresh sandbox, wire SSH, persist the row, and return the
    new details (`reused: false`).
 
 Procurement is the registry's job, not the agent's. The agent always calls
 `sandbox.request`; whether it gets a reused or fresh sandbox is transparent.
+Pass `additional=true` only when the experiment needs a parallel VM.
 
 ## SSH wiring
 
@@ -133,7 +137,7 @@ TensorBoard server, or sandbox-local dashboard tunnel.
 
 | Tool | Purpose |
 |------|---------|
-| `sandbox.request` | Procure or reuse the experiment's sandbox; returns SSH details and remote/local path guidance. |
+| `sandbox.request` | Procure or reuse the project's live sandbox; returns SSH details and remote/local path guidance. |
 | `sandbox.get` | Current sandbox status + SSH details for the experiment. |
 | `sandbox.list` | All experiment sandboxes in the project. |
 | `sandbox.release` | Terminate the experiment's sandbox after confirming needed files were retained. |

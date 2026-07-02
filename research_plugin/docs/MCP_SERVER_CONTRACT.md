@@ -353,6 +353,11 @@ raw_command), `workdir`, `experiment_dir`, `local_experiment_dir`, `data_dir`,
 `files_pushed` (how many files the initial folder push delivered; null while
 unknown), `status`, `expires_at`, `reused`, and — when set — the reserved
 hardware (`gpu`, `cpu`, `memory`, `instance_type`, `region`).
+By default, a request for a new experiment reuses and attaches the newest
+confirmed-live sandbox in the same project before provisioning another VM; pass
+`additional: true` to force a parallel sandbox for that experiment. Project
+reuse responses include `reuse_source: "project_active_sandbox"`.
+
 `ssh.command` is the short dispatcher form
 `.research_plugin/sbx <sandbox_uid>` (run from the repo root); `ssh.raw_command`
 is the full `ssh -i … user@host` line for use from any directory.
@@ -364,7 +369,7 @@ Procurement differs by backend, and the **default backend is Lambda Labs**:
 - **Lambda Labs (default)** sells fixed machine SKUs that bundle GPU + vCPU + RAM
   together, so the agent picks an `instance_type` rather than independent
   cpu/memory. When `sandbox.request` arrives with **no `instance_type`** and the
-  experiment has **no live sandbox to reuse**, the server does **not** provision.
+  project has **no live sandbox to reuse**, the server does **not** provision.
   It returns `status: "needs_selection"` with a live, cheapest-first `options`
   menu (each entry: `instance_type`, `gpu`, `gpu_count`, `vcpus`, `memory_gib`,
   `storage_gib`, `price_usd_per_hour`, `regions`). The agent re-calls
@@ -374,7 +379,7 @@ Procurement differs by backend, and the **default backend is Lambda Labs**:
   SKU fixes them).
 - **Thunder Compute** exposes fixed GPU specs that bundle GPU + vCPU +
   RAM. When `sandbox.request` arrives with **no `instance_type`** and the
-  experiment has **no live sandbox to reuse**, the server returns
+  project has **no live sandbox to reuse**, the server returns
   `status: "needs_selection"` with a live, cheapest-first `options` menu. The
   agent re-calls `sandbox.request(experiment_id, instance_type=<choice>)`.
   Thunder does not expose region selection through the current API.

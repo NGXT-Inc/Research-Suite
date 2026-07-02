@@ -242,6 +242,22 @@ class SandboxRegistry:
         finally:
             conn.close()
 
+    def list_running_project_rows(self, *, project_id: str) -> list[dict[str, Any]]:
+        """Newest running sandboxes for a project, regardless of attachment."""
+        conn = self.store.connect()
+        try:
+            rows = conn.execute(
+                """
+                SELECT * FROM sandboxes
+                WHERE project_id = ? AND status = 'running'
+                ORDER BY created_seq DESC
+                """,
+                (project_id,),
+            ).fetchall()
+            return [self._row_dict(row=row, conn=conn) for row in rows]
+        finally:
+            conn.close()
+
     def list_rows_by_status(self, *, status: str) -> list[dict[str, Any]]:
         """All sandbox rows (across tenants/projects) in ``status``.
 

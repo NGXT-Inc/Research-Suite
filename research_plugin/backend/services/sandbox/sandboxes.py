@@ -168,6 +168,18 @@ class SandboxService:
             additional = False
 
         requested_uid = (sandbox_uid or "").strip()
+        project_reuse = self._project_reuse_candidate(
+            project_id=project_id,
+            experiment_id=experiment_id,
+            existing=existing,
+            additional=additional,
+            requested_uid=requested_uid,
+            requested_uid_blocks_reuse=not bool(public_key_override),
+            include_data_plane_enrichment=include_data_plane_enrichment,
+        )
+        if project_reuse is not None:
+            return project_reuse
+
         sandbox_uid = (
             requested_uid
             or (
@@ -302,6 +314,75 @@ class SandboxService:
             include_data_plane_enrichment=include_data_plane_enrichment,
             use_sandbox_uid_command=True,
         )
+
+    def _project_reuse_candidate(
+        self,
+        *,
+        project_id: str,
+        experiment_id: str,
+        existing: dict[str, Any] | None,
+        additional: bool,
+        requested_uid: str,
+        requested_uid_blocks_reuse: bool,
+        include_data_plane_enrichment: bool,
+    ) -> dict[str, Any] | None:
+        if (
+            additional
+            or existing is not None
+            or (requested_uid and requested_uid_blocks_reuse)
+        ):
+            return None
+        for candidate in self.registry.list_running_project_rows(project_id=project_id):
+            row = self.provisioner.reconcile(row=candidate)
+            sandbox_uid = str(row.get("sandbox_uid") or "")
+            sandbox_id = str(row.get("sandbox_id") or "")
+            if row.get("status") not in ACTIVE_SANDBOX_STATUSES or not sandbox_id:
+                continue
+            if not self.provisioner.is_alive(sandbox_id=sandbox_id):
+                continue
+            if experiment_id:
+                row = self.registry.attach(
+                    sandbox_uid=sandbox_uid,
+                    experiment_id=experiment_id,
+                    project_id=project_id,
+                )
+                # The compatibility row projection reports the first attachment;
+                # this request is for the newly attached experiment.
+                row = {**row, "experiment_id": experiment_id}
+            self.registry.touch_alive(
+                experiment_id=experiment_id,
+                sandbox_uid=sandbox_uid,
+            )
+            row = self._refresh_row(row=self.registry.get_by_uid(sandbox_uid=sandbox_uid))
+            if experiment_id:
+                row = {**row, "experiment_id": experiment_id}
+            active_experiment_ids = self.registry.active_experiment_ids(
+                sandbox_uid=sandbox_uid
+            )
+            self.registry.emit_event(
+                project_id=project_id,
+                event_type="sandbox.reused",
+                experiment_id=experiment_id,
+                payload={
+                    "sandbox_id": row.get("sandbox_id", ""),
+                    "sandbox_uid": sandbox_uid,
+                    "active_experiment_ids": active_experiment_ids,
+                    "reuse_source": "project_active_sandbox",
+                },
+            )
+            self._ensure_keypair(local_key=sandbox_uid)
+            result = self._agent_result(
+                row=row,
+                reused=True,
+                include_data_plane_enrichment=include_data_plane_enrichment,
+                use_sandbox_uid_command=True,
+            )
+            result["reuse_source"] = "project_active_sandbox"
+            result["active_experiment_ids"] = active_experiment_ids
+            if experiment_id:
+                result["experiment_id"] = experiment_id
+            return result
+        return None
 
     def request_from_data_plane(
         self,

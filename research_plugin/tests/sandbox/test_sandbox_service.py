@@ -181,6 +181,85 @@ class SandboxServiceTest(unittest.TestCase):
         self.assertEqual(first["sandbox_id"], second["sandbox_id"])
         self.assertEqual(len(self.backend.acquired), 1)
 
+    def test_request_reuses_project_live_sandbox_for_new_experiment(self) -> None:
+        source = self._experiment(name="exp-1")
+        target = self._experiment(name="exp-2")
+        first = self.call(
+            "sandbox.request", project_id=self.project_id, experiment_id=source
+        )
+
+        second = self.call(
+            "sandbox.request", project_id=self.project_id, experiment_id=target
+        )
+
+        self.assertTrue(second["reused"])
+        self.assertEqual(second["reuse_source"], "project_active_sandbox")
+        self.assertEqual(second["experiment_id"], target)
+        self.assertEqual(first["sandbox_uid"], second["sandbox_uid"])
+        self.assertEqual(first["sandbox_id"], second["sandbox_id"])
+        self.assertEqual(set(second["active_experiment_ids"]), {source, target})
+        self.assertEqual(len(self.backend.acquired), 1)
+        self.assertEqual(
+            self.call("sandbox.get", project_id=self.project_id, experiment_id=target)[
+                "sandbox_uid"
+            ],
+            first["sandbox_uid"],
+        )
+
+    def test_request_additional_bypasses_project_live_sandbox_reuse(self) -> None:
+        source = self._experiment(name="exp-1")
+        target = self._experiment(name="exp-2")
+        first = self.call(
+            "sandbox.request", project_id=self.project_id, experiment_id=source
+        )
+
+        second = self.call(
+            "sandbox.request",
+            project_id=self.project_id,
+            experiment_id=target,
+            additional=True,
+        )
+
+        self.assertFalse(second["reused"])
+        self.assertNotEqual(first["sandbox_uid"], second["sandbox_uid"])
+        self.assertNotEqual(first["sandbox_id"], second["sandbox_id"])
+        self.assertEqual(second["active_experiment_ids"], [target])
+        self.assertEqual(len(self.backend.acquired), 2)
+
+    def test_data_plane_request_reuses_project_live_sandbox_despite_provisional_uid(self) -> None:
+        source = self._experiment(name="exp-1")
+        target = self._experiment(name="exp-2")
+        first = self.app.sandboxes.request_from_data_plane(
+            project_id=self.project_id,
+            experiment_id=source,
+            public_key="ssh-ed25519 source",
+            sandbox_uid="uid_source",
+        )
+
+        second = self.app.sandboxes.request_from_data_plane(
+            project_id=self.project_id,
+            experiment_id=target,
+            public_key="ssh-ed25519 target",
+            sandbox_uid="uid_provisional",
+        )
+
+        self.assertTrue(second["reused"])
+        self.assertEqual(second["reuse_source"], "project_active_sandbox")
+        self.assertEqual(second["sandbox_uid"], first["sandbox_uid"])
+        self.assertEqual(second["sandbox_id"], first["sandbox_id"])
+        self.assertEqual(set(second["active_experiment_ids"]), {source, target})
+        self.assertEqual(len(self.backend.acquired), 1)
+
+    def test_standalone_request_reuses_project_live_sandbox(self) -> None:
+        first = self.call("sandbox.request", project_id=self.project_id)
+        second = self.call("sandbox.request", project_id=self.project_id)
+
+        self.assertTrue(second["reused"])
+        self.assertEqual(second["reuse_source"], "project_active_sandbox")
+        self.assertEqual(second["sandbox_uid"], first["sandbox_uid"])
+        self.assertEqual(second["sandbox_id"], first["sandbox_id"])
+        self.assertEqual(len(self.backend.acquired), 1)
+
     def test_attach_associates_live_sandbox_with_another_experiment(self) -> None:
         source = self._experiment(name="exp-1")
         target = self._experiment(name="exp-2")
@@ -1039,6 +1118,14 @@ class SandboxServiceTest(unittest.TestCase):
         second = self.call("sandbox.request", project_id=self.project_id, experiment_id=exp_id)
         self.assertTrue(second["reused"])
         self.assertEqual(second["instance_type"], "gpu_1x_a10")
+        other_exp = self._experiment(name="exp-2")
+        third = self.call(
+            "sandbox.request", project_id=self.project_id, experiment_id=other_exp
+        )
+        self.assertTrue(third["reused"])
+        self.assertEqual(third["reuse_source"], "project_active_sandbox")
+        self.assertEqual(third["instance_type"], "gpu_1x_a10")
+        self.assertEqual(len(self.backend.acquired), 1)
 
     def test_options_tool_is_registered(self) -> None:
         names = {tool["name"] for tool in self.app.list_tools()}
