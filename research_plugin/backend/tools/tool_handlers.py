@@ -261,6 +261,8 @@ def build_local_tool_handlers(
     resource_register_file: Callable[..., dict[str, Any]],
     resource_associate: Callable[..., dict[str, Any]] | None = None,
     feed_post: Callable[..., dict[str, Any]] | None = None,
+    storage_upload_file: Callable[..., dict[str, Any]] | None = None,
+    storage_download_file: Callable[..., dict[str, Any]] | None = None,
 ) -> dict[str, Callable[..., dict[str, Any]]]:
     """Map all local-mode tool names to service methods."""
     handlers = build_control_tool_handlers(
@@ -288,4 +290,19 @@ def build_local_tool_handlers(
             "feed.post": feed_post if feed_post is not None else feed.post,
         }
     )
+    if storage is not None:
+        handlers.update(
+            {
+                "storage.upload_file": (
+                    storage_upload_file
+                    if storage_upload_file is not None
+                    else storage.upload_file
+                ),
+                "storage.download_file": (
+                    storage_download_file
+                    if storage_download_file is not None
+                    else storage.download_file
+                ),
+            }
+        )
     return handlers

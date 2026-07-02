@@ -186,6 +186,58 @@ class StorageLedgerServiceTest(unittest.TestCase):
         self.assertGreater(resolved["object"]["expires_at"], "2026-01-01T00:00:00Z")
         self.assertIsNotNone(resolved["object"]["last_accessed_at"])
 
+    def test_upload_file_and_download_file_round_trip(self) -> None:
+        source = self.root / "experiments" / "run" / "large.log"
+        source.parent.mkdir(parents=True)
+        data = b"important run log\n" * 3
+        source.write_bytes(data)
+
+        uploaded = self.service.upload_file(
+            project_id=self.project_id,
+            path=source,
+            name="experiments/run/large.log",
+            kind="other",
+            producing_experiment_id="exp_storage",
+        )
+
+        self.assertTrue(uploaded["uploaded"])
+        self.assertEqual(uploaded["object"]["status"], "available")
+        self.assertEqual(uploaded["object"]["name"], "experiments/run/large.log")
+        self.assertEqual(uploaded["object"]["content_sha256"], self._sha(data))
+        self.assertEqual(uploaded["object"]["producing_experiment_id"], "exp_storage")
+
+        target = self.root / "downloads" / "large.log"
+        downloaded = self.service.download_file(
+            project_id=self.project_id,
+            object_id=uploaded["object"]["id"],
+            path=target,
+        )
+
+        self.assertTrue(downloaded["downloaded"])
+        self.assertEqual(downloaded["bytes_written"], len(data))
+        self.assertEqual(target.read_bytes(), data)
+
+    def test_download_file_refuses_to_clobber_without_overwrite(self) -> None:
+        obj = self._put_and_complete(name="datasets/ready.bin", kind="dataset", data=b"new")
+        target = self.root / "ready.bin"
+        target.write_bytes(b"old")
+
+        with self.assertRaises(ValidationError):
+            self.service.download_file(
+                project_id=self.project_id,
+                object_id=obj["id"],
+                path=target,
+            )
+
+        self.assertEqual(target.read_bytes(), b"old")
+        self.service.download_file(
+            project_id=self.project_id,
+            object_id=obj["id"],
+            path=target,
+            overwrite=True,
+        )
+        self.assertEqual(target.read_bytes(), b"new")
+
     def test_pin_survives_sweep_and_unpin_renew_restore_expiry(self) -> None:
         obj = self._put_and_complete(name="datasets/pinned.tar", kind="dataset", data=b"pin")
 

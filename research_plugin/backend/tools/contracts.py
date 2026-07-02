@@ -289,6 +289,28 @@ class StoragePutObjectInput(ProjectScopedInput):
     notes: str = ""
 
 
+class StorageUploadFileInput(ProjectScopedInput):
+    path: str = Field(
+        description=(
+            "Local file path to upload. Relative paths resolve against the "
+            "project repo root."
+        )
+    )
+    kind: Literal["dataset", "model", "other"]
+    name: str = Field(
+        default="",
+        description=(
+            "Optional storage object name. Defaults to the repo-relative path "
+            "when path is inside the project, otherwise the file basename."
+        ),
+    )
+    content_type: str = ""
+    producing_experiment_id: str = ""
+    producing_run: str = ""
+    source_uri: str = ""
+    notes: str = ""
+
+
 class StorageCompleteUploadInput(ProjectScopedInput):
     upload_id: str
     parts: list[dict[str, Any]] | None = None
@@ -312,6 +334,22 @@ class StorageResolveInput(ProjectScopedInput):
     name: str | None = None
     version: int | None = Field(default=None, ge=1)
     include_download: bool = True
+
+
+class StorageDownloadFileInput(ProjectScopedInput):
+    path: str = Field(
+        description=(
+            "Local destination path. Relative paths resolve against the "
+            "project repo root."
+        )
+    )
+    object_id: str | None = None
+    name: str | None = None
+    version: int | None = Field(default=None, ge=1)
+    overwrite: bool = Field(
+        default=False,
+        description="Refuse to replace an existing local file unless true.",
+    )
 
 
 class StorageObjectInput(ProjectScopedInput):
@@ -704,6 +742,15 @@ TOOL_CONTRACTS: dict[str, ToolContract] = {
             "target unless the content is already present in the project."
         ),
     ),
+    "storage.upload_file": ToolContract(
+        input_model=StorageUploadFileInput,
+        description=(
+            "Upload a local file to durable storage and complete the ledger "
+            "object in one call. Relative paths are resolved against the "
+            "project repo root; omit name to use the repo-relative path."
+        ),
+        plane="data",
+    ),
     "storage.complete_upload": ToolContract(
         input_model=StorageCompleteUploadInput,
         description="Complete a storage upload and mark the ledger object available.",
@@ -721,6 +768,14 @@ TOOL_CONTRACTS: dict[str, ToolContract] = {
             "Resolve one storage object by id or name/version. With "
             "include_download=true, returns a presigned download URL and renews TTL."
         ),
+    ),
+    "storage.download_file": ToolContract(
+        input_model=StorageDownloadFileInput,
+        description=(
+            "Resolve a storage object and download it to a local file, verifying "
+            "size and sha256 before replacing the destination."
+        ),
+        plane="data",
     ),
     "storage.pin": ToolContract(
         input_model=StorageObjectInput,
@@ -853,9 +908,11 @@ TOOL_CONTRACTS.update(FEED_TOOL_CONTRACTS)
 
 STORAGE_TOOL_NAMES = {
     "storage.put_object",
+    "storage.upload_file",
     "storage.complete_upload",
     "storage.list",
     "storage.resolve",
+    "storage.download_file",
     "storage.pin",
     "storage.unpin",
     "storage.renew",

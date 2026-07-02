@@ -19,6 +19,7 @@ already lazily imported; the daemon profile drops it entirely).
 from __future__ import annotations
 
 import base64
+import mimetypes
 import os
 import uuid
 from collections.abc import Mapping
@@ -36,7 +37,12 @@ from ..dataplane.resource_artifacts import LocalResourceArtifactReader
 from ..dataplane.resource_observer import LocalResourceObserver
 from ..secret_tokens import mint_secret
 from ..services.sandbox import sandbox_views
-from ..utils import ValidationError
+from ..storage.file_transfer import (
+    download_target_to_file,
+    file_digest,
+    upload_file_to_target,
+)
+from ..utils import ValidationError, new_id
 from ..workspace import LocalWorkspace
 
 
@@ -148,6 +154,10 @@ class DaemonServer:
             return self._associate_resource(arguments=arguments, context=context)
         if name == "feed.post":
             return self._post_feed(arguments=arguments, context=context)
+        if name == "storage.upload_file":
+            return self._upload_storage_file(arguments=arguments, context=context)
+        if name == "storage.download_file":
+            return self._download_storage_file(arguments=arguments, context=context)
         if name == "sandbox.request":
             return self._request_sandbox(arguments=arguments, context=context)
         if name == "sandbox.attach":
@@ -221,13 +231,13 @@ class DaemonServer:
             "handle": self._required_arg(arguments, "handle"),
             "text": self._required_arg(arguments, "text"),
         }
-        for key in ("url", "ref"):
+        for key in ("url", "ref", "kind"):
             if arguments.get(key) is not None:
                 payload[key] = arguments.get(key)
         self.control.validate_feed_post(
             {
                 key: payload[key]
-                for key in ("project_id", "handle", "text", "ref")
+                for key in ("project_id", "handle", "text", "ref", "kind")
                 if key in payload
             }
         )
@@ -243,6 +253,119 @@ class DaemonServer:
         return {
             "path": str(image["path"]),
             "data_b64": base64.b64encode(image["data"]).decode("ascii"),
+        }
+
+    def _upload_storage_file(
+        self, *, arguments: dict[str, Any], context: dict[str, Any]
+    ) -> dict[str, Any]:
+        repo_root, project_id = self._linked_scope(context=context)
+        file_path = self._resolve_local_path(
+            repo_root=repo_root, path=self._required_arg(arguments, "path")
+        )
+        if not file_path.exists():
+            raise ValidationError(f"storage upload file not found: {file_path}")
+        if not file_path.is_file():
+            raise ValidationError(f"storage upload path is not a file: {file_path}")
+        sha256, size_bytes = file_digest(file_path)
+        content_type = (
+            str(arguments.get("content_type") or "")
+            or mimetypes.guess_type(str(file_path))[0]
+            or "application/octet-stream"
+        )
+        payload = {
+            "project_id": project_id,
+            "path": str(file_path),
+            "name": str(arguments.get("name") or "")
+            or self._default_storage_name(repo_root=repo_root, path=file_path),
+            "kind": self._required_arg(arguments, "kind"),
+            "sha256": sha256,
+            "size_bytes": size_bytes,
+            "content_type": content_type,
+            "producing_experiment_id": str(
+                arguments.get("producing_experiment_id") or ""
+            ),
+            "producing_run": str(arguments.get("producing_run") or ""),
+            "source_uri": str(arguments.get("source_uri") or ""),
+            "notes": str(arguments.get("notes") or ""),
+        }
+        registered = self.control.call(
+            "storage.put_object",
+            {key: value for key, value in payload.items() if key != "path"},
+        )
+        result: dict[str, Any] = {
+            key: value for key, value in registered.items() if key != "upload"
+        }
+        result["path"] = str(file_path)
+        result["sha256"] = sha256
+        result["size_bytes"] = size_bytes
+        result["uploaded"] = False
+        upload = registered.get("upload")
+        if not upload:
+            return result
+        completed_parts = upload_file_to_target(
+            upload=upload,
+            file_path=file_path,
+            size_bytes=size_bytes,
+            content_type=content_type,
+        )
+        completed = self.control.call(
+            "storage.complete_upload",
+            {
+                "project_id": project_id,
+                "upload_id": str(upload["upload_id"]),
+                "parts": completed_parts,
+            },
+        )
+        result["object"] = completed
+        result["uploaded"] = True
+        return result
+
+    def _download_storage_file(
+        self, *, arguments: dict[str, Any], context: dict[str, Any]
+    ) -> dict[str, Any]:
+        repo_root, project_id = self._linked_scope(context=context)
+        target = self._resolve_local_path(
+            repo_root=repo_root, path=self._required_arg(arguments, "path")
+        )
+        if target.exists() and not bool(arguments.get("overwrite")):
+            raise ValidationError(
+                f"download target already exists; pass overwrite=true to replace: {target}"
+            )
+        payload = {
+            "project_id": project_id,
+            "object_id": arguments.get("object_id"),
+            "name": arguments.get("name"),
+            "version": arguments.get("version"),
+            "include_download": True,
+        }
+        resolved = self.control.call("storage.resolve", payload)
+        obj = resolved["object"]
+        target.parent.mkdir(parents=True, exist_ok=True)
+        tmp = target.with_name(f".{target.name}.tmp-{new_id(prefix='download')}")
+        try:
+            download_target_to_file(download=resolved["download"], path=tmp)
+            sha256, size_bytes = file_digest(tmp)
+            if sha256 != str(obj["content_sha256"]):
+                raise ValidationError(
+                    "downloaded storage object checksum mismatch: "
+                    f"{sha256} != {obj['content_sha256']}"
+                )
+            if size_bytes != int(obj["size_bytes"]):
+                raise ValidationError(
+                    "downloaded storage object size mismatch: "
+                    f"{size_bytes} != {obj['size_bytes']} bytes"
+                )
+            tmp.replace(target)
+        finally:
+            try:
+                tmp.unlink()
+            except FileNotFoundError:
+                pass
+        return {
+            "object": obj,
+            "path": str(target),
+            "downloaded": True,
+            "bytes_written": int(obj["size_bytes"]),
         }
 
     def _sandbox_get_enrichment(
@@ -447,6 +570,18 @@ class DaemonServer:
         if value is None or str(value) == "":
             raise ValidationError(f"{key} is required")
         return str(value)
+
+    def _resolve_local_path(self, *, repo_root: Path, path: str) -> Path:
+        candidate = Path(path).expanduser()
+        if not candidate.is_absolute():
+            candidate = repo_root / candidate
+        return candidate
+
+    def _default_storage_name(self, *, repo_root: Path, path: Path) -> str:
+        try:
+            return path.resolve().relative_to(repo_root.resolve()).as_posix()
+        except ValueError:
+            return path.name
 
 def build_daemon_executor(*, worker: LocalDataPlaneWorker):
     """The daemon's task dispatch: (type, payload, deadline) -> result.

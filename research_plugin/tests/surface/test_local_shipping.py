@@ -47,6 +47,9 @@ class LocalShippingTest(unittest.TestCase):
     def _clean_env(self) -> dict[str, str]:
         env = os.environ.copy()
         env.pop("RESEARCH_PLUGIN_REPO_ROOT", None)
+        env.pop("RESEARCH_PLUGIN_CONTROL_URL", None)
+        env.pop("RESEARCH_PLUGIN_DAEMON_SECRET_FILE", None)
+        env["RESEARCH_PLUGIN_CLIENT_CONFIG"] = str(self.root / "isolated-client.json")
         env["RESEARCH_PLUGIN_PYTHON"] = sys.executable
         return env
 

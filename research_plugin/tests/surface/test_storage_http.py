@@ -78,6 +78,41 @@ class StorageHttpApiTest(unittest.TestCase):
             [],
         )
 
+    def test_storage_upload_and_download_file_tools_resolve_project_paths(self) -> None:
+        source = self.repo / "experiments" / "storage_demo" / "run.log"
+        source.parent.mkdir(parents=True)
+        source.write_bytes(b"tool bytes")
+
+        uploaded = self.app.call_tool(
+            "storage.upload_file",
+            {
+                "project_id": self.project_id,
+                "path": "experiments/storage_demo/run.log",
+                "kind": "other",
+            },
+        )
+
+        self.assertTrue(uploaded["uploaded"])
+        self.assertEqual(
+            uploaded["object"]["name"], "experiments/storage_demo/run.log"
+        )
+        self.assertEqual(uploaded["object"]["content_sha256"], hashlib.sha256(b"tool bytes").hexdigest())
+
+        downloaded = self.app.call_tool(
+            "storage.download_file",
+            {
+                "project_id": self.project_id,
+                "object_id": uploaded["object"]["id"],
+                "path": "experiments/storage_demo/copy.log",
+            },
+        )
+
+        self.assertEqual(downloaded["bytes_written"], len(b"tool bytes"))
+        self.assertEqual(
+            (self.repo / "experiments" / "storage_demo" / "copy.log").read_bytes(),
+            b"tool bytes",
+        )
+
     def _request(self, method: str, path: str, body: dict | None = None) -> dict:
         response = self.client.request(method, path, json=body)
         self.assertLess(response.status_code, 400, response.text)

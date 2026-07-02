@@ -157,6 +157,8 @@ class ResearchPluginApp:
                 mlflow_tracking=self.mlflow_tracking,
                 feed=self.feed,
                 feed_post=self.post_feed,
+                storage_upload_file=self.upload_storage_file,
+                storage_download_file=self.download_storage_file,
             ),
             permissions=self.permissions,
             activity=self.activity,
@@ -288,6 +290,73 @@ class ResearchPluginApp:
             content_bytes=artifact.get("content_bytes"),
             figures=artifact.get("figures") or [],
         )
+
+    def upload_storage_file(
+        self,
+        *,
+        path: str,
+        kind: str,
+        name: str = "",
+        content_type: str = "",
+        created_by: str = "codex",
+        producing_experiment_id: str = "",
+        producing_run: str = "",
+        source_uri: str = "",
+        notes: str = "",
+        project_id: str | None = None,
+    ) -> dict[str, Any]:
+        if self.storage is None:
+            raise ValidationError("storage is not configured")
+        local_path = self._resolve_project_path(path)
+        object_name = name or self._default_storage_name(local_path)
+        return self.storage.upload_file(
+            project_id=project_id,
+            path=local_path,
+            name=object_name,
+            kind=kind,
+            content_type=content_type,
+            created_by=created_by,
+            producing_experiment_id=producing_experiment_id,
+            producing_run=producing_run,
+            source_uri=source_uri,
+            notes=notes,
+        )
+
+    def download_storage_file(
+        self,
+        *,
+        path: str,
+        object_id: str | None = None,
+        name: str | None = None,
+        version: int | None = None,
+        overwrite: bool = False,
+        project_id: str | None = None,
+    ) -> dict[str, Any]:
+        if self.storage is None:
+            raise ValidationError("storage is not configured")
+        local_path = self._resolve_project_path(path)
+        return self.storage.download_file(
+            project_id=project_id,
+            path=local_path,
+            object_id=object_id,
+            name=name,
+            version=version,
+            overwrite=overwrite,
+        )
+
+    def _resolve_project_path(self, path: str) -> Path:
+        candidate = Path(path).expanduser()
+        if not candidate.is_absolute():
+            candidate = self.workspace.repo_root / candidate
+        return candidate
+
+    def _default_storage_name(self, path: Path) -> str:
+        try:
+            return path.resolve().relative_to(
+                self.workspace.repo_root.resolve()
+            ).as_posix()
+        except ValueError:
+            return path.name
 
     def post_feed(
         self,

@@ -13,10 +13,12 @@ from backend.tools.contracts import (
     CONTROL_PLANE_TOOL_NAMES,
     DATA_PLANE_TOOL_NAMES,
     StorageCompleteUploadInput,
+    StorageDownloadFileInput,
     StorageListInput,
     StorageObjectInput,
     StoragePutObjectInput,
     StorageResolveInput,
+    StorageUploadFileInput,
     STORAGE_TOOL_NAMES,
     TOOL_CONTRACTS,
     available_tool_names,
@@ -107,18 +109,20 @@ class ToolContractRegistryTest(unittest.TestCase):
 
     def test_storage_tools_registered_with_expected_input_models(self) -> None:
         expected = {
-            "storage.put_object": StoragePutObjectInput,
-            "storage.complete_upload": StorageCompleteUploadInput,
-            "storage.list": StorageListInput,
-            "storage.resolve": StorageResolveInput,
-            "storage.pin": StorageObjectInput,
-            "storage.unpin": StorageObjectInput,
-            "storage.renew": StorageObjectInput,
-            "storage.delete": StorageObjectInput,
+            "storage.put_object": (StoragePutObjectInput, "control"),
+            "storage.upload_file": (StorageUploadFileInput, "data"),
+            "storage.complete_upload": (StorageCompleteUploadInput, "control"),
+            "storage.list": (StorageListInput, "control"),
+            "storage.resolve": (StorageResolveInput, "control"),
+            "storage.download_file": (StorageDownloadFileInput, "data"),
+            "storage.pin": (StorageObjectInput, "control"),
+            "storage.unpin": (StorageObjectInput, "control"),
+            "storage.renew": (StorageObjectInput, "control"),
+            "storage.delete": (StorageObjectInput, "control"),
         }
-        for name, model in expected.items():
+        for name, (model, plane) in expected.items():
             self.assertIs(TOOL_CONTRACTS[name].input_model, model)
-            self.assertEqual(TOOL_CONTRACTS[name].plane, "control")
+            self.assertEqual(TOOL_CONTRACTS[name].plane, plane)
 
 
 class StaticCatalogNoSideEffectTest(unittest.TestCase):

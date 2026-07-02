@@ -294,6 +294,8 @@ class ToolPlanePartitionTest(unittest.TestCase):
             {
                 "resource.register_file",
                 "resource.associate",
+                "storage.upload_file",
+                "storage.download_file",
                 "sandbox.request",
                 "sandbox.attach",
                 # feed.post reads a local image file before recording the post,
