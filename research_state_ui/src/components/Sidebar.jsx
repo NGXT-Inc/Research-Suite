@@ -26,6 +26,29 @@ const NEXT_THEME_MODE = { light: 'dark', dark: 'system', system: 'light' };
 // shell's reveal button, so exported).
 export const SIDEBAR_KB = /Mac|iP/.test(navigator.platform || '') ? '⌘B' : 'Ctrl+B';
 
+// The conventional toggle-sidebar glyph: a frame with the panel marked off.
+// Same 24-grid stroke language as the mobile nav icons; used by both the
+// brand-row hide button and the shell's edge-reveal.
+export function IconSidebar(props) {
+  return (
+    <svg
+      width="16"
+      height="16"
+      viewBox="0 0 24 24"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth="1.8"
+      strokeLinecap="round"
+      strokeLinejoin="round"
+      aria-hidden="true"
+      {...props}
+    >
+      <rect x="3.5" y="4.5" width="17" height="15" rx="2.2" />
+      <path d="M9.5 4.5v15" />
+    </svg>
+  );
+}
+
 export default function Sidebar({ onRefresh, onHide }) {
   const { mode: themeMode, theme, setMode: setThemeMode } = useTheme();
   const home = useProjectStore(s => s.home);
@@ -83,7 +106,7 @@ export default function Sidebar({ onRefresh, onHide }) {
             onClick={onHide}
             title={`Hide sidebar (${SIDEBAR_KB})`}
             aria-label="Hide sidebar"
-          >«</button>
+          ><IconSidebar /></button>
         )}
       </div>
 

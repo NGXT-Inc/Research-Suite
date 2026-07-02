@@ -507,6 +507,12 @@ input, textarea, select { font-family: inherit; font-size: inherit; color: inher
   padding: 0;
   cursor: pointer;
 }
+/* Hysteresis, both directions: a 150ms intent delay so a drive-by cursor
+   never flashes the affordance, and a 600ms hold + slow fade on leave so a
+   small excursion off the strip doesn't hide it. While engaged the strip
+   widens (still within the stage's 40px pad) — harder to fall off. */
+.sb-edge:hover,
+.sb-edge:focus-visible { width: 38px; }
 .sb-edge::before {
   content: '';
   position: absolute;
@@ -514,24 +520,31 @@ input, textarea, select { font-family: inherit; font-size: inherit; color: inher
   width: 1px;
   background: var(--line-soft);
   opacity: 0;
-  transition: opacity var(--motion-fast);
+  transition: opacity var(--motion-base) 600ms;
 }
 .sb-edge-glyph {
   position: absolute;
-  top: 15px;
+  top: 16px;
   left: 5px;
-  padding: 3px 8px;
+  display: inline-flex;
+  padding: 4px 5px;
   color: var(--faint);
-  font-size: var(--text-base);
-  line-height: 1;
   border-radius: var(--radius-md);
   opacity: 0;
-  transition: opacity var(--motion-fast), color var(--motion-fast), background var(--motion-fast);
+  transition: opacity var(--motion-base) 600ms, color var(--motion-fast), background var(--motion-fast);
 }
 .sb-edge:hover::before,
-.sb-edge:focus-visible::before { opacity: 1; }
+.sb-edge:focus-visible::before {
+  opacity: 1;
+  transition: opacity var(--motion-fast) 150ms;
+}
 .sb-edge:hover .sb-edge-glyph,
-.sb-edge:focus-visible .sb-edge-glyph { opacity: 1; color: var(--text); background: var(--bg-soft); }
+.sb-edge:focus-visible .sb-edge-glyph {
+  opacity: 1;
+  color: var(--text);
+  background: var(--bg-soft);
+  transition: opacity var(--motion-fast) 150ms, color var(--motion-fast), background var(--motion-fast);
+}
 /* No hover on touch: keep the glyph faintly resting so the way back exists. */
 @media (hover: none) {
   .sb-edge-glyph { opacity: 1; }
@@ -552,11 +565,9 @@ input, textarea, select { font-family: inherit; font-size: inherit; color: inher
 .sidebar-hide {
   border: 0;
   background: none;
-  padding: 1px 6px;
+  display: inline-flex;
+  padding: 2px 4px;
   color: var(--faint);
-  font-size: var(--text-base);
-  font-weight: 400;
-  line-height: 1.2;
   cursor: pointer;
   border-radius: var(--radius-md);
   transition: color var(--motion-fast), background var(--motion-fast);
@@ -4457,7 +4468,9 @@ a.results-metrics-sub:hover { color: var(--active); text-decoration: underline; 
 .lgc-strip::before { content: ''; position: absolute; left: 0; right: 0; top: 50%; border-top: 1px solid var(--line-soft); }
 .lgd-strip-range { font-family: var(--font-mono); font-size: 10px; color: var(--faint); white-space: nowrap; }
 
-.lgd-board { max-width: 820px; }
+/* Fills the stage like the frontier/strips above it — fixed number columns
+   hug the right, the experiment name takes the slack. */
+.lgd-board { width: 100%; }
 /* Header row: same grid as the body rows; each label is the sort control. */
 .lgd-row--head { cursor: default; border-bottom: 1px solid var(--line); padding-top: 0; }
 .lgd-row--head:hover { background: none; }

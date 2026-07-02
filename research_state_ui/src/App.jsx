@@ -3,7 +3,7 @@ import { Routes, Route, Navigate, Link, Outlet, useParams, useSearchParams } fro
 import { useProjectStore, projectPath, useProjectHref, selectActiveExperiments, selectSandboxes } from './store/useProjectStore';
 import { usePolling } from './store/usePolling';
 import { useViewport } from './store/useViewport';
-import Sidebar, { SIDEBAR_KB } from './components/Sidebar';
+import Sidebar, { SIDEBAR_KB, IconSidebar } from './components/Sidebar';
 import CompatBanner from './components/CompatBanner';
 import LogicGraphHero from './components/LogicGraphHero';
 import MobileShell from './mobile/MobileShell';
@@ -218,7 +218,7 @@ export default function App() {
             title={`Show sidebar (${SIDEBAR_KB})`}
             aria-label="Show sidebar"
           >
-            <span className="sb-edge-glyph" aria-hidden="true">»</span>
+            <span className="sb-edge-glyph" aria-hidden="true"><IconSidebar /></span>
           </button>
         )}
         <main className="shell-main">

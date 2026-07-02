@@ -112,7 +112,6 @@ export default function MlflowDashboard() {
         <div className="page-head-row">
           <div>
             <h1 className="page-title">MLflow</h1>
-            <p className="page-summary">The whole project&rsquo;s quantitative story — click any mark to focus its experiment.</p>
           </div>
           <div className="page-actions">
             <button className="btn btn--ghost" onClick={refresh} disabled={busy}>
