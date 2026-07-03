@@ -84,6 +84,8 @@ CREATE TABLE IF NOT EXISTS projects (
   hard_stop_reflection_id TEXT,
   hard_stop_rationale TEXT NOT NULL DEFAULT '',
   stopped_at TEXT,
+  -- Per-project policy knobs (e.g. require_verified_reviews), JSON dict.
+  settings_json TEXT NOT NULL DEFAULT '{}',
   -- Tenancy (cloud plan Phase 6): ownership lives on the project row; every
   -- other table reaches its tenant through project_id. The current private
   -- deployment uses the fixed 'local' tenant until real user auth lands.
@@ -524,6 +526,9 @@ MIGRATIONS: tuple[tuple[int, str, str], ...] = (
         "normalize_storage_missing_status",
         "UPDATE storage_objects SET status = 'expired' WHERE status = 'missing'",
     ),
+    # Review policy (July 2026): per-project settings dict backing knobs like
+    # require_verified_reviews. Fresh schemas have the column; this backfills.
+    (11, "add_project_settings_json", ""),
 )
 
 
@@ -643,11 +648,19 @@ class BaseStateStore:
                 self._allow_sandbox_attachment_history(conn=conn)
             elif name == "drop_sandboxes_experiment_id":
                 self._drop_sandboxes_experiment_id(conn=conn)
+            elif name == "add_project_settings_json":
+                self._ensure_project_settings_json(conn=conn)
             else:
                 conn.execute(statement)
             conn.execute(
                 "INSERT INTO schema_migrations (version, name, applied_at) VALUES (?, ?, ?)",
                 (version, name, now_iso()),
+            )
+
+    def _ensure_project_settings_json(self, *, conn: Connection) -> None:
+        if not self._has_column(conn=conn, table="projects", column="settings_json"):
+            conn.execute(
+                "ALTER TABLE projects ADD COLUMN settings_json TEXT NOT NULL DEFAULT '{}'"
             )
 
     def _ensure_sandbox_tenant_id(self, *, conn: Connection) -> None:
@@ -873,6 +886,32 @@ class BaseStateStore:
             """,
             (project_id, event_type, target_type, target_id, json.dumps(payload or {}, sort_keys=True), now_iso()),
         )
+
+    def events_since(
+        self, *, project_id: str | None, after_id: int, limit: int = 500
+    ) -> dict[str, Any]:
+        """Ascending tail of the append-only events table — the SSE cursor read."""
+        conn = self.connect()
+        try:
+            project_id = self.require_project_id(conn=conn, project_id=project_id)
+            rows = conn.execute(
+                """
+                SELECT id, project_id, type, target_type, target_id, payload_json, created_at
+                FROM events
+                WHERE project_id = ? AND id > ?
+                ORDER BY id ASC
+                LIMIT ?
+                """,
+                (project_id, int(after_id), max(1, min(int(limit), 500))),
+            ).fetchall()
+            events = []
+            for row in rows:
+                item = row_to_dict(row=row) or {}
+                item["payload"] = json.loads(str(item.pop("payload_json", "{}")))
+                events.append(item)
+            return {"events": events}
+        finally:
+            conn.close()
 
     def recent_events(self, *, project_id: str | None, limit: int = 100) -> dict[str, Any]:
         conn = self.connect()

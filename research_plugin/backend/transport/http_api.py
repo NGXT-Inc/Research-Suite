@@ -7,15 +7,17 @@ marker lifecycle live in `http_server`.
 
 from __future__ import annotations
 
+import hashlib
 import json
 import mimetypes
 from pathlib import Path
 from typing import Any
 
 from fastapi import Body, FastAPI, Query, Request
+from fastapi.encoders import jsonable_encoder
 from fastapi.exceptions import RequestValidationError
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import JSONResponse, Response
+from fastapi.responses import JSONResponse, Response, StreamingResponse
 from pydantic import ValidationError as PydanticValidationError
 
 from .. import __version__
@@ -55,7 +57,27 @@ from ..state.activity import effective_source, is_event_ok
 
 
 JsonBody = dict[str, Any] | None
-UI_CORS_HEADERS = ["Content-Type", "Accept", "Authorization", "X-RP-Client-Version"]
+UI_CORS_HEADERS = ["Content-Type", "Accept", "Authorization", "X-RP-Client-Version", "If-None-Match"]
+# ETag is not CORS-safelisted; expose it so a cross-origin dev UI can echo it back.
+UI_CORS_EXPOSE_HEADERS = ["ETag"]
+
+
+def conditional_json(request: Request, payload: Any) -> Response:
+    """ETag/304 wrapper for the UI's polled GET endpoints.
+
+    Serializes exactly like FastAPI's default path (jsonable_encoder +
+    compact json.dumps) so 200 bodies stay byte-identical for clients that
+    never send If-None-Match; the ETag is a content hash of those bytes.
+    """
+    body = json.dumps(
+        jsonable_encoder(payload), ensure_ascii=False, allow_nan=False, separators=(",", ":")
+    ).encode("utf-8")
+    etag = f'"{hashlib.sha256(body).hexdigest()[:32]}"'
+    headers = {"ETag": etag, "Cache-Control": "no-cache"}
+    if_none_match = request.headers.get("if-none-match") or ""
+    if etag in [tag.strip() for tag in if_none_match.split(",")]:
+        return Response(status_code=304, headers=headers)
+    return Response(content=body, media_type="application/json", headers=headers)
 
 
 def _activity_event_project_id(event: dict[str, Any]) -> str | None:
@@ -1098,6 +1120,7 @@ def create_fastapi_app(
             allow_origins=allowed_origins or [],
             allow_methods=["GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"],
             allow_headers=UI_CORS_HEADERS,
+            expose_headers=UI_CORS_EXPOSE_HEADERS,
         )
     else:
         http.add_middleware(
@@ -1107,6 +1130,7 @@ def create_fastapi_app(
             # The hosted UI sends Authorization; every UI request also stamps
             # X-RP-Client-Version. Include both so dev overrides pass preflight.
             allow_headers=UI_CORS_HEADERS,
+            expose_headers=UI_CORS_EXPOSE_HEADERS,
         )
 
     @http.middleware("http")
@@ -1313,8 +1337,8 @@ def create_fastapi_app(
         return api_for_project(project_id).call_tool(name="project.update", arguments={"project_id": project_id, **(body or {})})
 
     @http.get("/api/projects/{project_id}/home")
-    def home(project_id: str) -> dict[str, Any]:
-        return api_for_project(project_id).home(project_id=project_id)
+    def home(project_id: str, request: Request) -> Response:
+        return conditional_json(request, api_for_project(project_id).home(project_id=project_id))
 
     @http.get("/api/projects/{project_id}/status")
     def project_status(project_id: str, experiment_id: str | None = None) -> dict[str, Any]:
@@ -1552,8 +1576,10 @@ def create_fastapi_app(
         return api_for_project(project_id).submit_review(project_id=project_id, body=body or {})
 
     @http.get("/api/projects/{project_id}/sandboxes")
-    def list_sandboxes(project_id: str) -> dict[str, Any]:
-        return api_for_project(project_id).sandbox_list_view(project_id=project_id)
+    def list_sandboxes(project_id: str, request: Request) -> Response:
+        return conditional_json(
+            request, api_for_project(project_id).sandbox_list_view(project_id=project_id)
+        )
 
     @http.get("/api/sandboxes/health")
     def sandbox_health() -> dict[str, Any]:
@@ -1672,8 +1698,77 @@ def create_fastapi_app(
         )
 
     @http.get("/api/projects/{project_id}/events")
-    def events(project_id: str, limit: int = Query(100, ge=1)) -> dict[str, Any]:
-        return api_for_project(project_id).events(project_id=project_id, limit=limit)
+    def events(project_id: str, request: Request, limit: int = Query(100, ge=1)) -> Response:
+        return conditional_json(
+            request, api_for_project(project_id).events(project_id=project_id, limit=limit)
+        )
+
+    @http.get("/api/projects/{project_id}/events/stream")
+    def events_stream(
+        project_id: str,
+        request: Request,
+        since: int | None = Query(None, ge=0),
+        poll_ms: int = Query(1000, ge=100, le=5000),
+        max_ms: int | None = Query(None, ge=100, le=3600_000),
+    ) -> StreamingResponse:
+        """Server push for the UI: tails the append-only events table over SSE.
+
+        Emits `append` (one per event row, with SSE id for resume), `state`
+        (per non-empty batch — the client's "run one refreshHome" signal), and
+        comment keepalives. Cursor: ?since= wins, else Last-Event-ID (browser
+        reconnect), else tail-only from the current head. `max_ms` bounds the
+        session (the browser reconnects per the retry hint) — also what makes
+        the stream finite for TestClient, which buffers whole responses.
+        """
+        store = api_for_project(project_id).app.store
+        # Resolve the starting cursor eagerly so an unknown project 404s as
+        # normal JSON instead of dying after SSE headers were sent.
+        head = store.recent_events(project_id=project_id, limit=1)["events"]
+        cursor = since
+        if cursor is None:
+            last_event_id = request.headers.get("last-event-id") or ""
+            cursor = int(last_event_id) if last_event_id.isdigit() else None
+        if cursor is None:
+            cursor = int(head[0]["id"]) if head else 0
+
+        def sse(event: str, data: Any) -> str:
+            payload = json.dumps(jsonable_encoder(data), ensure_ascii=False, separators=(",", ":"))
+            return f"event: {event}\ndata: {payload}\n\n"
+
+        async def tail(start: int):
+            import asyncio
+
+            cursor = start
+            yield f"retry: 3000\n{sse('hello', {'cursor': cursor})}"
+            idle_ms = 0
+            elapsed_ms = 0
+            while True:
+                batch = store.events_since(project_id=project_id, after_id=cursor)["events"]
+                for row in batch:
+                    cursor = int(row["id"])
+                    yield f"id: {cursor}\n{sse('append', row)}"
+                if batch:
+                    idle_ms = 0
+                    yield sse("state", {"version": cursor})
+                else:
+                    idle_ms += poll_ms
+                    if idle_ms >= 15000:
+                        idle_ms = 0
+                        # A real event, not an SSE comment: comments never reach
+                        # the EventSource JS API, and the client's liveness
+                        # watchdog needs to see the heartbeat (a proxy can hold
+                        # a dead upstream half-open without firing onerror).
+                        yield sse("ping", {})
+                if max_ms is not None and elapsed_ms >= max_ms:
+                    return
+                await asyncio.sleep(poll_ms / 1000)
+                elapsed_ms += poll_ms
+
+        return StreamingResponse(
+            tail(cursor),
+            media_type="text/event-stream",
+            headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no"},
+        )
 
     # Social feed (Feed_PRD.md) — a self-contained module: its routes register
     # themselves here, reading only off app.feed. Removing the feed is deleting

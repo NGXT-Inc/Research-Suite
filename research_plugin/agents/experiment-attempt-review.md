@@ -22,7 +22,9 @@ missing from the prompt, ask the spawning agent for them before proceeding.
 
 Do not mutate project state. Use only read-only context and the review
 capability provided by MCP. Submit the review directly to MCP using
-`review.start` (with the capability) and then `review.submit`. Do not touch
+`review.start` (with the capability) and then `review.submit`. Pass your own
+session identity as `caller_session_id` when calling `review.start` — it is
+required, and must never be the producer session's. Do not touch
 claims, experiments, resources, sandboxes, or workflow state through any other
 tool.
 
@@ -58,8 +60,8 @@ section, which is the pre-registered contract for judging success:
 
 ## Output
 
-Call `review.start` first with the `reviewer_capability`, then `review.submit`
-with this shape:
+Call `review.start` first with the `reviewer_capability` and your own session
+identity as `caller_session_id`, then `review.submit` with this shape:
 
 ```json
 {

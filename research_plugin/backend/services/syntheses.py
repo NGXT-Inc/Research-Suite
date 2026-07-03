@@ -61,6 +61,7 @@ from ..state.blobs import BlobStore
 from ..state.store import BaseStateStore, next_created_seq, row_to_dict, rows_to_dicts
 from ..utils import NotFoundError, ValidationError, WorkflowError, new_id, now_iso
 from .pinned import pinned_text_for_version, resubmit_hint
+from .review_gate import review_gate_state
 
 
 _LENS_ID_RE = re.compile(r"^[a-z][a-z0-9_-]*$")
@@ -786,12 +787,15 @@ class SynthesisService:
         if forward.review is not None:
             review = forward.review
             snapshot_id = review_snapshot_id(target_type="synthesis", target=synthesis)
-            passed = any(
-                row.get("role") == review.role
-                and row.get("verdict") == "pass"
-                and row.get("target_snapshot_id") == snapshot_id
-                for row in synthesis.get("reviews", [])
+            gate_state = review_gate_state(
+                conn=conn,
+                project_id=str(synthesis["project_id"]),
+                target_type="synthesis",
+                target_id=str(synthesis["id"]),
+                role=review.role,
+                snapshot_id=snapshot_id,
             )
+            passed = gate_state["satisfied"]
             request = self._latest_review_request(
                 conn=conn,
                 synthesis_id=str(synthesis["id"]),
@@ -816,6 +820,8 @@ class SynthesisService:
                 ),
                 "skill": review.skill,
             }
+            if gate_state.get("blocked_reason"):
+                item["problems"] = [gate_state["blocked_reason"]]
             if request is not None:
                 item["request_id"] = request["id"]
                 item["expires_at"] = request["expires_at"]
@@ -1002,10 +1008,14 @@ class SynthesisService:
             self._run_validator(
                 conn=conn, synthesis=synthesis, name=requirement.validator
             )
-        if forward.review is not None and not self._has_passing_review(
-            conn=conn, synthesis_id=synthesis["id"], role=forward.review.role
-        ):
-            raise WorkflowError(forward.review.error)
+        if forward.review is not None:
+            gate_state = self._review_gate_state(
+                conn=conn, synthesis_id=synthesis["id"], role=forward.review.role
+            )
+            if not gate_state["satisfied"]:
+                raise WorkflowError(
+                    gate_state.get("blocked_reason") or forward.review.error
+                )
         return forward.to_status
 
     def _has_resource_role(self, *, conn, synthesis_id: str, role: str) -> bool:
@@ -1480,19 +1490,18 @@ class SynthesisService:
             role=role,
         )
 
-    def _has_passing_review(self, *, conn, synthesis_id: str, role: str) -> bool:
-        snapshot_id = self._target_snapshot_id(conn=conn, synthesis_id=synthesis_id)
+    def _review_gate_state(self, *, conn, synthesis_id: str, role: str) -> dict[str, Any]:
         row = conn.execute(
-            """
-            SELECT 1
-            FROM reviews
-            WHERE target_type = 'synthesis' AND target_id = ? AND role = ?
-              AND verdict = 'pass' AND target_snapshot_id = ?
-            LIMIT 1
-            """,
-            (synthesis_id, role, snapshot_id),
+            "SELECT project_id FROM syntheses WHERE id = ?", (synthesis_id,)
         ).fetchone()
-        return row is not None
+        return review_gate_state(
+            conn=conn,
+            project_id=str(row["project_id"]) if row else "",
+            target_type="synthesis",
+            target_id=synthesis_id,
+            role=role,
+            snapshot_id=self._target_snapshot_id(conn=conn, synthesis_id=synthesis_id),
+        )
 
     def target_snapshot_id(self, *, conn, synthesis_id: str) -> str:
         return self._target_snapshot_id(conn=conn, synthesis_id=synthesis_id)

@@ -442,7 +442,9 @@ one-time capability, call `review.request` again and use the fresh response.
 
 Reviewer agents must be separate and read-only. They start and submit through
 MCP using the provided capability; they must not mutate claims, experiments,
-resources, sandboxes, or workflow state.
+resources, sandboxes, or workflow state. The reviewer passes its own session
+identity as `caller_session_id` when calling `review.start` — it is required,
+and must never be the producer session's.
 
 After any review submits, call `workflow.status_and_next` again. MCP's
 `revision_context`, experiment state, and allowed actions determine the next

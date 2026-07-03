@@ -27,6 +27,7 @@ from ..domain.vocabulary import GATED_ROLES, LOCAL_TENANT_ID
 from ..ports.review_policy import ReviewPolicy
 from ..state.store import BaseStateStore, next_created_seq, row_to_dict
 from .experiments import ExperimentService
+from .review_gate import review_gate_state
 from .syntheses import SynthesisService
 
 
@@ -169,6 +170,15 @@ class ReviewService:
     ) -> dict[str, Any]:
         # ``tenant_id`` is reserved for the future user-auth layer. None means
         # the current private/local surface and skips tenant scoping.
+        caller_session_id = caller_session_id.strip()
+        if not caller_session_id:
+            raise ValidationError(
+                "caller_session_id is required: pass the reviewer's own "
+                "session identity (any stable identifier for the reviewing "
+                "agent's session, distinct from the producer session that "
+                "requested the review) so reviewer independence can be "
+                "verified"
+            )
         with self.store.transaction() as conn:
             req = conn.execute("SELECT * FROM review_requests WHERE id = ?", (review_request_id,)).fetchone()
             if req is None:
@@ -182,13 +192,15 @@ class ReviewService:
                     # target exists to a foreign tenant.
                     raise NotFoundError(f"review request not found: {review_request_id}")
             self._validate_request_open(req=req, capability=reviewer_capability)
-            if caller_session_id and caller_session_id == req["producer_session_id"]:
+            if caller_session_id == req["producer_session_id"]:
                 raise PermissionDeniedError("reviewer session must differ from producer session")
             snapshot_now = self._target_snapshot_id(conn=conn, target_type=req["target_type"], target_id=req["target_id"])
             if snapshot_now != req["target_snapshot_id"]:
                 raise PermissionDeniedError("target changed after review capability was issued")
             session_id = new_id(prefix="rvs")
-            independence = "verified_agent_review" if caller_session_id else "attested_agent_review"
+            # caller_session_id is mandatory, so every new session is verified;
+            # 'attested_agent_review' survives only on legacy rows.
+            independence = "verified_agent_review"
             conn.execute(
                 """
                 INSERT INTO review_sessions (
@@ -541,18 +553,22 @@ class ReviewService:
         finally:
             conn.close()
 
-    def latest_verdict(self, *, conn, target_type: str, target_id: str, role: str) -> str | None:
-        snapshot_id = self._target_snapshot_id(conn=conn, target_type=target_type, target_id=target_id)
+    def gate_state(self, *, conn, target_type: str, target_id: str, role: str) -> dict[str, Any]:
+        """review_gate_state for the target's current pinned snapshot."""
+        table = "experiments" if target_type == "experiment" else "syntheses"
         row = conn.execute(
-            """
-            SELECT verdict FROM reviews
-            WHERE target_type = ? AND target_id = ? AND role = ? AND target_snapshot_id = ?
-            ORDER BY created_seq DESC
-            LIMIT 1
-            """,
-            (target_type, target_id, role, snapshot_id),
+            f"SELECT project_id FROM {table} WHERE id = ?", (target_id,)
         ).fetchone()
-        return None if row is None else str(row["verdict"])
+        return review_gate_state(
+            conn=conn,
+            project_id=str(row["project_id"]) if row else "",
+            target_type=target_type,
+            target_id=target_id,
+            role=role,
+            snapshot_id=self._target_snapshot_id(
+                conn=conn, target_type=target_type, target_id=target_id
+            ),
+        )
 
     def has_open_request(self, *, conn, target_type: str, target_id: str, role: str) -> bool:
         return self.open_request(conn=conn, target_type=target_type, target_id=target_id, role=role) is not None
@@ -612,9 +628,11 @@ class ReviewService:
             handoff["spawn_prompt"] = (
                 f"You are the {role} for {external_type} {target_id}. "
                 f"Follow the {skill} skill. Begin by calling review.start with "
-                f"review_request_id={review_request_id} and "
-                f"reviewer_capability={reviewer_capability}. You are read-only: "
-                "your sole permitted mutation is review.submit."
+                f"review_request_id={review_request_id}, "
+                f"reviewer_capability={reviewer_capability}, and your own "
+                "session identity as caller_session_id (required; never the "
+                "producer's). You are read-only: your sole permitted mutation "
+                "is review.submit."
             )
         return handoff
 

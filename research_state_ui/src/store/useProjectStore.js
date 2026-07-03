@@ -9,6 +9,14 @@ function loadInitialProjectId() {
   } catch { return null; }
 }
 
+// Last-seen ETags for the three snapshot endpoints, scoped to one project.
+// Module state, not store state: no component renders off it.
+const etags = { pid: null, home: null, sandboxes: null, events: null };
+function etagsFor(pid) {
+  if (etags.pid !== pid) Object.assign(etags, { pid, home: null, sandboxes: null, events: null });
+  return etags;
+}
+
 export const useProjectStore = create((set, get) => ({
   // Identity
   projectId: loadInitialProjectId(),
@@ -76,7 +84,9 @@ export const useProjectStore = create((set, get) => ({
     try {
       const data = await api.listProjects();
       const list = data.projects || [];
-      set({ projects: list, projectsLoaded: true });
+      // Clear any prior boot failure so Retry (or a recovered backend) can
+      // actually leave the error page.
+      set({ projects: list, projectsLoaded: true, bootError: null });
       // If the persisted project id is gone, fall back to the first one.
       const current = get().projectId;
       if (current && !list.some(p => p.id === current)) {
@@ -122,24 +132,39 @@ export const useProjectStore = create((set, get) => ({
   async refreshHome() {
     const pid = get().projectId;
     if (!pid) return null;
-    // Fetch /home, /sandboxes, and a deeper /events window in parallel.
+    // Fetch /home, /sandboxes, and a deeper /events window in parallel,
+    // conditionally (If-None-Match): a 304 slice keeps its current state and
+    // skips the write, so an unchanged backend costs no re-render.
     // /home's recent_events is capped at ~25, too few for the Events page;
     // the deeper window powers anything that needs ≥1h of history.
+    const tags = etagsFor(pid);
     try {
+      const failedFetch = { notModified: false, etag: null, data: null };
       const [home, sandboxesResp, eventsResp] = await Promise.all([
-        api.getHome(pid),
-        api.listSandboxes(pid).catch(() => ({ sandboxes: [] })),
-        api.listEvents(pid, 500).catch(() => ({ events: [] })),
+        api.getHomeIfChanged(pid, tags.home),
+        api.listSandboxesIfChanged(pid, tags.sandboxes).catch(() => failedFetch),
+        api.listEventsIfChanged(pid, 500, tags.events).catch(() => failedFetch),
       ]);
       // Drop the write if the active project changed while this fetch was in
       // flight, so a late response for the previous project can't clobber the
       // one the URL now points at (the project id lives in the URL; switching
       // leaves the prior poll outstanding).
       if (get().projectId !== pid) return null;
-      const sandboxes = Array.isArray(sandboxesResp?.sandboxes) ? sandboxesResp.sandboxes : [];
-      const events = Array.isArray(eventsResp?.events) ? eventsResp.events : [];
-      set({ home, sandboxes, events, lastSyncedAt: Date.now(), lastSyncError: null });
-      return home;
+      const patch = { lastSyncedAt: Date.now(), lastSyncError: null };
+      if (!home.notModified) {
+        patch.home = home.data;
+        tags.home = home.etag;
+      }
+      if (!sandboxesResp.notModified) {
+        patch.sandboxes = Array.isArray(sandboxesResp.data?.sandboxes) ? sandboxesResp.data.sandboxes : [];
+        tags.sandboxes = sandboxesResp.etag;
+      }
+      if (!eventsResp.notModified) {
+        patch.events = Array.isArray(eventsResp.data?.events) ? eventsResp.data.events : [];
+        tags.events = eventsResp.etag;
+      }
+      set(patch);
+      return patch.home ?? get().home;
     } catch (err) {
       if (get().projectId !== pid) return null;
       set({ lastSyncError: err.message });
@@ -148,6 +173,13 @@ export const useProjectStore = create((set, get) => ({
   },
 
   setPolling(on) { set({ isPolling: on }); },
+
+  // True while the SSE event stream is open; pollers slow down or pause and
+  // rely on stream signals instead.
+  streamHealthy: false,
+  setStreamHealthy(on) {
+    if (get().streamHealthy !== on) set({ streamHealthy: on });
+  },
 }));
 
 /**

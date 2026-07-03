@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useState } from 'react';
+import { useCallback, useMemo, useState } from 'react';
 import { Link, useParams } from 'react-router-dom';
 import { api } from '../api';
 import {
@@ -7,6 +7,7 @@ import {
   selectResources,
   selectHasLocalDataPlaneHttp,
 } from '../store/useProjectStore';
+import { useStreamAwarePoll } from '../store/useEventStream';
 import FSMStrip from '../components/FSMStrip';
 import GateBanner from '../components/GateBanner';
 import PlanSpotlight from '../components/PlanSpotlight';
@@ -75,14 +76,11 @@ export default function ExperimentDetail() {
     }
   }, [projectId, experimentId]);
 
-  useEffect(() => {
-    let cancelled = false;
-    fetchStatus();
-    const t = setInterval(() => { if (!cancelled) fetchStatus(); }, 3000);
-    const onVis = () => { if (document.visibilityState === 'visible') fetchStatus(); };
-    document.addEventListener('visibilitychange', onVis);
-    return () => { cancelled = true; clearInterval(t); document.removeEventListener('visibilitychange', onVis); };
-  }, [fetchStatus]);
+  // 3s poll only while the event stream is down; otherwise refetch when an
+  // event touches this experiment (safety poll catches event-less changes).
+  useStreamAwarePoll(fetchStatus, {
+    matches: (row) => row.target_id === experimentId || row.payload?.experiment_id === experimentId,
+  });
 
   const experiment = statusData?.experiment;
   const workflow = statusData?.workflow;

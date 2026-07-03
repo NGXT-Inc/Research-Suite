@@ -2,6 +2,7 @@ import { useEffect, useState } from 'react';
 import { Routes, Route, Navigate, Link, Outlet, useParams, useSearchParams } from 'react-router-dom';
 import { useProjectStore, projectPath, useProjectHref, selectActiveExperiments, selectSandboxes } from './store/useProjectStore';
 import { usePolling } from './store/usePolling';
+import { useEventStream } from './store/useEventStream';
 import { useViewport } from './store/useViewport';
 import Sidebar, { SIDEBAR_KB, IconSidebar } from './components/Sidebar';
 import CompatBanner from './components/CompatBanner';
@@ -117,7 +118,12 @@ export default function App() {
     activeExperiments.some(e => e.status === 'running') ||
     sandboxes.some(s => s.status === 'running' || s.status === 'provisioning');
   const interval = isMobile ? (somethingLive ? 5000 : 30000) : 3000;
-  usePolling(interval);
+  // Server push first: while the SSE stream is open it triggers refreshHome
+  // on demand and the interval poller stands down (it remains the fallback —
+  // stream drop → streamHealthy flips → polling resumes at today's cadence).
+  useEventStream();
+  const streamHealthy = useProjectStore(s => s.streamHealthy);
+  usePolling(interval, { enabled: !streamHealthy });
   const [sidebarOpen, setSidebarOpen] = useState(readSidebarOpen);
   const toggleSidebar = () => setSidebarOpen(v => writeSidebarOpen(!v));
 

@@ -9,6 +9,7 @@ import { layoutFigure, FIG_NODE_W } from '../utils/figureLayout';
 import { TERMINAL_STATUSES } from '../utils/experiment';
 import { usePanelWidth } from '../store/usePanelWidth';
 import { useProjectHref } from '../store/useProjectStore';
+import { useStreamAwarePoll } from '../store/useEventStream';
 
 // Node `kind` is the agent's own vocabulary — there is no fixed taxonomy, so
 // each kind gets an accent color by order of first appearance, used as the
@@ -223,12 +224,15 @@ export default function LogicGraph({
   }, [projectId, experimentId, fetcher]);
 
   const keepPolling = live != null ? live : !TERMINAL_STATUSES.includes(experimentStatus);
-  useEffect(() => {
-    fetchGraph();
-    if (!keepPolling) return undefined;
-    const t = setInterval(fetchGraph, 3000);
-    return () => clearInterval(t);
-  }, [fetchGraph, keepPolling, attemptIndex]);
+  // Live graphs poll 3s only while the event stream is down; with the stream
+  // up, refetching rides this experiment's events (+ slow safety poll).
+  useStreamAwarePoll(fetchGraph, {
+    enabled: keepPolling,
+    refetchKey: attemptIndex,
+    matches: (row) => !experimentId
+      || row.target_id === experimentId
+      || row.payload?.experiment_id === experimentId,
+  });
 
   const payload = useMemo(() => (payloadJson ? JSON.parse(payloadJson) : null), [payloadJson]);
   const graph = payload?.available ? payload.graph : null;

@@ -76,6 +76,14 @@ class ProjectUpdateInput(ProjectScopedInput):
         description="New project name, at least 3 characters when provided.",
     )
     summary: str | None = None
+    require_verified_reviews: bool | None = Field(
+        default=None,
+        description=(
+            "Policy knob: when true, only reviews with verified reviewer "
+            "independence (verified_agent_review) satisfy review gates; "
+            "attested reviews stop counting. Omit to leave unchanged."
+        ),
+    )
 
 
 class ProjectGetInput(ProjectScopedInput):
@@ -458,7 +466,14 @@ class ReviewStartInput(ContractModel):
     review_request_id: str
     reviewer_capability: str
     declared_agent: str = ""
-    caller_session_id: str = ""
+    caller_session_id: str = Field(
+        description=(
+            "The reviewer's OWN session identity (any stable identifier for "
+            "the reviewing agent's session). Required: it must be non-empty "
+            "and differ from the producer session that requested the review, "
+            "so reviewer independence can be verified."
+        )
+    )
 
 
 class ReviewSubmitInput(ContractModel):

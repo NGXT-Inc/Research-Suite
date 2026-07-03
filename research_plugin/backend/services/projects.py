@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import json
 from typing import Any
 
 from ..utils import NotFoundError, ValidationError
@@ -11,6 +12,23 @@ from ..utils import now_iso
 
 
 MIN_PROJECT_NAME_LEN = 3
+
+
+def parse_settings(raw: Any) -> dict[str, Any]:
+    """settings_json text -> dict; {} on missing or malformed values."""
+    try:
+        settings = json.loads(str(raw or "{}"))
+    except ValueError:
+        return {}
+    return settings if isinstance(settings, dict) else {}
+
+
+def project_settings(*, conn, project_id: str) -> dict[str, Any]:
+    """A project's policy-knob settings (e.g. require_verified_reviews)."""
+    row = conn.execute(
+        "SELECT settings_json FROM projects WHERE id = ?", (project_id,)
+    ).fetchone()
+    return parse_settings(row["settings_json"]) if row else {}
 
 
 class ProjectService:
@@ -60,6 +78,7 @@ class ProjectService:
         project_id: str | None = None,
         name: str | None = None,
         summary: str | None = None,
+        require_verified_reviews: bool | None = None,
     ) -> dict[str, Any]:
         with self.store.transaction() as conn:
             project_id = self.store.require_project_id(conn=conn, project_id=project_id)
@@ -68,15 +87,19 @@ class ProjectService:
                 raise NotFoundError(f"project not found: {project_id}")
             next_name = row["name"] if name is None else self._validate_name(name)
             next_summary = row["summary"] if summary is None else summary.strip()
+            settings = parse_settings(row["settings_json"])
+            if require_verified_reviews is not None:
+                settings["require_verified_reviews"] = bool(require_verified_reviews)
             conn.execute(
                 """
                 UPDATE projects
-                SET name = ?, summary = ?
+                SET name = ?, summary = ?, settings_json = ?
                 WHERE id = ?
                 """,
                 (
                     next_name,
                     next_summary,
+                    json.dumps(settings, sort_keys=True),
                     project_id,
                 ),
             )
@@ -89,6 +112,7 @@ class ProjectService:
                 payload={
                     "name": next_name,
                     "summary": next_summary,
+                    "settings": settings,
                 },
             )
             updated = conn.execute("SELECT * FROM projects WHERE id = ?", (project_id,)).fetchone()
@@ -189,6 +213,7 @@ class ProjectService:
             )
             if key in data
         }
+        view["settings"] = parse_settings(data.get("settings_json"))
         if data.get("status") == "stopped":
             view.update(
                 {

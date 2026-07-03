@@ -22,9 +22,9 @@ class ExperimentWorkflowReader(Protocol):
 class ReviewWorkflowReader(Protocol):
     """Review read operations required by workflow orientation."""
 
-    def latest_verdict(
+    def gate_state(
         self, *, conn: Any, target_type: str, target_id: str, role: str
-    ) -> str | None:
+    ) -> dict[str, Any]:
         ...
 
     def open_request(

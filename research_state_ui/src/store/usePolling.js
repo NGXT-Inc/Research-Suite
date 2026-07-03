@@ -4,19 +4,22 @@ import { useProjectStore } from './useProjectStore';
 /**
  * Poll GET /home every `intervalMs` while:
  *   - a projectId is set
+ *   - `enabled` (the SSE stream is not covering us)
  *   - document.visibilityState === 'visible'
  *
  * Pauses on tab-hide, resumes on tab-show (with an immediate refresh so the
- * user never sees stale state right after returning to the tab).
+ * user never sees stale state right after returning to the tab). Flipping
+ * `enabled` back on also refreshes immediately — it means the stream just
+ * dropped, so the poller must catch whatever the stream would have pushed.
  */
-export function usePolling(intervalMs = 3000) {
+export function usePolling(intervalMs = 3000, { enabled = true } = {}) {
   const projectId = useProjectStore(s => s.projectId);
   const refreshHome = useProjectStore(s => s.refreshHome);
   const setPolling = useProjectStore(s => s.setPolling);
   const intervalRef = useRef(null);
 
   useEffect(() => {
-    if (!projectId) {
+    if (!projectId || !enabled) {
       setPolling(false);
       return undefined;
     }
@@ -56,5 +59,5 @@ export function usePolling(intervalMs = 3000) {
       document.removeEventListener('visibilitychange', onVisibility);
       stop();
     };
-  }, [projectId, intervalMs, refreshHome, setPolling]);
+  }, [projectId, intervalMs, enabled, refreshHome, setPolling]);
 }

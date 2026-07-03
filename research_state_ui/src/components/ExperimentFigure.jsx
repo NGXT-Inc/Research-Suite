@@ -10,6 +10,7 @@ import { layoutFigure, FIG_NODE_W } from '../utils/figureLayout';
 import { TERMINAL_STATUSES } from '../utils/experiment';
 import { usePanelWidth } from '../store/usePanelWidth';
 import { useProjectHref } from '../store/useProjectStore';
+import { useStreamAwarePoll } from '../store/useEventStream';
 
 const TYPE_GLYPH = {
   attempt: '◇',
@@ -226,12 +227,13 @@ export default function ExperimentFigure({
     }
   }, [projectId, experimentId]);
 
-  useEffect(() => {
-    fetchFigure();
-    if (TERMINAL_STATUSES.includes(experimentStatus)) return undefined;
-    const t = setInterval(fetchFigure, 3000);
-    return () => clearInterval(t);
-  }, [fetchFigure, experimentStatus, attemptIndex]);
+  // Terminal experiments fetch once; live ones poll 3s only while the event
+  // stream is down, otherwise refetching rides this experiment's events.
+  useStreamAwarePoll(fetchFigure, {
+    enabled: !TERMINAL_STATUSES.includes(experimentStatus),
+    refetchKey: `${experimentStatus}:${attemptIndex}`,
+    matches: (row) => row.target_id === experimentId || row.payload?.experiment_id === experimentId,
+  });
 
   const figure = useMemo(() => (figureJson ? JSON.parse(figureJson) : null), [figureJson]);
   const { nodes, edges } = useMemo(() => toFlow(figure), [figure]);

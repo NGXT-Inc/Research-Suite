@@ -56,8 +56,8 @@ export async function fetchObjectUrl(relPath, { signal } = {}) {
   return URL.createObjectURL(await res.blob());
 }
 
-export async function request(path, { method = 'GET', body, signal } = {}) {
-  const init = { method, signal, headers: { 'X-RP-Client-Version': CLIENT_VERSION } };
+async function send(path, { method = 'GET', body, signal, headers = {} } = {}) {
+  const init = { method, signal, headers: { 'X-RP-Client-Version': CLIENT_VERSION, ...headers } };
   const token = authToken();
   if (token) init.headers['Authorization'] = `Bearer ${token}`;
   if (body !== undefined) {
@@ -65,12 +65,12 @@ export async function request(path, { method = 'GET', body, signal } = {}) {
     init.body = JSON.stringify(body);
   }
   const res = await fetch(`${BASE}${path}`, init);
-  const text = await res.text();
+  const text = res.status === 304 ? '' : await res.text();
   let data = null;
   if (text) {
     try { data = JSON.parse(text); } catch { data = { raw: text }; }
   }
-  if (!res.ok) {
+  if (!res.ok && res.status !== 304) {
     const err = new Error((data && (data.message || data.detail || data.error)) || `HTTP ${res.status} on ${method} ${path}`);
     err.status = res.status;
     err.data = data;
@@ -82,7 +82,26 @@ export async function request(path, { method = 'GET', body, signal } = {}) {
     else if (data && data.error_code) err.code = data.error_code;
     throw err;
   }
-  return data;
+  return { res, data };
+}
+
+export async function request(path, opts) {
+  return (await send(path, opts)).data;
+}
+
+// Conditional GET for the polled snapshot endpoints: sends If-None-Match and
+// reports a 304 as { notModified: true } so pollers can skip state writes
+// entirely (no payload parse, no re-render churn).
+export async function conditionalGet(path, { etag, signal } = {}) {
+  const { res, data } = await send(path, {
+    signal,
+    headers: etag ? { 'If-None-Match': etag } : {},
+  });
+  return {
+    notModified: res.status === 304,
+    etag: res.headers.get('ETag') || etag || null,
+    data,
+  };
 }
 
 function sandboxPath(pid, eid, sandboxUid, suffix = '') {
@@ -105,6 +124,17 @@ export const api = {
   }),
   patchProject: (pid, patch) => request(`/api/projects/${encodeURIComponent(pid)}`, { method: 'PATCH', body: patch }),
   getHome: (pid, signal) => request(`/api/projects/${encodeURIComponent(pid)}/home`, { signal }),
+  // Conditional variants of the three snapshot endpoints refreshHome polls.
+  getHomeIfChanged: (pid, etag, signal) =>
+    conditionalGet(`/api/projects/${encodeURIComponent(pid)}/home`, { etag, signal }),
+  listSandboxesIfChanged: (pid, etag) =>
+    conditionalGet(`/api/projects/${encodeURIComponent(pid)}/sandboxes`, { etag }),
+  listEventsIfChanged: (pid, limit, etag) =>
+    conditionalGet(`/api/projects/${encodeURIComponent(pid)}/events?limit=${limit}`, { etag }),
+  // SSE tail of the project's events table. Note: EventSource cannot send the
+  // Authorization header, so against a hosted control plane the stream 401s
+  // and the client stays on its polling fallback; local mode needs no auth.
+  eventStreamUrl: (pid) => `${BASE}/api/projects/${encodeURIComponent(pid)}/events/stream`,
 
   // Claims
   createClaim: (pid, { statement, scope, confidence }) =>

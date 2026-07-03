@@ -392,13 +392,13 @@ class WorkflowService:
             if target_type == "synthesis"
             else "experiment.transition"
         )
-        verdict = self.reviews.latest_verdict(
+        gate_state = self.reviews.gate_state(
             conn=conn,
             target_type=target_type,
             target_id=target_id,
             role=role,
         )
-        if verdict == "pass":
+        if gate_state["satisfied"]:
             return self._next(
                 gate=f"{action_name}_passed",
                 action=review.pass_action,
@@ -412,14 +412,18 @@ class WorkflowService:
             role=role,
         )
         if request is None:
+            # An attested-only pass under require_verified_reviews lands here
+            # (its request is already submitted): say why the gate still blocks.
+            blocked_reason = gate_state.get("blocked_reason")
             return self._next(
                 gate=gate,
                 action=f"launch_{action_name}er",
                 allowed=["review.request"],
+                missing=[blocked_reason] if blocked_reason else [],
                 review_gate=self._review_gate(
                     role=role,
                     skill=skill,
-                    status="none",
+                    status="attested_blocked" if blocked_reason else "none",
                     target_type=target_type,
                     target_id=target_id,
                 ),
@@ -466,6 +470,7 @@ class WorkflowService:
             "none": "Needs reviewer",
             "requested": "Reviewer pending",
             "started": "Reviewer active",
+            "attested_blocked": "Verified review required",
         }
         gate = {
             "role": role,
