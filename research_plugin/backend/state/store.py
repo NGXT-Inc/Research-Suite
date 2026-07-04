@@ -529,7 +529,20 @@ MIGRATIONS: tuple[tuple[int, str, str], ...] = (
     # Review policy (July 2026): per-project settings dict backing knobs like
     # require_verified_reviews. Fresh schemas have the column; this backfills.
     (11, "add_project_settings_json", ""),
+    # MLflow tracking (July 2026): fresh schemas have these columns, but hosted
+    # Postgres stores that predate the feature need an explicit ledger step.
+    (12, "add_experiment_mlflow_run_columns", ""),
 )
+
+
+EXPERIMENT_MLFLOW_COLUMNS: dict[str, str] = {
+    "mlflow_run_id": "TEXT NOT NULL DEFAULT ''",
+    "mlflow_run_name": "TEXT NOT NULL DEFAULT ''",
+    "mlflow_run_status": "TEXT NOT NULL DEFAULT ''",
+    "mlflow_run_artifact_uri": "TEXT NOT NULL DEFAULT ''",
+    "mlflow_run_created_at": "TEXT",
+    "mlflow_run_error": "TEXT NOT NULL DEFAULT ''",
+}
 
 
 # Rebuild shape for the legacy `resources` table whose UNIQUE was on `path`
@@ -650,6 +663,8 @@ class BaseStateStore:
                 self._drop_sandboxes_experiment_id(conn=conn)
             elif name == "add_project_settings_json":
                 self._ensure_project_settings_json(conn=conn)
+            elif name == "add_experiment_mlflow_run_columns":
+                self._ensure_experiment_mlflow_columns(conn=conn)
             else:
                 conn.execute(statement)
             conn.execute(
@@ -662,6 +677,11 @@ class BaseStateStore:
             conn.execute(
                 "ALTER TABLE projects ADD COLUMN settings_json TEXT NOT NULL DEFAULT '{}'"
             )
+
+    def _ensure_experiment_mlflow_columns(self, *, conn: Connection) -> None:
+        for column, ddl in EXPERIMENT_MLFLOW_COLUMNS.items():
+            if not self._has_column(conn=conn, table="experiments", column=column):
+                conn.execute(f"ALTER TABLE experiments ADD COLUMN {column} {ddl}")
 
     def _ensure_sandbox_tenant_id(self, *, conn: Connection) -> None:
         if not self._has_column(conn=conn, table="sandboxes", column="tenant_id"):
@@ -1050,12 +1070,7 @@ class StateStore(BaseStateStore):
                 "name": "TEXT NOT NULL DEFAULT ''",
                 # MLflow run identity (July 2026): best-effort run created by
                 # the control plane when an experiment enters `running`.
-                "mlflow_run_id": "TEXT NOT NULL DEFAULT ''",
-                "mlflow_run_name": "TEXT NOT NULL DEFAULT ''",
-                "mlflow_run_status": "TEXT NOT NULL DEFAULT ''",
-                "mlflow_run_artifact_uri": "TEXT NOT NULL DEFAULT ''",
-                "mlflow_run_created_at": "TEXT",
-                "mlflow_run_error": "TEXT NOT NULL DEFAULT ''",
+                **EXPERIMENT_MLFLOW_COLUMNS,
             },
         )
         self._ensure_columns(

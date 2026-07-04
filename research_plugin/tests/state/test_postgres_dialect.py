@@ -42,7 +42,13 @@ from backend.app import ResearchPluginApp
 from backend.config import build_state_store, resolve_db_url
 from backend.execution.backends.fake import FakeSandboxBackend
 from backend.state.dialects import PostgresStateStore, translate_schema_to_postgres
-from backend.state.store import MIGRATIONS, SCHEMA, StateStore, next_created_seq
+from backend.state.store import (
+    EXPERIMENT_MLFLOW_COLUMNS,
+    MIGRATIONS,
+    SCHEMA,
+    StateStore,
+    next_created_seq,
+)
 from backend.utils import ValidationError, now_iso
 from tests.surface.test_control_plane_contract import (
     ClientHarness,
@@ -188,6 +194,18 @@ def _schema_with_legacy_sandbox_identity() -> str:
     return legacy
 
 
+def _schema_without_experiment_mlflow_columns() -> str:
+    legacy = SCHEMA
+    for column in EXPERIMENT_MLFLOW_COLUMNS:
+        legacy = re.sub(rf"\n\s*{re.escape(column)} [^,\n]+,?", "", legacy)
+    if legacy == SCHEMA:
+        raise AssertionError("failed to remove experiment MLflow columns")
+    for column in EXPERIMENT_MLFLOW_COLUMNS:
+        if column in legacy:
+            raise AssertionError(f"failed to remove experiments.{column}")
+    return legacy
+
+
 @unittest.skipUnless(HAVE_DOCKER, "docker unavailable")
 class PostgresControlPlaneContractTest(
     ControlPlaneContractScenarios, unittest.TestCase
@@ -300,6 +318,86 @@ class PostgresStoreBehaviorTest(unittest.TestCase):
                 ("uid_exp_old",),
             ).fetchone()
             self.assertEqual(row["tenant_id"], "tenant_pg")
+            ledger = conn.execute(
+                "SELECT version, name FROM schema_migrations ORDER BY version"
+            ).fetchall()
+            self.assertEqual(
+                [(int(r["version"]), str(r["name"])) for r in ledger],
+                [(version, name) for version, name, _statement in MIGRATIONS],
+            )
+        finally:
+            conn.close()
+
+    def test_legacy_postgres_store_adds_experiment_mlflow_columns(self) -> None:
+        dsn = _reset_database()
+        import psycopg
+
+        legacy_schema = _schema_without_experiment_mlflow_columns()
+        created = now_iso()
+        with psycopg.connect(dsn, autocommit=True) as conn:
+            conn.execute(translate_schema_to_postgres(legacy_schema))
+            for version, name, _statement in MIGRATIONS:
+                if version >= 12:
+                    continue
+                conn.execute(
+                    """
+                    INSERT INTO schema_migrations (version, name, applied_at)
+                    VALUES (%s, %s, %s)
+                    """,
+                    (version, name, created),
+                )
+            conn.execute(
+                """
+                INSERT INTO projects (id, name, summary, created_at)
+                VALUES (%s, %s, %s, %s)
+                """,
+                ("proj_mlflow_old", "Old", "", created),
+            )
+            conn.execute(
+                """
+                INSERT INTO experiments (
+                  id, project_id, name, intent, status, created_at, updated_at
+                )
+                VALUES (%s, %s, %s, %s, %s, %s, %s)
+                """,
+                (
+                    "exp_mlflow_old",
+                    "proj_mlflow_old",
+                    "old_mlflow",
+                    "legacy experiment",
+                    "ready_to_run",
+                    created,
+                    created,
+                ),
+            )
+
+        store = PostgresStateStore(dsn=dsn)
+        conn = store.connect()
+        try:
+            rows = conn.execute(
+                """
+                SELECT column_name
+                FROM information_schema.columns
+                WHERE table_schema = 'public'
+                  AND table_name = 'experiments'
+                  AND column_name LIKE 'mlflow_run_%'
+                ORDER BY column_name
+                """
+            ).fetchall()
+            self.assertEqual(
+                [str(row["column_name"]) for row in rows],
+                sorted(EXPERIMENT_MLFLOW_COLUMNS),
+            )
+            experiment = conn.execute(
+                "SELECT * FROM experiments WHERE id = ?",
+                ("exp_mlflow_old",),
+            ).fetchone()
+            self.assertIsNotNone(experiment)
+            for column in EXPERIMENT_MLFLOW_COLUMNS:
+                if column == "mlflow_run_created_at":
+                    self.assertIsNone(experiment[column])
+                else:
+                    self.assertEqual(experiment[column], "")
             ledger = conn.execute(
                 "SELECT version, name FROM schema_migrations ORDER BY version"
             ).fetchall()
