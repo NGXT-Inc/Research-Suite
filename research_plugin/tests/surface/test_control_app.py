@@ -156,6 +156,48 @@ class ControlAppTest(unittest.TestCase):
             self.assertIn("authorization", allowed_headers)
             self.assertIn("x-rp-client-version", allowed_headers)
 
+    def test_version_gate_426_carries_cors_headers_cross_origin(self) -> None:
+        # Regression: the version-gate 426 short-circuits the middleware stack.
+        # CORS must be the OUTERMOST middleware so it decorates that response
+        # too; otherwise a cross-origin UI (e.g. the Vercel build) can't read
+        # the 426 and reports an opaque "Load failed" instead of the upgrade
+        # error. The preflight passes either way (OPTIONS is let through), so
+        # this must assert on the actual gated GET, not just the preflight.
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            app, _queue = build_control_app(
+                repo_root=root,
+                env=_mounted_mgmt_key_env(root),
+                execution_backend=FakeSandboxBackend(),
+            )
+            self.addCleanup(app.shutdown)
+            client = TestClient(
+                create_fastapi_app(
+                    app=app,
+                    allowed_origins=["http://localhost:5173"],
+                    surface_policy=HttpSurfacePolicy.for_surface(
+                        restrict_cors=True,
+                        hosted_control=True,
+                        expose_local_data_plane=False,
+                    ),
+                ),
+                raise_server_exceptions=False,
+            )
+
+            gated = client.get(
+                "/api/projects",
+                headers={
+                    "Origin": "http://localhost:5173",
+                    CLIENT_VERSION_HEADER: "0.0001",
+                },
+            )
+            self.assertEqual(gated.status_code, 426, gated.text)
+            self.assertEqual(gated.json()["error_code"], "client_too_old")
+            self.assertEqual(
+                gated.headers.get("access-control-allow-origin"),
+                "http://localhost:5173",
+            )
+
     def test_control_app_uses_mounted_management_key_when_configured(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)

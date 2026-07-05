@@ -189,26 +189,6 @@ def create_fastapi_app(
         )
 
     http = FastAPI(title="Research Plugin API", version=__version__)
-    # CORS: local mode keeps the wide-open `*` policy (loopback-only).
-    # Control mode uses an explicit allowed-origins list.
-    if surface.restrict_cors:
-        http.add_middleware(
-            CORSMiddleware,
-            allow_origins=allowed_origins or [],
-            allow_methods=["GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"],
-            allow_headers=UI_CORS_HEADERS,
-            expose_headers=UI_CORS_EXPOSE_HEADERS,
-        )
-    else:
-        http.add_middleware(
-            CORSMiddleware,
-            allow_origins=["*"],
-            allow_methods=["GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"],
-            # The hosted UI sends Authorization; every UI request also stamps
-            # X-RP-Client-Version. Include both so dev overrides pass preflight.
-            allow_headers=UI_CORS_HEADERS,
-            expose_headers=UI_CORS_EXPOSE_HEADERS,
-        )
 
     @http.middleware("http")
     async def reject_foreign_origins(request: Request, call_next):
@@ -299,6 +279,34 @@ def create_fastapi_app(
                     duration_ms=duration_ms,
                     method=request.method,
                 )
+
+    # CORS is registered LAST so it becomes the OUTERMOST middleware, wrapping
+    # the version gate and origin guard above. Starlette applies user middleware
+    # outermost-first in reverse registration order, so it must be added last to
+    # decorate EVERY response — including a middleware short-circuit like the
+    # version-gate 426. Otherwise a cross-origin UI (e.g. the Vercel build) gets
+    # a CORS-less 426 the browser reports as an opaque "Load failed" instead of
+    # the actionable upgrade error. Local mode keeps the wide-open `*` policy
+    # (loopback-only, backed by reject_foreign_origins); control mode uses an
+    # explicit allowed-origins list.
+    if surface.restrict_cors:
+        http.add_middleware(
+            CORSMiddleware,
+            allow_origins=allowed_origins or [],
+            allow_methods=["GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"],
+            allow_headers=UI_CORS_HEADERS,
+            expose_headers=UI_CORS_EXPOSE_HEADERS,
+        )
+    else:
+        http.add_middleware(
+            CORSMiddleware,
+            allow_origins=["*"],
+            allow_methods=["GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"],
+            # The hosted UI sends Authorization; every UI request also stamps
+            # X-RP-Client-Version. Include both so dev overrides pass preflight.
+            allow_headers=UI_CORS_HEADERS,
+            expose_headers=UI_CORS_EXPOSE_HEADERS,
+        )
 
     @http.exception_handler(ResearchPluginError)
     async def research_error_handler(_request: Request, exc: ResearchPluginError) -> JSONResponse:
