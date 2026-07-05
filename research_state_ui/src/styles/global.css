@@ -74,6 +74,11 @@
 
   --motion-fast: 120ms;
   --motion-base: 240ms cubic-bezier(.2, .7, .2, 1);
+  /* Sidebar reveal/collapse: both curves lead with velocity so the motion
+     answers the click instantly. Reveal runs longer to settle in; collapse is
+     quick and its tail is masked by the content fade, so no slow-start drag. */
+  --sidebar-in: 300ms cubic-bezier(.05, .7, .1, 1);
+  --sidebar-out: 190ms cubic-bezier(.2, .8, .2, 1);
 
   --sidebar-w: 260px;
   --reading-w: 1120px;
@@ -509,38 +514,41 @@ button.th, [role="button"].th { cursor: pointer; user-select: none; }
   overflow-y: auto;
   display: flex;
   flex-direction: column;
-  transition: margin-left var(--motion-base);
+  /* Reopen: the reading column glides back on the decelerate curve while the
+     contents fade up a touch quicker, so links read as they arrive. */
+  transition:
+    margin-left var(--sidebar-in),
+    opacity 220ms ease 40ms;
 }
 /* Closed: slide off-canvas via margin (not display) so the reading column
-   reflows through the same curve — no pop. Visibility flips after the slide
-   so the off-screen links leave the tab order. */
+   reflows through the same curve — no pop. Contents dissolve first so the
+   divider hairline never sweeps across the page; visibility flips only after
+   the slide so the off-screen links leave the tab order. */
 .shell--nosb .sidebar {
   margin-left: calc(-1 * var(--sidebar-w));
+  opacity: 0;
   visibility: hidden;
-  transition: margin-left var(--motion-base), visibility 0s 240ms;
+  transition:
+    margin-left var(--sidebar-out),
+    opacity 110ms ease,
+    visibility 0s 190ms;
 }
-/* Reopen affordance — a full-height hot strip hugging the left screen edge,
-   invisible at rest. Nearing the edge fades in a hairline and the » glyph
-   (parked where the brand was); clicking anywhere along the strip reopens.
+/* Reopen affordance — a full-height hot strip hugging the left screen edge.
+   The glyph rests visible as a small chip (parked where the brand was) so the
+   way back is always in sight; clicking anywhere along the strip reopens.
    The strip sits entirely inside the stage's 40px side padding. */
 .sb-edge {
   position: fixed;
   top: 0;
   left: 0;
   bottom: 0;
-  width: 18px;
+  width: 40px;
   z-index: 5;
   border: 0;
   background: none;
   padding: 0;
   cursor: pointer;
 }
-/* Hysteresis, both directions: a 150ms intent delay so a drive-by cursor
-   never flashes the affordance, and a 600ms hold + slow fade on leave so a
-   small excursion off the strip doesn't hide it. While engaged the strip
-   widens (still within the stage's 40px pad) — harder to fall off. */
-.sb-edge:hover,
-.sb-edge:focus-visible { width: 38px; }
 .sb-edge::before {
   content: '';
   position: absolute;
@@ -550,16 +558,26 @@ button.th, [role="button"].th { cursor: pointer; user-select: none; }
   opacity: 0;
   transition: opacity var(--motion-base) 600ms;
 }
+/* Resting chip: always visible, sat a touch in from the edge so it's easy to
+   spot, and sized up from the in-sidebar hide toggle. */
 .sb-edge-glyph {
   position: absolute;
-  top: 16px;
-  left: 5px;
+  top: 14px;
+  left: 12px;
   display: inline-flex;
-  padding: 4px 5px;
-  color: var(--faint);
+  padding: 6px 7px;
+  color: var(--muted);
+  background: var(--bg-soft);
+  border: 1px solid var(--line-soft);
   border-radius: var(--radius-md);
-  opacity: 0;
-  transition: opacity var(--motion-base) 600ms, color var(--motion-fast), background var(--motion-fast);
+  transition: color var(--motion-fast), background var(--motion-fast);
+  /* Delayed so the chip arrives from the edge just as the panel finishes
+     clearing, rather than popping in the instant it mounts. */
+  animation: sb-edge-in 220ms cubic-bezier(.05, .7, .1, 1) both 150ms;
+}
+@keyframes sb-edge-in {
+  from { opacity: 0; transform: translateX(-8px); }
+  to   { opacity: 1; transform: translateX(0); }
 }
 .sb-edge:hover::before,
 .sb-edge:focus-visible::before {
@@ -568,14 +586,9 @@ button.th, [role="button"].th { cursor: pointer; user-select: none; }
 }
 .sb-edge:hover .sb-edge-glyph,
 .sb-edge:focus-visible .sb-edge-glyph {
-  opacity: 1;
   color: var(--text);
-  background: var(--bg-soft);
-  transition: opacity var(--motion-fast) 150ms, color var(--motion-fast), background var(--motion-fast);
-}
-/* No hover on touch: keep the glyph faintly resting so the way back exists. */
-@media (hover: none) {
-  .sb-edge-glyph { opacity: 1; }
+  background: var(--bg);
+  transition: color var(--motion-fast), background var(--motion-fast);
 }
 /* Top row: the project chip is the header; the hide toggle rides beside it. */
 .sidebar-top {
@@ -1086,6 +1099,7 @@ html { scroll-behavior: smooth; }
 @media (prefers-reduced-motion: reduce) {
   .gate-live-dot { animation: none; }
   .sidebar, .shell--nosb .sidebar { transition: none; }
+  .sb-edge-glyph { animation: none; }
 }
 .gate-banner-blocked {
   display: flex;
