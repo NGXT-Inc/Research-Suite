@@ -295,6 +295,10 @@ class FeedService:
         handle, text, ref, kind = self._validate_post_fields(
             handle=handle, text=text, ref=ref, kind=kind
         )
+        # Resolve the project and author first (fail fast), then do the slow
+        # work — image blob writes and link unfurling (network I/O) — with no
+        # transaction open: the single-writer lock must never be held across
+        # network calls (a slow unfurl would stall every other writer).
         with self.store.transaction() as conn:
             project_id = self.store.require_project_id(conn=conn, project_id=project_id)
             author = conn.execute(
@@ -307,26 +311,27 @@ class FeedService:
                 )
             author_role = str(author["role"] or "main")
 
-            image_sha256 = ""
-            image_content_type = ""
-            if image_bytes is not None:
-                image_sha256, image_content_type = self._capture_image_bytes(
-                    project_id=project_id,
-                    image_path=image_path or "feed-image",
-                    data=image_bytes,
-                )
-            elif image_path:
-                raise ValidationError(
-                    "image bytes are required when image_path is provided"
-                )
+        image_sha256 = ""
+        image_content_type = ""
+        if image_bytes is not None:
+            image_sha256, image_content_type = self._capture_image_bytes(
+                project_id=project_id,
+                image_path=image_path or "feed-image",
+                data=image_bytes,
+            )
+        elif image_path:
+            raise ValidationError(
+                "image bytes are required when image_path is provided"
+            )
 
-            link_url = ""
-            link_preview: dict[str, Any] = {}
-            if url:
-                link_url, link_preview = self._build_link_preview(
-                    project_id=project_id, url=url
-                )
+        link_url = ""
+        link_preview: dict[str, Any] = {}
+        if url:
+            link_url, link_preview = self._build_link_preview(
+                project_id=project_id, url=url
+            )
 
+        with self.store.transaction() as conn:
             post_id = new_id(prefix="post")
             created_at = now_iso()
             seq = next_created_seq(conn=conn, table="posts")

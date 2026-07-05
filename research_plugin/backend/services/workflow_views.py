@@ -102,6 +102,7 @@ def _slim_experiment(exp: dict[str, Any]) -> dict[str, Any]:
                 "role": review.get("role"),
                 "verdict": review.get("verdict"),
                 "created_at": review.get("created_at"),
+                "synopsis": review.get("synopsis"),
             }
             for review in exp.get("reviews", [])
         ],
@@ -111,9 +112,10 @@ def _slim_experiment(exp: dict[str, Any]) -> dict[str, Any]:
 def slim_synthesis(syn: dict[str, Any]) -> dict[str, Any]:
     """Agent-facing projection of a reflection wave for orientation calls.
 
-    Drops the corpus snapshot, full resource payloads, and review prose — the
-    orchestrator needs status, the roster, which lenses still owe a
-    reflection, and what artifacts the current attempt carries.
+    Drops the corpus snapshot, full resource payloads, and review
+    findings/notes (keeps the short synopsis) — the orchestrator needs
+    status, the roster, which lenses still owe a reflection, and what
+    artifacts the current attempt carries.
     """
     return {
         "id": syn.get("id"),
@@ -140,6 +142,7 @@ def slim_synthesis(syn: dict[str, Any]) -> dict[str, Any]:
                 "role": review.get("role"),
                 "verdict": review.get("verdict"),
                 "created_at": review.get("created_at"),
+                "synopsis": review.get("synopsis"),
             }
             for review in syn.get("reviews", [])
         ],

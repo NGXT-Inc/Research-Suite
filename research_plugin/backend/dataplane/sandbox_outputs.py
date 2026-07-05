@@ -197,6 +197,10 @@ def _remote_existing_paths(
             remote_command=script,
         ),
         text=True,
+        # Remote-controlled bytes: never let a stray non-UTF8 byte (or an
+        # ASCII locale) turn the whole pull into a UnicodeDecodeError.
+        encoding="utf-8",
+        errors="replace",
         stdout=subprocess.PIPE,
         stderr=subprocess.PIPE,
         timeout=SSH_CONNECT_TIMEOUT_SECONDS,
@@ -256,6 +260,8 @@ def _rsync_one(
         result = runner(
             command,
             text=True,
+            encoding="utf-8",
+            errors="replace",
             stdout=subprocess.PIPE,
             stderr=subprocess.PIPE,
             timeout=RSYNC_TIMEOUT_SECONDS,

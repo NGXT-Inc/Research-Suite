@@ -100,6 +100,9 @@ class SandboxService:
         )
         # The task channel is only for cross-plane conn refresh and teardown.
         self.tasks = task_channel
+        # Sandboxes whose post-boot secrets were already pushed (in-process;
+        # a daemon restart just re-delivers once, which the push tolerates).
+        self._secrets_delivered: set[str] = set()
         # Marking a row failed/terminated also tears down its runtime
         # attachments; the registry stays persistence-only via this hook.
         self.registry.on_terminal = self._on_terminal_row
@@ -202,7 +205,11 @@ class SandboxService:
             and existing
             and existing.get("status") in ACTIVE_SANDBOX_STATUSES
             and existing.get("sandbox_id")
-            and self.provisioner.is_alive(sandbox_id=str(existing["sandbox_id"]))
+            # Unknown liveness (provider blip) still reuses: a dead SSH target
+            # fails loudly and cheaply, whereas falling through to ensure_job
+            # would cleanup_orphan — i.e. TERMINATE — a possibly-healthy VM.
+            and self.provisioner.liveness(sandbox_id=str(existing["sandbox_id"]))
+            is not False
         ):
             self.registry.touch_alive(
                 experiment_id=experiment_id,
@@ -301,10 +308,10 @@ class SandboxService:
         reused = False if row.get("status") == "running" else None
         # Post-boot secret delivery (plan Phase 9, risk 16): once the VM is up,
         # push provider credentials over the management channel rather than
-        # baking them into user_data. Best-effort and only on a fresh provision
-        # (reuse already has them); never blocks or fails the request.
-        if reused is False:
-            self._deliver_secrets(row=row, experiment_id=experiment_id)
+        # baking them into user_data. Best-effort; never blocks or fails the
+        # request. Slow provisions (any real GPU boot outlives the wait above)
+        # deliver from the agent's next sandbox.get poll instead.
+        self._deliver_secrets_once(row=row, experiment_id=experiment_id)
         return self._agent_result(
             row=row,
             reused=reused,
@@ -376,6 +383,9 @@ class SandboxService:
                 "hint": "No sandbox for this experiment — call sandbox.request to create one.",
             }
         row = self.provisioner.reconcile(row=row)
+        # First poll that observes "running" delivers the post-boot secrets a
+        # slow provision missed in request()'s bounded wait.
+        self._deliver_secrets_once(row=row, experiment_id=experiment_id)
         return self._agent_result(
             row=row,
             reused=None,
@@ -411,7 +421,7 @@ class SandboxService:
         source_row = self.provisioner.reconcile(row=source_row)
         if source_row.get("status") != "running" or not source_row.get("sandbox_id"):
             raise ValidationError("sandbox.attach requires a running sandbox")
-        if not self.provisioner.is_alive(sandbox_id=str(source_row["sandbox_id"])):
+        if self.provisioner.liveness(sandbox_id=str(source_row["sandbox_id"])) is False:
             raise ValidationError("sandbox.attach requires a live sandbox")
         with self.store.transaction() as conn:
             target = conn.execute(
@@ -699,6 +709,35 @@ class SandboxService:
         # deterministic-name orphan cleanup path.
         if not stopped:
             self.provisioner.cleanup_orphan(experiment_id=experiment_id, row=row)
+            # Only strand the row as terminated once the provider confirms the
+            # VM is gone — a terminated row over a live VM bills invisibly
+            # forever. Left running, a retried release or the expiry reaper
+            # finishes the job.
+            if (
+                row.get("sandbox_id")
+                and self.provisioner.liveness(sandbox_id=str(row["sandbox_id"]))
+                is not False
+            ):
+                self.registry.emit_event(
+                    project_id=str(row["project_id"]),
+                    event_type="sandbox.release_failed",
+                    experiment_id=experiment_id,
+                    payload={
+                        "sandbox_id": row.get("sandbox_id", ""),
+                        "sandbox_uid": sandbox_uid,
+                        "reason": "terminate failed; instance may still be alive",
+                    },
+                )
+                view = self._row_view(
+                    row=self.registry.get_by_uid(sandbox_uid=sandbox_uid)
+                )
+                view["hint"] = (
+                    "Release did NOT complete: the provider terminate call "
+                    "failed and the VM may still be running (and billing). "
+                    "The sandbox stays active; retry sandbox.release, or the "
+                    "expiry reaper will retry at the deadline."
+                )
+                return view
         self.registry.mark_terminated(
             experiment_id=experiment_id, sandbox_uid=sandbox_uid
         )
@@ -1083,6 +1122,14 @@ class SandboxService:
             payload={"ssh_host": host, "ssh_port": port},
         )
         return fresh
+
+    def _deliver_secrets_once(self, *, row: dict[str, Any], experiment_id: str) -> None:
+        """Deliver post-boot secrets the first time a running row is observed."""
+        uid = str(row.get("sandbox_uid") or "")
+        if not uid or row.get("status") != "running" or uid in self._secrets_delivered:
+            return
+        self._deliver_secrets(row=row, experiment_id=experiment_id)
+        self._secrets_delivered.add(uid)
 
     def _deliver_secrets(self, *, row: dict[str, Any], experiment_id: str) -> None:
         """Push provider credentials over the management channel post-boot.

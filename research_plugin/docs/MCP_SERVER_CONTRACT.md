@@ -546,9 +546,13 @@ to use before creating the folder's project.
 review.require(project_id, target_type, target_id, reason)
 review.request(project_id, target_type, target_id, role, reason)
 review.start(review_request_id, reviewer_capability, declared_agent?)
-review.submit(review_session_id, verdict, notes, findings, evidence?)
+review.submit(review_session_id, verdict, synopsis, notes, findings, evidence?)
 review.status(project_id, target_type, target_id)
 ```
+
+`synopsis` is required: 1-3 plain sentences (40-420 chars), the researcher's
+TLDR rendered first on the experiment page. Plain prose, no entity ids, no
+markdown, no newlines — `notes`/`findings` stay machine-flavored detail.
 
 Reviewer roles:
 
@@ -577,7 +581,7 @@ the review satisfies the gate.
 ```text
 review.request(project_id, target_type, target_id, role, reason)
 review.start(review_request_id, reviewer_capability, declared_agent)
-review.submit(review_session_id, verdict, notes, findings, evidence?)
+review.submit(review_session_id, verdict, synopsis, notes, findings, evidence?)
 ```
 
 `review.request` returns:

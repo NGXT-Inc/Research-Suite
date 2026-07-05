@@ -123,7 +123,8 @@ class LambdaCloudClient:
         except HTTPError as exc:
             detail = exc.read().decode("utf-8", errors="replace")
             raise BackendUnavailableError(
-                f"Lambda Cloud API {method} {path} failed with HTTP {exc.code}: {detail}"
+                f"Lambda Cloud API {method} {path} failed with HTTP {exc.code}: {detail}",
+                status=exc.code,
             ) from exc
         except URLError as exc:
             raise BackendUnavailableError(f"Lambda Cloud API is unreachable: {exc}") from exc

@@ -241,7 +241,8 @@ class HttpProxyMcpServer:
         merged: dict[str, dict[str, Any]] = {}
         # Cloud first, daemon second so daemon (data/aggregate) schemas win on
         # overlap — but in practice planes are disjoint except aggregate.
-        for is_cloud, tool in self._each_catalog_tool():
+        catalog, _complete = self._catalog_tools()
+        for is_cloud, tool in catalog:
             if tool.get("name") == "project.list":
                 continue
             shaped = self._with_hidden_project_scope(tool=tool)
@@ -263,12 +264,15 @@ class HttpProxyMcpServer:
             if tool.get("name") != "project.list"
         ]
 
-    def _each_catalog_tool(self) -> Iterator[tuple[bool, dict[str, Any]]]:
-        """Yield (is_cloud, raw_tool) for every reachable upstream's /mcp/tools.
+    def _catalog_tools(self) -> tuple[list[tuple[bool, dict[str, Any]]], bool]:
+        """Collect (is_cloud, raw_tool) from every configured upstream's /mcp/tools.
 
         Raw = pre-strip, so callers can read 'plane' and project_id schema. A
-        down upstream is skipped, never fatal.
+        down upstream is skipped, never fatal; ``complete`` reports whether all
+        configured upstreams answered.
         """
+        tools: list[tuple[bool, dict[str, Any]]] = []
+        complete = True
         for is_cloud, url in (
             (True, self.config.control_url),
             (False, self._daemon_url_or_none()),
@@ -278,10 +282,12 @@ class HttpProxyMcpServer:
             try:
                 body = self._http_get(url=f"{url}/mcp/tools", is_cloud=is_cloud)
             except _UpstreamError:
+                complete = False
                 continue
             for tool in body.get("tools") or []:
                 if isinstance(tool, dict):
-                    yield is_cloud, tool
+                    tools.append((is_cloud, tool))
+        return tools, complete
 
     # ---- tools/call ------------------------------------------------------
 
@@ -466,8 +472,9 @@ class HttpProxyMcpServer:
 
     def _tool_meta(self, *, name: str) -> _ToolMeta:
         if self._tool_cache is None:
+            catalog, complete = self._catalog_tools()
             metadata: dict[str, _ToolMeta] = {}
-            for _is_cloud, tool in self._each_catalog_tool():
+            for _is_cloud, tool in catalog:
                 tool_name = tool.get("name")
                 if not isinstance(tool_name, str):
                     continue
@@ -480,6 +487,11 @@ class HttpProxyMcpServer:
                         project_scoped=isinstance(props, dict) and "project_id" in props,
                     ),
                 )
+            # Pin the cache only when every upstream answered: a partial
+            # catalog (e.g. daemon still starting) would misroute its tools to
+            # the other plane for the rest of the process lifetime.
+            if not complete:
+                return metadata.get(name, _ToolMeta())
             self._tool_cache = metadata
         # Unknown tool ⇒ control; the cloud will reject a truly unknown tool clearly.
         return self._tool_cache.get(name, _ToolMeta())

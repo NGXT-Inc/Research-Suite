@@ -419,7 +419,7 @@ class ProjectRouter:
         conn = sqlite3.connect(db_path)
         conn.row_factory = sqlite3.Row
         try:
-            rows = conn.execute("SELECT id, name FROM projects ORDER BY created_at").fetchall()
+            rows = conn.execute("SELECT id, name FROM projects ORDER BY created_at, id").fetchall()
             return [dict(row) for row in rows]
         except sqlite3.Error:
             return []

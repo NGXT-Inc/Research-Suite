@@ -287,8 +287,13 @@ class ModalSandboxBackend(SandboxBackendBase):
             if not callable(poll):
                 return True
             return maybe_await(poll()) is None
-        except Exception:  # noqa: BLE001
-            return False
+        except Exception as exc:  # noqa: BLE001
+            # modal.exception.NotFoundError = authoritatively gone; anything
+            # else (auth, network, SDK) propagates so callers don't mistake an
+            # outage for a dead sandbox.
+            if "notfound" in type(exc).__name__.lower():
+                return False
+            raise
 
     def refresh_ssh_endpoint(self, *, sandbox_id: str) -> tuple[str, int] | None:
         """Re-read the live SSH tunnel endpoint for an existing sandbox.

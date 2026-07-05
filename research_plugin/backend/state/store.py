@@ -267,6 +267,10 @@ CREATE TABLE IF NOT EXISTS reviews (
   verdict TEXT NOT NULL,
   return_to TEXT NOT NULL DEFAULT '',
   notes TEXT NOT NULL DEFAULT '',
+  -- Researcher-facing TLDR (July 2026): 1-3 plain sentences, the first thing
+  -- the human reads on the experiment page. Required on new submissions;
+  -- empty on rows that predate the column (legacy DBs converge below).
+  synopsis TEXT NOT NULL DEFAULT '',
   findings_json TEXT NOT NULL DEFAULT '[]',
   evidence_json TEXT NOT NULL DEFAULT '{}',
   created_at TEXT NOT NULL,
@@ -532,6 +536,9 @@ MIGRATIONS: tuple[tuple[int, str, str], ...] = (
     # MLflow tracking (July 2026): fresh schemas have these columns, but hosted
     # Postgres stores that predate the feature need an explicit ledger step.
     (12, "add_experiment_mlflow_run_columns", ""),
+    # Researcher synopsis (July 2026): fresh schemas have the column; this
+    # backfills hosted Postgres stores that predate the requirement.
+    (13, "add_review_synopsis", ""),
 )
 
 
@@ -665,6 +672,8 @@ class BaseStateStore:
                 self._ensure_project_settings_json(conn=conn)
             elif name == "add_experiment_mlflow_run_columns":
                 self._ensure_experiment_mlflow_columns(conn=conn)
+            elif name == "add_review_synopsis":
+                self._ensure_review_synopsis(conn=conn)
             else:
                 conn.execute(statement)
             conn.execute(
@@ -682,6 +691,12 @@ class BaseStateStore:
         for column, ddl in EXPERIMENT_MLFLOW_COLUMNS.items():
             if not self._has_column(conn=conn, table="experiments", column=column):
                 conn.execute(f"ALTER TABLE experiments ADD COLUMN {column} {ddl}")
+
+    def _ensure_review_synopsis(self, *, conn: Connection) -> None:
+        if not self._has_column(conn=conn, table="reviews", column="synopsis"):
+            conn.execute(
+                "ALTER TABLE reviews ADD COLUMN synopsis TEXT NOT NULL DEFAULT ''"
+            )
 
     def _ensure_sandbox_tenant_id(self, *, conn: Connection) -> None:
         if not self._has_column(conn=conn, table="sandboxes", column="tenant_id"):
@@ -1007,7 +1022,11 @@ class StateStore(BaseStateStore):
         self._migrate_capability_hash()
         conn = self.connect()
         try:
-            conn.executescript(SCHEMA)
+            conn.executescript(SCHEMA)  # IF NOT EXISTS — safe to race
+            # The column probes and migration ledger below are check-then-act;
+            # hold the write lock across them so two processes booting the same
+            # upgrade can't both run one ALTER (executescript autocommits).
+            conn.execute("BEGIN IMMEDIATE")
             self._ensure_forward_schema(conn=conn)
             self._apply_migrations(conn=conn)
             row = conn.execute("SELECT id FROM projects LIMIT 1").fetchone()

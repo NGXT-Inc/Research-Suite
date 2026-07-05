@@ -17,7 +17,7 @@ from typing import Any, Callable
 
 from ...sandbox.sandbox_support import ACTIVE_SANDBOX_STATUSES
 from ...state.store import BaseStateStore, next_created_seq, row_to_dict
-from ...utils import NotFoundError, new_id, now_iso
+from ...utils import NotFoundError, ValidationError, new_id, now_iso
 
 
 # (experiment_id, sandbox_id, sandbox_uid) — sandbox_id is "" when the row never
@@ -570,11 +570,13 @@ class SandboxRegistry:
             target_uid = str(sandbox_uid or "").strip()
             if not target_uid:
                 raise NotFoundError("sandbox not found")
+            # Status-guarded: extending a row the reaper just terminated would
+            # resurrect a fresh expires_at onto a dead sandbox.
             conn.execute(
                 """
                 UPDATE sandboxes
                 SET expires_at = ?, time_limit = ?, updated_at = ?
-                WHERE sandbox_uid = ?
+                WHERE sandbox_uid = ? AND status = 'running'
                 """,
                 (expires_at, int(time_limit), now, target_uid),
             )
@@ -583,6 +585,11 @@ class SandboxRegistry:
             ).fetchone()
             if row is None:
                 raise NotFoundError(f"sandbox not found: {target_uid}")
+            if str(row["status"]) != "running":
+                raise ValidationError(
+                    f"sandbox {target_uid} is {row['status']}; only a running "
+                    "sandbox can be extended"
+                )
             return self._row_dict(row=row, conn=conn)
 
     def heartbeat_snapshot(self, *, row: dict[str, Any]) -> dict[str, Any] | None:
@@ -777,9 +784,13 @@ class SandboxRegistry:
                     detached_at=now,
                 )
         # Only a recorded provider id can identify this row's spend generation.
+        # Close by sandbox_id ALONE: the generation may have been recorded
+        # under a different experiment id than the current primary attachment
+        # (anonymous request, later attach) — an experiment_id filter here
+        # leaves it open and billing "to now" forever.
         if sandbox_id:
             self.close_generation(
-                experiment_id=experiment_id, sandbox_id=sandbox_id, now=now
+                experiment_id="", sandbox_id=sandbox_id, now=now
             )
         elif not row_uid:
             self.close_generation(experiment_id=experiment_id, now=now)

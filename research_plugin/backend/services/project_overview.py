@@ -51,7 +51,7 @@ class ProjectOverviewService:
                     SELECT id, name, intent, status, attempt_index, created_at, updated_at
                     FROM experiments
                     WHERE project_id = ?
-                    ORDER BY created_at
+                    ORDER BY created_at, id
                     """,
                     (project_id,),
                 ).fetchall()

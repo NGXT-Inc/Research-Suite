@@ -206,6 +206,15 @@ def _schema_without_experiment_mlflow_columns() -> str:
     return legacy
 
 
+def _schema_without_review_synopsis() -> str:
+    legacy = re.sub(r"\n\s*synopsis [^,\n]+,?", "", SCHEMA)
+    if legacy == SCHEMA:
+        raise AssertionError("failed to remove reviews.synopsis")
+    if "synopsis" in legacy:
+        raise AssertionError("failed to remove reviews.synopsis")
+    return legacy
+
+
 @unittest.skipUnless(HAVE_DOCKER, "docker unavailable")
 class PostgresControlPlaneContractTest(
     ControlPlaneContractScenarios, unittest.TestCase
@@ -398,6 +407,113 @@ class PostgresStoreBehaviorTest(unittest.TestCase):
                     self.assertIsNone(experiment[column])
                 else:
                     self.assertEqual(experiment[column], "")
+            ledger = conn.execute(
+                "SELECT version, name FROM schema_migrations ORDER BY version"
+            ).fetchall()
+            self.assertEqual(
+                [(int(r["version"]), str(r["name"])) for r in ledger],
+                [(version, name) for version, name, _statement in MIGRATIONS],
+            )
+        finally:
+            conn.close()
+
+    def test_legacy_postgres_store_adds_review_synopsis(self) -> None:
+        dsn = _reset_database()
+        import psycopg
+
+        legacy_schema = _schema_without_review_synopsis()
+        created = now_iso()
+        with psycopg.connect(dsn, autocommit=True) as conn:
+            conn.execute(translate_schema_to_postgres(legacy_schema))
+            for version, name, _statement in MIGRATIONS:
+                if version >= 13:
+                    continue
+                conn.execute(
+                    """
+                    INSERT INTO schema_migrations (version, name, applied_at)
+                    VALUES (%s, %s, %s)
+                    """,
+                    (version, name, created),
+                )
+            conn.execute(
+                """
+                INSERT INTO projects (id, name, summary, created_at)
+                VALUES (%s, %s, %s, %s)
+                """,
+                ("proj_synopsis_old", "Old", "", created),
+            )
+            conn.execute(
+                """
+                INSERT INTO experiments (
+                  id, project_id, name, intent, status, created_at, updated_at
+                )
+                VALUES (%s, %s, %s, %s, %s, %s, %s)
+                """,
+                (
+                    "exp_synopsis_old",
+                    "proj_synopsis_old",
+                    "old_synopsis",
+                    "legacy experiment",
+                    "experiment_review",
+                    created,
+                    created,
+                ),
+            )
+            conn.execute(
+                """
+                INSERT INTO review_requests (
+                  id, project_id, target_type, target_id, role, capability_hash,
+                  status, target_snapshot_id, created_at
+                )
+                VALUES (%s, %s, 'experiment', %s, 'experiment_reviewer', '', 'submitted', '', %s)
+                """,
+                ("rr_synopsis_old", "proj_synopsis_old", "exp_synopsis_old", created),
+            )
+            conn.execute(
+                """
+                INSERT INTO review_sessions (
+                  id, request_id, independence, status, created_at
+                )
+                VALUES (%s, %s, 'verified_agent_review', 'submitted', %s)
+                """,
+                ("rvs_synopsis_old", "rr_synopsis_old", created),
+            )
+            conn.execute(
+                """
+                INSERT INTO reviews (
+                  id, project_id, request_id, session_id, target_snapshot_id,
+                  target_type, target_id, role, verdict, created_at
+                )
+                VALUES (%s, %s, %s, %s, '', 'experiment', %s, 'experiment_reviewer', 'pass', %s)
+                """,
+                (
+                    "rev_synopsis_old",
+                    "proj_synopsis_old",
+                    "rr_synopsis_old",
+                    "rvs_synopsis_old",
+                    "exp_synopsis_old",
+                    created,
+                ),
+            )
+
+        store = PostgresStateStore(dsn=dsn)
+        conn = store.connect()
+        try:
+            rows = conn.execute(
+                """
+                SELECT column_name
+                FROM information_schema.columns
+                WHERE table_schema = 'public'
+                  AND table_name = 'reviews'
+                  AND column_name = 'synopsis'
+                """
+            ).fetchall()
+            self.assertEqual(len(rows), 1)
+            review = conn.execute(
+                "SELECT * FROM reviews WHERE id = ?", ("rev_synopsis_old",)
+            ).fetchone()
+            self.assertIsNotNone(review)
+            self.assertEqual(review["synopsis"], "")
             ledger = conn.execute(
                 "SELECT version, name FROM schema_migrations ORDER BY version"
             ).fetchall()

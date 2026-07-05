@@ -93,7 +93,12 @@ class WorkflowGateTest(unittest.TestCase):
 
     def _pass_review(self, *, exp_id: str, role: str) -> None:
         session_id = self._open_review_session(exp_id=exp_id, role=role)
-        self.call("review.submit", review_session_id=session_id, verdict="pass")
+        self.call(
+            "review.submit",
+            review_session_id=session_id,
+            verdict="pass",
+            synopsis="The plan and results check out, so the attempt stands as reported.",
+        )
 
     def _drive_to_running(
         self, *, name: str = "exp-1", intent: str = "Rejection routing."
@@ -812,7 +817,12 @@ class WorkflowGateTest(unittest.TestCase):
             reviewer_capability=fresh["reviewer_capability"],
             caller_session_id="fresh-reviewer",
         )
-        self.call("review.submit", review_session_id=session["review_session_id"], verdict="pass")
+        self.call(
+            "review.submit",
+            review_session_id=session["review_session_id"],
+            verdict="pass",
+            synopsis="The fresh reviewer capability passed cleanly after the stale one was superseded.",
+        )
         # After the gate passed, review.status no longer advertises a refresh.
         status = self.call(
             "review.status",
@@ -851,6 +861,7 @@ class WorkflowGateTest(unittest.TestCase):
                 "review.submit",
                 review_session_id=stale_session["review_session_id"],
                 verdict="needs_changes",
+                synopsis="This stale session should not be able to affect the experiment.",
                 notes="stale objection",
             )
         state = self.call("experiment.get_state", project_id=self.project_id, experiment_id=exp["id"])
@@ -908,20 +919,109 @@ class WorkflowGateTest(unittest.TestCase):
                 caller_session_id="same-session",
             )
 
+    # ---- synopsis validation ----
+
+    def test_review_submit_rejects_too_short_synopsis(self) -> None:
+        exp_id = self._drive_to_experiment_review()
+        session_id = self._open_review_session(exp_id=exp_id, role="experiment_reviewer")
+        with self.assertRaises(ValidationError) as ctx:
+            self.call(
+                "review.submit",
+                review_session_id=session_id,
+                verdict="pass",
+                synopsis="Too short.",
+            )
+        self.assertIn("researcher's TLDR", str(ctx.exception))
+
+    def test_review_submit_rejects_too_long_synopsis(self) -> None:
+        exp_id = self._drive_to_experiment_review()
+        session_id = self._open_review_session(exp_id=exp_id, role="experiment_reviewer")
+        with self.assertRaises(ValidationError) as ctx:
+            self.call(
+                "review.submit",
+                review_session_id=session_id,
+                verdict="pass",
+                synopsis="x" * 421,
+            )
+        self.assertIn("researcher's TLDR", str(ctx.exception))
+
+    def test_review_submit_rejects_newline_in_synopsis(self) -> None:
+        exp_id = self._drive_to_experiment_review()
+        session_id = self._open_review_session(exp_id=exp_id, role="experiment_reviewer")
+        with self.assertRaises(ValidationError) as ctx:
+            self.call(
+                "review.submit",
+                review_session_id=session_id,
+                verdict="pass",
+                synopsis="The plan and results check out,\nso the attempt stands as reported today.",
+            )
+        self.assertIn("newline", str(ctx.exception))
+
+    def test_review_submit_rejects_entity_id_in_synopsis(self) -> None:
+        exp_id = self._drive_to_experiment_review()
+        session_id = self._open_review_session(exp_id=exp_id, role="experiment_reviewer")
+        with self.assertRaises(ValidationError) as ctx:
+            self.call(
+                "review.submit",
+                review_session_id=session_id,
+                verdict="pass",
+                synopsis="Attempt exp_abc123 beat baseline handily according to the numbers observed.",
+            )
+        self.assertIn("entity ids", str(ctx.exception))
+
+    def test_review_submit_rejects_backticks_in_synopsis(self) -> None:
+        exp_id = self._drive_to_experiment_review()
+        session_id = self._open_review_session(exp_id=exp_id, role="experiment_reviewer")
+        with self.assertRaises(ValidationError) as ctx:
+            self.call(
+                "review.submit",
+                review_session_id=session_id,
+                verdict="pass",
+                synopsis="The `threshold rule` beats the majority-class baseline by a solid margin.",
+            )
+        self.assertIn("backticks", str(ctx.exception))
+
+    def test_review_submit_persists_synopsis_on_acceptance(self) -> None:
+        exp_id = self._drive_to_experiment_review()
+        session_id = self._open_review_session(exp_id=exp_id, role="experiment_reviewer")
+        synopsis = "The threshold rule clears the majority-class baseline, so the design is sound."
+        out = self.call(
+            "review.submit",
+            review_session_id=session_id,
+            verdict="pass",
+            synopsis=synopsis,
+        )
+        self.assertEqual(out["synopsis"], synopsis)
+        status = self.call(
+            "review.status", project_id=self.project_id, target_type="experiment", target_id=exp_id
+        )
+        self.assertEqual(status["reviews"][0]["synopsis"], synopsis)
+        state = self.call("experiment.get_state", project_id=self.project_id, experiment_id=exp_id)
+        self.assertEqual(state["reviews"][0]["synopsis"], synopsis)
+
     # ---- review rejection routing (return_to) ----
 
     def test_experiment_review_rejection_requires_return_to(self) -> None:
         exp_id = self._drive_to_experiment_review()
         session_id = self._open_review_session(exp_id=exp_id, role="experiment_reviewer")
         with self.assertRaises(ValidationError) as ctx:
-            self.call("review.submit", review_session_id=session_id, verdict="needs_changes")
+            self.call(
+                "review.submit",
+                review_session_id=session_id,
+                verdict="needs_changes",
+                synopsis="The conclusion overreaches what the retained metrics actually show.",
+            )
         self.assertIn("return_to", str(ctx.exception))
         # The rejection was rolled back: nothing moved and the session stays
         # open, so the reviewer can resubmit with a routing decision.
         state = self.call("experiment.get_state", project_id=self.project_id, experiment_id=exp_id)
         self.assertEqual(state["status"], "experiment_review")
         out = self.call(
-            "review.submit", review_session_id=session_id, verdict="needs_changes", return_to="running"
+            "review.submit",
+            review_session_id=session_id,
+            verdict="needs_changes",
+            return_to="running",
+            synopsis="The conclusion overreaches what the retained metrics actually show.",
         )
         self.assertEqual(out["return_to"], "running")
 
@@ -933,6 +1033,7 @@ class WorkflowGateTest(unittest.TestCase):
             review_session_id=session_id,
             verdict="needs_changes",
             return_to="running",
+            synopsis="The conclusion overreaches what the retained metrics actually show.",
             notes="Conclusion overreaches; re-derive it from the retained metrics.",
         )
         state = self.call("experiment.get_state", project_id=self.project_id, experiment_id=exp_id)
@@ -954,7 +1055,13 @@ class WorkflowGateTest(unittest.TestCase):
     def test_rejection_to_planned_advances_attempt(self) -> None:
         exp_id = self._drive_to_experiment_review()
         session_id = self._open_review_session(exp_id=exp_id, role="experiment_reviewer")
-        self.call("review.submit", review_session_id=session_id, verdict="fail", return_to="planned")
+        self.call(
+            "review.submit",
+            review_session_id=session_id,
+            verdict="fail",
+            return_to="planned",
+            synopsis="The plan itself does not test the claim, so this needs a fresh design.",
+        )
         state = self.call("experiment.get_state", project_id=self.project_id, experiment_id=exp_id)
         self.assertEqual(state["status"], "planned")
         self.assertEqual(state["attempt_index"], 2)
@@ -965,9 +1072,20 @@ class WorkflowGateTest(unittest.TestCase):
         self.call("experiment.transition", project_id=self.project_id, experiment_id=exp["id"], transition="submit_design")
         session_id = self._open_review_session(exp_id=exp["id"], role="design_reviewer")
         with self.assertRaises(ValidationError):
-            self.call("review.submit", review_session_id=session_id, verdict="needs_changes", return_to="running")
+            self.call(
+                "review.submit",
+                review_session_id=session_id,
+                verdict="needs_changes",
+                return_to="running",
+                synopsis="A design rejection cannot skip straight back to running.",
+            )
         # Without return_to a design rejection still routes to planned.
-        out = self.call("review.submit", review_session_id=session_id, verdict="needs_changes")
+        out = self.call(
+            "review.submit",
+            review_session_id=session_id,
+            verdict="needs_changes",
+            synopsis="The design does not yet test the claim as scoped, so it needs revision.",
+        )
         self.assertEqual(out["return_to"], "planned")
         state = self.call("experiment.get_state", project_id=self.project_id, experiment_id=exp["id"])
         self.assertEqual(state["status"], "planned")
@@ -977,7 +1095,13 @@ class WorkflowGateTest(unittest.TestCase):
         exp_id = self._drive_to_experiment_review()
         session_id = self._open_review_session(exp_id=exp_id, role="experiment_reviewer")
         with self.assertRaises(ValidationError):
-            self.call("review.submit", review_session_id=session_id, verdict="pass", return_to="running")
+            self.call(
+                "review.submit",
+                review_session_id=session_id,
+                verdict="pass",
+                return_to="running",
+                synopsis="A passing verdict should not also carry a return_to.",
+            )
 
     # ---- claim.update ----
 

@@ -126,7 +126,12 @@ class ReviewPolicyTest(unittest.TestCase):
             reviewer_capability=req["reviewer_capability"],
             caller_session_id=f"{role}-reviewer",
         )
-        self.call("review.submit", review_session_id=session["review_session_id"], verdict="pass")
+        self.call(
+            "review.submit",
+            review_session_id=session["review_session_id"],
+            verdict="pass",
+            synopsis="The plan and results check out, so the attempt stands as reported.",
+        )
 
     # ---- default (knob off) ----
 

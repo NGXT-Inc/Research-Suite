@@ -694,7 +694,12 @@ class SplitModeSmokeTest(unittest.TestCase):
         session = self._call("review.start", review_request_id=req["review_request_id"],
                              reviewer_capability=req["reviewer_capability"],
                              caller_session_id=f"{role}-smoke")
-        self._call("review.submit", review_session_id=session["review_session_id"], verdict="pass")
+        self._call(
+            "review.submit",
+            review_session_id=session["review_session_id"],
+            verdict="pass",
+            synopsis="The plan and results check out, so the attempt stands as reported.",
+        )
 
     # ---- the smoke ----
 

@@ -208,6 +208,7 @@ class ControlPlaneContractScenarios:
             "review.submit",
             review_session_id=session["review_session_id"],
             verdict="pass",
+            synopsis="The plan and results check out, so the attempt stands as reported.",
         )
 
     def _transition(self, *, exp_id: str, transition: str, **extra: Any) -> dict[str, Any]:

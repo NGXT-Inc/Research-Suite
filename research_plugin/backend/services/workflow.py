@@ -83,11 +83,11 @@ class WorkflowService:
                 ).fetchone()
             )
             claim_rows = conn.execute(
-                "SELECT id, statement, status, confidence FROM claims WHERE project_id = ? ORDER BY created_at",
+                "SELECT id, statement, status, confidence FROM claims WHERE project_id = ? ORDER BY created_at, id",
                 (project_id,),
             ).fetchall()
             exp_rows = conn.execute(
-                "SELECT id, intent, status, attempt_index FROM experiments WHERE project_id = ? ORDER BY created_at",
+                "SELECT id, intent, status, attempt_index FROM experiments WHERE project_id = ? ORDER BY created_at, id",
                 (project_id,),
             ).fetchall()
             experiment = (
@@ -174,7 +174,7 @@ class WorkflowService:
                 project_id=project_id,
             )
             rows = conn.execute(
-                "SELECT id FROM experiments WHERE project_id = ? ORDER BY created_at",
+                "SELECT id FROM experiments WHERE project_id = ? ORDER BY created_at, id",
                 (project_id,),
             ).fetchall()
             experiments: list[dict[str, Any]] = []
@@ -252,7 +252,7 @@ class WorkflowService:
             )
             if experiment_id is None:
                 row = conn.execute(
-                    "SELECT id FROM experiments WHERE project_id = ? ORDER BY created_at DESC LIMIT 1",
+                    "SELECT id FROM experiments WHERE project_id = ? ORDER BY created_at DESC, id DESC LIMIT 1",
                     (project_id,),
                 ).fetchone()
                 experiment_id = row["id"] if row else None

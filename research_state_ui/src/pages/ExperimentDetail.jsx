@@ -17,7 +17,9 @@ import ExperimentMetrics from '../components/ExperimentMetrics';
 import SandboxTerminal from '../components/SandboxTerminal';
 import ResourceList from '../components/ResourceList';
 import AddResourceToExperiment from '../components/AddResourceToExperiment';
+import IndependentRead from '../components/IndependentRead';
 import { expName } from '../utils/experiment';
+import { pickIndependentRead } from '../utils/independentRead';
 import { gateToSectionId, useScrollToHash } from '../utils/useScrollToHash';
 
 const NEXT_ACTION_TO_TRANSITION = {
@@ -162,6 +164,10 @@ export default function ExperimentDetail() {
   const designReviews = allReviews.filter(r => (r.role || '').toLowerCase().includes('design'));
   const experimentReviews = allReviews.filter(r => !(r.role || '').toLowerCase().includes('design'));
 
+  // The page's lede: the independent reviewer's synopsis when one exists,
+  // else the experiment's own intent line.
+  const independentRead = pickIndependentRead(allReviews, experiment);
+
   const refresh = async () => { await Promise.all([fetchStatus(), refreshHome()]); };
 
   return (
@@ -201,8 +207,12 @@ export default function ExperimentDetail() {
           {' · '}<span className="exp-orient-attempt">attempt {currentAttempt}</span>
         </div>
         <h1 className="page-title exp-title-name">{expName(experiment)}</h1>
-        {experiment.intent && <p className="exp-intent">{experiment.intent}</p>}
       </header>
+
+      {/* ─────────────  INDEPENDENT READ (lede)  ────────────────────────
+          The reviewer's plain-language TLDR leads the page, falling back to
+          the experiment's intent line until a review carries a synopsis. */}
+      <IndependentRead read={independentRead} />
 
       {/* ─────────────  MAP (pinned overview: figure ⇄ logic graph)  ── */}
       <ExperimentGraphs

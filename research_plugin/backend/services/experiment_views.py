@@ -24,7 +24,7 @@ _SLIM_STORAGE_FIELDS = (
 )
 _PRIOR_RESOURCE_FIELDS = ("id", "association_role", "path", "association_attempt_index")
 _SLIM_CLAIM_FIELDS = ("id", "statement", "confidence", "status", "scope")
-_SLIM_REVIEW_FIELDS = ("id", "role", "verdict", "created_at", "findings", "notes", "evidence")
+_SLIM_REVIEW_FIELDS = ("id", "role", "verdict", "created_at", "synopsis", "findings", "notes", "evidence")
 
 
 def slim_experiment_state(full: dict[str, Any]) -> dict[str, Any]:

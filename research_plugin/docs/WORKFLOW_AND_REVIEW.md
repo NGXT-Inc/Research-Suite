@@ -109,6 +109,7 @@ The experiment reviewer checks:
   in the plan itself; `running` when the plan stands but execution or the
   conclusion is flawed
 - include concrete findings
+- include a `synopsis`: the researcher's 1-3 sentence TLDR, plain prose, no ids
 - avoid mutating research state directly
 
 A rejection routed to `running` keeps the approved plan and the current attempt
@@ -157,12 +158,19 @@ high-risk work, MCP can require human review.
 The reviewer submits through MCP:
 
 ```text
-review.submit(review_session_id, verdict, return_to?, notes, findings, evidence?)
+review.submit(review_session_id, verdict, synopsis, return_to?, notes, findings, evidence?)
 ```
 
 `return_to` is required on experiment-attempt-review rejections (`planned` or
 `running`) and forbidden on `pass`; experiment-design-review rejections always go back to
 `planned`.
+
+`synopsis` is required on every submission: 1-3 plain sentences (40-420
+chars), the researcher's TLDR and the first thing rendered on the experiment
+page. It must read as plain prose in reader context — no entity ids
+(`exp_`/`claim_`/`res_`/`rev_`/`rver_`/`syn_`), no backticks or markdown, no
+newlines. `notes` and `findings` remain the machine-flavored detail; the
+synopsis is the human-readable headline above them.
 
 ## Codex responsibilities after a run
 

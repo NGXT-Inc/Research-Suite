@@ -172,10 +172,10 @@ class ProjectService:
         conn = self.store.connect()
         try:
             if tenant_id is None:
-                rows = conn.execute("SELECT * FROM projects ORDER BY created_at").fetchall()
+                rows = conn.execute("SELECT * FROM projects ORDER BY created_at, id").fetchall()
             else:
                 rows = conn.execute(
-                    "SELECT * FROM projects WHERE tenant_id = ? ORDER BY created_at",
+                    "SELECT * FROM projects WHERE tenant_id = ? ORDER BY created_at, id",
                     (tenant_id,),
                 ).fetchall()
             return {"projects": [self._project_view(row=row) for row in rows]}

@@ -83,10 +83,21 @@ class SandboxProvisioner:
     # ---------- liveness ----------
 
     def is_alive(self, *, sandbox_id: str) -> bool:
+        return self.liveness(sandbox_id=sandbox_id) is True
+
+    def liveness(self, *, sandbox_id: str) -> bool | None:
+        """Tri-state liveness: True/False when the provider answered
+        authoritatively, None when it couldn't be asked (outage, timeout).
+
+        Callers making destructive decisions (terminate, mark_terminated,
+        re-provision) must treat None as "possibly alive" — collapsing it to
+        False is how a healthy VM ends up killed or stranded behind a
+        terminated row, billing invisibly.
+        """
         try:
             return bool(self.backend.is_alive(sandbox_id=sandbox_id))
         except Exception:  # noqa: BLE001
-            return False
+            return None
 
     def reconcile(self, *, row: dict[str, Any]) -> dict[str, Any]:
         """Bring a row in line with reality. Read-only-safe (never provisions).
@@ -102,7 +113,10 @@ class SandboxProvisioner:
         exp = str(row.get("experiment_id") or "")
         sandbox_uid = str(row.get("sandbox_uid") or "")
         if status in ACTIVE_SANDBOX_STATUSES and row.get("sandbox_id"):
-            if self.is_alive(sandbox_id=str(row["sandbox_id"])):
+            alive = self.liveness(sandbox_id=str(row["sandbox_id"]))
+            if alive is None:
+                return row  # provider unreachable — defer judgment to the next poll
+            if alive:
                 self.registry.touch_alive(experiment_id=exp, sandbox_uid=sandbox_uid)
                 return self._refresh_row(row=self.registry.get_by_uid(sandbox_uid=sandbox_uid))
             self.registry.mark_terminated(experiment_id=exp, sandbox_uid=sandbox_uid)
@@ -120,7 +134,10 @@ class SandboxProvisioner:
             with self._jobs_lock:
                 job = self._job_for_row(experiment_id=exp, sandbox_uid=sandbox_uid)
                 live_job = bool(job and job.thread.is_alive())
-            if live_job and not self.provision_too_old(row=row):
+            # A live job owns the row at ANY age (Lambda boots legitimately run
+            # past the stale deadline; reap_stale_provisions applies the same
+            # rule). The deadline only condemns rows whose job is gone.
+            if live_job:
                 return row  # genuinely in flight — keep polling
             # The job may have JUST settled; re-read before declaring failure.
             fresh = self.registry.get_by_uid(sandbox_uid=sandbox_uid)

@@ -115,6 +115,28 @@ class ResearchPluginHttpApiTest(unittest.TestCase):
         queue = self.request("GET", f"/api/projects/{project_id}/reviews")
         self.assertEqual(queue["requests"][0]["target_snapshot"]["resources"][0]["version_id"], version_id)
 
+        # The synopsis is the researcher's TLDR: it persists and surfaces on
+        # both the target-scoped review.status view and the project-wide queue.
+        session = self.request(
+            "POST",
+            f"/api/projects/{project_id}/reviews/start",
+            {
+                "review_request_id": review_request["review_request_id"],
+                "reviewer_capability": review_request["reviewer_capability"],
+                "caller_session_id": "home-endpoint-reviewer",
+            },
+        )
+        synopsis = "The threshold rule clears the majority-class baseline, so the design is sound."
+        self.request(
+            "POST",
+            f"/api/projects/{project_id}/reviews/submit",
+            {"review_session_id": session["review_session_id"], "verdict": "pass", "synopsis": synopsis},
+        )
+        status = self.request("GET", f"/api/projects/{project_id}/reviews?target_type=experiment&target_id={exp_id}")
+        self.assertEqual(status["reviews"][0]["synopsis"], synopsis)
+        queue = self.request("GET", f"/api/projects/{project_id}/reviews")
+        self.assertEqual(queue["reviews"][0]["synopsis"], synopsis)
+
     def test_review_start_and_submit_are_scoped_to_route_project(self) -> None:
         project = self.request("POST", "/api/projects", {"name": "Scoped A"})
         pid = project["id"]
@@ -155,12 +177,24 @@ class ResearchPluginHttpApiTest(unittest.TestCase):
         wrong_submit = self.client.request(
             "POST",
             f"/api/projects/{other_id}/reviews/submit",
-            json={"review_session_id": session["review_session_id"], "verdict": "pass"},
+            json={
+                "review_session_id": session["review_session_id"],
+                "verdict": "pass",
+                "synopsis": "The plan and results check out, so the attempt stands as reported.",
+            },
         )
         self.assertEqual(wrong_submit.status_code, 404, wrong_submit.text)
 
         # Submitting under the owning project still works.
-        self.request("POST", f"/api/projects/{pid}/reviews/submit", {"review_session_id": session["review_session_id"], "verdict": "pass"})
+        self.request(
+            "POST",
+            f"/api/projects/{pid}/reviews/submit",
+            {
+                "review_session_id": session["review_session_id"],
+                "verdict": "pass",
+                "synopsis": "The plan and results check out, so the attempt stands as reported.",
+            },
+        )
 
     def test_claim_update_http_endpoint(self) -> None:
         project = self.request("POST", "/api/projects", {"name": "Claim Update"})
@@ -750,7 +784,11 @@ class ResearchPluginHttpApiTest(unittest.TestCase):
         self.request(
             "POST",
             f"/api/projects/{pid}/reviews/submit",
-            {"review_session_id": session["review_session_id"], "verdict": "needs_changes"},
+            {
+                "review_session_id": session["review_session_id"],
+                "verdict": "needs_changes",
+                "synopsis": "The design does not yet test the claim as scoped, so it needs revision.",
+            },
         )
 
         figure = self.request("GET", f"/api/projects/{pid}/experiments/{exp_id}/figure")
@@ -835,7 +873,11 @@ class ResearchPluginHttpApiTest(unittest.TestCase):
         review = self.request(
             "POST",
             f"/api/projects/{pid}/reviews/submit",
-            {"review_session_id": session["review_session_id"], "verdict": "pass"},
+            {
+                "review_session_id": session["review_session_id"],
+                "verdict": "pass",
+                "synopsis": "The plan and results check out, so the attempt stands as reported.",
+            },
         )
 
         (self.repo / "results.json").write_text('{"accuracy": 0.93}\n')
@@ -1109,7 +1151,11 @@ class ResearchPluginHttpApiTest(unittest.TestCase):
         self.request(
             "POST",
             f"/api/projects/{pid}/reviews/submit",
-            {"review_session_id": session["review_session_id"], "verdict": "pass"},
+            {
+                "review_session_id": session["review_session_id"],
+                "verdict": "pass",
+                "synopsis": "The reflection wave honestly represents the project's logic state.",
+            },
         )
         self.app.call_tool(
             "reflection.transition",

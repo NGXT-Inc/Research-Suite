@@ -75,7 +75,12 @@ class ResourceVersioningTest(unittest.TestCase):
             reviewer_capability=request["reviewer_capability"],
             caller_session_id="reviewer",
         )
-        review = self.call("review.submit", review_session_id=session["review_session_id"], verdict="pass")
+        review = self.call(
+            "review.submit",
+            review_session_id=session["review_session_id"],
+            verdict="pass",
+            synopsis="The plan is scoped correctly and the resource version snapshot pins as expected.",
+        )
         self.assertEqual(review["target_snapshot"]["resources"][0]["version_id"], first_id)
         review_status = self.call("review.status", project_id=self.project_id, target_type="experiment", target_id=self.exp_id)
         self.assertEqual(review_status["requests"][0]["target_snapshot"]["resources"][0]["version_id"], first_id)

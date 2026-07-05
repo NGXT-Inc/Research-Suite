@@ -40,14 +40,27 @@ confounders**. The spine's presence is lint-enforced; your job is whether it is
 - `needs_changes`: the design is close but requires specific revisions.
 - `fail`: the design cannot answer the claim or is fundamentally invalid.
 
+## Synopsis — the researcher's TLDR
+
+`review.submit` requires a `synopsis`: 1-3 plain sentences for the human
+researcher, not the producer agent. It is the first thing they read on the
+experiment page, so write it that way — what the plan tries, and your
+verdict's so-what. Name things by their human names, use at most one decisive
+number with its baseline, and use no ids, no jargon, no markdown.
+
+- Bad: `exp_3f2a val_bpb=1.037680 vs anchor 1.038715, verdict pass`
+- Good: `The embedding-initialized head narrowly beat its rerun baseline, so
+  the claim holds in scope — but the older stronger setup still wins overall.`
+
 ## Output
 
-Return and submit:
+Return and submit (verdict, synopsis, summary, findings):
 
 ```json
 {
   "role": "design_reviewer",
   "verdict": "pass | needs_changes | fail",
+  "synopsis": "1-3 plain sentences for the researcher.",
   "summary": "One paragraph.",
   "findings": [
     {

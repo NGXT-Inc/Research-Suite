@@ -110,10 +110,12 @@ class QuotaService:
                 )
 
     def running_sandbox_count(self, *, tenant_id: str) -> int:
-        """How many sandboxes the tenant currently has running.
+        """How many sandboxes the tenant has running OR provisioning.
 
-        Tenancy is reached through the project: sandboxes carry project_id and
-        projects carry tenant_id.
+        Provisioning rows must count: a GPU boot takes minutes, so counting
+        only 'running' lets a burst of requests sail past the concurrency cap
+        before the first VM ever reaches running. Tenancy is reached through
+        the project: sandboxes carry project_id and projects carry tenant_id.
         """
         conn = self.store.connect()
         try:
@@ -122,7 +124,7 @@ class QuotaService:
                 SELECT COUNT(*) AS n
                 FROM sandboxes s
                 JOIN projects p ON p.id = s.project_id
-                WHERE p.tenant_id = ? AND s.status = 'running'
+                WHERE p.tenant_id = ? AND s.status IN ('provisioning', 'running')
                 """,
                 (tenant_id,),
             ).fetchone()

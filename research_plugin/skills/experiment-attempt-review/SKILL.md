@@ -74,16 +74,29 @@ On `needs_changes` or `fail` you MUST also pass `return_to` to `review.submit`
 Choose `planned` only when the plan is the problem. Do not send a sound plan
 back to design review for an execution mistake.
 
+## Synopsis — the researcher's TLDR
+
+`review.submit` requires a `synopsis`: 1-3 plain sentences for the human
+researcher, not the producer agent. It is the first thing they read on the
+experiment page, so write it that way — what was tried, what happened, and
+your verdict's so-what. Name things by their human names, use at most one
+decisive number with its baseline, and use no ids, no jargon, no markdown.
+
+- Bad: `exp_3f2a val_bpb=1.037680 vs anchor 1.038715, verdict pass`
+- Good: `The embedding-initialized head narrowly beat its rerun baseline, so
+  the claim holds in scope — but the older stronger setup still wins overall.`
+
 ## Output
 
-Submit through `review.submit` (verdict, `return_to` on rejection, notes,
-findings, evidence) and return:
+Submit through `review.submit` (verdict, `return_to` on rejection, synopsis,
+notes, findings, evidence) and return:
 
 ```json
 {
   "role": "experiment_reviewer",
   "verdict": "pass | needs_changes | fail",
   "return_to": "planned | running (required unless pass)",
+  "synopsis": "1-3 plain sentences for the researcher.",
   "summary": "One paragraph.",
   "findings": [
     {

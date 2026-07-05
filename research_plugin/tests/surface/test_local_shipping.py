@@ -277,7 +277,15 @@ class LocalShippingTest(unittest.TestCase):
         self.assertFalse((self.research_repo / ".research_plugin" / "state.sqlite").exists())
         self.assertFalse((self.install_dir / ".research_plugin").exists())
 
-    def _submit_review(self, proc, exp_id: str, role: str, verdict: str, notes: str) -> None:
+    def _submit_review(
+        self,
+        proc,
+        exp_id: str,
+        role: str,
+        verdict: str,
+        notes: str,
+        synopsis: str = "The plan and results check out, so the attempt stands as reported.",
+    ) -> None:
         req = self._tool(
             proc,
             "review.request",
@@ -293,7 +301,14 @@ class LocalShippingTest(unittest.TestCase):
             reviewer_capability=req["reviewer_capability"],
             caller_session_id=f"{role}-session",
         )
-        self._tool(proc, "review.submit", review_session_id=session["review_session_id"], verdict=verdict, notes=notes)
+        self._tool(
+            proc,
+            "review.submit",
+            review_session_id=session["review_session_id"],
+            verdict=verdict,
+            notes=notes,
+            synopsis=synopsis,
+        )
 
     def _tool(self, proc, tool_name: str, **arguments):
         response = self._rpc(proc, "tools/call", {"name": tool_name, "arguments": arguments})

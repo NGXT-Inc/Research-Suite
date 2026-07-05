@@ -206,7 +206,11 @@ def build_experiment_figure(
                 "status": verdict or "open",
                 "group": f"attempt:{attempt}",
                 "ref": {"kind": "review", "id": review_id},
-                "meta": {"role": review.get("role"), "notes": review.get("notes") or ""},
+                "meta": {
+                    "role": review.get("role"),
+                    "synopsis": review.get("synopsis") or "",
+                    "notes": review.get("notes") or "",
+                },
             }
         )
         add_edge(f"attempt:{attempt}", node_id, "reviewed_by")

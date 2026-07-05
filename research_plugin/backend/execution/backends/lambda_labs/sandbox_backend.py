@@ -186,8 +186,10 @@ class LambdaLabsSandboxBackend(VmSshSandboxBackend):
             return False
         try:
             instance = self.client.get_instance(sandbox_id)
-        except Exception:  # noqa: BLE001
-            return False
+        except BackendUnavailableError as exc:
+            if exc.status == 404:
+                return False  # authoritative: the instance no longer exists
+            raise  # outage/timeout — callers must not read this as "gone"
         return str(instance.get("status") or "") in LIVE_INSTANCE_STATUSES
 
     def terminate(self, *, sandbox_id: str) -> bool:

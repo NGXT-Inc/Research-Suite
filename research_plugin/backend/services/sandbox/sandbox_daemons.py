@@ -135,7 +135,21 @@ class SandboxDaemons:
             expires_at = parse_iso(row.get("expires_at"))
             if expires_at is None or now_dt < expires_at:
                 continue
-            self._reap_row(row=row)
+            # Re-read: the sweep snapshot ages while earlier rows terminate
+            # (provider calls take seconds each), and sandbox.extend races
+            # exactly this window — a just-extended row must not be reaped
+            # off the stale copy.
+            fresh = self.registry.get_by_uid(
+                sandbox_uid=str(row.get("sandbox_uid") or "")
+            )
+            fresh_expires = parse_iso(fresh.get("expires_at"))
+            if (
+                fresh.get("status") != "running"
+                or fresh_expires is None
+                or now_dt < fresh_expires
+            ):
+                continue
+            self._reap_row(row=fresh)
             reaped += 1
         return reaped
 
@@ -169,9 +183,30 @@ class SandboxDaemons:
                 stopped = self.backend.terminate(sandbox_id=sandbox_id)
             except Exception:  # noqa: BLE001
                 stopped = False
+        sandbox_uid = str(row.get("sandbox_uid") or "")
         if not stopped:
             self.provisioner.cleanup_orphan(experiment_id=experiment_id, row=row)
-        sandbox_uid = str(row.get("sandbox_uid") or "")
+            # Only strand the row as terminated once the provider confirms the
+            # VM is gone — a terminated row over a live VM bills invisibly
+            # forever, and no sweep revisits terminated rows. Left running,
+            # the next sweep retries the terminate.
+            if (
+                sandbox_id
+                and self.provisioner.liveness(sandbox_id=sandbox_id) is not False
+            ):
+                self.registry.emit_event(
+                    project_id=str(row.get("project_id")),
+                    event_type=event_type,
+                    experiment_id=experiment_id,
+                    payload={
+                        "sandbox_id": sandbox_id,
+                        "sandbox_uid": sandbox_uid,
+                        "reaped": False,
+                        "reason": "terminate failed; instance may still be alive",
+                        **(payload_extra or {}),
+                    },
+                )
+                return
         self.registry.mark_terminated(
             experiment_id=experiment_id, sandbox_uid=sandbox_uid
         )

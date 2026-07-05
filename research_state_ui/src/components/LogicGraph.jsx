@@ -1,14 +1,14 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { Link } from 'react-router-dom';
 import { ReactFlow, Background, Controls, Handle, Position, MarkerType } from '@xyflow/react';
 import '@xyflow/react/dist/style.css';
 import { api } from '../api';
 import { MeasureSync } from './ExperimentFigure';
 import DetailPanelShell from './DetailPanelShell';
+import EntityChip from './EntityChip';
+import { seedFromRefIndex } from '../utils/entityResolve';
 import { layoutFigure, FIG_NODE_W } from '../utils/figureLayout';
 import { TERMINAL_STATUSES } from '../utils/experiment';
 import { usePanelWidth } from '../store/usePanelWidth';
-import { useProjectHref } from '../store/useProjectStore';
 import { useStreamAwarePoll } from '../store/useEventStream';
 
 // Node `kind` is the agent's own vocabulary — there is no fixed taxonomy, so
@@ -101,54 +101,14 @@ function toFlow(graph) {
 }
 
 /**
- * One node ref, rendered from the server's read-time resolution (ref_index).
- * Resolved refs link to the record they name; unresolved ones degrade to
- * gray text — refs are the agent's free-form pointers, never an error.
+ * One node ref as an EntityChip. The server's read-time resolution (ref_index)
+ * seeds the chip so it needs no snapshot lookup or fetch; unresolved refs fall
+ * back to snapshot resolution and degrade to a non-navigating "not found" chip
+ * — refs are the agent's free-form pointers, never an error.
  */
 function NodeRef({ refString, resolution }) {
-  const px = useProjectHref();
-  const r = resolution || { resolved: false, type: 'unknown' };
-  if (r.type === 'resource' && r.resolved) {
-    return (
-      <Link className="lgr-ref" to={px(`/resources/${r.resource_id}`)}>
-        <span className="fig-node-type">{r.kind || 'resource'}</span> {r.title || r.path} →
-      </Link>
-    );
-  }
-  if (r.type === 'claim' && r.resolved) {
-    return (
-      <Link className="lgr-ref" to={px(`/claims/${r.claim_id}`)}>
-        <span className="fig-node-type">claim</span> {r.statement} →
-      </Link>
-    );
-  }
-  if (r.type === 'experiment' && r.resolved) {
-    return (
-      <Link className="lgr-ref" to={px(`/experiments/${r.experiment_id}`)}>
-        <span className="fig-node-type">experiment</span> {r.intent} →
-      </Link>
-    );
-  }
-  if (r.type === 'review' && r.resolved) {
-    return (
-      <span className="lgr-ref lgr-ref--static">
-        <span className="fig-node-type">review</span> {String(r.role || '').replace(/_/g, ' ')} · {r.verdict}
-      </span>
-    );
-  }
-  if (r.type === 'synthesis' && r.resolved) {
-    // No synthesis detail page yet; render the wave as a static chip.
-    return (
-      <span className="lgr-ref lgr-ref--static">
-        <span className="fig-node-type">synthesis</span> {r.title || r.synthesis_id} · {r.status}
-      </span>
-    );
-  }
-  return (
-    <span className="lgr-ref lgr-ref--unresolved" title={r.hint || 'not resolvable in this project'}>
-      {refString}
-    </span>
-  );
+  const seed = resolution && resolution.resolved ? seedFromRefIndex(refString, resolution) : null;
+  return <EntityChip id={refString} seed={seed} compact className="lgr-ref-chip" />;
 }
 
 function LogicPanel({ node, refIndex, onClose }) {

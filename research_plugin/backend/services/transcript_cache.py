@@ -16,6 +16,7 @@ fix and stays backlog (plan §4 Phase 9). The cache stores transcript bytes only
 
 from __future__ import annotations
 
+import threading
 import time
 from dataclasses import dataclass
 from typing import Callable
@@ -49,6 +50,9 @@ class TranscriptCache:
         self.max_entries = int(max_entries)
         self._clock = clock or time.monotonic
         self._entries: dict[str, _Entry] = {}
+        # Concurrent viewers hit this from the server threadpool; guard the
+        # dict (eviction iterates it). The expensive read() stays unlocked.
+        self._lock = threading.Lock()
         # Cheap observability for the cache-hit test / metrics.
         self.hits = 0
         self.misses = 0
@@ -79,25 +83,28 @@ class TranscriptCache:
             self.misses += 1
             return read()
         now = self._clock()
-        entry = self._entries.get(sandbox_id)
-        fresh_window = entry is not None and (now - entry.stored_at) < self.ttl_seconds
-        cursor_in_cache = (
-            entry is not None and since is not None and int(since) < len(entry.text)
-        )
-        servable = entry is not None and not fresh and fresh_window and (
-            since is None or cursor_in_cache
-        )
-        if servable:
-            assert entry is not None
-            self.hits += 1
-            return entry.text
-        self.misses += 1
+        with self._lock:
+            entry = self._entries.get(sandbox_id)
+            fresh_window = entry is not None and (now - entry.stored_at) < self.ttl_seconds
+            cursor_in_cache = (
+                entry is not None and since is not None and int(since) < len(entry.text)
+            )
+            servable = entry is not None and not fresh and fresh_window and (
+                since is None or cursor_in_cache
+            )
+            if servable:
+                assert entry is not None
+                self.hits += 1
+                return entry.text
+            self.misses += 1
         text = read()
-        self._store(sandbox_id=sandbox_id, text=text, now=now)
+        with self._lock:
+            self._store(sandbox_id=sandbox_id, text=text, now=now)
         return text
 
     def invalidate(self, *, sandbox_id: str) -> None:
-        self._entries.pop(sandbox_id, None)
+        with self._lock:
+            self._entries.pop(sandbox_id, None)
 
     def _store(self, *, sandbox_id: str, text: str, now: float) -> None:
         if sandbox_id not in self._entries and len(self._entries) >= self.max_entries:

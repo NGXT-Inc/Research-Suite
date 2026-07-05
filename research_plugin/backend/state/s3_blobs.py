@@ -250,13 +250,15 @@ class S3BlobStore:
             else:
                 new_meta["expires_at"] = expires_at
             # Copy onto itself to replace metadata (S3 metadata is immutable
-            # without a copy).
+            # without a copy). REPLACE resets ContentType too — carry it over
+            # or the blob silently degrades to binary/octet-stream.
             self._s3.copy_object(
                 Bucket=self.bucket,
                 Key=key,
                 CopySource={"Bucket": self.bucket, "Key": key},
                 Metadata=new_meta,
                 MetadataDirective="REPLACE",
+                ContentType=head.get("ContentType") or "application/octet-stream",
             )
 
 

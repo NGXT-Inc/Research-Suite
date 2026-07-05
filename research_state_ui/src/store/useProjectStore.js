@@ -139,7 +139,9 @@ export const useProjectStore = create((set, get) => ({
     // the deeper window powers anything that needs ≥1h of history.
     const tags = etagsFor(pid);
     try {
-      const failedFetch = { notModified: false, etag: null, data: null };
+      // A failed side-fetch must read as "unchanged", not "changed to empty":
+      // notModified:false here would blank the last-good list and drop its ETag.
+      const failedFetch = { notModified: true, etag: null, data: null };
       const [home, sandboxesResp, eventsResp] = await Promise.all([
         api.getHomeIfChanged(pid, tags.home),
         api.listSandboxesIfChanged(pid, tags.sandboxes).catch(() => failedFetch),

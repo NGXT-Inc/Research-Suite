@@ -8,6 +8,7 @@ import MobileGraphSection from './MobileGraphSection';
 import MobileDoc from './MobileDoc';
 import { Skeleton } from './Skeleton';
 import { expName, statusColor, statusLine, TERMINAL_STATUSES } from '../utils/experiment';
+import { pickIndependentRead } from '../utils/independentRead';
 
 /**
  * Mobile experiment detail — one continuous scroll (design handoff, sketch
@@ -109,6 +110,12 @@ export default function MobileExperimentDetail() {
   const designReviews = allReviews.filter(r => (r.role || '').toLowerCase().includes('design'));
   const experimentReviews = allReviews.filter(r => !(r.role || '').toLowerCase().includes('design'));
 
+  // The lede: the reviewer's synopsis when one exists, else the intent line.
+  const read = pickIndependentRead(allReviews, experiment);
+  const readByline = read.kind === 'review'
+    ? `independent read · ${read.review.role === 'experiment_reviewer' ? 'experiment review' : 'design review'}`
+    : null;
+
   return (
     <div className="mdetail">
       <header className="page-header">
@@ -123,7 +130,10 @@ export default function MobileExperimentDetail() {
       <section className="mdetail-section">
         <div className="mml">Status</div>
         <StatusStatement experiment={experiment} workflow={isClosed ? null : workflow} />
-        {experiment.intent && <p className="mdetail-lead">{experiment.intent}</p>}
+        {readByline && <div className="mquiet">{readByline}</div>}
+        {read.kind === 'review'
+          ? <p className="mdetail-lead">{read.review.synopsis}</p>
+          : read.text && <p className="mdetail-lead">{read.text}</p>}
         <LazyRow open={graphOpen} onOpen={() => setGraphOpen(true)} label="graph">
           <MobileGraphSection
             projectId={projectId}

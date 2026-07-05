@@ -1,11 +1,9 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
-import { Link } from 'react-router-dom';
 import { feedApi } from './feedApi';
 import { postTime } from './feedModel';
 import Lightbox from './Lightbox';
 import LinkCard from './LinkCard';
-import { useProjectStore, useProjectHref, selectExperiments } from '../store/useProjectStore';
-import { expName } from '../utils/experiment';
+import EntityChip from '../components/EntityChip';
 import { authorHue } from '../utils/authorIdentity';
 
 // Load a feed media path through an authenticated fetch and expose it as a
@@ -36,29 +34,12 @@ function useAuthedImage(relPath) {
   return state;
 }
 
-// Map a post's optional entity ref to the route that shows it. Experiments
-// resolve to their display name (the chip should read "↗ vision-scaling",
-// not "↗ experiment"). Unknown kinds (rver_/rev_/syn_) render as a static
-// chip — there is no single detail page for them.
-function refTarget(ref, experiments) {
-  if (!ref) return null;
-  if (ref.startsWith('exp_')) {
-    const exp = experiments.find(e => e.id === ref);
-    return { to: `/experiments/${ref}`, label: exp ? expName(exp) : 'experiment' };
-  }
-  if (ref.startsWith('claim_')) return { to: `/claims/${ref}`, label: 'claim' };
-  if (ref.startsWith('res_')) return { to: `/resources/${ref}`, label: 'resource' };
-  return null;
-}
-
 /**
  * One feed post (Feed_PRD.md): handle + relative time, brief text, an optional
  * single visual (image or a static unfurled link card), and an optional chip
  * linking to the entity it is about. Deliberately low-chrome — content first.
  */
 export default function PostCard({ post, projectId, onView, now, grouped = false }) {
-  const px = useProjectHref();
-  const experiments = useProjectStore(selectExperiments);
   const cardRef = useRef(null);
   const viewedRef = useRef(false);
 
@@ -81,7 +62,6 @@ export default function PostCard({ post, projectId, onView, now, grouped = false
 
   const ts = post.created_at ? new Date(post.created_at).getTime() : null;
   const timeLabel = postTime(ts, now);
-  const ref = refTarget(post.ref, experiments);
   const preview = post.link_preview;
   const image = useAuthedImage(post.image_url);
   const linkThumb = useAuthedImage(
@@ -172,11 +152,7 @@ export default function PostCard({ post, projectId, onView, now, grouped = false
 
       {post.ref && (
         <footer className="postcard-foot">
-          {ref ? (
-            <Link className="postcard-ref" to={px(ref.to)}>↗ {ref.label}</Link>
-          ) : (
-            <span className="postcard-ref postcard-ref--static">↗ {post.ref}</span>
-          )}
+          <EntityChip id={post.ref} className="postcard-ref-chip" />
         </footer>
       )}
     </article>

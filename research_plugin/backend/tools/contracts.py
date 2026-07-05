@@ -479,6 +479,17 @@ class ReviewStartInput(ContractModel):
 class ReviewSubmitInput(ContractModel):
     review_session_id: str
     verdict: Literal[*REVIEW_VERDICT_VALUES]
+    synopsis: str = Field(
+        description=(
+            "The researcher's TLDR, 1-3 plain sentences, 40-420 chars: what "
+            "was tried, what happened, and whether it holds. This is the "
+            "first thing the human reads on the experiment page, so write "
+            "plain prose in reader context — name things by their human "
+            "names, and use at most one decisive number with its baseline. "
+            "No entity ids (exp_/claim_/res_/rev_/rver_/syn_), no backticks "
+            "or markdown, no newlines."
+        )
+    )
     return_to: Literal["", "planned", "running", "reflecting", "synthesizing"] = Field(
         default="",
         description=(
@@ -1018,7 +1029,9 @@ TOOL_CONTRACTS: dict[str, ToolContract] = {
         input_model=ReviewSubmitInput,
         description=(
             "Submit a review from a reviewer session. Accepts ONLY: "
-            "review_session_id, verdict (pass|needs_changes|fail), return_to, "
+            "review_session_id, verdict (pass|needs_changes|fail), synopsis "
+            "(REQUIRED: 1-3 plain sentences, 40-420 chars, the researcher's "
+            "TLDR — no entity ids, markdown, or backticks), return_to, "
             "notes, findings (list of {issue, severity?}), and evidence "
             "(free-form dict). On experiment-attempt-review rejections return_to is "
             "REQUIRED: 'planned' if the results show the plan itself is "

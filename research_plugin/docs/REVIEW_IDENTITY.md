@@ -56,7 +56,7 @@ not with trust in prompt text.
 8. Reviewer submits:
 
    ```text
-   review.submit(review_session_id, verdict, notes, findings, evidence?)
+   review.submit(review_session_id, verdict, synopsis, notes, findings, evidence?)
    ```
 
 ## Enforced checks

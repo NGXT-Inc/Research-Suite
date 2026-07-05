@@ -169,9 +169,12 @@ class ThunderComputeSandboxBackend(VmSshSandboxBackend):
     def is_alive(self, *, sandbox_id: str) -> bool:
         if not sandbox_id:
             return False
-        try:
-            instance = self._instance_by_id(sandbox_id)
-        except Exception:  # noqa: BLE001
+        # List directly: an id absent from a successful listing is
+        # authoritatively gone; a failed listing propagates so callers don't
+        # mistake an API outage for a dead instance.
+        instances = self.client.list_instances()
+        instance = instances.get(str(sandbox_id))
+        if instance is None:
             return False
         return _status(instance) in LIVE_INSTANCE_STATUSES
 
@@ -466,6 +469,8 @@ def _run_bootstrap(
         command,
         input=script,
         text=True,
+        encoding="utf-8",
+        errors="replace",
         capture_output=True,
         timeout=timeout,
     )

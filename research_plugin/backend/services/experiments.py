@@ -394,7 +394,7 @@ class ExperimentService:
                 FROM claims c
                 JOIN experiment_claims ec ON ec.claim_id = c.id
                 WHERE ec.experiment_id = ?
-                ORDER BY c.created_at
+                ORDER BY c.created_at, c.id
                 """,
                 (experiment_id,),
             ).fetchall()
@@ -792,7 +792,7 @@ class ExperimentService:
         try:
             project_id = self.store.require_project_id(conn=conn, project_id=project_id)
             rows = conn.execute(
-                "SELECT id FROM experiments WHERE project_id = ? ORDER BY created_at",
+                "SELECT id FROM experiments WHERE project_id = ? ORDER BY created_at, id",
                 (project_id,),
             ).fetchall()
             return {"experiments": [self.get_state(experiment_id=row["id"], conn=conn) for row in rows]}

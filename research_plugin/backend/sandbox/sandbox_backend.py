@@ -32,7 +32,22 @@ class BackendPermissionError(ExecutionBackendError):
 
 
 class BackendUnavailableError(ExecutionBackendError):
-    """The selected backend cannot be reached or initialized."""
+    """The selected backend cannot be reached or initialized.
+
+    ``status`` carries the HTTP status when the provider answered at all
+    (None = no answer), so liveness checks can separate "instance gone"
+    from "provider down".
+    """
+
+    def __init__(
+        self,
+        message: str = "",
+        *,
+        status: int | None = None,
+        details: dict | None = None,
+    ) -> None:
+        super().__init__(message, details=details)
+        self.status = status
 
 
 # Provisioning progress callbacks. The registry passes these to acquire() so it

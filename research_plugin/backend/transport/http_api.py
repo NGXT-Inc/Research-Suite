@@ -10,6 +10,7 @@ from __future__ import annotations
 import hashlib
 import json
 import mimetypes
+import urllib.parse
 from pathlib import Path
 from typing import Any
 
@@ -1132,6 +1133,36 @@ def create_fastapi_app(
             allow_headers=UI_CORS_HEADERS,
             expose_headers=UI_CORS_EXPOSE_HEADERS,
         )
+
+    def _is_local_origin(origin: str) -> bool:
+        host = (urllib.parse.urlsplit(origin).hostname or "").lower()
+        return host in ("localhost", "127.0.0.1", "::1")
+
+    @http.middleware("http")
+    async def reject_foreign_origins(request: Request, call_next):
+        # Loopback CSRF guard (local surface only): the daemon binds loopback,
+        # but any web page the user visits can still fire cross-origin
+        # requests at 127.0.0.1 — and the wide-open CORS above would even let
+        # it read the responses. Browsers always attach Origin cross-origin;
+        # curl/proxy traffic is origin-less and the local UI is a localhost
+        # origin, so rejecting foreign Origins blocks drive-by pages without
+        # touching any legitimate caller. Hosted control (even with open
+        # CORS) is a deliberate operator surface and stays out of this guard.
+        origin = request.headers.get("origin")
+        if (
+            not surface.restrict_cors
+            and not surface.hosted_control
+            and origin
+            and not _is_local_origin(origin)
+        ):
+            return JSONResponse(
+                {
+                    "detail": "cross-origin requests to the local daemon are not allowed",
+                    "error_code": "forbidden_origin",
+                },
+                status_code=403,
+            )
+        return await call_next(request)
 
     @http.middleware("http")
     async def attach_principal(request: Request, call_next):

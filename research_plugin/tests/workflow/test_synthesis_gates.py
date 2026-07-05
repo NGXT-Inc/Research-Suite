@@ -215,7 +215,12 @@ class SynthesisGateTest(unittest.TestCase):
     def _drive_to_published(self) -> str:
         syn_id = self._drive_to_synthesis_review()
         session_id = self._open_review_session(syn_id=syn_id)
-        self.call("review.submit", review_session_id=session_id, verdict="pass")
+        self.call(
+            "review.submit",
+            review_session_id=session_id,
+            verdict="pass",
+            synopsis="The reflection wave honestly represents the project's logic state.",
+        )
         self.call(
             "reflection.transition",
             project_id=self.project_id,
@@ -821,7 +826,12 @@ class SynthesisGateTest(unittest.TestCase):
             transition="submit_reflection_artifacts",
         )
         session_id = self._open_review_session(syn_id=syn_id)
-        self.call("review.submit", review_session_id=session_id, verdict="pass")
+        self.call(
+            "review.submit",
+            review_session_id=session_id,
+            verdict="pass",
+            synopsis="The reflection wave honestly represents the project's logic state.",
+        )
         published = self.call(
             "reflection.transition",
             project_id=self.project_id,
@@ -903,7 +913,12 @@ class SynthesisGateTest(unittest.TestCase):
         self._create_active_experiments(ACTIVE_EXPERIMENT_CAP - 2)
         syn_id = self._drive_to_synthesis_review()
         session_id = self._open_review_session(syn_id=syn_id)
-        self.call("review.submit", review_session_id=session_id, verdict="pass")
+        self.call(
+            "review.submit",
+            review_session_id=session_id,
+            verdict="pass",
+            synopsis="The reflection wave honestly represents the project's logic state.",
+        )
         self.call(
             "experiment.create",
             name="late-active-a",
@@ -960,7 +975,12 @@ class SynthesisGateTest(unittest.TestCase):
             transition="submit_reflection_artifacts",
         )
         session_id = self._open_review_session(syn_id=syn_id)
-        self.call("review.submit", review_session_id=session_id, verdict="pass")
+        self.call(
+            "review.submit",
+            review_session_id=session_id,
+            verdict="pass",
+            synopsis="The reflection wave honestly represents the project's logic state.",
+        )
         self.call(
             "reflection.transition",
             project_id=self.project_id,
@@ -981,6 +1001,7 @@ class SynthesisGateTest(unittest.TestCase):
             review_session_id=session_id,
             verdict="needs_changes",
             return_to="synthesizing",
+            synopsis="The change spec is not yet justified by the reviewed reflections.",
             notes="change spec is not justified yet",
         )
         self.assertEqual(self.call("claim.list", project_id=self.project_id)["claims"], [])
@@ -1004,7 +1025,12 @@ class SynthesisGateTest(unittest.TestCase):
             transition="submit_reflection_artifacts",
         )
         session_id = self._open_review_session(syn_id=syn_id)
-        self.call("review.submit", review_session_id=session_id, verdict="pass")
+        self.call(
+            "review.submit",
+            review_session_id=session_id,
+            verdict="pass",
+            synopsis="The reflection wave honestly represents the project's logic state.",
+        )
         self.call(
             "reflection.transition",
             project_id=self.project_id,
@@ -1035,7 +1061,12 @@ class SynthesisGateTest(unittest.TestCase):
                 transition="publish",
             )
         session_id = self._open_review_session(syn_id=syn_id)
-        self.call("review.submit", review_session_id=session_id, verdict="pass")
+        self.call(
+            "review.submit",
+            review_session_id=session_id,
+            verdict="pass",
+            synopsis="The reflection wave honestly represents the project's logic state.",
+        )
         out = self.call(
             "reflection.transition",
             project_id=self.project_id,
@@ -1082,6 +1113,7 @@ class SynthesisGateTest(unittest.TestCase):
             "review.submit",
             review_session_id=session["review_session_id"],
             verdict="pass",
+            synopsis="The reflection wave honestly represents the project's logic state.",
         )
         checklist = self._state(syn_id)["gate_checklist"]
         self.assertTrue(checklist["ready"])
@@ -1132,6 +1164,7 @@ class SynthesisGateTest(unittest.TestCase):
                 "review.submit",
                 review_session_id=session_id,
                 verdict="needs_changes",
+                synopsis="A pattern in the dead-ends ledger is missing from the reflection.",
                 notes="missing dead ends",
             )
         self.assertIn("reflecting", str(ctx.exception))
@@ -1143,6 +1176,7 @@ class SynthesisGateTest(unittest.TestCase):
                 review_session_id=session_id,
                 verdict="needs_changes",
                 return_to="planned",
+                synopsis="A pattern in the dead-ends ledger is missing from the reflection.",
             )
 
     def test_redo_synthesis_keeps_reflections_and_attempt(self) -> None:
@@ -1153,6 +1187,7 @@ class SynthesisGateTest(unittest.TestCase):
             review_session_id=session_id,
             verdict="needs_changes",
             return_to="synthesizing",
+            synopsis="A dead end is retold as a near-win, so the reflection artifacts need revision.",
             notes="a dead end is retold as a near-win",
         )
         state = self._state(syn_id)
@@ -1178,6 +1213,7 @@ class SynthesisGateTest(unittest.TestCase):
             review_session_id=session_id,
             verdict="needs_changes",
             return_to="reflecting",
+            synopsis="The five lenses produced near-duplicate reflections, so the fan-out must re-run.",
             notes="the lenses overlapped; reflections are near-duplicates",
         )
         state = self._state(syn_id)
@@ -1383,7 +1419,12 @@ class ReflectionSignalTest(unittest.TestCase):
             reviewer_capability=req["reviewer_capability"],
             caller_session_id="reviewer",
         )
-        self.call("review.submit", review_session_id=session["review_session_id"], verdict="pass")
+        self.call(
+            "review.submit",
+            review_session_id=session["review_session_id"],
+            verdict="pass",
+            synopsis="The reflection wave honestly represents the project's logic state.",
+        )
         self.call(
             "reflection.transition",
             project_id=self.project_id,

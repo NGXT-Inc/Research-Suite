@@ -222,12 +222,12 @@ class SynthesisService:
             f"""
             SELECT id, attempt_index, status FROM experiments
             WHERE project_id = ? AND status IN ({terminal})
-            ORDER BY created_at
+            ORDER BY created_at, id
             """,
             (project_id,),
         ).fetchall()
         claim_rows = conn.execute(
-            "SELECT id, status FROM claims WHERE project_id = ? ORDER BY created_at",
+            "SELECT id, status FROM claims WHERE project_id = ? ORDER BY created_at, id",
             (project_id,),
         ).fetchall()
         return {
@@ -371,7 +371,7 @@ class SynthesisService:
         try:
             project_id = self.store.require_project_id(conn=conn, project_id=project_id)
             rows = conn.execute(
-                "SELECT id FROM syntheses WHERE project_id = ? ORDER BY created_at",
+                "SELECT id FROM syntheses WHERE project_id = ? ORDER BY created_at, id",
                 (project_id,),
             ).fetchall()
             return {
@@ -388,7 +388,7 @@ class SynthesisService:
         try:
             project_id = self.store.require_project_id(conn=conn, project_id=project_id)
             rows = conn.execute(
-                "SELECT id FROM syntheses WHERE project_id = ? ORDER BY created_at",
+                "SELECT id FROM syntheses WHERE project_id = ? ORDER BY created_at, id",
                 (project_id,),
             ).fetchall()
             syntheses = [
@@ -1272,7 +1272,7 @@ class SynthesisService:
             f"""
             SELECT name, id FROM experiments
             WHERE project_id = ? AND status NOT IN ({terminal})
-            ORDER BY created_at
+            ORDER BY created_at, id
             """,
             (project_id,),
         ).fetchall()

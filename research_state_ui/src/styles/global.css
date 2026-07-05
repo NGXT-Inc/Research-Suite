@@ -2362,6 +2362,50 @@ html[data-theme="dark"] .ft-fi--shell   { color: #a3a19a; }
 .exp-footer { margin-top: 28px; }
 
 /* =====================================================================
+   Independent read — the page's lede (reviewer synopsis, or intent
+   fallback). One-Surface: no card chrome, flush on the canvas, a hairline
+   marks where the lede ends and the thread begins.
+   ===================================================================== */
+.ind-read {
+  margin: 0 0 26px;
+  padding-bottom: 22px;
+  border-bottom: 1px solid var(--line-soft);
+}
+.ind-read-byline {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 7px;
+  margin-bottom: 8px;
+  font-size: var(--text-xs);
+  color: var(--muted);
+}
+.ind-read-sep { color: var(--faint); }
+/* Verdict pill — same visual language as the review stepper's pills, minus
+   the button affordance (this one isn't interactive). */
+.ind-read-verdict {
+  display: inline-flex;
+  align-items: center;
+  font-size: 11px;
+  letter-spacing: 0.02em;
+  font-weight: 600;
+  padding: 2px 9px;
+  border-radius: var(--radius-pill);
+  border: 1px solid;
+  margin-left: 2px;
+}
+/* The lede paragraph: larger and more comfortable than body copy — this is
+   the first thing a researcher reads on the page. */
+.ind-read-lede {
+  margin: 0;
+  max-width: 860px;
+  font-size: var(--text-lg);
+  line-height: 1.55;
+  color: var(--text);
+  white-space: pre-wrap;
+}
+
+/* =====================================================================
    Spotlight container (used by Plan, Execution, Outcomes)
    ===================================================================== */
 .spotlight {
@@ -4687,3 +4731,121 @@ html[data-theme="dark"] .app-bg { opacity: 0.3; }
   .boot-edge--flow { display: none; }
   .boot-create { opacity: 1; transform: none; }
 }
+
+/* --- DS: ENTITY CHIP + HOVER CARD ------------------------------------
+   A compact link chip for any research entity (exp_/claim_/res_/rev_/syn_),
+   plus the floating detail card it reveals on hover/focus. One glyph per type,
+   name clipped to ~22ch; the card carries the facts the chip clips. Tokens
+   only — accent is reserved for attention, so hover uses the neutral --hover
+   tint and only keyboard focus draws the --active ring. */
+.echip {
+  display: inline-flex;
+  align-items: center;
+  vertical-align: baseline;
+  gap: 4px;
+  max-width: 100%;
+  padding: 0 6px;
+  border: 1px solid var(--line);
+  border-radius: var(--radius-sm);
+  background: var(--bg-elev);
+  color: var(--text);
+  font: inherit;
+  font-size: var(--text-xs);
+  line-height: 1.5;
+  text-decoration: none;
+  cursor: pointer;
+  transition: background-color 0.12s ease, border-color 0.12s ease;
+}
+.echip--compact { gap: 3px; padding: 0 5px; }
+.echip-glyph { color: var(--faint); font-size: 0.9em; line-height: 1; flex: none; }
+.echip-name {
+  max-width: 22ch;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.echip--compact .echip-name { max-width: 20ch; }
+/* Unresolved / dead id: monospace, faint, dashed rule (grammar: --faint +
+   dashed = dead). */
+.echip-id { font-family: var(--font-mono); letter-spacing: 0.02em; }
+.echip--static { cursor: default; }
+.echip--dead { border-style: dashed; color: var(--faint); }
+.echip--dead .echip-glyph { color: var(--faint); }
+@media (hover: hover) {
+  .echip:hover { background: var(--hover); border-color: var(--line-strong); }
+}
+.echip:focus-visible { outline: 2px solid var(--active); outline-offset: 1px; }
+/* Win over context link styling (markdown/feed/timeline colour their own <a>):
+   the chip name is neutral --text, never the attention orange, never
+   underlined. Element+class selectors tie those contexts and, appended last,
+   take precedence by source order. */
+a.echip, a.echip:hover, a.echip:focus, button.echip { color: var(--text); text-decoration: none; }
+a.echip--dead, button.echip--dead { color: var(--faint); }
+
+/* Floating card (portaled to <body>, position from floating-ui). */
+.ehover {
+  z-index: 1000;
+  min-width: 200px;
+  max-width: 320px;
+  padding: 10px 12px;
+  background: var(--bg-elev);
+  border: 1px solid var(--line);
+  border-radius: var(--radius-md);
+  box-shadow: 0 6px 20px rgba(0, 0, 0, 0.14);
+  color: var(--text);
+  font-size: var(--text-sm);
+}
+.ehover-inner { display: flex; flex-direction: column; gap: 6px; }
+.ehover-head { display: flex; align-items: center; gap: 6px; }
+.ehover-glyph { color: var(--faint); font-size: 0.95em; line-height: 1; }
+.ehover-type {
+  color: var(--faint);
+  font-size: var(--text-xs);
+  letter-spacing: 0.04em;
+}
+.ehover-load {
+  width: 6px;
+  height: 6px;
+  margin-left: auto;
+  border-radius: 50%;
+  background: var(--qualifies);
+  animation: log-pulse 1.4s ease-in-out infinite;
+}
+.ehover-name {
+  font-weight: 560;
+  font-size: var(--text-sm);
+  color: var(--text);
+  overflow-wrap: anywhere;
+}
+.ehover-lead { margin: 0; color: var(--muted); font-size: var(--text-xs); }
+.ehover-clamp3 {
+  display: -webkit-box;
+  -webkit-line-clamp: 3;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+}
+.ehover-mono { font-family: var(--font-mono); overflow-wrap: anywhere; }
+/* One fact per line, hairline-separated (ledger dialect). */
+.ehover-row {
+  display: grid;
+  grid-template-columns: 68px 1fr;
+  gap: 8px;
+  align-items: center;
+  padding-top: 4px;
+  border-top: 1px solid var(--line-soft);
+}
+.ehover-key { color: var(--faint); font-size: var(--text-xs); }
+.ehover-val {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  min-width: 0;
+  color: var(--text);
+  font-size: var(--text-xs);
+}
+.ehover-missing { display: flex; flex-direction: column; gap: 3px; }
+.ehover-note { color: var(--faint); font-style: italic; font-size: var(--text-xs); }
+
+/* Logic-panel refs stack one chip per line. */
+.lgr-refs { display: flex; flex-direction: column; align-items: flex-start; gap: 4px; }
+.lgr-ref-chip { max-width: 100%; }

@@ -199,7 +199,7 @@ class ClaimService:
         try:
             project_id = self.store.require_project_id(conn=conn, project_id=project_id)
             rows = conn.execute(
-                "SELECT * FROM claims WHERE project_id = ? ORDER BY created_at",
+                "SELECT * FROM claims WHERE project_id = ? ORDER BY created_at, id",
                 (project_id,),
             ).fetchall()
             return {"claims": rows_to_dicts(rows=rows)}

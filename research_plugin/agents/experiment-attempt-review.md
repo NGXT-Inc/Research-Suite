@@ -58,6 +58,18 @@ section, which is the pre-registered contract for judging success:
 - `needs_changes`: the attempt needs rerun, repair, or narrower conclusion.
 - `fail`: the attempt is invalid or cannot support the conclusion.
 
+## Synopsis — the researcher's TLDR
+
+`review.submit` requires a `synopsis`: 1-3 plain sentences for the human
+researcher, not the producer agent. It is the first thing they read on the
+experiment page, so write it that way — what was tried, what happened, and
+your verdict's so-what. Name things by their human names, use at most one
+decisive number with its baseline, and use no ids, no jargon, no markdown.
+
+- Bad: `exp_3f2a val_bpb=1.037680 vs anchor 1.038715, verdict pass`
+- Good: `The embedding-initialized head narrowly beat its rerun baseline, so
+  the claim holds in scope — but the older stronger setup still wins overall.`
+
 ## Output
 
 Call `review.start` first with the `reviewer_capability` and your own session
@@ -67,6 +79,7 @@ identity as `caller_session_id`, then `review.submit` with this shape:
 {
   "role": "experiment_reviewer",
   "verdict": "pass | needs_changes | fail",
+  "synopsis": "1-3 plain sentences for the researcher.",
   "summary": "One paragraph.",
   "findings": [
     {

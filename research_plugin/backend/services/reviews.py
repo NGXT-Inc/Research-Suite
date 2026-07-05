@@ -23,6 +23,7 @@ from ..domain.reflection_projection import (
     internal_synthesis_target_type,
 )
 from ..domain.review_returns import resolve_review_return
+from ..domain.synopsis import validate_synopsis
 from ..domain.vocabulary import GATED_ROLES, LOCAL_TENANT_ID
 from ..ports.review_policy import ReviewPolicy
 from ..state.store import BaseStateStore, next_created_seq, row_to_dict
@@ -304,12 +305,17 @@ class ReviewService:
         *,
         review_session_id: str,
         verdict: str,
+        synopsis: str,
         notes: str = "",
         findings: list[dict[str, Any]] | None = None,
         evidence: dict[str, Any] | None = None,
         return_to: str = "",
     ) -> dict[str, Any]:
         self.permissions.validate_review_verdict(verdict=verdict)
+        try:
+            synopsis = validate_synopsis(synopsis)
+        except ValueError as exc:
+            raise ValidationError(str(exc)) from exc
         with self.store.transaction() as conn:
             session = conn.execute("SELECT * FROM review_sessions WHERE id = ?", (review_session_id,)).fetchone()
             if session is None:
@@ -343,10 +349,10 @@ class ReviewService:
                 """
                 INSERT INTO reviews (
                   id, project_id, request_id, session_id, target_snapshot_id, target_type, target_id,
-                  role, verdict, return_to, notes, findings_json, evidence_json, created_at,
+                  role, verdict, return_to, notes, synopsis, findings_json, evidence_json, created_at,
                   created_seq
                 )
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                 """,
                 (
                     review_id,
@@ -360,6 +366,7 @@ class ReviewService:
                     verdict,
                     return_to,
                     notes,
+                    synopsis,
                     json.dumps(findings or [], sort_keys=True),
                     json.dumps(evidence or {}, sort_keys=True),
                     now_iso(),
@@ -374,7 +381,13 @@ class ReviewService:
                 event_type="review.submitted",
                 target_type=req["target_type"],
                 target_id=req["target_id"],
-                payload={"role": req["role"], "verdict": verdict, "review_id": review_id, "return_to": return_to},
+                payload={
+                    "role": req["role"],
+                    "verdict": verdict,
+                    "review_id": review_id,
+                    "return_to": return_to,
+                    "synopsis": synopsis,
+                },
             )
             if verdict in {"needs_changes", "fail"}:
                 revision_context = self._revision_context(
@@ -456,7 +469,8 @@ class ReviewService:
             ).fetchall()
             review_rows = conn.execute(
                 """
-                SELECT id, request_id, target_snapshot_id, target_type, target_id, role, verdict, notes, created_at
+                SELECT id, request_id, target_snapshot_id, target_type, target_id, role, verdict,
+                       notes, synopsis, created_at
                 FROM reviews
                 WHERE project_id = ?
                 ORDER BY created_seq DESC

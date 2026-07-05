@@ -1,8 +1,9 @@
 import { Link } from 'react-router-dom';
 import { useProjectStore, projectPath } from '../store/useProjectStore';
 import ObjId from './ObjId';
+import EntityChip from './EntityChip';
+import { entityType } from '../utils/entityResolve';
 import { PARACHUTE_CHIPS } from '../utils/parachute';
-import { expName } from '../utils/experiment';
 
 function shortTime(iso) {
   if (!iso) return '';
@@ -31,9 +32,8 @@ function targetHref(targetType, targetId) {
   }
 }
 
-export default function EventTimeline({ events, limit = 20, experiments = [] }) {
+export default function EventTimeline({ events, limit = 20 }) {
   const rows = (events || []).slice(0, limit);
-  const expById = Object.fromEntries((experiments || []).map(x => [x.id, x]));
   if (rows.length === 0) {
     return <div className="empty">No events yet.</div>;
   }
@@ -42,8 +42,9 @@ export default function EventTimeline({ events, limit = 20, experiments = [] }) 
       {rows.map((e, i) => {
         const type = e.event_type || e.type;
         const chip = PARACHUTE_CHIPS[type];
+        // Research-entity targets become chips (name + hover detail); non-entity
+        // targets (project, sandbox) keep the plain id + route.
         const href = targetHref(e.target_type, e.target_id);
-        const exp = e.target_type === 'experiment' ? expById[e.target_id] : null;
         return (
           <div key={e.id || i} className="timeline-row">
             <div className="timeline-time">{shortTime(e.created_at)}</div>
@@ -51,14 +52,10 @@ export default function EventTimeline({ events, limit = 20, experiments = [] }) 
               <span className="timeline-event-type">{type}</span>
               {chip && <span className={`parachute-chip parachute-chip--${chip.variant}`}>{chip.label}</span>}
               {e.target_id && (
-                href
-                  ? <Link to={href}>{
-                      exp
-                        ? <span className="timeline-event-target timeline-event-target--link">{expName(exp)}</span>
-                        : <ObjId id={e.target_id} className="timeline-event-target timeline-event-target--link" />
-                    }</Link>
-                  : (exp
-                      ? <span className="timeline-event-target">{expName(exp)}</span>
+                entityType(e.target_id)
+                  ? <EntityChip id={e.target_id} compact />
+                  : (href
+                      ? <Link to={href}><ObjId id={e.target_id} className="timeline-event-target timeline-event-target--link" /></Link>
                       : <ObjId id={e.target_id} className="timeline-event-target" />)
               )}
             </div>

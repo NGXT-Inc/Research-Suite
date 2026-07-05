@@ -2,6 +2,8 @@ import { useState } from 'react';
 import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
 import CodeBlock from './CodeBlock';
+import EntityChip from './EntityChip';
+import rehypeEntityChips from '../utils/rehypeEntityChips';
 
 /**
  * Renders a single markdown image. Report figures resolve to blob-store bytes
@@ -43,7 +45,13 @@ export default function MarkdownView({ text, resolveImageSrc }) {
     <div className="markdown-body">
       <ReactMarkdown
         remarkPlugins={[remarkGfm]}
+        rehypePlugins={[rehypeEntityChips]}
         components={{
+          // Injected by rehypeEntityChips for a bare entity id in prose.
+          'entity-chip': ({ node, ...props }) => {
+            const id = node?.properties?.dataId || props['data-id'] || props.dataId;
+            return id ? <EntityChip id={String(id)} compact /> : null;
+          },
           img({ src, alt, title }) {
             const passthrough = !src
               || /^(https?:|data:|blob:)/i.test(src)
