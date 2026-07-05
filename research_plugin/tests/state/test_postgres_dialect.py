@@ -463,11 +463,11 @@ class PostgresStoreBehaviorTest(unittest.TestCase):
                 """
                 INSERT INTO review_requests (
                   id, project_id, target_type, target_id, role, capability_hash,
-                  status, target_snapshot_id, created_at
+                  status, target_snapshot_id, expires_at, created_at
                 )
-                VALUES (%s, %s, 'experiment', %s, 'experiment_reviewer', '', 'submitted', '', %s)
+                VALUES (%s, %s, 'experiment', %s, 'experiment_reviewer', '', 'submitted', '', %s, %s)
                 """,
-                ("rr_synopsis_old", "proj_synopsis_old", "exp_synopsis_old", created),
+                ("rr_synopsis_old", "proj_synopsis_old", "exp_synopsis_old", created, created),
             )
             conn.execute(
                 """

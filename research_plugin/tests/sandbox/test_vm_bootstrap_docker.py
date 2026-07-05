@@ -229,7 +229,7 @@ class VmBootstrapDockerTest(unittest.TestCase):
 
     def test_02_mgmt_transcript_read_works_and_is_unrecorded(self) -> None:
         backend = LambdaLabsSandboxBackend()
-        text = backend.read_transcript(
+        tail = backend.read_transcript(
             sandbox_id="docker-vm",
             experiment_id=EXPERIMENT_ID,
             volume_name="",
@@ -239,7 +239,7 @@ class VmBootstrapDockerTest(unittest.TestCase):
             ssh_user="root",  # ignored: the management channel has its own principal
             key_path=str(self.mgmt_key),
         )
-        self.assertIn(MARKER, text)
+        self.assertIn(MARKER, tail.data.decode("utf-8", "replace"))
         # The read itself never lands in the transcript: the Match-exempt
         # principal bypasses rec.sh, so polling cannot re-ingest the log.
         log = self._transcript()
