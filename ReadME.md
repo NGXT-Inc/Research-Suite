@@ -10,21 +10,19 @@ The goal is to give research agents enough structure to plan experiments, execut
 
 ## Experiment-level workflow
 
-```
-Plan -> Review -> Execute -> Review -> Complete
-  ^       |                    |
-  +-------+                    +-> back to Execute or Plan
-```
+<picture>
+  <source media="(prefers-color-scheme: dark)" srcset="assets/experiment-workflow-dark.svg">
+  <img alt="Experiment workflow: Plan, Design review, Execute, Results review, Complete. Rejected reviews send work back to Execute or Plan." src="assets/experiment-workflow-light.svg">
+</picture>
 
 Each experiment begins with a generated plan that is adversarially reviewed by another agent. The plan/review loop persists until the reviewer approves the plan. After approval, the agent proceeds to execution. When it is done, it submits a report that is adversarially reviewed by a different agent. The reviewer can send the agent back to execution to fix something in the execution or the report, or it can send it back to the planning stage if the experiment proved faulty.
 
 ## Project-level workflow
 
-```
-Completed work -> Reflection fan-out -> Synthesis -> Review -> Publish
-                                             |
-                                             +-> back to fan-out or synthesis
-```
+<picture>
+  <source media="(prefers-color-scheme: dark)" srcset="assets/project-workflow-dark.svg">
+  <img alt="Project workflow: completed experiments fan out to five reflection lenses, then Synthesis, Reflection review, Publish. Rejected reviews send work back to Synthesis or the fan-out." src="assets/project-workflow-light.svg">
+</picture>
 
 After a set of experiments is complete, the plugin drives a project-wide reflection. Five different sub-agents are called, each analyzing the progress of the last N experiments and the project so far under a different lens. Their goal is to look for patterns of what works, what does not, and what has not been tried, in order to set up the next phase of experiments. The analysis of the sub-agents is consolidated into a report, logic graph, and change spec. Those artifacts are adversarially reviewed by a different agent for accuracy.
 
