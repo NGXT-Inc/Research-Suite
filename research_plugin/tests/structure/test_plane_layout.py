@@ -312,6 +312,9 @@ class ToolPlanePartitionTest(unittest.TestCase):
                 # so it lives on the data plane (byte capture mirrors
                 # resource.associate); register/list are pure control records.
                 "feed.post",
+                # project.connect writes the proxy-local folder→project link
+                # store; the proxy serves it itself, the brain never can.
+                "project.connect",
             },
         )
         self.assertIn("sandbox.health", CONTROL_PLANE_TOOL_NAMES)

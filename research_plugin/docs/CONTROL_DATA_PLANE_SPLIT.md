@@ -76,6 +76,10 @@ facts or bytes to the brain:
 - `resource.register_file`, `resource.validate`, `resource.associate_batch`
 - `experiment.materialize_folders`
 - `sandbox.pull_outputs`
+- `project.connect` — served by the proxy process itself: it validates (or
+  creates) the project on the brain, then writes the folder→project link to
+  `project_links.sqlite`. The one call where `project_id` is
+  caller-authoritative rather than link-resolved.
 
 `sandbox.pull_outputs` is proxy-local in every deployment. It asks the brain for
 the current sandbox record, uses the caller's private key path supplied by the

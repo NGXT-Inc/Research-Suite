@@ -206,8 +206,9 @@ Use Research Plugin.
 
 First call project.current. In project-local MCP it returns the project for the
 current folder, or exists:false if the folder does not have a project yet. If
-exists is false, ask me what project name and summary to use before calling
-project.create, unless I already gave you that information.
+exists is false, ask me which project id to link or what project name and
+summary to create before calling project.connect, unless I already gave you
+that information.
 Then call workflow.status_and_next.
 Also check sandbox.health so we know whether the configured execution backend is
 available.
@@ -296,4 +297,5 @@ $RESEARCH_REPO/experiments/<name>/
 The proxy keeps the checkout-to-project link database under the machine config
 directory (`~/.research_plugin/project_links.sqlite` by default). If Codex does
 not resolve the expected project, check `/health`, `RESEARCH_PLUGIN_CONTROL_URL`,
-and the link with `research-plugin-client link --project-id ...`.
+and the link — fix it in-session with `project.connect` or from a terminal with
+`research-plugin-client link --project-id ...`.

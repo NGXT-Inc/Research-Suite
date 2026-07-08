@@ -21,21 +21,36 @@ python3 -m venv .venv
 .venv/bin/pip install -e .
 ```
 
-## Fast path: configure and link
+## Fast path: register the MCP and let the agent link
+
+With the plugin registered in your client (see [CLIENTS.md](CLIENTS.md)), no
+terminal setup is required: the proxy dials the hosted brain
+(`https://experiments.rapidreview.io`) by default, and the agent links each
+checkout from inside the session. When `project.current` reports
+`exists: false`, the agent asks which project to use and calls
+`project.connect` — with a `project_id` to link an existing hosted project,
+or with a user-confirmed `name`/`summary` to create one and link it in one
+step. The folder→project link is written machine-locally; the brain never
+sees the folder path.
+
+For a different control plane, configure it once per machine:
 
 ```bash
-cd ~/research-suite/research_plugin
-
-bin/research-plugin-client configure \
+~/research-suite/research_plugin/bin/research-plugin-client configure \
   --control-url https://your-control-plane.example.com
+```
 
+The current operator-run setup uses a private control plane, so the client does
+not need a control-plane token.
+
+## CLI fallback: link from the terminal
+
+The same links can be managed without an agent session:
+
+```bash
 cd ~/work/project-a
 ~/research-suite/research_plugin/bin/research-plugin-client link --project-id proj_123
 ```
-
-That configures the machine and links one local checkout to one hosted project.
-The current operator-run setup uses a private control plane, so the client does
-not need a control-plane token.
 
 ## What gets saved
 
@@ -44,12 +59,12 @@ they are not part of any research repo.
 
 ## Link more local folders
 
+Each additional checkout links the same way: the agent calls
+`project.connect` from a session opened in that folder, or from the terminal:
+
 ```bash
 cd ~/work/project-b
 ~/research-suite/research_plugin/bin/research-plugin-client link --project-id proj_456
-
-cd ~/other/repo
-~/research-suite/research_plugin/bin/research-plugin-client link --project-id proj_789
 ```
 
 Inspect links:

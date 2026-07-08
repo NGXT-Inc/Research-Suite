@@ -121,20 +121,16 @@ python3 -m venv .venv
 .venv/bin/pip install -e .
 ```
 
-Configure the machine and link a checkout:
+Linking a checkout to its hosted project happens in-session: when
+`project.current` reports no link, the agent asks which project to use and
+calls `project.connect` (existing `project_id`, or `name`/`summary` to create
+and link in one step). The CLI covers the same ground from a terminal:
 
 ```bash
 bin/research-plugin-client connect \
   --control-url https://your-control-plane.example.com \
   --project-id proj_123 \
   --repo ~/work/project-a
-```
-
-Link additional checkouts to additional hosted projects:
-
-```bash
-cd ~/work/project-b
-~/research-suite/research_plugin/bin/research-plugin-client link --project-id proj_456
 ```
 
 Machine config and folder links live under `~/.research_plugin/`, outside every

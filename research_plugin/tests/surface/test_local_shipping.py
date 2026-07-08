@@ -68,8 +68,14 @@ class LocalShippingTest(unittest.TestCase):
         status_schema = next(tool for tool in tools if tool["name"] == "workflow.status_and_next")["inputSchema"]
         self.assertNotIn("project_id", status_schema.get("required", []))
 
-        project = self._tool(proc, "project.create", name="Shipping Smoke", summary="Run from arbitrary repo.")
-        self._link_repo(project["id"])
+        # Onboard the way a real session does: project.connect creates the
+        # hosted project AND writes the proxy-local folder link in one call.
+        connected = self._tool(
+            proc, "project.connect", name="Shipping Smoke", summary="Run from arbitrary repo."
+        )
+        self.assertTrue(connected["linked"])
+        self.assertTrue(connected["created"])
+        project = connected["project"]
         claim = self._tool(
             proc,
             "claim.create",
@@ -307,15 +313,6 @@ class LocalShippingTest(unittest.TestCase):
             verdict=verdict,
             notes=notes,
             synopsis=synopsis,
-        )
-
-    def _link_repo(self, project_id: str) -> None:
-        from backend.client_cli import link_repo
-
-        link_repo(
-            config_path=self.root / "isolated-client.json",
-            repo_root=self.research_repo,
-            project_id=project_id,
         )
 
     def _tool(self, proc, tool_name: str, **arguments):

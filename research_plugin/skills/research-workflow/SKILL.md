@@ -108,8 +108,10 @@ Heavy artifacts should go to durable object storage instead of into the repo.
 1. Call `project.current` first. In project-local MCP this returns the project
    for the current folder, or `exists: false` if the folder does not have a
    project yet. If `exists` is false, do not invent a placeholder project. Ask
-   the user what project name and short summary to use, unless the current user
-   request already provided that information, then call `project.create`. If
+   the user whether to link an existing project (they give its project id) or
+   start a new one (they give a name and short summary), unless the current
+   user request already provided that information, then call `project.connect`
+   — it validates or creates the project and links this folder to it. If
    `exists` is true, read `at_a_glance`: it links the latest reflection
    document and project graph, shows whether newer experiments or claim changes
    happened since that reflection, and gives recommended `resource.resolve`
@@ -138,8 +140,8 @@ Heavy artifacts should go to durable object storage instead of into the repo.
 
 If conversation memory is unclear, call `project.current` again. If `exists` is
 true, ask MCP for `workflow.status_and_next(experiment_id?)`; if `exists` is
-false, ask the user what project to create before calling `project.create`
-unless they already supplied the project name and purpose.
+false, ask the user what project to link or create before calling
+`project.connect` unless they already supplied that information.
 Do not reconstruct workflow state from memory.
 
 ## Quantitative observability

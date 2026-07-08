@@ -654,8 +654,15 @@ def build_local_tool_handlers(
         mlflow_tracking=mlflow_tracking,
         feed=feed,
     )
+    def project_connect_proxy_only(**_: Any) -> dict[str, Any]:
+        raise ValidationError(
+            "project.connect is served by the MCP stdio proxy, which owns "
+            "the folder→project link store"
+        )
+
     handlers.update(
         {
+            "project.connect": project_connect_proxy_only,
             "resource.register_file": resource_register_file,
             "resource.validate": resource_validate,
             "resource.associate": (

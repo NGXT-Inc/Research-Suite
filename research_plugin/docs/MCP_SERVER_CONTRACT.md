@@ -39,8 +39,13 @@ of how old the latest reflection is, recent experiments and claims capped at 5
 each, the latest reflection/project-graph resource ids, ids for finished
 experiments or claim changes since that reflection, active experiment ids, and
 any open reflection id. If `exists` is false, the agent should
-ask the user what project name and summary to use before calling
-`project.create`, unless the user already supplied that information.
+ask the user whether to link an existing project id or create a new one
+(name + summary) before calling `project.connect`, unless the user already
+supplied that information. `project.connect` is served by the proxy itself:
+it validates the id against the brain (or creates the project via name),
+then writes the folder→project link to the machine-local link store —
+`project_id` stays visible in its schema because there it is the caller's
+explicit choice, and re-linking a linked folder requires `overwrite=true`.
 
 ## Tool groups
 
@@ -48,6 +53,7 @@ ask the user what project name and summary to use before calling
 
 ```text
 project.current()
+project.connect(project_id? | name? + summary?, overwrite?)
 workflow.status_and_next(project_id, experiment_id?)
 project.create(name, summary?)
 project.update(project_id, name?, summary?)
@@ -572,8 +578,8 @@ disabled with `RESEARCH_PLUGIN_SANDBOX_REAPER=0`.
 Core HTTP/service calls still require an explicit `project_id`. In project-local
 MCP sessions, the proxy supplies that scope from hidden repo context and removes
 `project_id` from agent-facing schemas. Agents should call `project.current`
-first; if it returns `exists: false`, ask the user what project name and summary
-to use before creating the folder's project.
+first; if it returns `exists: false`, ask the user which project to link or
+create, then call `project.connect`.
 
 ### Review tools
 

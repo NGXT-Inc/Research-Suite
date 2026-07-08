@@ -89,10 +89,16 @@ class SplitProxyLocalDataTest(unittest.TestCase):
         self.assertIn("claim.create", names)
         self.assertIn("resource.register_file", names)
         self.assertIn("sandbox.get", names)
+        self.assertIn("project.connect", names)
         self.assertNotIn("project.list", names)
         for tool in response["result"]["tools"]:
             self.assertNotIn("plane", tool)
-            self.assertNotIn("project_id", tool["inputSchema"].get("properties", {}))
+            if tool["name"] == "project.connect":
+                # The one schema that keeps project_id: the caller's explicit
+                # choice of which project to link, not hidden repo context.
+                self.assertIn("project_id", tool["inputSchema"]["properties"])
+            else:
+                self.assertNotIn("project_id", tool["inputSchema"].get("properties", {}))
 
     def test_control_tool_routes_to_cloud_with_project_id(self) -> None:
         claim = self._call(
@@ -190,6 +196,118 @@ class SplitProxyLocalDataTest(unittest.TestCase):
         self.assertEqual(sandbox["ssh"]["key_path"], "/tmp/rp-test-key")
 
 
+class ProjectConnectToolTest(unittest.TestCase):
+    """project.connect writes the folder→project link from inside the MCP session."""
+
+    def setUp(self) -> None:
+        self.tmp = tempfile.TemporaryDirectory()
+        self.repo = Path(self.tmp.name)
+        db_path = self.repo / ".research_plugin" / "state.sqlite"
+        self.app = TestBrain(
+            repo_root=self.repo,
+            db_path=db_path,
+            execution_backend=FakeSandboxBackend(),
+        )
+        self.cloud = _ControlHarness(app=self.app, repo=self.repo)
+        self.seeded_project = self.app.projects.list_projects()["projects"][0]
+        self.links_path = self.repo / "project_links.sqlite"
+        # Deliberately unlinked: connect is the tool that establishes the link.
+        self.proxy = HttpProxyMcpServer(
+            config=ProxyConfig(
+                repo_root=self.repo,
+                control_url=self.cloud.url,
+                project_links_path=self.links_path,
+            )
+        )
+        self.proxy._http_get = self.cloud.http_get  # type: ignore[method-assign]
+        self.proxy._http_post = self.cloud.http_post  # type: ignore[method-assign]
+
+    def tearDown(self) -> None:
+        self.app.shutdown()
+        self.tmp.cleanup()
+
+    def _request(self, arguments: dict) -> dict:
+        return self.proxy.handle(
+            {
+                "jsonrpc": "2.0",
+                "id": 1,
+                "method": "tools/call",
+                "params": {"name": "project.connect", "arguments": arguments},
+            }
+        )
+
+    def _connect(self, arguments: dict) -> dict:
+        response = self._request(arguments)
+        self.assertNotIn("error", response, response)
+        return response["result"]["structuredContent"]
+
+    def _connect_error(self, arguments: dict) -> dict:
+        response = self._request(arguments)
+        self.assertIn("error", response, response)
+        return response["error"]
+
+    def _brain_project_count(self) -> int:
+        return len(self.app.projects.list_projects()["projects"])
+
+    def test_connect_by_id_links_existing_project(self) -> None:
+        result = self._connect({"project_id": self.seeded_project["id"]})
+
+        self.assertTrue(result["linked"])
+        self.assertFalse(result["created"])
+        self.assertEqual(result["project"]["id"], self.seeded_project["id"])
+        self.assertEqual(result["repo_root"], str(self.repo))
+        self.assertEqual(self.proxy._resolve_project_id(), self.seeded_project["id"])
+
+    def test_connect_by_name_creates_project_and_links(self) -> None:
+        before = self._brain_project_count()
+
+        result = self._connect(
+            {"name": "Connected Project", "summary": "Created through the MCP."}
+        )
+
+        self.assertTrue(result["linked"])
+        self.assertTrue(result["created"])
+        self.assertEqual(result["project"]["name"], "Connected Project")
+        self.assertEqual(self._brain_project_count(), before + 1)
+        self.assertEqual(self.proxy._resolve_project_id(), result["project"]["id"])
+        # The link is live for the rest of the session: project.current flips.
+        current = self.proxy._call_tool(name="project.current", arguments={})
+        self.assertTrue(current["exists"])
+        self.assertEqual(current["project"]["id"], result["project"]["id"])
+
+    def test_relink_requires_overwrite_and_never_orphans_a_project(self) -> None:
+        self._connect({"project_id": self.seeded_project["id"]})
+        before = self._brain_project_count()
+
+        error = self._connect_error({"name": "Replacement", "summary": ""})
+
+        self.assertEqual(error["data"]["error_code"], "already_linked")
+        self.assertEqual(error["data"]["project_id"], self.seeded_project["id"])
+        # The guard fires before the cloud call: no orphan project was created.
+        self.assertEqual(self._brain_project_count(), before)
+        self.assertEqual(self.proxy._resolve_project_id(), self.seeded_project["id"])
+
+        # Re-linking the same id is an idempotent no-op, no overwrite needed.
+        again = self._connect({"project_id": self.seeded_project["id"]})
+        self.assertTrue(again["linked"])
+
+        relinked = self._connect({"name": "Replacement", "summary": "", "overwrite": True})
+        self.assertTrue(relinked["created"])
+        self.assertEqual(self.proxy._resolve_project_id(), relinked["project"]["id"])
+
+    def test_connect_requires_exactly_one_of_id_or_name(self) -> None:
+        for arguments in ({}, {"project_id": "proj_x", "name": "Both Given"}):
+            error = self._connect_error(arguments)
+            self.assertIn("exactly one", error["message"])
+        self.assertIsNone(self.proxy._resolve_project_id())
+
+    def test_connect_by_unknown_id_writes_no_link(self) -> None:
+        response = self._request({"project_id": "proj_does_not_exist"})
+
+        self.assertIn("error", response)
+        self.assertIsNone(self.proxy._resolve_project_id())
+
+
 class LocalEnrichedControlMergeTest(unittest.TestCase):
     def test_sandbox_get_merges_proxy_local_experiment_dir_only(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
@@ -280,7 +398,7 @@ class ProxyIdentityResolutionTest(unittest.TestCase):
         current = response["result"]["structuredContent"]
         self.assertFalse(current["exists"])
         self.assertIsNone(current["project"])
-        self.assertIn("link --project-id", current["hint"])
+        self.assertIn("project.connect", current["hint"])
         self.assertEqual(current["repo_root"], str(self.repo))
 
     def test_project_current_fetches_linked_cloud_project_by_id(self) -> None:
