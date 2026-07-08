@@ -55,7 +55,7 @@ class _Base(unittest.TestCase):
         )
         self.store = self.app.store
         self.cleanup = CleanupService(sandboxes=self.app.sandboxes, blobs=self.app.blobs)
-        self.project_id = self.app.call_tool("project.create", {"name": "Chaos"})["id"]
+        self.project_id = self.app.call_tool("project", {"action": "create", "name": "Chaos"})["id"]
 
     def tearDown(self) -> None:
         self.app.shutdown()
@@ -150,7 +150,7 @@ class ControlRestartTest(unittest.TestCase):
 
     def test_restart_resumes_then_cleanup_reaps_dead_vm(self) -> None:
         first, _ = self._build()
-        project_id = first.call_tool("project.create", {"name": "Cloud"})["id"]
+        project_id = first.call_tool("project", {"action": "create", "name": "Cloud"})["id"]
         exp_id = first.call_tool(
             "experiment.create",
             {"project_id": project_id, "name": "exp-x", "intent": "y"},

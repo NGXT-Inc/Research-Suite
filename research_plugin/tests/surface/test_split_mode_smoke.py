@@ -457,7 +457,7 @@ class SplitModeSmokeTest(unittest.TestCase):
                 "role": "plan",
             },
         )
-        current = self._call("project.current")
+        current = self._call("project", {"action": "current"})
 
         self.assertEqual(associated["id"], resource["id"])
         self.assertEqual(associated["associations"][0]["role"], "plan")

@@ -240,7 +240,7 @@ class ControlPlaneContractScenarios:
     def setUp(self) -> None:
         self.harness = type(self).harness_factory()
         self.repo = self.harness.repo
-        self.project_id = self.call("project.create", name="Contract Project")["id"]
+        self.project_id = self.call("project", action="create", name="Contract Project")["id"]
 
     def tearDown(self) -> None:
         self.harness.close()

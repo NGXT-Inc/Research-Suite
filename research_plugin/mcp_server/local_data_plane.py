@@ -61,15 +61,6 @@ class LocalDataPlane:
         arguments = dict(arguments or {})
         if name == "sandbox.health":
             return {"ok": True, "mode": "proxy"}
-        if name == "project.connect":
-            # Data-plane by classification (it writes local state), but served
-            # by the MCP proxy itself, which owns the folder→project link store
-            # and intercepts the call before dispatch ever reaches here.
-            raise LocalDataPlaneError(
-                "project.connect is served by the MCP stdio proxy, which owns "
-                "the folder→project link store",
-                details={"tool": name},
-            )
         if name == "resource.register_file":
             return self._register_resource_files(arguments=arguments)
         if name == "resource.validate":
@@ -515,8 +506,8 @@ class LocalDataPlane:
         if isinstance(project_id, str) and project_id:
             return project_id
         raise LocalDataPlaneError(
-            "no hosted project link found for repo; call project.connect "
-            "to link this folder to a project",
+            "no hosted project link found for repo; call the project tool with "
+            'action="connect" to link this folder to a project',
             error_code="project_not_linked",
             details={"repo_root": str(self.repo_root)},
         )

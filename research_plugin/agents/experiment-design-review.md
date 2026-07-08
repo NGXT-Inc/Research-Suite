@@ -23,9 +23,11 @@ Do not mutate project state. Use only read-only context and the review
 capability provided by MCP. Submit the review directly to MCP using
 `review.start` (with the capability) and then `review.submit`. Pass your own
 session identity as `caller_session_id` when calling `review.start` — it is
-required, and must never be the producer session's. Do not touch
-claims, experiments, resources, sandboxes, or workflow state through any other
-tool.
+required, and must never be the producer session's. To weigh the plan against
+the project's full claim set and prior experiments, you may read `project` with
+`action: "overview"` — it is read-only (every claim and every experiment,
+including terminal ones). Do not touch claims, experiments, resources,
+sandboxes, or workflow state through any other tool.
 
 ## Check
 

@@ -487,8 +487,8 @@ class ResearchHttpApi:
         # path does — tenant_id rides in via internal_kwargs in hosted mode only.
         return self._present(
             self.app.call_tool(
-                name="project.create",
-                arguments={"name": name, "summary": summary},
+                name="project",
+                arguments={"action": "create", "name": name, "summary": summary},
                 activity_source="http",
                 internal_kwargs=(
                     {"tenant_id": tenant_id} if tenant_id is not None else None

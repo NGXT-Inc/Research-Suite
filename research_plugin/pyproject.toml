@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "research-plugin"
-version = "0.0010"
+version = "0.0011"
 description = "Lean research-state workflow with project-local MCP context, resources, reviews, and Modal SSH sandboxes."
 readme = "README.md"
 requires-python = ">=3.11"

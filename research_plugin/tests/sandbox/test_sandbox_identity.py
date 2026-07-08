@@ -17,7 +17,7 @@ class SandboxIdentityTest(unittest.TestCase):
             db_path=self.repo / ".research_plugin" / "state.sqlite",
             execution_backend=FakeSandboxBackend(),
         )
-        self.project_id = self.app.call_tool("project.create", {"name": "Sandbox IDs"})["id"]
+        self.project_id = self.app.call_tool("project", {"action": "create", "name": "Sandbox IDs"})["id"]
 
     def tearDown(self) -> None:
         self.app.shutdown()

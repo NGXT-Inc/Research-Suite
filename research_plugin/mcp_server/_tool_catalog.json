@@ -1,41 +1,6 @@
 {
   "tools": [
     {
-      "description": "Link the current folder to a hosted project so every later tool call resolves to it. Pass project_id to link an existing project, or a user-confirmed name (+ summary) to create a new project and link it in one step. Ask the user which project before calling \u2014 never guess an id. The folder-to-project link is stored on this machine only; the brain never sees the folder path. Re-linking a linked folder requires overwrite=true.",
-      "inputSchema": {
-        "additionalProperties": false,
-        "properties": {
-          "name": {
-            "default": "",
-            "description": "User-confirmed name for a new project (min 3 chars) when project_id is empty. Do not infer a placeholder from the folder name unless the user explicitly asked for that.",
-            "title": "Name",
-            "type": "string"
-          },
-          "overwrite": {
-            "default": false,
-            "description": "Must be true to re-link a folder that is already linked to a different project.",
-            "title": "Overwrite",
-            "type": "boolean"
-          },
-          "project_id": {
-            "default": "",
-            "description": "Existing hosted project id to link this folder to. Leave empty when creating a new project via name.",
-            "title": "Project Id",
-            "type": "string"
-          },
-          "summary": {
-            "default": "",
-            "description": "Short user-confirmed purpose for a new project.",
-            "title": "Summary",
-            "type": "string"
-          }
-        },
-        "type": "object"
-      },
-      "name": "project.connect",
-      "plane": "data"
-    },
-    {
       "description": "Create canonical local experiment folders under experiments/<name>/ for a project. Use after reflection publish or experiment.create when planned experiments exist in state but their local folders do not yet exist.",
       "inputSchema": {
         "additionalProperties": false,

@@ -59,6 +59,11 @@ the wave's gate guidance under `project_reflection` while it is open.
 
 ## Step 1 — declare the roster
 
+To ground yourself in the project's current live state before opening the wave,
+read `project` with `action: "overview"` (every claim and experiment, including
+terminal ones). Once you call `reflection.create` the snapshotted corpus — not
+this live read — is the authoritative reflection input.
+
 Call `reflection.create` with exactly five lenses: the three **core** lenses
 — `amplify`, `avoid`, and `entropy`, passed by id alone; the server fills in
 their charters — plus **two you design for this specific project**. For

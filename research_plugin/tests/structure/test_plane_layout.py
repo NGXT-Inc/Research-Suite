@@ -313,9 +313,6 @@ class ToolPlanePartitionTest(unittest.TestCase):
                 # so it lives on the data plane (byte capture mirrors
                 # resource.associate); register/list are pure control records.
                 "feed.post",
-                # project.connect writes the proxy-local folder→project link
-                # store; the proxy serves it itself, the brain never can.
-                "project.connect",
             },
         )
         self.assertIn("sandbox.health", CONTROL_PLANE_TOOL_NAMES)
@@ -552,7 +549,8 @@ for name in (
                 self.assertNotIn("services", _import_segments(path))
 
     def test_project_overview_uses_direct_concrete_collaborators(self) -> None:
-        # project.current has one consumer and one implementation pair today.
+        # The project tool's current action has one consumer and one
+        # implementation pair today.
         # Keep it lean by avoiding a single-impl reader port until a real
         # ControlApp composition gives that port a second implementation.
         imports = _import_segments(SERVICES_ROOT / "project_overview.py")

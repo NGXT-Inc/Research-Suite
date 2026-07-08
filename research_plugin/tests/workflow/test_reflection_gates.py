@@ -106,7 +106,7 @@ class SynthesisGateTest(unittest.TestCase):
             repo_root=self.repo,
             db_path=self.repo / ".research_plugin" / "state.sqlite",
         )
-        self.project_id = self.call("project.create", name="Synthesis Gate Test")["id"]
+        self.project_id = self.call("project", action="create", name="Synthesis Gate Test")["id"]
 
     def tearDown(self) -> None:
         self.tmp.cleanup()
@@ -1380,7 +1380,9 @@ class ReflectionSignalTest(unittest.TestCase):
             repo_root=self.repo,
             db_path=self.repo / ".research_plugin" / "state.sqlite",
         )
-        current = self.call("project.current")
+        # action=current is proxy-served; on the brain the orientation block
+        # (with at_a_glance) comes from the ControlApp current_project method.
+        current = self.app.current_project()
         self.project_id = current["project"]["id"]
         self.call("project.update", project_id=self.project_id, name="Signal Test")
 
@@ -1580,7 +1582,7 @@ class ReflectionSignalTest(unittest.TestCase):
         syn_id = self._publish_wave()
         after_id = self._finish_experiment(intent="after reflection")
 
-        current = self.call("project.current")
+        current = self.app.current_project()
         glance = current["at_a_glance"]
         recent = glance["recent"]
         project_reflection = glance["project_reflection"]
@@ -1677,7 +1679,7 @@ class StatusAndNextReflectionTest(unittest.TestCase):
             repo_root=self.repo,
             db_path=self.repo / ".research_plugin" / "state.sqlite",
         )
-        self.project_id = self.call("project.create", name="WSN Test")["id"]
+        self.project_id = self.call("project", action="create", name="WSN Test")["id"]
 
     def tearDown(self) -> None:
         self.tmp.cleanup()
@@ -1822,7 +1824,7 @@ class StatusAndNextLiveSiblingsTest(unittest.TestCase):
             repo_root=self.repo,
             db_path=self.repo / ".research_plugin" / "state.sqlite",
         )
-        self.project_id = self.call("project.create", name="Live Siblings")["id"]
+        self.project_id = self.call("project", action="create", name="Live Siblings")["id"]
 
     def tearDown(self) -> None:
         self.tmp.cleanup()

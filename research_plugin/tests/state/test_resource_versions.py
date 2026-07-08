@@ -17,7 +17,7 @@ class ResourceVersioningTest(unittest.TestCase):
             repo_root=self.repo,
             db_path=self.repo / ".research_plugin" / "state.sqlite",
         )
-        self.project = self.call("project.create", name="Version Test")
+        self.project = self.call("project", action="create", name="Version Test")
         self.project_id = self.project["id"]
         self.exp = self.call("experiment.create", name="exp-1", project_id=self.project_id, intent="Track plan history.")
         self.exp_id = self.exp["id"]
@@ -155,7 +155,7 @@ class ResourceVersioningTest(unittest.TestCase):
 
     def test_same_repo_file_is_a_distinct_resource_per_project(self) -> None:
         (self.repo / "shared.md").write_text("shared\n")
-        other = self.call("project.create", name="Other Project")
+        other = self.call("project", action="create", name="Other Project")
         first = self.call("resource.register_file", project_id=self.project_id, path="shared.md", kind="note")
         second = self.call("resource.register_file", project_id=other["id"], path="shared.md", kind="note")
 

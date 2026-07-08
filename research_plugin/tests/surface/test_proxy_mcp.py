@@ -82,13 +82,20 @@ class HttpProxyMcpServerUnifiedBrainTest(unittest.TestCase):
         tools = {tool["name"]: tool for tool in listed["result"]["tools"]}
 
         self.assertIn("workflow.status_and_next", tools)
-        self.assertIn("project.current", tools)
-        self.assertIn("project.create", tools)
+        # The merged project tool replaces project.current/connect/create.
+        self.assertIn("project", tools)
+        self.assertNotIn("project.current", tools)
+        self.assertNotIn("project.connect", tools)
+        self.assertNotIn("project.create", tools)
         self.assertIn("sandbox.request", tools)
         self.assertNotIn("project.list", tools)
         # UI-facing tools stay dispatchable but are hidden from the agent list.
         self.assertNotIn("project.get", tools)
         self.assertNotIn("project.update", tools)
+        # The project tool keeps project_id visible (action=connect needs it),
+        # unlike every other tool whose repo scope the proxy injects.
+        project_schema = tools["project"]["inputSchema"]
+        self.assertIn("project_id", project_schema.get("properties", {}))
         # review.status is a REST/UI + internal read; agents poll
         # workflow.status_and_next instead, so it is dropped from tools/list
         # while the rest of the review surface stays agent-facing.
@@ -106,7 +113,10 @@ class HttpProxyMcpServerUnifiedBrainTest(unittest.TestCase):
                 "jsonrpc": "2.0",
                 "id": 1,
                 "method": "tools/call",
-                "params": {"name": "project.create", "arguments": {"name": "Proxy Project"}},
+                "params": {
+                    "name": "project",
+                    "arguments": {"action": "create", "name": "Proxy Project"},
+                },
             }
         )
 
@@ -160,20 +170,20 @@ class HttpProxyMcpServerSplitLinkTest(unittest.TestCase):
         return response["result"]["structuredContent"]
 
     def test_project_current_unlinked_folder_does_not_create_project(self) -> None:
-        current = self._call(self.repo_a, "project.current")
+        current = self._call(self.repo_a, "project", {"action": "current"})
 
         self.assertFalse(current["exists"])
         self.assertIsNone(current["project"])
-        self.assertIn("project.connect", current["hint"])
+        self.assertIn('action="connect"', current["hint"])
         self.assertEqual(ProjectLinks(db_path=self.links_path).list_links(), [])
 
     def test_project_create_returns_cloud_project_without_implicit_link(self) -> None:
         created = self._call(
             self.repo_a,
-            "project.create",
-            {"name": "Project A", "summary": "Hosted project."},
+            "project",
+            {"action": "create", "name": "Project A", "summary": "Hosted project."},
         )
-        current = self._call(self.repo_a, "project.current")
+        current = self._call(self.repo_a, "project", {"action": "current"})
 
         self.assertEqual(created["name"], "Project A")
         self.assertFalse(current["exists"])
@@ -181,14 +191,14 @@ class HttpProxyMcpServerSplitLinkTest(unittest.TestCase):
     def test_project_current_fetches_linked_cloud_project(self) -> None:
         project = self._call(
             self.repo_a,
-            "project.create",
-            {"name": "Linked Project", "summary": "Hosted project."},
+            "project",
+            {"action": "create", "name": "Linked Project", "summary": "Hosted project."},
         )
         ProjectLinks(db_path=self.links_path).link(
             repo_root=str(self.repo_a), project_id=project["id"]
         )
 
-        current = self._call(self.repo_a, "project.current")
+        current = self._call(self.repo_a, "project", {"action": "current"})
 
         self.assertTrue(current["exists"])
         self.assertEqual(current["project"]["id"], project["id"])
@@ -213,7 +223,7 @@ class HttpProxyMcpServerSplitLinkTest(unittest.TestCase):
         )
 
         self.assertEqual(response["error"]["data"]["error_code"], "project_not_linked")
-        self.assertIn("project.connect", response["error"]["message"])
+        self.assertIn('action="connect"', response["error"]["message"])
 
     def test_project_scoped_tool_uses_hidden_project_link(self) -> None:
         project = self.control_app.projects.list_projects()["projects"][0]
@@ -226,14 +236,14 @@ class HttpProxyMcpServerSplitLinkTest(unittest.TestCase):
         self.assertEqual(status["project"]["id"], project["id"])
 
     def test_many_folders_can_link_to_many_projects(self) -> None:
-        project_a = self._call(self.repo_a, "project.create", {"name": "Project A"})
-        project_b = self._call(self.repo_b, "project.create", {"name": "Project B"})
+        project_a = self._call(self.repo_a, "project", {"action": "create", "name": "Project A"})
+        project_b = self._call(self.repo_b, "project", {"action": "create", "name": "Project B"})
         links = ProjectLinks(db_path=self.links_path)
         links.link(repo_root=str(self.repo_a), project_id=project_a["id"])
         links.link(repo_root=str(self.repo_b), project_id=project_b["id"])
 
-        current_a = self._call(self.repo_a, "project.current")
-        current_b = self._call(self.repo_b, "project.current")
+        current_a = self._call(self.repo_a, "project", {"action": "current"})
+        current_b = self._call(self.repo_b, "project", {"action": "current"})
 
         self.assertEqual(current_a["project"]["id"], project_a["id"])
         self.assertEqual(current_b["project"]["id"], project_b["id"])
@@ -257,7 +267,10 @@ class HttpProxyMcpServerOfflineTest(unittest.TestCase):
                 "jsonrpc": "2.0",
                 "id": 1,
                 "method": "tools/call",
-                "params": {"name": "project.create", "arguments": {"name": "Offline"}},
+                "params": {
+                    "name": "project",
+                    "arguments": {"action": "create", "name": "Offline"},
+                },
             }
         )
         self.assertNotIn("error", response)

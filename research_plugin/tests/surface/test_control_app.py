@@ -347,7 +347,7 @@ class ControlAppTest(unittest.TestCase):
                 execution_backend=FakeSandboxBackend(),
             )
             self.addCleanup(app.shutdown)
-            project_id = app.call_tool("project.create", {"name": "Control Metrics"})["id"]
+            project_id = app.call_tool("project", {"action": "create", "name": "Control Metrics"})["id"]
             exp_id = app.call_tool(
                 "experiment.create",
                 {"project_id": project_id, "name": "exp", "intent": "measure"},

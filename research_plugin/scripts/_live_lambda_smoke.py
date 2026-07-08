@@ -46,7 +46,7 @@ def main() -> int:
     print(app.sandboxes.health())
     assert backend_name == "lambda_labs", backend_name
 
-    project = app.call_tool("project.create", {"name": "Live Lambda Smoke"})
+    project = app.call_tool("project", {"action": "create", "name": "Live Lambda Smoke"})
     pid = project["id"]
     exp = app.call_tool("experiment.create", {"project_id": pid, "intent": "lambda smoke"})
     eid = exp["id"]

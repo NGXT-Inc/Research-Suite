@@ -161,7 +161,7 @@ class StoreMigrationTest(unittest.TestCase):
         # After migration, a different project can register the same repo file.
         app = TestBrain(repo_root=self.repo, db_path=self.db)
         (self.repo / "shared.md").write_text("hello\n")
-        new_project = app.call_tool("project.create", {"name": "New"})
+        new_project = app.call_tool("project", {"action": "create", "name": "New"})
         res = app.call_tool(
             "resource.register_file",
             {"project_id": new_project["id"], "path": "shared.md"},

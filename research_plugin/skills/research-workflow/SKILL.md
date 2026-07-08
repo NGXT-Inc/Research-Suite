@@ -105,19 +105,27 @@ Heavy artifacts should go to durable object storage instead of into the repo.
 
 ## Workflow
 
-1. Call `project.current` first. In project-local MCP this returns the project
-   for the current folder, or `exists: false` if the folder does not have a
-   project yet. If `exists` is false, do not invent a placeholder project. Ask
-   the user whether to link an existing project (they give its project id) or
-   start a new one (they give a name and short summary), unless the current
-   user request already provided that information, then call `project.connect`
-   — it validates or creates the project and links this folder to it. If
+1. Call `project` with `action: "current"` first. In project-local MCP this
+   returns the project for the current folder, or `exists: false` if the folder
+   does not have a project yet. If `exists` is false, do not invent a
+   placeholder project. Ask the user whether to link an existing project (they
+   give its project id) or start a new one (they give a name and short summary),
+   unless the current user request already provided that information, then call
+   `project` with `action: "connect"` — it validates or creates the project and
+   links this folder to it. If
    `exists` is true, read `at_a_glance`: it links the latest reflection
    document and project graph, shows whether newer experiments or claim changes
    happened since that reflection, and gives recommended `resource.resolve`
-   reads (plus the reflection id for `reflection.get`) for more context.
+   reads (plus the reflection id for `reflection.get`) for more context. When
+   you need the full project picture — every claim including settled or
+   abandoned ones, every experiment including terminal ones — call `project`
+   with `action: "overview"` rather than inferring state from
+   `workflow.status_and_next`'s active-only view.
 2. Ask MCP for `workflow.status_and_next(experiment_id?)` before acting.
-3. Identify the claim or experiment being worked on.
+3. Identify the claim or experiment being worked on. Before creating a new
+   claim, check `project` `action: "overview"` so you do not recreate a
+   settled or abandoned one; before creating an experiment, use overview to see
+   the siblings (name the contrast with them, and do not recreate a dead one).
 4. Follow MCP's `next_action`, allowed actions, blocked actions, and gate state.
 5. Use MCP for all claim, experiment, resource, review, and workflow mutations.
 6. Do not invent project scope. Use the project-local MCP defaults, or pass the
@@ -138,10 +146,10 @@ Heavy artifacts should go to durable object storage instead of into the repo.
 13. Make sure the reviewer submits directly to MCP using its review capability.
 14. Propose conclusions or claim updates only after required resources and reviews exist.
 
-If conversation memory is unclear, call `project.current` again. If `exists` is
-true, ask MCP for `workflow.status_and_next(experiment_id?)`; if `exists` is
-false, ask the user what project to link or create before calling
-`project.connect` unless they already supplied that information.
+If conversation memory is unclear, call `project` with `action: "current"`
+again. If `exists` is true, ask MCP for `workflow.status_and_next(experiment_id?)`;
+if `exists` is false, ask the user what project to link or create before calling
+`project` with `action: "connect"` unless they already supplied that information.
 Do not reconstruct workflow state from memory.
 
 ## Quantitative observability

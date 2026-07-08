@@ -45,7 +45,7 @@ class CleanupSweepTest(unittest.TestCase):
         self.cleanup = CleanupService(
             sandboxes=self.app.sandboxes, blobs=self.app.blobs
         )
-        self.project_id = self.app.call_tool("project.create", {"name": "Proj C"})["id"]
+        self.project_id = self.app.call_tool("project", {"action": "create", "name": "Proj C"})["id"]
 
     def tearDown(self) -> None:
         self.app.shutdown()

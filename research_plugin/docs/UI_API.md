@@ -75,7 +75,7 @@ Returns:
 ```json
 {
   "ok": true,
-  "version": "0.0010"
+  "version": "0.0011"
 }
 ```
 

@@ -34,7 +34,7 @@ class QuotaAdmissionTest(unittest.TestCase):
         )
         self.store = self.app.store
         self.quotas = QuotaService(store=self.store)
-        self.project_id = self.app.call_tool("project.create", {"name": "Proj Q"})["id"]
+        self.project_id = self.app.call_tool("project", {"action": "create", "name": "Proj Q"})["id"]
         self._set_tenant(self.project_id, "tenant_q")
 
     def tearDown(self) -> None:
@@ -96,7 +96,7 @@ class QuotaAdmissionTest(unittest.TestCase):
 
     def test_concurrent_count_is_tenant_scoped(self) -> None:
         # Another tenant's running sandboxes don't count against this tenant.
-        other = self.app.call_tool("project.create", {"name": "Other"})["id"]
+        other = self.app.call_tool("project", {"action": "create", "name": "Other"})["id"]
         self._set_tenant(other, "tenant_other")
         with self.store.transaction() as conn:
             conn.execute(
@@ -302,7 +302,7 @@ class QuotaProvisionRecordingTest(unittest.TestCase):
             execution_backend=self.backend,
         )
         self.store = self.app.store
-        self.project_id = self.app.call_tool("project.create", {"name": "Proj P"})["id"]
+        self.project_id = self.app.call_tool("project", {"action": "create", "name": "Proj P"})["id"]
 
     def tearDown(self) -> None:
         self.app.shutdown()

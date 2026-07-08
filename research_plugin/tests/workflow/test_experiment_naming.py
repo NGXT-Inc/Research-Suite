@@ -22,7 +22,7 @@ class ExperimentNamingTest(unittest.TestCase):
             db_path=self.repo / ".research_plugin" / "state.sqlite",
             execution_backend=FakeSandboxBackend(),
         )
-        self.project_id = self.call("project.create", name="Naming")["id"]
+        self.project_id = self.call("project", action="create", name="Naming")["id"]
 
     def tearDown(self) -> None:
         self.tmp.cleanup()
@@ -72,7 +72,7 @@ class ExperimentNamingTest(unittest.TestCase):
 
     def test_same_name_allowed_across_projects(self) -> None:
         self._create(name="baseline", intent="Project one baseline.")
-        other = self.call("project.create", name="Other")["id"]
+        other = self.call("project", action="create", name="Other")["id"]
         exp = self.call(
             "experiment.create",
             project_id=other,

@@ -50,18 +50,85 @@ class WorkflowStatusAndNextInput(ProjectScopedInput):
     experiment_id: str | None = None
 
 
-class ProjectCreateInput(ContractModel):
-    name: str = Field(
+class ProjectInput(ContractModel):
+    """The one agent-facing project tool: current / connect / create.
+
+    Deliberately NOT ProjectScopedInput — project_id here is the caller's
+    explicit choice of which hosted project to link (action=connect), never
+    hidden repo context resolved by the proxy.
+    """
+
+    action: Literal["current", "connect", "create", "overview"] = Field(
         description=(
-            "User-confirmed project name, at least 3 characters. Do not infer "
-            "a placeholder from the folder name unless the user explicitly "
-            "asked for that."
+            "current = orient: the hosted project linked to this folder plus a "
+            "compact at_a_glance block (the lightweight linked-project check); "
+            "overview = the whole-project read — every claim (incl. "
+            "settled/abandoned) and every experiment (incl. terminal) — for "
+            "orienting or re-grounding; connect = link this folder to a hosted "
+            "project (pass project_id for an existing one, or name/summary to "
+            "create and link in one step); create = create a project WITHOUT "
+            "linking this folder (rare — connect is the normal bootstrap)."
         )
+    )
+    project_id: str = Field(
+        default="",
+        description=(
+            "action=connect: existing hosted project id to link this folder "
+            "to. Leave empty when creating a new project via name."
+        ),
+    )
+    name: str = Field(
+        default="",
+        description=(
+            "User-confirmed project name, at least 3 characters. Required for "
+            "action=create; for action=connect supply it (with project_id "
+            "empty) to create a new project and link it. Do not infer a "
+            "placeholder from the folder name unless the user explicitly "
+            "asked for that."
+        ),
     )
     summary: str = Field(
         default="",
         description="Short user-confirmed project purpose or scope.",
     )
+    overwrite: bool = Field(
+        default=False,
+        description=(
+            "action=connect only: must be true to re-link a folder that is "
+            "already linked to a different project."
+        ),
+    )
+
+    @model_validator(mode="after")
+    def _check_action(self) -> "ProjectInput":
+        if self.action in ("current", "overview"):
+            # Neither carries an agent payload. current is fully proxy-served;
+            # overview is proxy-served too but the proxy injects the resolved
+            # project_id as scope before forwarding, so project_id is the one
+            # field overview tolerates (the agent still never supplies it).
+            forbidden = ["name", "summary", "overwrite"]
+            if self.action == "current":
+                forbidden = ["project_id", *forbidden]
+            extras = [field for field in forbidden if getattr(self, field)]
+            if extras:
+                raise ValueError(
+                    f"action={self.action} takes no other fields; "
+                    f"got {', '.join(extras)}"
+                )
+        elif self.action == "create":
+            if len(self.name) < 3:
+                raise ValueError(
+                    "action=create requires name (at least 3 characters)"
+                )
+        elif self.action == "connect":
+            if not self.project_id and not self.name:
+                raise ValueError(
+                    "action=connect requires project_id (link an existing "
+                    "project) or name (create a new project and link it)"
+                )
+            if self.name and len(self.name) < 3:
+                raise ValueError("name must be at least 3 characters")
+        return self
 
 
 class ProjectUpdateInput(ProjectScopedInput):
@@ -93,38 +160,6 @@ class ProjectGetInput(ProjectScopedInput):
     pass
 
 
-class ProjectConnectInput(ContractModel):
-    # Deliberately NOT ProjectScopedInput: this is the one tool where
-    # project_id is the caller's explicit choice of which hosted project to
-    # link, not hidden repo context resolved by the proxy.
-    project_id: str = Field(
-        default="",
-        description=(
-            "Existing hosted project id to link this folder to. Leave empty "
-            "when creating a new project via name."
-        ),
-    )
-    name: str = Field(
-        default="",
-        description=(
-            "User-confirmed name for a new project (min 3 chars) when "
-            "project_id is empty. Do not infer a placeholder from the folder "
-            "name unless the user explicitly asked for that."
-        ),
-    )
-    summary: str = Field(
-        default="",
-        description="Short user-confirmed purpose for a new project.",
-    )
-    overwrite: bool = Field(
-        default=False,
-        description=(
-            "Must be true to re-link a folder that is already linked to a "
-            "different project."
-        ),
-    )
-
-
 class ClaimCreateInput(ProjectScopedInput):
     statement: str
     scope: str = ""
@@ -144,7 +179,7 @@ class ClaimUpdateInput(ProjectScopedInput):
 
 
 class ExperimentCreateInput(ProjectScopedInput):
-    name: str = Field(default="", description="REQUIRED. Short folder-safe name, unique within the project — it becomes the experiment folder experiments/<name>/. Letters, digits, '.', '_', '-' only; 3-48 characters. The project supplies the shared context, so name the contrast: lead with what distinguishes this experiment from its siblings and do not repeat the project topic (next to 'released_adapters', prefer 'scratch_training' over 'lora_glue_scratch').")
+    name: str = Field(default="", description="REQUIRED. Short folder-safe name, unique within the project — it becomes the experiment folder experiments/<name>/. Letters, digits, '.', '_', '-' only; 3-48 characters. The project supplies the shared context, so name the contrast: lead with what distinguishes this experiment from its siblings and do not repeat the project topic (next to 'released_adapters', prefer 'scratch_training' over 'lora_glue_scratch'). See the siblings — including terminal ones you should not recreate — via the project tool with action=\"overview\".")
     intent: str = Field(default="", description="Durable one-line headline for the experiment (its UI title). The full design belongs in the plan.md resource.")
     tested_claim_ids: list[str] | str | None = Field(default_factory=list)
     claim_id: str | None = Field(default=None, description="Alias for a single tested claim id.")
@@ -875,13 +910,27 @@ TOOL_CONTRACTS: dict[str, ToolContract] = {
         input_model=WorkflowStatusAndNextInput,
         description="Orient Codex from durable project/experiment state.",
     ),
-    "project.create": ToolContract(
-        input_model=ProjectCreateInput,
+    "project": ToolContract(
+        input_model=ProjectInput,
         description=(
-            "Create a project WITHOUT linking the current folder to it. To "
-            "onboard the current folder (create or validate a project, then "
-            "link), call project.connect instead. Use a user-confirmed name "
-            "and summary; if the user has not provided them, ask first."
+            "Project identity for this folder, dispatched on 'action'. "
+            "action=current orients you: the hosted project linked to this "
+            "folder (or a report that none is linked yet) plus a compact "
+            "at_a_glance block — reflection age summary, recent "
+            "experiments/claims, latest reflection/project-graph resource "
+            "ids, ids changed since reflection, and any open reflection id. "
+            "action=overview is the whole-project read for orienting or "
+            "re-grounding: every claim (including settled/abandoned) and every "
+            "experiment (including terminal), independent of what "
+            "workflow.status_and_next chooses to embed. "
+            "action=connect links this folder so every later tool call "
+            "resolves to it: pass project_id to link an existing project, or "
+            "a user-confirmed name (+ summary) to create AND link in one step "
+            "(the normal bootstrap); ask the user which project first, never "
+            "guess an id. The folder link is stored on this machine only; the "
+            "brain never sees the folder path, and re-linking requires "
+            "overwrite=true. action=create creates a project WITHOUT linking "
+            "this folder (rare)."
         ),
     ),
     "project.update": ToolContract(
@@ -892,35 +941,16 @@ TOOL_CONTRACTS: dict[str, ToolContract] = {
         input_model=ProjectGetInput,
         description="Get project metadata.",
     ),
-    "project.current": ToolContract(
-        input_model=EmptyInput,
-        description=(
-            "Get the current folder's project, or report that none exists yet. "
-            "When a project exists, includes a compact at_a_glance block: "
-            "reflection age summary, recent experiments/claims, latest "
-            "reflection/project graph resource ids, ids changed since "
-            "reflection, and open reflection id."
-        ),
-    ),
-    "project.connect": ToolContract(
-        input_model=ProjectConnectInput,
-        description=(
-            "Link the current folder to a hosted project so every later tool "
-            "call resolves to it. Pass project_id to link an existing "
-            "project, or a user-confirmed name (+ summary) to create a new "
-            "project and link it in one step. Ask the user which project "
-            "before calling — never guess an id. The folder-to-project link "
-            "is stored on this machine only; the brain never sees the folder "
-            "path. Re-linking a linked folder requires overwrite=true."
-        ),
-    ),
     "project.list": ToolContract(
         input_model=EmptyInput,
         description="List projects in the current tool scope.",
     ),
     "claim.create": ToolContract(
         input_model=ClaimCreateInput,
-        description="Create a claim.",
+        description=(
+            "Create a claim. Check the project tool with action=\"overview\" "
+            "first so you do not recreate a settled or abandoned claim."
+        ),
     ),
     "claim.list": ToolContract(
         input_model=ClaimListInput,
@@ -1355,13 +1385,13 @@ STORAGE_TOOL_NAMES = {
 
 TOOL_PLANE_REGISTRY: dict[str, ToolPlane] = {
     "workflow.status_and_next": "control",
-    "project.create": "control",
+    # The merged agent-facing project tool. action=current/connect are served
+    # by the local proxy (it owns the folder→project link store); action=create
+    # forwards to the brain. Control-plane so the brain carries its schema and
+    # serves create; the proxy intercepts current/connect before dispatch.
+    "project": "control",
     "project.update": "control",
     "project.get": "control",
-    "project.current": "control",
-    # Writes the proxy-local link store; served by the proxy itself (it owns
-    # project_links.sqlite), never by the brain.
-    "project.connect": "data",
     "project.list": "control",
     "claim.create": "control",
     "claim.list": "control",
@@ -1421,12 +1451,16 @@ if _PLANE_REGISTRY_MISMATCH:  # pragma: no cover - import-time contract guard
 # Implemented and dispatchable (REST/UI reads, proxy-internal calls) but not
 # advertised to agents. Hidden tools STAY in the served catalog carrying a
 # ``hidden`` flag — the stdio proxy needs their plane/schema to route internal
-# calls (e.g. project.current dials project.get upstream) — and the proxy
-# drops them from the client-facing tools/list.
+# calls (e.g. the project tool's current action dials project.get upstream) —
+# and the proxy drops them from the client-facing tools/list.
 MCP_HIDDEN_TOOL_NAMES: frozenset[str] = frozenset(
     {
         "project.get",
         "project.update",
+        # UI project picker only; the merged `project` tool (action=current)
+        # is how agents orient. The proxy also hides it by literal for older
+        # brains whose catalog predates the hidden flag.
+        "project.list",
         # workflow.status_and_next already re-reports review state on every
         # poll, so the agent never needs a standalone review poll. Keep the
         # tool for REST/UI reads and internal dispatch; hide it from agents.

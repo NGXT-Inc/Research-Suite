@@ -241,7 +241,8 @@ def build():
         blobs=LocalDirBlobStore(root=brain_dir / "blobs"),
     )
     app = server.app
-    pid = app.call_tool("project.create", {
+    pid = app.call_tool("project", {
+        "action": "create",
         "name": "Adapter Scaling Study",
         "summary": "Do parameter-efficient adapters match full fine-tuning?",
     })["id"]

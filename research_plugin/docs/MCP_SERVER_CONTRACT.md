@@ -30,32 +30,42 @@ database. The proxy also adds the current repo root as hidden context and hides
 `project_id` from project-scoped tool schemas when that context can supply it.
 HTTP and core service calls still carry explicit `project_id`.
 
-In project-local MCP, `project.current` through MCP is folder-scoped and
-returns the project registered for the folder where the MCP proxy was started,
-or `exists: false` if that folder does not have a project yet. It never lists
-projects from other folders and does not create a project as a side effect. When
-`exists` is true, it also returns a compact `at_a_glance`: a one-line summary
-of how old the latest reflection is, recent experiments and claims capped at 5
-each, the latest reflection/project-graph resource ids, ids for finished
-experiments or claim changes since that reflection, active experiment ids, and
-any open reflection id. If `exists` is false, the agent should
-ask the user whether to link an existing project id or create a new one
-(name + summary) before calling `project.connect`, unless the user already
-supplied that information. `project.connect` is served by the proxy itself:
-it validates the id against the brain (or creates the project via name),
-then writes the folder→project link to the machine-local link store —
-`project_id` stays visible in its schema because there it is the caller's
-explicit choice, and re-linking a linked folder requires `overwrite=true`.
+Project identity is one agent tool, `project`, dispatched on `action`
+(`current` | `overview` | `connect` | `create`). `action: "overview"` is the
+whole-project read for orienting or re-grounding: every claim (including
+settled/abandoned) and every experiment (including terminal), independent of
+what `workflow.status_and_next` chooses to embed — it is served through the
+brain with the proxy-resolved project scope. In project-local MCP, `project`
+with `action: "current"` is folder-scoped and returns the project registered
+for the
+folder where the MCP proxy was started, or `exists: false` if that folder does
+not have a project yet. It never lists projects from other folders and does not
+create a project as a side effect. When `exists` is true, it also returns a
+compact `at_a_glance`: a one-line summary of how old the latest reflection is,
+recent experiments and claims capped at 5 each, the latest
+reflection/project-graph resource ids, ids for finished experiments or claim
+changes since that reflection, active experiment ids, and any open reflection
+id. If `exists` is false, the agent should ask the user whether to link an
+existing project id or create a new one (name + summary) before calling
+`project` with `action: "connect"`, unless the user already supplied that
+information. `action: "connect"` is served by the proxy itself: it validates
+the id against the brain (or creates the project via name), then writes the
+folder→project link to the machine-local link store — `project_id` stays
+visible in the `project` schema because for connect it is the caller's explicit
+choice, and re-linking a linked folder requires `overwrite=true`. `action:
+"create"` creates a project WITHOUT linking the folder (rare) and forwards to
+the brain; `current`/`connect` never reach the brain.
 
 ## Tool groups
 
 ### Memory tools
 
 ```text
-project.current()
-project.connect(project_id? | name? + summary?, overwrite?)
+project(action="current")
+project(action="overview")                         # full read: all claims + all experiments incl. terminal
+project(action="connect", project_id? | name? + summary?, overwrite?)
+project(action="create", name, summary?)          # create WITHOUT linking (rare)
 workflow.status_and_next(project_id, experiment_id?)
-project.create(name, summary?)
 project.update(project_id, name?, summary?)
 project.get(project_id)
 claim.list(project_id)
@@ -578,9 +588,9 @@ disabled with `RESEARCH_PLUGIN_SANDBOX_REAPER=0`.
 
 Core HTTP/service calls still require an explicit `project_id`. In project-local
 MCP sessions, the proxy supplies that scope from hidden repo context and removes
-`project_id` from agent-facing schemas. Agents should call `project.current`
-first; if it returns `exists: false`, ask the user which project to link or
-create, then call `project.connect`.
+`project_id` from agent-facing schemas. Agents should call `project` with
+`action: "current"` first; if it returns `exists: false`, ask the user which
+project to link or create, then call `project` with `action: "connect"`.
 
 ### Review tools
 

@@ -58,7 +58,7 @@ class WorkflowGateTest(unittest.TestCase):
             repo_root=self.repo,
             db_path=self.repo / ".research_plugin" / "state.sqlite",
         )
-        self.project_id = self.call("project.create", name="Gate Test")["id"]
+        self.project_id = self.call("project", action="create", name="Gate Test")["id"]
 
     def tearDown(self) -> None:
         self.tmp.cleanup()
@@ -1160,7 +1160,7 @@ class WorkflowGateTest(unittest.TestCase):
 
     def test_claim_update_is_project_scoped(self) -> None:
         claim = self.call("claim.create", project_id=self.project_id, statement="Claim.")
-        other = self.call("project.create", name="Other")
+        other = self.call("project", action="create", name="Other")
         from backend.utils import NotFoundError
 
         with self.assertRaises(NotFoundError):

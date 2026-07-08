@@ -16,9 +16,10 @@ token. (A venv with `pip install -e .` is only needed to run a local brain.)
 1. Register the plugin in your client — per-client steps in
    [CLIENTS.md](CLIENTS.md).
 2. Open a research repo and start a session. The proxy dials the hosted brain
-   by default; when `project.current` reports the folder is unlinked, the
-   agent asks which project to use and calls `project.connect` — an existing
-   `project_id`, or a `name`/`summary` to create one and link it in one step.
+   by default; when the project tool (`action: "current"`) reports the folder is
+   unlinked, the agent asks which project to use and calls the project tool with
+   `action: "connect"` — an existing `project_id`, or a `name`/`summary` to
+   create one and link it in one step.
 
 Repeat step 2 in each additional checkout. Links and machine config live under
 `~/.research_plugin/`, never inside a research repo, and the brain never sees
@@ -33,8 +34,8 @@ To point the machine at a different brain:
 
 ## CLI fallback
 
-Everything the agent does with `project.connect` can be done from a terminal
-(run from the checkout, or pass `--repo`):
+Everything the agent does with the project tool (`action: "connect"`) can be
+done from a terminal (run from the checkout, or pass `--repo`):
 
 ```bash
 CLI=~/research-suite/research_plugin/bin/research-plugin-client

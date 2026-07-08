@@ -131,7 +131,7 @@ class DualKeyProvisionTest(unittest.TestCase):
             db_path=self.repo / ".research_plugin" / "state.sqlite",
             execution_backend=self.backend,
         )
-        self.project_id = self.call("project.create", name="Mgmt Keys")["id"]
+        self.project_id = self.call("project", action="create", name="Mgmt Keys")["id"]
 
     def tearDown(self) -> None:
         self.app.shutdown()
