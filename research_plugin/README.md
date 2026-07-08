@@ -37,8 +37,11 @@ HTTP API used by the frontend. It never reads a checkout. The stdio MCP proxy is
 the local data plane in every deployment: it reads repo files, hashes and
 validates artifacts, pulls retained sandbox outputs, owns caller SSH key
 custody, and uses a local link file to map checkout folders to projects.
-Local deployment is the same brain on `http://127.0.0.1:8787` with SQLite,
-local-dir blobs, no auth, and localhost CORS.
+Unconfigured installs dial the hosted brain at
+`https://experiments.rapidreview.io`; local deployment is the same brain on
+`http://127.0.0.1:8787` (configure it with `research-plugin-client configure
+--control-url http://127.0.0.1:8787`) with SQLite, local-dir blobs, no auth,
+and localhost CORS.
 
 ## Workflows
 

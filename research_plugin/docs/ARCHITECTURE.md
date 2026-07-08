@@ -68,9 +68,11 @@ There is one topology:
    data plane in every deployment: it reads repo files, hashes and validates
    artifacts, materializes experiment folders, pulls retained sandbox outputs
    with rsync, keeps caller SSH key custody, and maps checkout folders to
-   projects in `project_links.sqlite`. It dials exactly one
-   `RESEARCH_PLUGIN_CONTROL_URL` (default `http://127.0.0.1:8787` for local
-   deployments).
+   projects in `project_links.sqlite`. It dials exactly one brain URL,
+   resolved as `RESEARCH_PLUGIN_CONTROL_URL` env var > machine config from
+   `research-plugin-client configure` > the hosted default
+   `https://experiments.rapidreview.io`; local deployments configure
+   `http://127.0.0.1:8787`.
 
 Start the localhost brain before local Codex work. Hosted users do not run a
 local brain, but the stdio proxy still runs locally because the brain is never

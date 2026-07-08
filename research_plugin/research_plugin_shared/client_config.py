@@ -11,7 +11,10 @@ from pathlib import Path
 CLIENT_CONFIG_ENV_VAR = "RESEARCH_PLUGIN_CLIENT_CONFIG"
 CONTROL_URL_ENV_VAR = "RESEARCH_PLUGIN_CONTROL_URL"
 DAEMON_STATE_DIR_ENV_VAR = "RESEARCH_PLUGIN_DAEMON_STATE_DIR"
-DEFAULT_DAEMON_URL = "http://127.0.0.1:8787"
+# Brain URL defaults: unconfigured machines dial the hosted brain; local
+# deployments opt in via `research-plugin-client configure` or the env var.
+HOSTED_CONTROL_URL = "https://experiments.rapidreview.io"
+LOCAL_BRAIN_URL = "http://127.0.0.1:8787"
 DEFAULT_CLIENT_CONFIG_PATH = Path.home() / ".research_plugin" / "client.json"
 DEFAULT_DAEMON_SECRET_PATH = Path.home() / ".research_plugin" / "daemon_secret"
 DAEMON_SECRET_FILE_NAME = "daemon_secret"

@@ -6,7 +6,7 @@
       "args": [],
       "env": {
         "RESEARCH_PLUGIN_REPO_ROOT": "${workspaceFolder}",
-        "RESEARCH_PLUGIN_CONTROL_URL": "http://127.0.0.1:8787"
+        "RESEARCH_PLUGIN_CONTROL_URL": ""
       }
     }
   }

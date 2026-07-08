@@ -249,7 +249,10 @@ class LocalShippingTest(unittest.TestCase):
         self.assertTrue(command_path.exists())
         self.assertTrue(os.access(command_path, os.X_OK))
         env = mcp_config["mcpServers"]["research-plugin"].get("env", {})
-        self.assertEqual(env["RESEARCH_PLUGIN_CONTROL_URL"], "http://127.0.0.1:8787")
+        # Shipped manifests must not pin a brain URL: an empty value keeps the
+        # machine config from `research-plugin-client configure` in charge,
+        # with the hosted brain as the built-in fallback.
+        self.assertEqual(env["RESEARCH_PLUGIN_CONTROL_URL"], "")
 
     def test_http_launcher_rejects_explicit_repo(self) -> None:
         proc = subprocess.run(

@@ -35,10 +35,12 @@ only the brain URL and storage/auth defaults change.
 ```
 
 The localhost brain must be running before Codex makes any local tool call. The
-MCP proxy dials `RESEARCH_PLUGIN_CONTROL_URL`; client configs default that to
-`http://127.0.0.1:8787` for local deployments. A hosted deployment sets the same
-variable to the hosted HTTPS brain URL and still uses the local stdio proxy for
-repo file work.
+MCP proxy resolves its brain URL as `RESEARCH_PLUGIN_CONTROL_URL` env var >
+machine config from `research-plugin-client configure` > the hosted default
+`https://experiments.rapidreview.io`. For local dev, point it at the localhost
+brain first: `research-plugin-client configure --control-url
+http://127.0.0.1:8787` (the stdio proxy still does all repo file work either
+way).
 
 Replace this path with the research repo you want to work inside:
 
@@ -243,10 +245,12 @@ no localhost brain, only the stdio proxy):
 - localhost brain on `127.0.0.1:8787`
 - Codex session in the research repo with `research-plugin` enabled
 
-The MCP proxy is started by Codex itself. The marketplace MCP config points it
-at `http://127.0.0.1:8787` through `RESEARCH_PLUGIN_CONTROL_URL` by default.
-Set `RESEARCH_PLUGIN_CONTROL_URL` to a different loopback URL for a non-default
-local port, or to a hosted HTTPS URL for hosted deployments.
+The MCP proxy is started by Codex itself. Shipped MCP configs leave
+`RESEARCH_PLUGIN_CONTROL_URL` empty, so the proxy follows the machine config
+(`research-plugin-client configure --control-url http://127.0.0.1:8787` for
+local dev) and otherwise defaults to the hosted brain
+`https://experiments.rapidreview.io`. Set the env var only to force a one-off
+URL, e.g. a non-default local port.
 
 Additional, for the UI:
 

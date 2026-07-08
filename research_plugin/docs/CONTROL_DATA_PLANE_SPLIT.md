@@ -27,14 +27,15 @@ USER MACHINE
                               │
                               ▼
                          Brain service
+                         hosted: https://experiments.rapidreview.io (default)
                          local:  http://127.0.0.1:8787
-                         hosted: https://...
 ```
 
-The proxy always dials `RESEARCH_PLUGIN_CONTROL_URL`. The client configs use
-`http://127.0.0.1:8787` for local deployments. Hosted clients set the same
-variable to the hosted URL. There is no marker discovery and no thin local
-upstream path.
+The proxy always dials one brain URL, resolved as the
+`RESEARCH_PLUGIN_CONTROL_URL` env var > machine config from
+`research-plugin-client configure` > the hosted default. Local deployments
+configure `http://127.0.0.1:8787`. There is no marker discovery and no thin
+local upstream path.
 
 ## Brain responsibilities
 
@@ -95,8 +96,8 @@ brain-side operational credentials.
 
 | Deployment | Brain URL | State/blob defaults | Auth/CORS | Proxy role |
 |---|---|---|---|---|
+| Hosted (default) | `https://experiments.rapidreview.io` | durable DB + object/blob store | operator/hosted policy | same thick data plane |
 | Local | `http://127.0.0.1:8787` | SQLite + local-dir blobs | auth off, localhost CORS | same thick data plane |
-| Hosted | `https://...` | durable DB + object/blob store | operator/hosted policy | same thick data plane |
 
 `RESEARCH_PLUGIN_MODE` names the preset used to start the brain. It does not
 create a second composition path.

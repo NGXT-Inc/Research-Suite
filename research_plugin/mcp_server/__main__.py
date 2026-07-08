@@ -18,7 +18,7 @@ from research_plugin_shared.client_config import (
 )
 
 from .project_links import ProjectLinks, default_project_links_path
-from .proxy import DEFAULT_CONTROL_URL, HttpProxyMcpServer, ProxyConfig
+from .proxy import DEFAULT_CONTROL_URL, HttpProxyMcpServer, ProxyConfig, _is_loopback_url
 
 
 def main() -> int:
@@ -34,7 +34,7 @@ def main() -> int:
     parser.add_argument(
         "--control-url",
         default=os.environ.get("RESEARCH_PLUGIN_CONTROL_URL"),
-        help="Brain/control-plane URL. Defaults to http://127.0.0.1:8787.",
+        help=f"Brain/control-plane URL. Defaults to the hosted brain ({DEFAULT_CONTROL_URL}).",
     )
     args = parser.parse_args()
 
@@ -56,10 +56,16 @@ def main() -> int:
         or client_config.get("control_url", "")
         or DEFAULT_CONTROL_URL
     ).rstrip("/")
-    if control_url == DEFAULT_CONTROL_URL:
+    if _is_loopback_url(control_url):
         sys.stderr.write(
             "[research_plugin] using local brain URL "
-            f"{DEFAULT_CONTROL_URL}; start it with `research-plugin-http`.\n"
+            f"{control_url}; start it with `research-plugin-http`.\n"
+        )
+    elif control_url == DEFAULT_CONTROL_URL:
+        sys.stderr.write(
+            f"[research_plugin] using hosted brain {DEFAULT_CONTROL_URL} "
+            "(default; override with `research-plugin-client configure "
+            "--control-url ...` or RESEARCH_PLUGIN_CONTROL_URL).\n"
         )
 
     config = ProxyConfig(

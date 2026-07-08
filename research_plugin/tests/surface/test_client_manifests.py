@@ -21,6 +21,29 @@ def _executable(path: Path) -> bool:
     return path.exists() and os.access(path, os.X_OK)
 
 
+class ControlUrlResolutionTest(unittest.TestCase):
+    def test_no_shipped_manifest_pins_a_control_url(self) -> None:
+        # A pinned URL in a manifest env block shadows the machine config
+        # written by `research-plugin-client configure`. Empty (or absent)
+        # keeps resolution at env > machine config > hosted default.
+        manifests = {
+            ".mcp.json": ("mcpServers", "env"),
+            "mcp.json": ("mcpServers", "env"),
+            ".mcp.codex.json": ("mcpServers", "env"),
+            "gemini-extension.json": ("mcpServers", "env"),
+        }
+        for name, (servers_key, env_key) in manifests.items():
+            with self.subTest(manifest=name):
+                config = json.loads((PLUGIN_ROOT / name).read_text())
+                server = config[servers_key]["research-plugin"]
+                self.assertEqual(server.get(env_key, {}).get("RESEARCH_PLUGIN_CONTROL_URL", ""), "")
+        opencode = json.loads(
+            (PLUGIN_ROOT / "clients" / "opencode" / "opencode.json.example").read_text()
+        )
+        environment = opencode["mcp"]["research-plugin"].get("environment", {})
+        self.assertEqual(environment.get("RESEARCH_PLUGIN_CONTROL_URL", ""), "")
+
+
 class CursorAdapterTest(unittest.TestCase):
     def test_plugin_manifest(self) -> None:
         manifest = json.loads((PLUGIN_ROOT / ".cursor-plugin" / "plugin.json").read_text())

@@ -10,7 +10,7 @@ from pathlib import Path
 from unittest.mock import patch
 
 from backend.client_cli import (
-    LOCAL_BRAIN_URL,
+    HOSTED_CONTROL_URL,
     configure_client,
     main,
 )
@@ -65,7 +65,7 @@ class ClientConfigTest(unittest.TestCase):
             self.assertEqual(resolve_control_url(env), "https://override.example.test")
             self.assertEqual(configured["control_url"], "https://configured.example.test")
 
-    def test_configure_defaults_to_local_brain_url(self) -> None:
+    def test_configure_defaults_to_hosted_control_url(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             config_path = Path(tmp) / "client.json"
             config = configure_client(
@@ -73,7 +73,7 @@ class ClientConfigTest(unittest.TestCase):
                 control_url="",
             )
 
-            self.assertEqual(config["control_url"], LOCAL_BRAIN_URL)
+            self.assertEqual(config["control_url"], HOSTED_CONTROL_URL)
             self.assertNotIn("daemon_url", config)
             self.assertNotIn("daemon_secret_file", config)
 

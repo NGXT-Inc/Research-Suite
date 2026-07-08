@@ -31,13 +31,15 @@ from urllib.parse import urlsplit
 from urllib import error as urllib_error
 from urllib.request import Request, urlopen
 
+from research_plugin_shared.client_config import HOSTED_CONTROL_URL, LOCAL_BRAIN_URL
+
 from . import __version__
 from .local_data_plane import LocalDataPlane, LocalDataPlaneError
 from .project_links import ProjectLinks
 
 
 DEFAULT_TIMEOUT_SECONDS = 60.0
-DEFAULT_CONTROL_URL = "http://127.0.0.1:8787"
+DEFAULT_CONTROL_URL = HOSTED_CONTROL_URL
 # sandbox.request can take minutes; the proxy returns its handle promptly and
 # the agent polls sandbox.get (plan §3.3). A short bound keeps a long-running
 # verb from blocking the stdio loop — it lands a row in 'provisioning' and the
@@ -507,9 +509,9 @@ class HttpProxyMcpServer:
         url = (self.config.control_url or "").strip().rstrip("/")
         if not url:
             raise _UpstreamError(
-                "control_url is required; set RESEARCH_PLUGIN_CONTROL_URL "
-                "to http://127.0.0.1:8787 for a local brain or to the hosted "
-                "control-plane URL",
+                "control_url is required; set RESEARCH_PLUGIN_CONTROL_URL to "
+                f"the hosted brain ({HOSTED_CONTROL_URL}) or to "
+                f"{LOCAL_BRAIN_URL} for a local brain",
                 error_code="cloud_unreachable",
             )
         return url

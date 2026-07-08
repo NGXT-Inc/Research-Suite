@@ -4,7 +4,7 @@
       "command": "bin/research-plugin-mcp",
       "args": [],
       "env": {
-        "RESEARCH_PLUGIN_CONTROL_URL": "http://127.0.0.1:8787"
+        "RESEARCH_PLUGIN_CONTROL_URL": ""
       },
       "default_tools_approval_mode": "approve"
     }

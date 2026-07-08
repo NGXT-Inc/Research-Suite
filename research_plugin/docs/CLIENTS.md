@@ -31,10 +31,14 @@ Shared invariants across all clients:
   them. OpenCode needs `mode`/`permission` frontmatter, so it has its own thin
   agent wrappers in `clients/opencode/agents/` that load the matching review
   skill.
-- The MCP proxy always dials `RESEARCH_PLUGIN_CONTROL_URL`. Local deployments
-  use the default `http://127.0.0.1:8787` and require
-  `bin/research-plugin-http` to be running. Hosted deployments set the same env
-  var to the hosted brain URL and run no local brain.
+- The MCP proxy resolves its brain URL as: `RESEARCH_PLUGIN_CONTROL_URL` env
+  var > machine config written by `research-plugin-client configure` >
+  the hosted brain `https://experiments.rapidreview.io`. Out of the box every
+  client therefore dials the hosted brain and runs no local brain. For a local
+  deployment, run `research-plugin-client configure --control-url
+  http://127.0.0.1:8787` (or set the env var) and start
+  `bin/research-plugin-http`. Shipped manifests leave the env var empty on
+  purpose — pinning a URL there would shadow the machine config.
 
 ## Long runs (rp_run) per client
 
@@ -119,15 +123,17 @@ Three Cursor-specific notes:
       "command": "/absolute/path/to/research_plugin/bin/research-plugin-mcp",
       "env": {
         "RESEARCH_PLUGIN_REPO_ROOT": "${workspaceFolder}",
-        "RESEARCH_PLUGIN_CONTROL_URL": "http://127.0.0.1:8787"
+        "RESEARCH_PLUGIN_CONTROL_URL": ""
       }
     }
   }
 }
 ```
 
-(`RESEARCH_PLUGIN_CONTROL_URL` points at the brain. Use the localhost default
-for local deployments, or a hosted HTTPS URL for hosted deployments.)
+(Leave `RESEARCH_PLUGIN_CONTROL_URL` empty so the machine config from
+`research-plugin-client configure` wins, falling back to the hosted brain.
+Set it explicitly only to force one workspace onto a different brain, e.g.
+`http://127.0.0.1:8787` for a local deployment.)
 
 3. **Tool ceiling.** The plugin exposes 56 MCP tools (46 with storage
    disabled); Cursor has a hard cap of ~40 active tools across all MCP
