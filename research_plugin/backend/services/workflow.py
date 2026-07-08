@@ -716,7 +716,8 @@ class WorkflowService:
                     "sections. Keep it under 16 KB. You may reference a few "
                     "figures with relative markdown image links (e.g. "
                     "![project graph](figures/project_graph.png)); every linked "
-                    "image must exist before association. Then register the file "
+                    "image must resolve to a local file under 5 MB or "
+                    "resource.associate rejects the doc. Then register the file "
                     "and associate it with role 'reflection_doc' for this reflection wave."
                 ),
             }
@@ -819,14 +820,16 @@ class WorkflowService:
             "guidance": (
                 "Write a SHORT markdown results report in the experiment folder "
                 f"after retaining sandbox outputs, i.e. {folder}report.md. "
-                "Required sections: Summary; Results — MUST contain a markdown "
-                "table of metrics (paper/target value vs achieved, per task/seed "
-                "where relevant); Deviations from plan ('none' if faithful); "
+                "Required sections: Summary; Results — interpret the system "
+                "metrics exhibit (preview it with experiment.exhibit, reference "
+                "it by name, and cite run names/ids from it — never numbers "
+                "that aren't in it); Deviations from plan ('none' if faithful); "
                 "Conclusion — apply the plan's pre-registered decision rule "
                 "explicitly. Keep it under 16 KB: link raw metrics files instead "
                 "of inlining data. Reference figures with relative markdown image "
                 "links (e.g. ![loss](figures/loss.png)); every linked image must "
-                "exist in the retained local report folder before submit_results. "
+                "resolve to a local file under 5 MB or resource.associate rejects "
+                "the report, so copy figures off the sandbox first. "
                 "Then register the report and associate it with role 'report'."
             ),
         }
