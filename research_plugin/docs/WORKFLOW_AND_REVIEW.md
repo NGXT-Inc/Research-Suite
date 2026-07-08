@@ -323,7 +323,11 @@ Drift surfaces in three tiers:
   `claim.create` / `experiment.create` in the allowed actions. An open wave
   wins that slot instead (its gate guidance becomes the workflow block), so
   an idle orientation call always points at the project-level work rather
-  than answering "none" for the auto-resolved terminal experiment.
+  than answering "none" for the auto-resolved terminal experiment. When the
+  project is *not* idle but the auto-resolved (newest-created) experiment is
+  terminal, the workflow block instead lists the live siblings
+  (`current_gate: live_experiments`) so the agent re-orients onto in-flight
+  work or creates the next experiment.
 - **Required reflection**: once five newly-terminal experiments have accumulated
   since the last published reflection, `experiment.create` becomes a hard
   blocker. The workflow reports `current_gate: reflection_required`, removes

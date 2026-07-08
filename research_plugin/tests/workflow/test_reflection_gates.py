@@ -1809,5 +1809,121 @@ class StatusAndNextReflectionTest(unittest.TestCase):
         self.assertEqual(out["workflow"]["current_gate"], "reflection_roster_incomplete")
 
 
+class StatusAndNextLiveSiblingsTest(unittest.TestCase):
+    """The auto-resolved orientation never answers 'none' over live work:
+    when the newest-created experiment is terminal while siblings are still
+    live, the workflow block lists the live experiments to re-orient onto
+    (or create the next one)."""
+
+    def setUp(self) -> None:
+        self.tmp = tempfile.TemporaryDirectory()
+        self.repo = Path(self.tmp.name)
+        self.app = TestBrain(
+            repo_root=self.repo,
+            db_path=self.repo / ".research_plugin" / "state.sqlite",
+        )
+        self.project_id = self.call("project.create", name="Live Siblings")["id"]
+
+    def tearDown(self) -> None:
+        self.tmp.cleanup()
+
+    def call(self, tool_name: str, **kwargs):
+        return self.app.call_tool(tool_name, kwargs)
+
+    def _finish_experiment(self, name: str) -> str:
+        exp = self.call(
+            "experiment.create", name=name, project_id=self.project_id, intent=name
+        )
+        self.call(
+            "experiment.transition",
+            project_id=self.project_id,
+            experiment_id=exp["id"],
+            transition="abandon",
+        )
+        return exp["id"]
+
+    def _backdate(self, experiment_id: str, created_at: str) -> None:
+        # created_at is second-precision, so back-to-back creations tie and
+        # the id tiebreak is random; pin creation order explicitly.
+        with self.app._store.transaction() as conn:
+            conn.execute(
+                "UPDATE experiments SET created_at = ? WHERE id = ?",
+                (created_at, experiment_id),
+            )
+
+    def test_newest_terminal_lists_live_siblings(self) -> None:
+        live = self.call(
+            "experiment.create",
+            name="live-a",
+            project_id=self.project_id,
+            intent="keep tending this",
+        )
+        self._backdate(live["id"], "2026-01-01T00:00:00Z")
+        self._finish_experiment("done-b")
+        out = self.call("workflow.status_and_next", project_id=self.project_id)
+        # The scope still resolves to the finished newest experiment...
+        self.assertEqual(out["experiment"]["status"], "abandoned")
+        # ...but the workflow block re-orients instead of answering 'none'.
+        workflow = out["workflow"]
+        self.assertEqual(workflow["current_gate"], "live_experiments")
+        self.assertIn("workflow.status_and_next", workflow["allowed_actions"])
+        self.assertIn("experiment.create", workflow["allowed_actions"])
+        entries = workflow["live_experiments"]
+        self.assertEqual([item["id"] for item in entries], [live["id"]])
+        self.assertEqual(entries[0]["name"], "live-a")
+        self.assertEqual(entries[0]["status"], "planned")
+        self.assertEqual(entries[0]["intent"], "keep tending this")
+
+    def test_explicit_scope_keeps_the_terminal_answer(self) -> None:
+        live = self.call(
+            "experiment.create",
+            name="live-a",
+            project_id=self.project_id,
+            intent="still running",
+        )
+        self._backdate(live["id"], "2026-01-01T00:00:00Z")
+        done_id = self._finish_experiment("done-b")
+        out = self.call(
+            "workflow.status_and_next",
+            project_id=self.project_id,
+            experiment_id=done_id,
+        )
+        self.assertEqual(out["workflow"]["current_gate"], "terminal")
+        self.assertNotIn("live_experiments", out["workflow"])
+
+    def test_newest_live_resolves_normally(self) -> None:
+        done_id = self._finish_experiment("done-a")
+        self._backdate(done_id, "2026-01-01T00:00:00Z")
+        self.call(
+            "experiment.create",
+            name="live-b",
+            project_id=self.project_id,
+            intent="the next one",
+        )
+        out = self.call("workflow.status_and_next", project_id=self.project_id)
+        self.assertEqual(out["workflow"]["current_gate"], "plan_required")
+        self.assertNotIn("live_experiments", out["workflow"])
+
+    def test_hard_reflection_block_carries_into_the_takeover(self) -> None:
+        live = self.call(
+            "experiment.create",
+            name="live-first",
+            project_id=self.project_id,
+            intent="oldest, still live",
+        )
+        self._backdate(live["id"], "2026-01-01T00:00:00Z")
+        for i in range(REFLECTION_BLOCK_NEW_TERMINAL_THRESHOLD):
+            self._finish_experiment(f"done-{i}")
+        out = self.call("workflow.status_and_next", project_id=self.project_id)
+        workflow = out["workflow"]
+        self.assertEqual(workflow["current_gate"], "live_experiments")
+        self.assertNotIn("experiment.create", workflow["allowed_actions"])
+        self.assertEqual(
+            workflow["blocked_actions"][0]["action"], "experiment.create"
+        )
+        self.assertTrue(workflow["blocked_actions"][0]["reason"])
+        self.assertEqual(len(workflow["live_experiments"]), 1)
+
+
 if __name__ == "__main__":
     unittest.main()

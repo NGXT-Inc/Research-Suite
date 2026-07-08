@@ -179,6 +179,15 @@ from `allowed_actions`, listed in `blocked_actions`, and rejected by
 can remain allowed. Explicitly experiment-scoped calls are never taken over,
 but the `project_reflection` side block still carries the signal.
 
+The auto-resolved orientation also never answers "none" over live work: when
+the newest-created experiment is terminal while sibling experiments are still
+live, the workflow block becomes `current_gate: live_experiments` with a
+`live_experiments` list (id, name, status, attempt_index, intent) to
+re-orient onto via `workflow.status_and_next(experiment_id=...)`.
+`experiment.create` stays allowed unless the hard reflection block applies,
+in which case it moves to `blocked_actions` with the reason. Explicitly
+experiment-scoped calls keep the plain terminal answer.
+
 ### Resource tools
 
 ```text
