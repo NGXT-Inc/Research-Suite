@@ -1416,6 +1416,17 @@ MCP_HIDDEN_TOOL_NAMES: frozenset[str] = frozenset(
         # UI-convenience delete: kept dispatchable for the REST/UI resource
         # panel, but dropped from the agent-facing tools/list.
         "resource.delete",
+        # Enumeration readers whose payloads the agent already gets elsewhere:
+        # workflow.status_and_next embeds active claims/experiments and the
+        # live sandbox, reflection.get covers the open wave, and sandbox.get
+        # supersets sandbox.list. They keep serving the REST/UI routes and
+        # proxy-internal calls (materialize_folders lists experiments by tool
+        # name; the doctor probes sandbox.health).
+        "claim.list",
+        "experiment.list",
+        "reflection.list",
+        "sandbox.list",
+        "sandbox.health",
     }
 )
 

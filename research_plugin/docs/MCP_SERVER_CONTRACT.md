@@ -58,10 +58,10 @@ workflow.status_and_next(project_id, experiment_id?)
 project.create(name, summary?)
 project.update(project_id, name?, summary?)
 project.get(project_id)
-claim.list(project_id)
+claim.list(project_id)                            # REST/UI + internal dispatch only; agents get active claims from workflow.status_and_next
 claim.create(project_id, statement, scope?)
 claim.update(project_id, claim_id, status?, confidence?)  # statement/scope are immutable; revise text via a reviewed reflection change spec or abandon-and-recreate
-experiment.list(project_id)
+experiment.list(project_id)                       # REST/UI + internal dispatch only; agents get active experiments from workflow.status_and_next
 experiment.create(project_id, name, intent, tested_claim_ids?)
 experiment.get_state(project_id, experiment_id)   # see "get_state shape" below
 resource.find(project_id, resource_id?, include_history?, kind?, experiment_id?, missing?, compact?, limit?, offset?)  # resource_id → resolve one; else list
@@ -120,7 +120,7 @@ experiment reviewer judges the story's substance.
 ```text
 reflection.create(project_id, title?, lenses)   # lenses: exactly 5 (3 core + 2 authored)
 reflection.get(project_id, reflection_id)
-reflection.list(project_id)
+reflection.list(project_id)                     # REST/UI + internal dispatch only; reflection.get covers the open wave
 reflection.transition(project_id, reflection_id, transition)
 ```
 
@@ -392,12 +392,12 @@ sandbox.options(gpu?, region?)
 sandbox.request(experiment_id?, public_key, instance_type?, region?, gpu?, cpu?, memory?, time_limit?)
 sandbox.pull_outputs(experiment_id? | sandbox_uid, paths?, destination_path?, overwrite?, key_path?)
 sandbox.get(experiment_id? | sandbox_uid)
-sandbox.list()
+sandbox.list()                                  # REST/UI + internal dispatch only; sandbox.get / status_and_next carry the live box
 sandbox.release(experiment_id? | sandbox_uid)
 sandbox.extend(experiment_id? | sandbox_uid, seconds?=1800)
 sandbox.terminal(experiment_id? | sandbox_uid, tail?, since?)   # cursor + running; poll with since=cursor for new output. Also last_command, last_exit_code / last_command_finished_at / command_running, and command_status_stale.
 sandbox.runs(experiment_id? | sandbox_uid, wait_seconds?=0)     # rp_run receipts: label, status (running/finished/lost), exit_code, started/finished, log path. wait_seconds long-polls (cap 300; keep <=45 at the common ~60s client tool timeout) and returns early on any finish.
-sandbox.health()
+sandbox.health()                                # REST/UI + internal dispatch only (deploy doctor probe)
 ```
 
 There is no job abstraction. Codex requests a sandbox, gets back SSH connection
