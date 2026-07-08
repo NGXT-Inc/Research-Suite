@@ -125,6 +125,35 @@ class ProjectToolTest(unittest.TestCase):
         updated = self.call("project.update", project_id=project["id"], name="Beta")
         self.assertEqual(updated["name"], "Beta")
 
+    def test_hidden_project_is_stashed_from_list_but_retained(self) -> None:
+        keep = self.call("project.create", name="Keep")
+        stash = self.call("project.create", name="Stash")
+
+        self.call("project.update", project_id=stash["id"], hidden=True)
+
+        # project.list (the UI project picker) omits the hidden project...
+        listed = {p["id"] for p in self.call("project.list")["projects"]}
+        self.assertIn(keep["id"], listed)
+        self.assertNotIn(stash["id"], listed)
+
+        # ...but the row and direct-by-id access are fully retained.
+        fetched = self.call("project.get", project_id=stash["id"])
+        self.assertEqual(fetched["name"], "Stash")
+        self.assertTrue(fetched["settings"]["hidden"])
+
+        # Restoring returns it to the list (reversible).
+        self.call("project.update", project_id=stash["id"], hidden=False)
+        restored = {p["id"] for p in self.call("project.list")["projects"]}
+        self.assertIn(stash["id"], restored)
+
+    def test_update_without_hidden_leaves_hidden_unchanged(self) -> None:
+        project = self.call("project.create", name="Alpha")
+        self.call("project.update", project_id=project["id"], hidden=True)
+        self.call("project.update", project_id=project["id"], summary="edited")
+        fetched = self.call("project.get", project_id=project["id"])
+        self.assertTrue(fetched["settings"]["hidden"])
+        self.assertEqual(fetched["summary"], "edited")
+
 
 if __name__ == "__main__":
     unittest.main()

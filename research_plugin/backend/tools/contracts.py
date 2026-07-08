@@ -78,6 +78,15 @@ class ProjectUpdateInput(ProjectScopedInput):
             "attested reviews stop counting. Omit to leave unchanged."
         ),
     )
+    hidden: bool | None = Field(
+        default=None,
+        description=(
+            "Stash a project out of the UI project list without deleting it: "
+            "when true, project.list omits it while the project's data and "
+            "direct-by-id access are retained; false restores it. Omit to "
+            "leave unchanged."
+        ),
+    )
 
 
 class ProjectGetInput(ProjectScopedInput):
@@ -826,7 +835,7 @@ TOOL_CONTRACTS: dict[str, ToolContract] = {
     ),
     "project.update": ToolContract(
         input_model=ProjectUpdateInput,
-        description="Update a project name or summary.",
+        description="Update a project name, summary, policy knobs, or hidden state.",
     ),
     "project.get": ToolContract(
         input_model=ProjectGetInput,

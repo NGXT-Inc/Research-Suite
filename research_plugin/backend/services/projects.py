@@ -79,6 +79,7 @@ class ProjectService:
         name: str | None = None,
         summary: str | None = None,
         require_verified_reviews: bool | None = None,
+        hidden: bool | None = None,
     ) -> dict[str, Any]:
         with self.store.transaction() as conn:
             project_id = self.store.require_project_id(conn=conn, project_id=project_id)
@@ -90,6 +91,9 @@ class ProjectService:
             settings = parse_settings(row["settings_json"])
             if require_verified_reviews is not None:
                 settings["require_verified_reviews"] = bool(require_verified_reviews)
+            if hidden is not None:
+                # Stash out of / restore into the UI project list, data retained.
+                settings["hidden"] = bool(hidden)
             conn.execute(
                 """
                 UPDATE projects
@@ -168,7 +172,9 @@ class ProjectService:
             payload={"synthesis_id": synthesis_id, "rationale": rationale},
         )
 
-    def list_projects(self, *, tenant_id: str | None = None) -> dict[str, Any]:
+    def list_projects(
+        self, *, tenant_id: str | None = None, include_hidden: bool = False
+    ) -> dict[str, Any]:
         conn = self.store.connect()
         try:
             if tenant_id is None:
@@ -178,7 +184,10 @@ class ProjectService:
                     "SELECT * FROM projects WHERE tenant_id = ? ORDER BY created_at, id",
                     (tenant_id,),
                 ).fetchall()
-            return {"projects": [self._project_view(row=row) for row in rows]}
+            views = [self._project_view(row=row) for row in rows]
+            if not include_hidden:
+                views = [v for v in views if not v["settings"].get("hidden")]
+            return {"projects": views}
         finally:
             conn.close()
 
