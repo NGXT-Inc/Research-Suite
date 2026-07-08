@@ -89,13 +89,15 @@ class SplitProxyLocalDataTest(unittest.TestCase):
         self.assertIn("claim.create", names)
         self.assertIn("resource.register", names)
         self.assertIn("sandbox.get", names)
-        self.assertIn("project.connect", names)
+        self.assertIn("project", names)
+        self.assertNotIn("project.connect", names)
         self.assertNotIn("project.list", names)
         for tool in response["result"]["tools"]:
             self.assertNotIn("plane", tool)
-            if tool["name"] == "project.connect":
-                # The one schema that keeps project_id: the caller's explicit
-                # choice of which project to link, not hidden repo context.
+            if tool["name"] == "project":
+                # The one schema that keeps project_id: for action=connect it is
+                # the caller's explicit choice of which project to link, not
+                # hidden repo context.
                 self.assertIn("project_id", tool["inputSchema"]["properties"])
             else:
                 self.assertNotIn("project_id", tool["inputSchema"].get("properties", {}))
@@ -109,6 +111,47 @@ class SplitProxyLocalDataTest(unittest.TestCase):
         self.assertEqual(claim["project_id"], self.project["id"])
         listed = self._call("claim.list", {"project_id": "caller_supplied_wrong"})
         self.assertIn(claim["id"], {c["id"] for c in listed["claims"]})
+
+    def test_project_overview_returns_full_claims_and_experiments(self) -> None:
+        # overview is the whole-project read: a settled claim and a terminal
+        # experiment must both appear, unlike the active-only workflow view.
+        claim = self._call("claim.create", {"statement": "Overview claim."})
+        self._call("claim.update", {"claim_id": claim["id"], "status": "abandoned"})
+        exp = self._call("experiment.create", {"name": "dead-end", "intent": "terminal"})
+        self._call(
+            "experiment.transition",
+            {"experiment_id": exp["id"], "transition": "abandon"},
+        )
+
+        overview = self._call("project", {"action": "overview"})
+
+        self.assertEqual(overview["project"]["id"], self.project["id"])
+        claims_by_id = {c["id"]: c for c in overview["claims"]}
+        self.assertEqual(claims_by_id[claim["id"]]["status"], "abandoned")
+        experiments_by_id = {e["id"]: e for e in overview["experiments"]}
+        self.assertEqual(experiments_by_id[exp["id"]]["status"], "abandoned")
+
+    def test_project_overview_unlinked_folder_behaves_like_current(self) -> None:
+        unlinked = HttpProxyMcpServer(
+            config=ProxyConfig(
+                repo_root=self.repo / "other",
+                control_url=self.cloud.url,
+                project_links_path=self.repo / "empty_links.sqlite",
+            )
+        )
+        unlinked._http_get = self.cloud.http_get  # type: ignore[method-assign]
+        unlinked._http_post = self.cloud.http_post  # type: ignore[method-assign]
+        response = unlinked.handle(
+            {
+                "jsonrpc": "2.0",
+                "id": 1,
+                "method": "tools/call",
+                "params": {"name": "project", "arguments": {"action": "overview"}},
+            }
+        )
+        current = response["result"]["structuredContent"]
+        self.assertFalse(current["exists"])
+        self.assertIn('action="connect"', current["hint"])
 
     def test_data_tool_reads_local_file_and_submits_observation_to_control(self) -> None:
         (self.repo / "note.txt").write_text("hello from proxy-local data plane\n")
@@ -181,7 +224,7 @@ class SplitProxyLocalDataTest(unittest.TestCase):
 
 
 class ProjectConnectToolTest(unittest.TestCase):
-    """project.connect writes the folder→project link from inside the MCP session."""
+    """project action=connect writes the folder→project link from the MCP session."""
 
     def setUp(self) -> None:
         self.tmp = tempfile.TemporaryDirectory()
@@ -216,7 +259,10 @@ class ProjectConnectToolTest(unittest.TestCase):
                 "jsonrpc": "2.0",
                 "id": 1,
                 "method": "tools/call",
-                "params": {"name": "project.connect", "arguments": arguments},
+                "params": {
+                    "name": "project",
+                    "arguments": {"action": "connect", **arguments},
+                },
             }
         )
 
@@ -254,8 +300,10 @@ class ProjectConnectToolTest(unittest.TestCase):
         self.assertEqual(result["project"]["name"], "Connected Project")
         self.assertEqual(self._brain_project_count(), before + 1)
         self.assertEqual(self.proxy._resolve_project_id(), result["project"]["id"])
-        # The link is live for the rest of the session: project.current flips.
-        current = self.proxy._call_tool(name="project.current", arguments={})
+        # The link is live for the rest of the session: action=current flips.
+        current = self.proxy._call_tool(
+            name="project", arguments={"action": "current"}
+        )
         self.assertTrue(current["exists"])
         self.assertEqual(current["project"]["id"], result["project"]["id"])
 
@@ -374,7 +422,7 @@ class ProxyIdentityResolutionTest(unittest.TestCase):
                 "jsonrpc": "2.0",
                 "id": 1,
                 "method": "tools/call",
-                "params": {"name": "project.current", "arguments": {}},
+                "params": {"name": "project", "arguments": {"action": "current"}},
             }
         )
 
@@ -382,7 +430,7 @@ class ProxyIdentityResolutionTest(unittest.TestCase):
         current = response["result"]["structuredContent"]
         self.assertFalse(current["exists"])
         self.assertIsNone(current["project"])
-        self.assertIn("project.connect", current["hint"])
+        self.assertIn('action="connect"', current["hint"])
         self.assertEqual(current["repo_root"], str(self.repo))
 
     def test_project_current_fetches_linked_cloud_project_by_id(self) -> None:
@@ -403,7 +451,7 @@ class ProxyIdentityResolutionTest(unittest.TestCase):
                 "jsonrpc": "2.0",
                 "id": 1,
                 "method": "tools/call",
-                "params": {"name": "project.current", "arguments": {}},
+                "params": {"name": "project", "arguments": {"action": "current"}},
             }
         )
 

@@ -28,7 +28,7 @@ class ReviewPolicyTest(unittest.TestCase):
             repo_root=self.repo,
             db_path=self.repo / ".research_plugin" / "state.sqlite",
         )
-        self.project_id = self.call("project.create", name="Policy Test")["id"]
+        self.project_id = self.call("project", action="create", name="Policy Test")["id"]
 
     def tearDown(self) -> None:
         self.tmp.cleanup()

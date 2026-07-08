@@ -182,7 +182,7 @@ class SandboxHeartbeatMonitorTest(unittest.TestCase):
             execution_backend=self.backend,
         )
         self.project_id = self.app.call_tool(
-            "project.create", {"name": "Heartbeat Project"}
+            "project", {"action": "create", "name": "Heartbeat Project"}
         )["id"]
 
     def tearDown(self) -> None:

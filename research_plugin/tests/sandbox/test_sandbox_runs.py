@@ -48,7 +48,7 @@ class SandboxRunsTest(unittest.TestCase):
             db_path=self.repo / ".research_plugin" / "state.sqlite",
             execution_backend=self.fake,
         )
-        self.project_id = self.app.call_tool("project.create", {"name": "Runs"})["id"]
+        self.project_id = self.app.call_tool("project", {"action": "create", "name": "Runs"})["id"]
         self.experiment_id = self._experiment("long-training")
         view = self.app.call_tool(
             "sandbox.request",

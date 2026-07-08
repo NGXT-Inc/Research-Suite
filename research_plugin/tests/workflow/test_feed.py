@@ -76,7 +76,7 @@ class FeedServiceTest(unittest.TestCase):
             repo_root=self.repo,
             db_path=self.repo / ".research_plugin" / "state.sqlite",
         )
-        self.pid = self.call("project.create", name="Feed Test")["id"]
+        self.pid = self.call("project", action="create", name="Feed Test")["id"]
 
     def tearDown(self) -> None:
         self.tmp.cleanup()
@@ -569,7 +569,7 @@ class FeedHttpTest(unittest.TestCase):
         )
         self.client = TestClient(create_fastapi_app(self.app))
         self.pid = self.app.call_tool(
-            "project.create", {"name": "Feed HTTP Test"}
+            "project", {"action": "create", "name": "Feed HTTP Test"}
         )["id"]
         self.app.call_tool(
             "feed.register", {"project_id": self.pid, "handle": "Nova-7"}
@@ -787,7 +787,7 @@ class FeedNoteForTest(unittest.TestCase):
             repo_root=self.repo,
             db_path=self.repo / ".research_plugin" / "state.sqlite",
         )
-        self.pid = self.app.call_tool("project.create", {"name": "Feed Note Test"})["id"]
+        self.pid = self.app.call_tool("project", {"action": "create", "name": "Feed Note Test"})["id"]
 
     def tearDown(self) -> None:
         self.tmp.cleanup()
@@ -878,7 +878,7 @@ class FeedNoteTransitionIntegrationTest(unittest.TestCase):
             repo_root=self.repo,
             db_path=self.repo / ".research_plugin" / "state.sqlite",
         )
-        self.pid = self.call("project.create", name="Feed Note Transition Test")["id"]
+        self.pid = self.call("project", action="create", name="Feed Note Transition Test")["id"]
 
     def tearDown(self) -> None:
         self.tmp.cleanup()

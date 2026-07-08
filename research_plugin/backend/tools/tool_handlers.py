@@ -579,12 +579,48 @@ def build_control_tool_handlers(
                 )
         return result
 
+    def project_control(
+        *,
+        action: str,
+        project_id: str = "",
+        name: str = "",
+        summary: str = "",
+        overwrite: bool = False,
+        tenant_id: str | None = None,
+    ) -> dict[str, Any]:
+        # The merged `project` tool. current/connect are served by the local
+        # proxy (which owns the folder→project link store) and never reach the
+        # brain; create and overview forward here. If current/connect DO arrive,
+        # an old proxy without the interceptor (or a direct HTTP caller) sent them.
+        if action == "create":
+            return projects.create(name=name, summary=summary, tenant_id=tenant_id)
+        if action == "overview":
+            # The whole-project read: reuse the exact claim.list and
+            # experiment.list projections so overview never drifts from them.
+            project = projects.get(project_id=project_id)
+            return {
+                "project": {
+                    "id": project["id"],
+                    "name": project["name"],
+                    "summary": project.get("summary", ""),
+                },
+                "claims": claims.list_claims(project_id=project_id)["claims"],
+                "experiments": _experiment_list_agent(
+                    experiments=experiments, project_id=project_id
+                )["experiments"],
+            }
+        raise ValidationError(
+            f'project action="{action}" is served by the local research_plugin '
+            "proxy, not the brain. Seeing this means your research_plugin client "
+            "is older than the brain — update the plugin (git pull) and restart "
+            "your MCP client."
+        )
+
     handlers = {
         "workflow.status_and_next": workflow.status_and_next_agent,
-        "project.create": projects.create,
+        "project": project_control,
         "project.update": projects.update,
         "project.get": projects.get,
-        "project.current": project_overview.current_project,
         "project.list": projects.list_projects,
         "claim.create": claims.create,
         "claim.list": claims.list_claims,
@@ -763,15 +799,8 @@ def build_local_tool_handlers(
         mlflow_tracking=mlflow_tracking,
         feed=feed,
     )
-    def project_connect_proxy_only(**_: Any) -> dict[str, Any]:
-        raise ValidationError(
-            "project.connect is served by the MCP stdio proxy, which owns "
-            "the folder→project link store"
-        )
-
     handlers.update(
         {
-            "project.connect": project_connect_proxy_only,
             "resource.register": resource_register,
             "experiment.materialize_folders": experiment_materialize_folders,
             "sandbox.request": sandboxes.request,

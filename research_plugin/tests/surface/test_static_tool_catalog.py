@@ -103,8 +103,13 @@ class BarePythonProxyTest(unittest.TestCase):
 
         self.assertEqual(bare, live)
         names = {tool["name"] for tool in bare}
-        self.assertIn("project.connect", names)
         self.assertIn("resource.register", names)
+        # The bare/offline catalog is the data-plane half only. The merged
+        # `project` tool is control-plane (brain-served), so with the brain
+        # unreachable it is not listed offline — a documented consequence of the
+        # merge (connect was cloud-validated anyway).
+        self.assertNotIn("project", names)
+        self.assertNotIn("project.connect", names)
 
     def test_sandbox_request_without_pydantic_skips_local_validation(self) -> None:
         captured: dict = {}

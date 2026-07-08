@@ -18,7 +18,7 @@ class SynthesisExperimentWriterTest(unittest.TestCase):
             repo_root=self.repo,
             db_path=self.repo / ".research_plugin" / "state.sqlite",
         )
-        self.project_id = self.call("project.create", name="Experiment Writer Test")[
+        self.project_id = self.call("project", action="create", name="Experiment Writer Test")[
             "id"
         ]
 

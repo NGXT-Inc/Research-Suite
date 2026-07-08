@@ -896,7 +896,7 @@ class ServiceLayoutTest(unittest.TestCase):
 
         self.assertEqual(
             set(HOSTED_CONTROL_TOOL_POLICIES),
-            {"project.create", "project.list", "project.current", "review.start"},
+            {"project", "project.list", "review.start"},
         )
         self.assertTrue(
             HOSTED_CONTROL_TOOL_POLICIES["review.start"].telemetry_from_review_request
@@ -906,9 +906,8 @@ class ServiceLayoutTest(unittest.TestCase):
         self.assertIn("HOSTED_CONTROL_TOOL_POLICIES", source)
         self.assertIn("HOSTED_CONTROL_TOOL_POLICIES", policy_source)
         for tool_name in (
-            "project.create",
+            "project",
             "project.list",
-            "project.current",
             "review.start",
         ):
             self.assertIn(f'"{tool_name}": HostedToolPolicy', policy_source)

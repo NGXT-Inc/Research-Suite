@@ -26,7 +26,7 @@ class ExperimentSlimTest(unittest.TestCase):
             db_path=self.repo / ".research_plugin" / "state.sqlite",
             execution_backend=FakeSandboxBackend(),
         )
-        self.project_id = self.call("project.create", name="Slim get_state")["id"]
+        self.project_id = self.call("project", action="create", name="Slim get_state")["id"]
 
     def tearDown(self) -> None:
         self.tmp.cleanup()

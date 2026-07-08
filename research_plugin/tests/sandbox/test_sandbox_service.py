@@ -29,7 +29,7 @@ class SandboxServiceTest(unittest.TestCase):
                 health_check=lambda: True,
             ),
         )
-        self.project_id = self.call("project.create", name="Sandbox Project")["id"]
+        self.project_id = self.call("project", action="create", name="Sandbox Project")["id"]
 
     def tearDown(self) -> None:
         self.app.shutdown()
@@ -111,7 +111,7 @@ class SandboxServiceTest(unittest.TestCase):
             sandbox_uid=result["sandbox_uid"],
         )
         self.assertEqual(got["sandbox_id"], result["sandbox_id"])
-        other_project = self.call("project.create", name="Other Project")["id"]
+        other_project = self.call("project", action="create", name="Other Project")["id"]
         with self.assertRaises(NotFoundError):
             self.call(
                 "sandbox.get",
@@ -598,7 +598,7 @@ class SandboxServiceTest(unittest.TestCase):
     def test_get_scoped_to_project(self) -> None:
         exp_id = self._experiment()
         self.call("sandbox.request", project_id=self.project_id, experiment_id=exp_id)
-        other = self.call("project.create", name="Other")["id"]
+        other = self.call("project", action="create", name="Other")["id"]
         with self.assertRaises(NotFoundError):
             self.call("sandbox.get", project_id=other, experiment_id=exp_id)
 

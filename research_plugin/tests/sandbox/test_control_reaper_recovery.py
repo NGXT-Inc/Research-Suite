@@ -91,7 +91,7 @@ class ControlReaperRecoveryTest(unittest.TestCase):
         # Seed a running, already-expired sandbox row directly (the provision
         # handshake is exercised elsewhere; here we test crash recovery of an
         # existing running row). The registry is the cloud's row authority.
-        project_id = app.call_tool("project.create", {"name": "Cloud Project"})["id"]
+        project_id = app.call_tool("project", {"action": "create", "name": "Cloud Project"})["id"]
         exp_id = app.call_tool(
             "experiment.create",
             {"project_id": project_id, "name": "reaper-recovery", "intent": "x"},

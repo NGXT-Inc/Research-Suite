@@ -18,8 +18,8 @@ class ExperimentMaterializeFoldersToolTest(unittest.TestCase):
             execution_backend=FakeSandboxBackend(),
         )
         self.project_id = self.app.call_tool(
-            "project.create",
-            {"name": "Folder Sync"},
+            "project",
+            {"action": "create", "name": "Folder Sync"},
         )["id"]
 
     def tearDown(self) -> None:

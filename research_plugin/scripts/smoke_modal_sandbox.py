@@ -133,7 +133,7 @@ def main() -> int:
         db_path=repo / ".research_plugin" / "state.sqlite",
         execution_backend=backend,
     )
-    project_id = app.call_tool("project.current", {})["project"]["id"]
+    project_id = app.current_project()["project"]["id"]
     experiment_id = app.call_tool(
         "experiment.create", {"project_id": project_id, "intent": "modal smoke test"}
     )["id"]

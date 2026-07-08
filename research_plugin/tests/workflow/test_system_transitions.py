@@ -34,7 +34,7 @@ class SystemTransitionTestBase(unittest.TestCase):
             db_path=self.repo / ".research_plugin" / "state.sqlite",
             execution_backend=self.backend,
         )
-        self.project_id = self.call("project.create", name="System Transitions")["id"]
+        self.project_id = self.call("project", action="create", name="System Transitions")["id"]
 
     def tearDown(self) -> None:
         self.app.shutdown()

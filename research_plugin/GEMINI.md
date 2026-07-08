@@ -13,8 +13,11 @@ Operating rules:
 
 - Treat the MCP server as the single authority for research and workflow
   state. Never reconstruct workflow state from memory.
-- Call `project.current` first. Then call `workflow.status_and_next` before
-  acting, and follow its `next_action`, allowed actions, and gate guidance.
+- Call `project` with `action: "current"` first. Then call
+  `workflow.status_and_next` before acting, and follow its `next_action`,
+  allowed actions, and gate guidance. For the full-project read — every claim
+  and experiment including settled/terminal ones — call `project` with
+  `action: "overview"`.
 - Local file edits are not research state. A file only becomes a research
   resource after `resource.register` (register + associate in one call).
 - For the full operating procedure, load the `research-workflow` skill. For

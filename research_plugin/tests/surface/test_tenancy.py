@@ -34,8 +34,8 @@ class TenancyTest(unittest.TestCase):
         self.store = self.app.store
         # Two projects, re-homed to two distinct tenants (bootstrap default is
         # the 'local' tenant; control mode would create them under a tenant).
-        self.proj_a = self.app.call_tool("project.create", {"name": "Proj A"})["id"]
-        self.proj_b = self.app.call_tool("project.create", {"name": "Proj B"})["id"]
+        self.proj_a = self.app.call_tool("project", {"action": "create", "name": "Proj A"})["id"]
+        self.proj_b = self.app.call_tool("project", {"action": "create", "name": "Proj B"})["id"]
         self._set_tenant(self.proj_a, "tenant_a")
         self._set_tenant(self.proj_b, "tenant_b")
 

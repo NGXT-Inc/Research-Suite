@@ -298,10 +298,29 @@ class HttpProxyMcpServer:
     # ---- tools/call ------------------------------------------------------
 
     def _call_tool(self, *, name: str, arguments: dict[str, Any]) -> dict[str, Any]:
-        if name == "project.current":
-            return self._current_project()
-        if name == "project.connect":
-            return self._connect_project(arguments=arguments)
+        if name == "project":
+            action = str(arguments.get("action") or "")
+            if action == "current":
+                return self._current_project()
+            if action == "connect":
+                return self._connect_project(arguments=arguments)
+            if action == "overview":
+                # Whole-project read: mirror current's identity handling —
+                # resolve the linked project_id locally and forward it as the
+                # explicit scope (never an agent-supplied field). Unlinked folder
+                # returns the same not-linked report current gives.
+                project_id = self._resolve_project_id()
+                if not project_id:
+                    return self._current_project()
+                return self._call_cloud_raw(
+                    name="project",
+                    arguments={**arguments, "project_id": project_id},
+                )
+            # create (and any other/invalid action) forwards upstream as the
+            # `project` tool. It takes no project scope, so route through the raw
+            # path that never injects the linked project_id; the brain's pydantic
+            # validation returns the enum error for an unknown action.
+            return self._call_cloud_raw(name="project", arguments=arguments)
         plane = self._plane_for(name=name)
         if name in _LOCAL_ENRICHED_CONTROL_TOOLS:
             return self._call_local_enriched_control(name=name, arguments=arguments)
@@ -426,10 +445,11 @@ class HttpProxyMcpServer:
                 "repo_root": str(self.config.repo_root),
                 "hint": (
                     "No hosted Research Plugin project is linked for this folder. "
-                    "Ask the user which existing project_id to link and call "
-                    "project.connect with it; or ask for a project name and "
-                    "short summary and call project.connect with name/summary "
-                    "to create and link in one step."
+                    "Ask the user which existing project_id to link and call the "
+                    'project tool with action="connect" and that project_id; or '
+                    "ask for a project name and short summary and call it with "
+                    'action="connect" and name/summary to create and link in one '
+                    "step."
                 ),
             }
         project = dict(self._call_cloud(name="project.get", arguments={"project_id": project_id}))
@@ -459,8 +479,8 @@ class HttpProxyMcpServer:
         project_id = self._resolve_project_id()
         if not project_id:
             raise _UpstreamError(
-                "no hosted project link found for repo; call project.connect "
-                "to link this folder to a project",
+                "no hosted project link found for repo; call the project tool "
+                'with action="connect" to link this folder to a project',
                 error_code="project_not_linked",
                 details={"repo_root": str(self.config.repo_root)},
             )
@@ -503,15 +523,15 @@ class HttpProxyMcpServer:
         else:
             project = dict(
                 self._call_cloud_raw(
-                    name="project.create",
-                    arguments={"name": name, "summary": summary},
+                    name="project",
+                    arguments={"action": "create", "name": name, "summary": summary},
                 )
             )
             created = True
             project_id = str(project.get("id") or "")
             if not project_id:
                 raise _UpstreamError(
-                    "project.create returned no project id",
+                    "project create returned no project id",
                     error_code="daemon_bad_response",
                     details={"project": project},
                 )
@@ -630,9 +650,10 @@ class HttpProxyMcpServer:
         # The plane field is an internal routing hint, not part of the MCP tool
         # schema — strip it from what the client sees.
         scoped.pop("plane", None)
-        # project.connect keeps project_id visible: there it is the caller's
-        # explicit choice of which project to link, not hidden repo context.
-        if scoped.get("name") == "project.connect":
+        # The `project` tool keeps project_id visible: for action=connect it is
+        # the caller's explicit choice of which project to link, not hidden repo
+        # context the proxy injects.
+        if scoped.get("name") == "project":
             return scoped
         schema = scoped.get("inputSchema")
         if not isinstance(schema, dict):

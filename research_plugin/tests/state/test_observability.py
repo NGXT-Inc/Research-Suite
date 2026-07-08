@@ -82,7 +82,7 @@ class TenantCountersTest(unittest.TestCase):
         )
         self.store = self.app.store
         self.counters = TenantCounters(store=self.store)
-        self.project_id = self.app.call_tool("project.create", {"name": "Proj P"})["id"]
+        self.project_id = self.app.call_tool("project", {"action": "create", "name": "Proj P"})["id"]
         with self.store.transaction() as conn:
             conn.execute(
                 "UPDATE projects SET tenant_id = ? WHERE id = ?",

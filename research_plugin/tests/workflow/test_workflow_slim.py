@@ -29,7 +29,7 @@ class WorkflowSlimTest(unittest.TestCase):
             db_path=self.repo / ".research_plugin" / "state.sqlite",
             execution_backend=self.backend,
         )
-        self.project_id = self.call("project.create", name="Slim Project")["id"]
+        self.project_id = self.call("project", action="create", name="Slim Project")["id"]
 
     def tearDown(self) -> None:
         self.tmp.cleanup()

@@ -1,4 +1,4 @@
-"""Project orientation view for agent-facing project.current."""
+"""Project orientation view for the agent-facing project tool (action=current)."""
 
 from __future__ import annotations
 

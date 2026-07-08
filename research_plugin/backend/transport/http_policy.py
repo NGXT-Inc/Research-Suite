@@ -39,9 +39,11 @@ class HttpSurfacePolicy:
 
 
 HOSTED_CONTROL_TOOL_POLICIES = {
-    "project.create": HostedToolPolicy(),
+    # The merged `project` tool (action=create reaches the brain) and the
+    # UI-facing project.list are non-project-scoped control calls that must run
+    # in hosted mode without a resolved project scope.
+    "project": HostedToolPolicy(),
     "project.list": HostedToolPolicy(),
-    "project.current": HostedToolPolicy(),
     "review.start": HostedToolPolicy(telemetry_from_review_request=True),
 }
 

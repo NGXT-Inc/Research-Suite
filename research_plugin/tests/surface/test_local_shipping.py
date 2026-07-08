@@ -68,10 +68,15 @@ class LocalShippingTest(unittest.TestCase):
         status_schema = next(tool for tool in tools if tool["name"] == "workflow.status_and_next")["inputSchema"]
         self.assertNotIn("project_id", status_schema.get("required", []))
 
-        # Onboard the way a real session does: project.connect creates the
-        # hosted project AND writes the proxy-local folder link in one call.
+        # Onboard the way a real session does: the project tool with
+        # action=connect creates the hosted project AND writes the proxy-local
+        # folder link in one call.
         connected = self._tool(
-            proc, "project.connect", name="Shipping Smoke", summary="Run from arbitrary repo."
+            proc,
+            "project",
+            action="connect",
+            name="Shipping Smoke",
+            summary="Run from arbitrary repo.",
         )
         self.assertTrue(connected["linked"])
         self.assertTrue(connected["created"])

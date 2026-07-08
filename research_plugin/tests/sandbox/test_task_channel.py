@@ -23,7 +23,7 @@ class TaskChannelTestBase(unittest.TestCase):
             execution_backend=self.backend,
         )
         self.channel: ControlTaskChannel = self.app.sandboxes.tasks
-        self.project_id = self.call("project.create", name="Channel Project")["id"]
+        self.project_id = self.call("project", action="create", name="Channel Project")["id"]
 
     def tearDown(self) -> None:
         self.app.shutdown()

@@ -160,7 +160,8 @@ class ProjectService:
                 "project": None,
                 "hint": (
                     "No Research Plugin project exists yet. Ask the user what project "
-                    "name and short summary to use, then call project.create."
+                    "name and short summary to use, then call the project tool with "
+                    'action="connect".'
                 ),
             }
         if len(projects) > 1:
