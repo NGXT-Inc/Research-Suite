@@ -122,29 +122,13 @@ class WorkflowService:
                     allowed=["claim.create", "experiment.create"],
                 )
             )
-            if (project or {}).get("status") == "stopped":
-                workflow = self._next(
-                    gate="project_stopped",
-                    action="none",
-                    allowed=[],
-                    blocked=[
-                        {
-                            "action": "create_claim_or_experiment",
-                            "reason": "project was hard-stopped by a published reflection",
-                        }
-                    ],
-                )
             idle = all(
                 str(row["status"]) in TERMINAL_STATUSES for row in exp_rows
             )
             reflection = self._project_reflection(
                 conn=conn, project_id=project_id, idle=idle
             )
-            if (
-                (project or {}).get("status") != "stopped"
-                and requested_experiment_id is None
-                and idle
-            ):
+            if requested_experiment_id is None and idle:
                 takeover = self._reflection_workflow_takeover(reflection=reflection)
                 if takeover is not None:
                     workflow = takeover
@@ -743,12 +727,12 @@ class WorkflowService:
                 "template": "skills/project-reflection/reflection-artifacts-template.md",
                 "guidance": (
                     "Write the change spec as JSON: claim_changes plus a "
-                    "decision of either hard_stop or create_experiments. For "
-                    "create_experiments, include 2-3 planned experiment specs "
-                    "with names, intents, tested claim refs, and a parallelism "
-                    "note. Publish will apply this only after the reflection "
-                    "reviewer passes it. Then register the file and associate "
-                    "it with role 'change_spec' for this reflection wave."
+                    "create_experiments decision with 1-3 planned experiment "
+                    "specs — names, intents, tested claim refs, and (for a "
+                    "multi-experiment wave) a parallelism note each. Publish "
+                    "will apply this only after the reflection reviewer passes "
+                    "it. Then register the file and associate it with role "
+                    "'change_spec' for this reflection wave."
                 ),
             }
         return None

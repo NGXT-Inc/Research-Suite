@@ -406,19 +406,13 @@ class ServiceLayoutTest(unittest.TestCase):
             _class_method_names(synthesis_writer_path, "ReflectionExperimentWriter"),
             {"create_from_synthesis"},
         )
-        self.assertEqual(
-            _class_method_names(synthesis_writer_path, "ReflectionProjectWriter"),
-            {"stop_from_synthesis"},
-        )
         from backend.ports.reflection_writers import (
             ReflectionClaimWriter,
             ReflectionExperimentWriter,
-            ReflectionProjectWriter,
         )
 
         self.assertIn(Protocol, ReflectionClaimWriter.__mro__)
         self.assertIn(Protocol, ReflectionExperimentWriter.__mro__)
-        self.assertIn(Protocol, ReflectionProjectWriter.__mro__)
 
     def test_sandbox_lifecycle_workers_use_ports_not_concrete_services(self) -> None:
         self.assertNotIn(
@@ -1211,9 +1205,8 @@ class ServiceLayoutTest(unittest.TestCase):
         self.assertNotIn("INSERT INTO claims", source)
         self.assertNotIn("UPDATE claims", source)
 
-    def test_synthesis_service_uses_project_writer_for_hard_stop(self) -> None:
+    def test_synthesis_service_does_not_write_projects(self) -> None:
         source = _source("reflections.py")
-        self.assertIn("project_writer: ReflectionProjectWriter", source)
         self.assertNotIn("UPDATE projects", source)
         self.assertNotIn("project.stopped", source)
 

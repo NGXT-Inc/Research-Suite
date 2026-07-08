@@ -992,7 +992,7 @@ TOOL_CONTRACTS: dict[str, ToolContract] = {
             "reflection.get.allowed_transitions for preconditions from the "
             "current status. On publish, after the reflection reviewer has "
             "passed, the reviewed change spec applies claim changes and "
-            "either stops the project or creates the approved experiment wave."
+            "creates the approved experiment wave."
         ),
     ),
     "resource.register_file": ToolContract(

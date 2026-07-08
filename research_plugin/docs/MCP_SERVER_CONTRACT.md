@@ -129,15 +129,16 @@ own subagent. `submit_reflection_artifacts` requires the project logic graph (ro
 `project_graph`, the same `graph_lint` envelope as experiment graphs — ≤16 nodes,
 DAG), a concise reflection document (role `reflection_doc`), and a
 materializable change spec (role `change_spec`). The change spec is the
-reviewed belief-state update: `claim_changes` plus a decision of either
-`hard_stop` or `create_experiments` with 2-3 planned experiments. The
+reviewed belief-state update: `claim_changes` plus a `create_experiments`
+decision with 1-3 planned experiments (each carrying a `parallelism` note
+when the wave has more than one). The
 reflection document is a 16 KB markdown artifact and may include relative image
 links; linked image bytes are captured when the document is associated.
 `publish`
 requires a passing `reflection_reviewer` review at the current snapshot; only
-then does it apply claim changes and either mark the project stopped or create
+then does it apply claim changes and create
 the approved planned experiments, while also pinning the published graph
-version. When publish creates planned experiments, the response includes
+version. The response includes
 `post_publish_guidance` with the new experiment folders and recommended next
 calls: `experiment.materialize_folders(status="planned")`, then
 `workflow.status_and_next(experiment_id=...)` for the first new experiment.

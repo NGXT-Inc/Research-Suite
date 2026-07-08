@@ -93,7 +93,6 @@ class ExperimentService:
             raise ValidationError("intent is required")
         with self.store.transaction() as conn:
             project_id = self.store.require_project_id(conn=conn, project_id=project_id)
-            self._reject_stopped_project(conn=conn, project_id=project_id)
             self._reject_active_experiment_cap(conn=conn, project_id=project_id)
             self._reject_reflection_blocked_experiment_create(
                 conn=conn, project_id=project_id
@@ -144,11 +143,6 @@ class ExperimentService:
                 "upload results you want to keep."
             )
             return state
-
-    def _reject_stopped_project(self, *, conn, project_id: str) -> None:
-        row = conn.execute("SELECT status FROM projects WHERE id = ?", (project_id,)).fetchone()
-        if row is not None and row["status"] == "stopped":
-            raise ValidationError("project is stopped; new experiments are not allowed")
 
     def _active_experiment_count(self, *, conn, project_id: str) -> int:
         terminal = ", ".join(f"'{status}'" for status in sorted(TERMINAL_STATUSES))

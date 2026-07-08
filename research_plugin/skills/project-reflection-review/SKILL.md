@@ -66,14 +66,15 @@ the actual records, not against each other.
 - **Is the belief-state update warranted?** Claim updates should follow from
   reviewed evidence, not from speculation. New claims should represent live
   uncertainties or newly-established beliefs that the project graph supports.
-- **Is the decision correct?** A hard stop should be justified by the corpus,
-  not by fatigue or missing imagination. A `create_experiments` decision should
-  produce 2-3 concrete planned experiments that can run in parallel and move
-  the listed claims.
-- **Are the experiment specs real?** Each should carry an intent, tested claim
-  refs, and a parallelism/independence note. Does any collide with the
-  dead-end ledger without stating what differs this time? Is the wave coherent
-  enough to materialize as project experiments on publish?
+- **Is the decision correct?** The proposed wave (1-3 planned experiments)
+  should follow from the corpus and move the listed claims — not from fatigue
+  or missing imagination. When the wave has more than one experiment, they
+  must genuinely be able to run in parallel.
+- **Are the experiment specs real?** Each should carry an intent and tested
+  claim refs (plus a parallelism/independence note in a multi-experiment
+  wave). Does any collide with the dead-end ledger without stating what
+  differs this time? Is the wave coherent enough to materialize as project
+  experiments on publish?
 - The graph's **vocabulary and structure are the author's design**, not
   yours to prescribe. Judge whether the story is honest and the logic state
   is current — not whether you would have drawn it differently. The 16-node
@@ -84,13 +85,12 @@ the actual records, not against each other.
 - `pass`: the graph honestly represents the project's logic state against
   the corpus, the reflection document is concise and critical, and the change
   spec is safe to materialize. Your pass allows
-  `publish` to apply claim changes and either stop the project or create the
-  approved experiments.
+  `publish` to apply claim changes and create the approved experiments.
 - `needs_changes` / `fail`: the reflection artifacts must be redone. You MUST also pass
   `return_to`:
   - `return_to: "synthesizing"` — the **reflections stand**, but the
     reflection is flawed (cherry-picking, unverified assertions carried
-    forward, weak claim changes, unjustified hard stop, or ledger-colliding
+    forward, weak claim changes, or ledger-colliding
     experiment specs). The orchestrator revises the graph, reflection doc,
     and/or change spec and resubmits; the fan-out does not re-run.
   - `return_to: "reflecting"` — the **reflections themselves are

@@ -61,9 +61,9 @@ records, not against each other.
 - Were the lenses real? Near-duplicate reflections mean the engineered
   diversity didn't happen — grounds for `return_to: "reflecting"`.
 - Is the change spec real and warranted? Claim updates should follow from
-  reviewed evidence, not speculation. A hard stop should be justified by the
-  corpus. A `create_experiments` decision should propose 2-3 concrete planned
-  experiments that can run in parallel, with no unexplained re-entry into a
+  reviewed evidence, not speculation. The decision should propose 1-3
+  concrete planned experiments that follow from the corpus — able to run in
+  parallel when there is more than one — with no unexplained re-entry into a
   ledger dead end.
 - The graph's vocabulary and structure are the author's design, not yours to
   prescribe. Judge honesty and currency of the logic state, not how you

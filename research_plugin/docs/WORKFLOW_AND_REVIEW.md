@@ -282,13 +282,13 @@ Gates (envelope-only, same philosophy as experiment gates):
    links submitted alongside the markdown), and a materializable change spec
    (role `change_spec`), all associated to the wave's current attempt. The
    change spec is the reviewed belief-state update: claim creations/updates
-   plus exactly one decision — `hard_stop` or `create_experiments` with 2-3
-   planned experiments.
+   plus a `create_experiments` decision with 1-3 planned experiments (each
+   carrying a `parallelism` note when the wave has more than one).
 4. Reflection review gate: `publish` requires a passing `reflection_reviewer`
    review pinned to the wave's snapshot. The reviewer judges substance —
    does the story reconcile with the corpus, were the lenses genuinely
    diverse, is the belief-state update warranted, are the concrete experiments
-   or hard stop justified — through the same capability machinery (one-time
+   justified — through the same capability machinery (one-time
    token, snapshot pinning, producer-session rejection, read-only funnel) as
    experiment reviews. Rejections must route via `return_to`: `synthesizing`
    or `reflecting`.

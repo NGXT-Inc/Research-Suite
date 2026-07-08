@@ -56,20 +56,5 @@ class ReflectionExperimentWriter(Protocol):
         ...
 
 
-class ReflectionProjectWriter(Protocol):
-    """Project writes triggered by a reviewed reflection change spec."""
-
-    def stop_from_synthesis(
-        self,
-        *,
-        conn: Any,
-        project_id: str,
-        synthesis_id: str,
-        rationale: str,
-    ) -> None:
-        ...
-
-
 SynthesisClaimWriter = ReflectionClaimWriter
 SynthesisExperimentWriter = ReflectionExperimentWriter
-SynthesisProjectWriter = ReflectionProjectWriter

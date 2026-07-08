@@ -985,6 +985,8 @@ class SynthesisGateTest(unittest.TestCase):
             statement="Schedule effect survives null updates.",
             confidence="high",
         )
+        # A single-experiment wave also exercises the relaxed decision rule:
+        # one experiment is enough, and it needs no parallelism note.
         outcome = {
             "version": 1,
             "claim_changes": [
@@ -997,8 +999,15 @@ class SynthesisGateTest(unittest.TestCase):
                 }
             ],
             "decision": {
-                "type": "hard_stop",
-                "rationale": "No new experiment is needed for this regression check.",
+                "type": "create_experiments",
+                "experiments": [
+                    {
+                        "key": "null_update_check",
+                        "name": "null-update-check",
+                        "intent": "Confirm the schedule effect after the null update.",
+                        "tested_claim_refs": [existing["id"]],
+                    }
+                ],
             },
         }
         syn_id = self._drive_to_synthesizing()
@@ -1042,7 +1051,9 @@ class SynthesisGateTest(unittest.TestCase):
         self.assertEqual(self.call("claim.list", project_id=self.project_id)["claims"], [])
         self.assertEqual(self.call("experiment.list", project_id=self.project_id)["experiments"], [])
 
-    def test_publish_hard_stop_marks_project_and_blocks_new_work(self) -> None:
+    def test_change_spec_rejects_hard_stop_decision(self) -> None:
+        # Stopping the project is the researcher's call — the old hard_stop
+        # decision must not validate.
         outcome = {
             "version": 1,
             "claim_changes": [],
@@ -1053,36 +1064,44 @@ class SynthesisGateTest(unittest.TestCase):
         }
         syn_id = self._drive_to_synthesizing()
         self._associate_synthesis_artifacts(syn_id=syn_id, change_spec=json.dumps(outcome))
-        self.call(
-            "reflection.transition",
-            project_id=self.project_id,
-            reflection_id=syn_id,
-            transition="submit_reflection_artifacts",
-        )
-        session_id = self._open_review_session(syn_id=syn_id)
-        self.call(
-            "review.submit",
-            review_session_id=session_id,
-            verdict="pass",
-            synopsis="The reflection wave honestly represents the project's logic state.",
-        )
-        self.call(
-            "reflection.transition",
-            project_id=self.project_id,
-            reflection_id=syn_id,
-            transition="publish",
-        )
-        project = self.call("project.get", project_id=self.project_id)
-        self.assertEqual(project["status"], "stopped")
-        self.assertEqual(project["hard_stop_reflection_id"], syn_id)
-        self.assertEqual(self.call("experiment.list", project_id=self.project_id)["experiments"], [])
-        with self.assertRaises(ValidationError):
+        with self.assertRaises(WorkflowError) as ctx:
             self.call(
-                "experiment.create",
+                "reflection.transition",
                 project_id=self.project_id,
-                name="after-stop",
-                intent="Should not be created.",
+                reflection_id=syn_id,
+                transition="submit_reflection_artifacts",
             )
+        self.assertIn("decision.type must be 'create_experiments'", str(ctx.exception))
+
+    def test_multi_experiment_wave_requires_parallelism_notes(self) -> None:
+        spec = json.loads(VALID_CHANGE_SPEC)
+        del spec["decision"]["experiments"][1]["parallelism"]
+        syn_id = self._drive_to_synthesizing()
+        self._associate_synthesis_artifacts(syn_id=syn_id, change_spec=json.dumps(spec))
+        with self.assertRaises(WorkflowError) as ctx:
+            self.call(
+                "reflection.transition",
+                project_id=self.project_id,
+                reflection_id=syn_id,
+                transition="submit_reflection_artifacts",
+            )
+        self.assertIn(
+            "parallelism is required for a multi-experiment wave", str(ctx.exception)
+        )
+
+    def test_change_spec_requires_at_least_one_experiment(self) -> None:
+        spec = json.loads(VALID_CHANGE_SPEC)
+        spec["decision"]["experiments"] = []
+        syn_id = self._drive_to_synthesizing()
+        self._associate_synthesis_artifacts(syn_id=syn_id, change_spec=json.dumps(spec))
+        with self.assertRaises(WorkflowError) as ctx:
+            self.call(
+                "reflection.transition",
+                project_id=self.project_id,
+                reflection_id=syn_id,
+                transition="submit_reflection_artifacts",
+            )
+        self.assertIn("at least one experiment", str(ctx.exception))
 
     # ---- review gate + routing ----
 

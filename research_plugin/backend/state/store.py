@@ -81,9 +81,6 @@ CREATE TABLE IF NOT EXISTS projects (
   name TEXT NOT NULL,
   summary TEXT NOT NULL DEFAULT '',
   status TEXT NOT NULL DEFAULT 'active',
-  hard_stop_reflection_id TEXT,
-  hard_stop_rationale TEXT NOT NULL DEFAULT '',
-  stopped_at TEXT,
   -- Per-project policy knobs (e.g. require_verified_reviews), JSON dict.
   settings_json TEXT NOT NULL DEFAULT '{}',
   -- Tenancy (cloud plan Phase 6): ownership lives on the project row; every
@@ -573,6 +570,15 @@ MIGRATIONS: tuple[tuple[int, str, str], ...] = (
     # without a migration, so migrated deployments lacked all eight columns
     # (found when the sandbox signal ETag 500ed on production Postgres).
     (16, "add_sandbox_last_command_columns", ""),
+    # Hard stop removed (July 2026): a published reflection can no longer stop
+    # the project — winding down is the researcher's call, made outside the
+    # workflow. Reactivate projects stopped under the old contract; the legacy
+    # hard_stop_* columns stay behind in old databases, inert.
+    (
+        17,
+        "reactivate_hard_stopped_projects",
+        "UPDATE projects SET status = 'active' WHERE status = 'stopped'",
+    ),
 )
 
 
@@ -1198,31 +1204,14 @@ class StateStore(BaseStateStore):
         # Cloud-split Phase 6 (June 2026): tenancy column — projects carry
         # ownership; local mode is the fixed 'local' tenant (which is also the
         # column default, so older rows converge to it).
-        existing_project_columns = {
-            str(row["name"])
-            for row in conn.execute("PRAGMA table_info(projects)").fetchall()
-        }
         self._ensure_columns(
             conn=conn,
             table="projects",
             columns={
                 "tenant_id": "TEXT NOT NULL DEFAULT 'local'",
                 "status": "TEXT NOT NULL DEFAULT 'active'",
-                "hard_stop_reflection_id": "TEXT",
-                "hard_stop_rationale": "TEXT NOT NULL DEFAULT ''",
-                "stopped_at": "TEXT",
             },
         )
-        if "hard_stop_synthesis_id" in existing_project_columns:
-            conn.execute(
-                """
-                UPDATE projects
-                SET hard_stop_reflection_id = COALESCE(
-                    hard_stop_reflection_id,
-                    hard_stop_synthesis_id
-                )
-                """
-            )
         # Experiments now persist the accepted conclusion on `complete`; older
         # databases predate the column. Named experiments (June 2026): the
         # short unique name doubles as the experiment folder name; empty on

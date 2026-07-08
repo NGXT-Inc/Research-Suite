@@ -354,28 +354,18 @@ def decision_problems(
         problems.append("decision must be an object")
         return
     typ = str(decision.get("type") or "").strip()
-    if typ == "hard_stop":
-        if not str(decision.get("rationale") or "").strip():
-            problems.append("decision.rationale is required for hard_stop")
-        if non_terminal_experiments is not None:
-            active = non_terminal_experiments()
-            if active:
-                problems.append(
-                    "hard_stop requires no non-terminal experiments; active: "
-                    + ", ".join(active)
-                )
-        return
     if typ != "create_experiments":
-        problems.append("decision.type must be 'hard_stop' or 'create_experiments'")
+        problems.append("decision.type must be 'create_experiments'")
         return
     experiments = decision.get("experiments")
     if not isinstance(experiments, list):
         problems.append("decision.experiments must be a list")
         return
-    if len(experiments) < 2:
+    if not experiments:
         problems.append(
-            "decision.experiments must contain at least two experiments so "
-            "the approved wave can run in parallel"
+            "decision.experiments must contain at least one experiment — the "
+            "next wave the project runs; stopping is the researcher's call, "
+            "not the reflection's"
         )
     if len(experiments) > 3:
         problems.append(
@@ -417,10 +407,10 @@ def decision_problems(
                 problems.append(f"experiment name already exists in project: {name}")
         if not str(proposal.get("intent") or "").strip():
             problems.append(f"{label}.intent is required")
-        if not str(proposal.get("parallelism") or "").strip():
+        if len(experiments) >= 2 and not str(proposal.get("parallelism") or "").strip():
             problems.append(
-                f"{label}.parallelism is required; state why this experiment "
-                "can run independently of the rest of the wave"
+                f"{label}.parallelism is required for a multi-experiment wave; "
+                "state why this experiment can run independently of the rest"
             )
         refs = claim_refs(proposal)
         if not refs:

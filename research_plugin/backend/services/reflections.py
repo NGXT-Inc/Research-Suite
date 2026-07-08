@@ -52,7 +52,6 @@ from ..domain.vocabulary import EXPERIMENT_TERMINAL_STATUSES
 from ..ports.reflection_writers import (
     ReflectionClaimWriter,
     ReflectionExperimentWriter,
-    ReflectionProjectWriter,
 )
 from ..artifacts.pinned import PinnedStore, resubmit_hint
 from ..state.store import BaseStateStore, next_created_seq, row_to_dict, rows_to_dicts
@@ -67,13 +66,11 @@ class ReflectionService:
         store: BaseStateStore,
         claims: ReflectionClaimWriter,
         experiment_writer: ReflectionExperimentWriter,
-        project_writer: ReflectionProjectWriter,
         pinned: PinnedStore | None = None,
     ) -> None:
         self.store = store
         self.claims = claims
         self.experiment_writer = experiment_writer
-        self.project_writer = project_writer
         # Gate lints read submitted (pinned) bytes from here, never the
         # working tree (see artifacts/pinned.py).
         self.pinned = pinned
@@ -956,21 +953,12 @@ class ReflectionService:
             synthesis_id=synthesis_id,
             changes=spec.get("claim_changes") or [],
         )
-        decision = spec["decision"]
-        if decision["type"] == "hard_stop":
-            self._materialize_hard_stop(
-                conn=conn,
-                project_id=project_id,
-                synthesis_id=synthesis_id,
-                rationale=str(decision.get("rationale") or "").strip(),
-            )
-            return
         self._materialize_experiment_wave(
             conn=conn,
             project_id=project_id,
             synthesis_id=synthesis_id,
             key_to_claim_id=key_to_claim_id,
-            experiments=decision.get("experiments") or [],
+            experiments=spec["decision"].get("experiments") or [],
         )
 
     def _materialize_claim_changes(
@@ -1030,16 +1018,6 @@ class ReflectionService:
                 (synthesis_id, claim_id, op, key, now_iso()),
             )
         return key_to_claim_id
-
-    def _materialize_hard_stop(
-        self, *, conn, project_id: str, synthesis_id: str, rationale: str
-    ) -> None:
-        self.project_writer.stop_from_synthesis(
-            conn=conn,
-            project_id=project_id,
-            synthesis_id=synthesis_id,
-            rationale=rationale,
-        )
 
     def _materialize_experiment_wave(
         self,

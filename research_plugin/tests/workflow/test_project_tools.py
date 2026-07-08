@@ -23,7 +23,9 @@ class ProjectToolTest(unittest.TestCase):
     def call(self, tool: str, **kwargs):
         return self.app.call_tool(tool, kwargs)
 
-    def test_active_project_view_omits_hard_stop_fields(self) -> None:
+    def test_project_view_omits_legacy_hard_stop_fields(self) -> None:
+        # The hard-stop mechanism is gone; views must not resurface its
+        # legacy columns even on databases that still carry them.
         project = self.call("project.create", name="Alpha")
         self.assertNotIn("hard_stop_reflection_id", project)
         self.assertNotIn("hard_stop_rationale", project)
@@ -34,79 +36,21 @@ class ProjectToolTest(unittest.TestCase):
         self.assertNotIn("hard_stop_rationale", fetched)
         self.assertNotIn("stopped_at", fetched)
 
-    def test_stopped_project_view_includes_hard_stop_fields(self) -> None:
+    def test_legacy_stopped_project_reactivates_on_migration(self) -> None:
         project = self.call("project.create", name="Alpha")
+        # Simulate a database stopped under the removed hard-stop contract,
+        # before the reactivation migration existed.
         with self.app.store.transaction() as conn:
             conn.execute(
-                """
-                UPDATE projects
-                SET status = 'stopped',
-                    hard_stop_reflection_id = 'syn_test',
-                    hard_stop_rationale = 'No viable directions remain.',
-                    stopped_at = '2026-01-01T00:00:00Z'
-                WHERE id = ?
-                """,
+                "UPDATE projects SET status = 'stopped' WHERE id = ?",
                 (project["id"],),
             )
-
-        stopped = self.call("project.get", project_id=project["id"])
-        self.assertEqual(stopped["status"], "stopped")
-        self.assertEqual(stopped["hard_stop_reflection_id"], "syn_test")
-        self.assertEqual(stopped["hard_stop_rationale"], "No viable directions remain.")
-        self.assertEqual(stopped["stopped_at"], "2026-01-01T00:00:00Z")
-
-    def test_stop_from_synthesis_sets_hard_stop_fields_and_event(self) -> None:
-        project = self.call("project.create", name="Alpha")
-        with self.app.store.transaction() as conn:
-            self.app.projects.stop_from_synthesis(
-                conn=conn,
-                project_id=project["id"],
-                synthesis_id="syn_stop",
-                rationale="No viable directions remain.",
+            conn.execute(
+                "DELETE FROM schema_migrations WHERE name = 'reactivate_hard_stopped_projects'"
             )
-
-        stopped = self.call("project.get", project_id=project["id"])
-        self.assertEqual(stopped["status"], "stopped")
-        self.assertEqual(stopped["hard_stop_reflection_id"], "syn_stop")
-        self.assertEqual(stopped["hard_stop_rationale"], "No viable directions remain.")
-        self.assertTrue(stopped["stopped_at"])
-        events = self.app.store.recent_events(project_id=project["id"], limit=5)[
-            "events"
-        ]
-        stopped_event = next(
-            event
-            for event in events
-            if event["type"] == "project.stopped"
-            and event["target_id"] == project["id"]
-        )
-        self.assertEqual(
-            stopped_event["payload"],
-            {
-                "synthesis_id": "syn_stop",
-                "rationale": "No viable directions remain.",
-            },
-        )
-
-    def test_stop_from_synthesis_updates_legacy_synthesis_id_column(self) -> None:
-        project = self.call("project.create", name="Alpha")
-        with self.app.store.transaction() as conn:
-            columns = {
-                str(row["name"])
-                for row in conn.execute("PRAGMA table_info(projects)").fetchall()
-            }
-            if "hard_stop_synthesis_id" not in columns:
-                conn.execute("ALTER TABLE projects ADD COLUMN hard_stop_synthesis_id TEXT")
-            self.app.projects.stop_from_synthesis(
-                conn=conn,
-                project_id=project["id"],
-                synthesis_id="syn_legacy",
-                rationale="Legacy compatibility.",
-            )
-            row = conn.execute(
-                "SELECT hard_stop_synthesis_id FROM projects WHERE id = ?",
-                (project["id"],),
-            ).fetchone()
-        self.assertEqual(row["hard_stop_synthesis_id"], "syn_legacy")
+        self.app.store._initialize()
+        fetched = self.call("project.get", project_id=project["id"])
+        self.assertEqual(fetched["status"], "active")
 
     def test_project_name_must_be_at_least_three_chars_on_create_and_update(self) -> None:
         with self.assertRaises(ValidationError) as ctx:

@@ -67,7 +67,6 @@ def build_record_core(*, store: BaseStateStore, blobs: BlobStore) -> RecordCore:
         store=store,
         claims=claims,
         experiment_writer=experiments,
-        project_writer=projects,
         pinned=pinned,
     )
     reflection_tools = ReflectionToolService(reflections=reflection_waves)

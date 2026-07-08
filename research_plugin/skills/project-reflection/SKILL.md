@@ -25,8 +25,8 @@ three reviewed reflection artifacts:
 - the **reflection document** (role `reflection_doc`): a short markdown
   scientific reading of the five lens reflections, written by the orchestrator;
 - the **change spec** (role `change_spec`): the reviewed belief-state update
-  — claim creations/updates plus either a hard-stop decision or the concrete
-  next wave of planned experiments to create.
+  — claim creations/updates plus the concrete next wave of planned
+  experiments to create.
 
 Quality comes from two mechanisms, both enforced by the workflow: **diversity
 of thought** (five reflection agents, each reading the project from a
@@ -163,11 +163,12 @@ Produce three artifacts and associate each to the reflection wave:
    few relative image links when a visual makes the reflection easier to read.
 3. **The change spec** (role `change_spec`) — see
    `reflection-artifacts-template.md`. This JSON file is the project belief-state update:
-   `claim_changes` creates or edits claims, and `decision` is exactly one of:
-   `hard_stop` or `create_experiments`. For `create_experiments`, list 2-3
-   concrete planned experiments the next wave should run in parallel; each
-   must have a folder-safe `name`, an `intent`, tested claim refs, and a
-   `parallelism` note. Use claim `key`s when a new claim created in
+   `claim_changes` creates or edits claims, and `decision` proposes the next
+   wave: 1-3 concrete planned experiments, each with a folder-safe `name`, an
+   `intent`, and tested claim refs; when the wave has more than one
+   experiment, each also needs a `parallelism` note. Stopping the project is
+   not a decision the reflection can make — that call belongs to the
+   researcher. Use claim `key`s when a new claim created in
    `claim_changes` is referenced by an experiment in the same spec.
 
 Do not create the experiments yourself during reflection. They are materialized
@@ -193,9 +194,8 @@ start the review). The reviewer sees the corpus, the previous graph,
 all five reflections, and your reflection artifacts — and verdicts route:
 
 - `pass` → call `reflection.transition(publish)`. The wave pins the graph
-  version it published, applies the approved claim changes, and either marks
-  the project stopped or creates the approved planned experiments. When
-  experiments are created, read `post_publish_guidance`: it names the new
+  version it published, applies the approved claim changes, and creates the
+  approved planned experiments. Read `post_publish_guidance`: it names the new
   experiment folders and recommends `experiment.materialize_folders` before
   starting the next wave. The living graph file remains for the next wave to
   edit.
@@ -212,5 +212,4 @@ the UI shows it on the Home page. `workflow.status_and_next` computes drift —
 experiments finishing, claims flipping — and will nudge ("Consider running a
 project reflection…") when the published reflection has fallen behind. Past the
 hard experiment threshold, `experiment.create` is blocked until a reflection is
-published; publish either stops the project or creates the reviewed next
-experiment wave.
+published; publish creates the reviewed next experiment wave.

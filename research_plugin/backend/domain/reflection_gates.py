@@ -125,8 +125,7 @@ REFLECTION_GATE_TABLE: dict[str, ForwardTransition] = {
             "'reflection_doc'), AND a machine-actionable change spec (role "
             "'change_spec') must be registered and associated to this reflection wave for "
             "the current attempt; after approval, publish applies the claim "
-            "changes and either stops the project or creates the next "
-            "experiment wave"
+            "changes and creates the next experiment wave"
         ),
         requirements=(
             RoleRequirement(
@@ -166,8 +165,8 @@ REFLECTION_GATE_TABLE: dict[str, ForwardTransition] = {
                 role="change_spec",
                 error=(
                     "a change spec must be registered before reflection review: write "
-                    "JSON with claim_changes plus a decision of either hard_stop "
-                    "or create_experiments (2-3 experiments), register it, and "
+                    "JSON with claim_changes plus a create_experiments decision "
+                    "(1-3 experiments), register it, and "
                     "associate it with role 'change_spec' — see "
                     "skills/project-reflection/reflection-artifacts-template.md"
                 ),

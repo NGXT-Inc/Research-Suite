@@ -77,8 +77,8 @@ actual project records: what holds up, what remains uncertain, what was
 ruled out, and where the lenses disagree.
 
 ## Decision / future directions
-One short paragraph explaining why the change spec either hard-stops the
-project or creates the next parallel experiment wave.
+One short paragraph explaining why the change spec's next experiment wave is
+the right course for the project.
 ```
 
 Optional figures should be relative markdown image links to files next to the
@@ -108,13 +108,12 @@ server validates that it can be materialized, and
 `reflection.transition(publish)` applies it only after the
 `reflection_reviewer` has passed the wave.
 
-There are two allowed decisions:
-
-- `hard_stop` — update any claims, then mark the project stopped.
-- `create_experiments` — update/create claims, then create the approved
-  planned experiments as real project experiments. Include 2-3 experiments,
-  and give each a `parallelism` note explaining why it can run independently
-  of the rest of the wave.
+The decision is always `create_experiments`: update/create claims, then
+create the approved planned experiments as real project experiments. Include
+1-3 experiments; when the wave has more than one, give each a `parallelism`
+note explaining why it can run independently of the rest. Stopping the
+project is not in the spec's vocabulary — winding down is the researcher's
+call, made outside the workflow.
 
 Use claim `key`s when a newly-created claim is referenced by a proposed
 experiment in the same change spec.
@@ -159,28 +158,6 @@ experiment in the same change spec.
         "parallelism": "Independent mechanism axis; no dependency on the scale-transfer result."
       }
     ]
-  }
-}
-```
-
-Hard stop shape:
-
-```json
-{
-  "version": 1,
-  "claim_changes": [
-    {
-      "op": "update",
-      "claim_id": "claim_existing",
-      "status": "contradicted",
-      "confidence": "high",
-      "rationale": "All reviewed attempts failed under the claim's scope.",
-      "evidence": ["exp_a", "exp_b", "syn_this"]
-    }
-  ],
-  "decision": {
-    "type": "hard_stop",
-    "rationale": "The reflection found no remaining project direction that is both untested and worth the expected cost."
   }
 }
 ```
