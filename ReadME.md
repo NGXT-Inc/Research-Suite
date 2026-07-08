@@ -8,6 +8,19 @@ It is designed to work with Claude Code, Codex, Cursor, Gemini CLI, OpenCode, an
 
 The goal is to give research agents enough structure to plan experiments, execute them, review results, and reflect on the project direction to handle open-ended research problems.
 
+## Quickstart (Claude Code)
+
+Prerequisites: [Claude Code](https://claude.com/claude-code) and `python3` 3.11+ on your `PATH`. That's all — no `pip` install and no local backend; the plugin talks to the hosted control plane by default.
+
+```bash
+claude plugin marketplace add NGXT-Inc/Research-Suite
+claude plugin install research-plugin@research-suite
+```
+
+Restart Claude Code. Then open a session in the repo you want to do research in and ask the agent to run `workflow.status_and_next` — it will orient itself and link the folder to a project.
+
+Setting up a different client (Cursor, Codex, Gemini CLI, OpenCode)? See [research_plugin/docs/CLIENTS.md](research_plugin/docs/CLIENTS.md).
+
 ## Experiment-level workflow
 
 <picture>

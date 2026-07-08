@@ -17,7 +17,10 @@ logs/
 # Root-local development and agent workspace files.
 /.agents/
 /.claude/
-/.claude-plugin/
+# Publish the marketplace manifest (needed for `claude plugin marketplace add`);
+# ignore any other local artifacts the plugin CLI drops in this dir.
+/.claude-plugin/*
+!/.claude-plugin/marketplace.json
 /.codex/
 /tmp/
 /dev_docs/
