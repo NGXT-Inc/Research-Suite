@@ -49,8 +49,22 @@ class FeedPostInput(ProjectScopedInput):
         description=(
             "Optional repo-relative path to an image to attach "
             "(a training plot, a generated graphic, a document excerpt). Most "
-            "posts should carry a visual. Stored server-side; the file is read once."
+            "posts should carry a visual. Stored server-side; the file is read once. "
+            "Mutually exclusive with html_path."
         ),
+    )
+    html_path: str | None = Field(
+        default=None,
+        description=(
+            "Optional repo-relative path to a self-contained interactive HTML "
+            "file to embed (e.g. a plotly chart) — under 512KB. Served sandboxed "
+            "(scripts run, but isolated: no same-origin, no top navigation). "
+            "Mutually exclusive with image_path."
+        ),
+    )
+    in_reply_to: str | None = Field(
+        default=None,
+        description="Optional id of an existing post this one threads under.",
     )
     url: str | None = Field(
         default=None,
@@ -67,13 +81,16 @@ class FeedPostInput(ProjectScopedInput):
             "Leave empty for an un-anchored thought."
         ),
     )
-    kind: Literal["finding", "hunch", "bottleneck", "kill", "direction"] | None = Field(
+    kind: Literal[
+        "finding", "hunch", "bottleneck", "kill", "direction", "status"
+    ] | None = Field(
         default=None,
         description=(
             "Optional editorial kind, shown as the post's accent: finding (a "
             "result landed), hunch (calibrated intuition), bottleneck (something "
             "is in the way), kill (a path ruled out), direction (a pivot or new "
-            "plan). Pick the one that matches your post's point, or omit it."
+            "plan), status (a mid-run checkpoint in a live experiment thread). "
+            "Pick the one that matches your post's point, or omit it."
         ),
     )
 

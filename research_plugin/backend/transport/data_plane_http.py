@@ -9,7 +9,7 @@ from typing import Any
 
 from fastapi import Body, Request
 
-from ..services.feed import MAX_IMAGE_BYTES
+from ..services.feed import MAX_EMBED_BYTES, MAX_IMAGE_BYTES
 from ..tools.contracts import _validate_openssh_public_key
 from ..utils import ValidationError
 
@@ -147,6 +147,7 @@ def register_data_plane_routes(
             text=_required_text(payload, "text"),
             ref=payload.get("ref"),
             kind=payload.get("kind"),
+            in_reply_to=payload.get("in_reply_to"),
         )
 
     @http.post("/api/data-plane/sandboxes/request")
@@ -218,13 +219,28 @@ def register_data_plane_routes(
                 label="image.data_b64",
                 max_decoded_bytes=MAX_IMAGE_BYTES,
             )
+        html = payload.get("html")
+        html_bytes = None
+        html_path = None
+        if html is not None:
+            if not isinstance(html, dict):
+                raise ValidationError("html must be an object")
+            html_path = str(html.get("path") or "feed-embed")
+            html_bytes = _decode_b64_field(
+                html.get("data_b64"),
+                label="html.data_b64",
+                max_decoded_bytes=MAX_EMBED_BYTES,
+            )
         return app.feed.post_observed(
             project_id=project_id,
             handle=_required_text(payload, "handle"),
             text=_required_text(payload, "text"),
             image_path=image_path,
             image_bytes=image_bytes,
+            html_path=html_path,
+            html_bytes=html_bytes,
             url=payload.get("url"),
             ref=payload.get("ref"),
             kind=payload.get("kind"),
+            in_reply_to=payload.get("in_reply_to"),
         )

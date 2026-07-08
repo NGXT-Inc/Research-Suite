@@ -277,15 +277,32 @@ def extract_card(final_url: str, content_type: str, body: bytes) -> dict[str, An
     }
 
 
+# A direct arxiv PDF is not HTML (and would blow the HTML fetch cap), so its
+# metadata lives on the /abs/ page instead. Old-style ids may contain a slash
+# (cond-mat/0703470v2); a trailing ".pdf" is legacy arxiv link style.
+_ARXIV_PDF_RE = re.compile(
+    r"^https?://(?:www\.|export\.)?arxiv\.org/pdf/([^?#]+?)(?:\.pdf)?/?(?:$|[?#])",
+    re.IGNORECASE,
+)
+
+
 def unfurl(url: str) -> dict[str, Any]:
     """Fetch ``url`` and extract a static preview card.
 
     Returns ``{url, title, description, image_url, trusted, kind, authors,
     year}``. ``image_url`` is the absolute URL of the preview image (caller
     re-hosts it); ``kind`` is paper|repo|page with paper cards carrying the
-    citation authors/year when the page exposes them. Raises ``UnfurlError``
-    if the link cannot be safely fetched.
+    citation authors/year when the page exposes them. A direct arxiv PDF link
+    is unfurled via its /abs/ page (the PDF itself has no citation meta), with
+    the card's ``url`` kept on the PDF so page fragments survive. Raises
+    ``UnfurlError`` if the link cannot be safely fetched.
     """
+    url = url.strip()
+    m = _ARXIV_PDF_RE.match(url)
+    if m:
+        card = extract_card(*safe_fetch(f"https://arxiv.org/abs/{m.group(1)}"))
+        card["url"] = url
+        return card
     return extract_card(*safe_fetch(url))
 
 

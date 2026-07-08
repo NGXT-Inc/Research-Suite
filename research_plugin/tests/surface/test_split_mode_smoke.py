@@ -222,6 +222,50 @@ class ProxyLocalDataPlaneSmokeTest(unittest.TestCase):
 
         self.assertEqual(calls, ["/api/data-plane/feed/validate-post"])
 
+    def test_feed_post_reads_embed_locally_and_submits_bytes(self) -> None:
+        (self.repo / "figures").mkdir()
+        (self.repo / "figures" / "chart.html").write_bytes(
+            b"<html><body>chart</body></html>"
+        )
+        calls: list[tuple[str, dict]] = []
+
+        def api_post(path: str, payload: dict) -> dict:
+            calls.append((path, payload))
+            return {"ok": True, "post_id": "feed_2"}
+
+        result = self._plane(api_post=api_post).call_tool(
+            name="feed.post",
+            arguments={
+                "handle": "codex",
+                "text": "Embed from split proxy",
+                "html_path": "figures/chart.html",
+            },
+        )
+
+        self.assertEqual(result["post_id"], "feed_2")
+        self.assertEqual(calls[0][0], "/api/data-plane/feed/validate-post")
+        self.assertEqual(calls[1][0], "/api/data-plane/feed/post")
+        self.assertEqual(
+            base64.b64decode(calls[1][1]["html"]["data_b64"].encode("ascii")),
+            b"<html><body>chart</body></html>",
+        )
+
+    def test_feed_post_rejects_image_and_html_path_together(self) -> None:
+        (self.repo / "figures").mkdir()
+        (self.repo / "figures" / "plot.png").write_bytes(b"png-bytes")
+        (self.repo / "figures" / "chart.html").write_bytes(b"<html></html>")
+
+        with self.assertRaises(LocalDataPlaneError):
+            self._plane().call_tool(
+                name="feed.post",
+                arguments={
+                    "handle": "codex",
+                    "text": "both",
+                    "image_path": "figures/plot.png",
+                    "html_path": "figures/chart.html",
+                },
+            )
+
     def test_invalid_association_intent_does_not_submit_local_bytes(self) -> None:
         (self.repo / "result.txt").write_text("secret bytes", encoding="utf-8")
         calls: list[str] = []

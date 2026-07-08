@@ -38,12 +38,33 @@ _BASE_IMAGE_HEADERS = {"X-Content-Type-Options": "nosniff"}
 _SVG_CONTENT_TYPE = "image/svg+xml"
 _SVG_CSP = "default-src 'none'; style-src 'unsafe-inline'; script-src 'none'; sandbox"
 
+# Feed embeds are interactive (scripted) HTML documents, so unlike SVG they
+# need a permissive-but-isolated sandbox: scripts/styles run, but the sandbox
+# token strips the document of same-origin, top navigation, popups, etc.
+_EMBED_CSP = (
+    "sandbox allow-scripts; default-src 'none'; script-src 'unsafe-inline'; "
+    "style-src 'unsafe-inline'; img-src data: blob:; font-src data:; media-src data:"
+)
+
 
 def _image_headers(content_type: str) -> dict[str, str]:
     """Base hardening for every image, plus a CSP sandbox for SVG documents."""
     if (content_type or "").split(";", 1)[0].strip().lower() == _SVG_CONTENT_TYPE:
         return {**_BASE_IMAGE_HEADERS, "Content-Security-Policy": _SVG_CSP}
     return _BASE_IMAGE_HEADERS
+
+
+def _enrich_post_urls(post: dict[str, Any], project_id: str) -> None:
+    """Attach the relative media URLs the UI uses for <img src> (the service
+    exposes only presence flags, never blob hashes)."""
+    post_id = post.get("id")
+    if post.get("has_image"):
+        post["image_url"] = f"/api/projects/{project_id}/feed/{post_id}/image"
+    if post.get("has_embed"):
+        post["embed_url"] = f"/api/projects/{project_id}/feed/{post_id}/embed"
+    preview = post.get("link_preview")
+    if preview and preview.get("has_image"):
+        preview["image_url"] = f"/api/projects/{project_id}/feed/{post_id}/link-image"
 
 
 def register_feed_routes(
@@ -61,17 +82,45 @@ def register_feed_routes(
         result = app_for(project_id, request).feed.list_posts(
             project_id=project_id, limit=limit, before_seq=cursor
         )
-        # Enrich with the relative media URLs the UI uses for <img src> (the
-        # service exposes only presence flags, never blob hashes).
         for post in result.get("posts", []):
-            post_id = post.get("id")
-            if post.get("has_image"):
-                post["image_url"] = f"/api/projects/{project_id}/feed/{post_id}/image"
-            preview = post.get("link_preview")
-            if preview and preview.get("has_image"):
-                preview["image_url"] = (
-                    f"/api/projects/{project_id}/feed/{post_id}/link-image"
-                )
+            _enrich_post_urls(post, project_id)
+        return result
+
+    @http.post("/api/projects/{project_id}/feed/{post_id}/reactions")
+    def feed_set_reaction(
+        request: Request,
+        project_id: str,
+        post_id: str,
+        body: Any = Body(default=None),
+    ) -> dict[str, Any]:
+        if not isinstance(body, dict):
+            raise ValidationError("reaction body must be a JSON object")
+        result = app_for(project_id, request).feed.set_reaction(
+            project_id=project_id,
+            post_id=post_id,
+            kind=str(body.get("kind") or ""),
+            on=bool(body.get("on")),
+        )
+        if isinstance(result.get("post"), dict):
+            _enrich_post_urls(result["post"], project_id)
+        return result
+
+    @http.post("/api/projects/{project_id}/feed/{post_id}/reply")
+    def feed_reply(
+        request: Request,
+        project_id: str,
+        post_id: str,
+        body: Any = Body(default=None),
+    ) -> dict[str, Any]:
+        if not isinstance(body, dict):
+            raise ValidationError("reply body must be a JSON object")
+        result = app_for(project_id, request).feed.researcher_reply(
+            project_id=project_id,
+            post_id=post_id,
+            text=str(body.get("text") or ""),
+        )
+        if isinstance(result.get("post"), dict):
+            _enrich_post_urls(result["post"], project_id)
         return result
 
     @http.get("/api/projects/{project_id}/feed/{post_id}/image")
@@ -90,6 +139,20 @@ def register_feed_routes(
         )
         return Response(
             content=content, media_type=content_type, headers=_image_headers(content_type)
+        )
+
+    @http.get("/api/projects/{project_id}/feed/{post_id}/embed")
+    def feed_embed(request: Request, project_id: str, post_id: str) -> Response:
+        wrapped = app_for(project_id, request).feed.get_embed(
+            project_id=project_id, post_id=post_id
+        )
+        return Response(
+            content=wrapped,
+            media_type="text/html; charset=utf-8",
+            headers={
+                "X-Content-Type-Options": "nosniff",
+                "Content-Security-Policy": _EMBED_CSP,
+            },
         )
 
     @http.post("/api/projects/{project_id}/feed/track")

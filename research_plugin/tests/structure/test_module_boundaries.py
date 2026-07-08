@@ -76,6 +76,7 @@ FILE_MODULES = {
     "services/projects.py": RESEARCH_CORE,
     "services/reflection_tools.py": RESEARCH_CORE,
     "services/graph_refs.py": RESEARCH_CORE,
+    "services/map.py": RESEARCH_CORE,
     # sandbox: lifecycle services + local strays of the sandbox stack.
     "services/transcript_cache.py": SANDBOX,
     "services/quotas.py": SANDBOX,  # TODO tenancy concern — may move later
@@ -86,6 +87,7 @@ FILE_MODULES = {
     "services/feed.py": FEED,
     "services/feed_unfurl.py": FEED,
     "domain/feed_images.py": FEED,
+    "domain/feed_embeds.py": FEED,
     "domain/feed_policy.py": FEED,
     # surface: composition/transport strays and cross-module glue services.
     "services/__init__.py": SURFACE,  # import-free shell (test_plane_layout)
@@ -134,6 +136,7 @@ TABLE_OWNERS = {
     "reflections": RESEARCH_CORE,
     "synthesis_claim_changes": RESEARCH_CORE,
     "synthesis_experiments": RESEARCH_CORE,
+    "map_layout": RESEARCH_CORE,
     "resources": ARTIFACTS,
     "resource_versions": ARTIFACTS,
     "resource_associations": ARTIFACTS,
@@ -147,6 +150,7 @@ TABLE_OWNERS = {
     "spend_kill_switches": SANDBOX,
     "posts": FEED,
     "feed_authors": FEED,
+    "post_reactions": FEED,
 }
 SQL_TABLE_REF = re.compile(
     r"\b(?:FROM|JOIN|INTO|UPDATE)\s+([a-z_]+)\b", re.IGNORECASE

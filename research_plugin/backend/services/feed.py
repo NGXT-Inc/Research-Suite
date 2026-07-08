@@ -20,6 +20,7 @@ from pathlib import Path
 from typing import Any
 
 from ..domain import feed_policy
+from ..domain.feed_embeds import MAX_FEED_EMBED_BYTES, sniff_html_type, wrap_embed_html
 from ..domain.feed_images import (
     MAX_FEED_IMAGE_BYTES,
     SERVEABLE_IMAGE_TYPES,
@@ -33,14 +34,25 @@ from .feed_unfurl import UnfurlError, fetch_preview_image, unfurl
 # resolved to a hard cap). Counted on the stripped string.
 POST_TEXT_MAX = 280
 
-AUTHOR_ROLES = frozenset({"main", "reviewer", "lens"})
+AUTHOR_ROLES = frozenset({"main", "reviewer", "lens", "researcher"})
 
 # Optional editorial kind, self-declared by the posting agent (never inferred
-# from text). Drives the type accent in the UI.
-POST_KINDS = frozenset({"finding", "hunch", "bottleneck", "kill", "direction"})
+# from text). Drives the type accent in the UI. `status` marks a mid-run
+# checkpoint in a live experiment thread (distinct from `finding`, which is a
+# landed result).
+POST_KINDS = frozenset(
+    {"finding", "hunch", "bottleneck", "kill", "direction", "status"}
+)
+
+# Human -> agent feedback: exactly these three, single-researcher product so
+# counts would be meaningless — the researcher either has or hasn't set one.
+REACTION_KINDS = frozenset({"fire", "eyes", "question"})
 
 # Backward-compatible import surface for HTTP code/tests.
 MAX_IMAGE_BYTES = MAX_FEED_IMAGE_BYTES
+MAX_EMBED_BYTES = MAX_FEED_EMBED_BYTES
+
+RESEARCHER_HANDLE = "Researcher"
 
 _KNOWN_REF_PREFIXES = ("exp_", "claim_", "res_", "rver_", "syn_", "rev_")
 
@@ -88,6 +100,19 @@ FEED_SCHEMA: tuple[str, ...] = (
       FOREIGN KEY(project_id) REFERENCES projects(id)
     )
     """,
+    # Human -> agent feedback. Single-researcher product, so there is no actor
+    # column: a reaction kind is either set for the post or it isn't, hence the
+    # kind is part of the primary key rather than a countable row.
+    """
+    CREATE TABLE IF NOT EXISTS post_reactions (
+      project_id TEXT NOT NULL,
+      post_id TEXT NOT NULL,
+      kind TEXT NOT NULL,
+      created_at TEXT NOT NULL,
+      PRIMARY KEY (project_id, post_id, kind),
+      FOREIGN KEY(project_id) REFERENCES projects(id)
+    )
+    """,
 )
 
 
@@ -123,6 +148,27 @@ class FeedService:
         try:
             with self.store.transaction() as conn:
                 conn.execute("ALTER TABLE posts ADD COLUMN kind TEXT NOT NULL DEFAULT ''")
+        except Exception:  # noqa: BLE001
+            pass
+        try:
+            with self.store.transaction() as conn:
+                conn.execute(
+                    "ALTER TABLE posts ADD COLUMN in_reply_to TEXT NOT NULL DEFAULT ''"
+                )
+        except Exception:  # noqa: BLE001
+            pass
+        try:
+            with self.store.transaction() as conn:
+                conn.execute(
+                    "ALTER TABLE posts ADD COLUMN embed_sha256 TEXT NOT NULL DEFAULT ''"
+                )
+        except Exception:  # noqa: BLE001
+            pass
+        try:
+            with self.store.transaction() as conn:
+                conn.execute(
+                    "ALTER TABLE posts ADD COLUMN embed_content_type TEXT NOT NULL DEFAULT ''"
+                )
         except Exception:  # noqa: BLE001
             pass
 
@@ -202,9 +248,11 @@ class FeedService:
         handle: str,
         text: str,
         image_path: str | None = None,
+        html_path: str | None = None,
         url: str | None = None,
         ref: str | None = None,
         kind: str | None = None,
+        in_reply_to: str | None = None,
         project_id: str | None = None,
     ) -> dict[str, Any]:
         """Write a post. ``handle`` must already be registered in this project."""
@@ -212,14 +260,21 @@ class FeedService:
             raise ValidationError(
                 "image_path must be read by the local data plane before posting"
             )
+        if html_path:
+            raise ValidationError(
+                "html_path must be read by the local data plane before posting"
+            )
         return self._post(
             handle=handle,
             text=text,
             image_path=None,
             image_bytes=None,
+            html_path=None,
+            html_bytes=None,
             url=url,
             ref=ref,
             kind=kind,
+            in_reply_to=in_reply_to,
             project_id=project_id,
         )
 
@@ -230,20 +285,26 @@ class FeedService:
         text: str,
         image_path: str | None = None,
         image_bytes: bytes | None = None,
+        html_path: str | None = None,
+        html_bytes: bytes | None = None,
         url: str | None = None,
         ref: str | None = None,
         kind: str | None = None,
+        in_reply_to: str | None = None,
         project_id: str | None = None,
     ) -> dict[str, Any]:
-        """Write a post from daemon-submitted local image bytes."""
+        """Write a post from daemon-submitted local image/embed bytes."""
         return self._post(
             handle=handle,
             text=text,
             image_path=image_path,
             image_bytes=image_bytes,
+            html_path=html_path,
+            html_bytes=html_bytes,
             url=url,
             ref=ref,
             kind=kind,
+            in_reply_to=in_reply_to,
             project_id=project_id,
         )
 
@@ -254,6 +315,7 @@ class FeedService:
         text: str,
         ref: str | None = None,
         kind: str | None = None,
+        in_reply_to: str | None = None,
         project_id: str | None = None,
     ) -> dict[str, Any]:
         """Validate feed post metadata without reading/storing image bytes."""
@@ -270,6 +332,9 @@ class FeedService:
                 raise ValidationError(
                     f"handle '{handle}' is not registered; call feed.register first"
                 )
+            in_reply_to = self._validate_in_reply_to(
+                conn=conn, project_id=project_id, in_reply_to=in_reply_to
+            )
             return {
                 "ok": True,
                 "project_id": project_id,
@@ -277,6 +342,7 @@ class FeedService:
                 "text": text,
                 "ref": ref,
                 "kind": kind,
+                "in_reply_to": in_reply_to or None,
                 "author_role": str(author["role"] or "main"),
             }
 
@@ -287,14 +353,19 @@ class FeedService:
         text: str,
         image_path: str | None,
         image_bytes: bytes | None,
+        html_path: str | None = None,
+        html_bytes: bytes | None = None,
         url: str | None,
         ref: str | None,
         kind: str | None,
+        in_reply_to: str | None = None,
         project_id: str | None,
     ) -> dict[str, Any]:
         handle, text, ref, kind = self._validate_post_fields(
             handle=handle, text=text, ref=ref, kind=kind
         )
+        if image_bytes is not None and html_bytes is not None:
+            raise ValidationError("a post may carry an image or an embed, not both")
         # Resolve the project and author first (fail fast), then do the slow
         # work — image blob writes and link unfurling (network I/O) — with no
         # transaction open: the single-writer lock must never be held across
@@ -310,6 +381,9 @@ class FeedService:
                     f"handle '{handle}' is not registered; call feed.register first"
                 )
             author_role = str(author["role"] or "main")
+            in_reply_to = self._validate_in_reply_to(
+                conn=conn, project_id=project_id, in_reply_to=in_reply_to
+            )
 
         image_sha256 = ""
         image_content_type = ""
@@ -322,6 +396,19 @@ class FeedService:
         elif image_path:
             raise ValidationError(
                 "image bytes are required when image_path is provided"
+            )
+
+        embed_sha256 = ""
+        embed_content_type = ""
+        if html_bytes is not None:
+            embed_sha256, embed_content_type = self._capture_embed_bytes(
+                project_id=project_id,
+                html_path=html_path or "feed-embed",
+                data=html_bytes,
+            )
+        elif html_path:
+            raise ValidationError(
+                "embed bytes are required when html_path is provided"
             )
 
         link_url = ""
@@ -340,9 +427,10 @@ class FeedService:
                 INSERT INTO posts (
                     id, project_id, author_handle, author_role, text,
                     image_sha256, image_content_type, link_url, link_preview_json,
-                    ref, kind, created_at, created_seq
+                    ref, kind, in_reply_to, embed_sha256, embed_content_type,
+                    created_at, created_seq
                 )
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                 """,
                 (
                     post_id,
@@ -356,6 +444,9 @@ class FeedService:
                     json.dumps(link_preview, sort_keys=True),
                     ref,
                     kind,
+                    in_reply_to,
+                    embed_sha256,
+                    embed_content_type,
                     created_at,
                     seq,
                 ),
@@ -373,12 +464,63 @@ class FeedService:
                 payload={
                     "handle": handle,
                     "has_image": bool(image_sha256),
+                    "has_embed": bool(embed_sha256),
                     "has_link": bool(link_url),
                     "ref": ref,
                 },
             )
             row = conn.execute("SELECT * FROM posts WHERE id = ?", (post_id,)).fetchone()
-            return {"post": self._post_view(row_to_dict(row=row) or {})}
+            return {"post": self._post_view(row_to_dict(row=row) or {}, conn=conn)}
+
+    def researcher_reply(
+        self, *, post_id: str, text: str, project_id: str | None = None
+    ) -> dict[str, Any]:
+        """Post a researcher reply threaded under ``post_id``.
+
+        Auto-registers the fixed "Researcher" handle idempotently — the human
+        does not go through feed.register.
+        """
+        with self.store.transaction() as conn:
+            project_id = self.store.require_project_id(conn=conn, project_id=project_id)
+            existing = conn.execute(
+                "SELECT 1 FROM feed_authors WHERE project_id = ? AND handle = ?",
+                (project_id, RESEARCHER_HANDLE),
+            ).fetchone()
+            if existing is None:
+                conn.execute(
+                    """
+                    INSERT INTO feed_authors (project_id, handle, role, session_id, registered_at)
+                    VALUES (?, ?, 'researcher', '', ?)
+                    """,
+                    (project_id, RESEARCHER_HANDLE, now_iso()),
+                )
+        return self._post(
+            handle=RESEARCHER_HANDLE,
+            text=text,
+            image_path=None,
+            image_bytes=None,
+            html_path=None,
+            html_bytes=None,
+            url=None,
+            ref=None,
+            kind=None,
+            in_reply_to=post_id,
+            project_id=project_id,
+        )
+
+    def _validate_in_reply_to(
+        self, *, conn: Any, project_id: str, in_reply_to: str | None
+    ) -> str:
+        in_reply_to = (in_reply_to or "").strip()
+        if not in_reply_to:
+            return ""
+        target = conn.execute(
+            "SELECT 1 FROM posts WHERE id = ? AND project_id = ?",
+            (in_reply_to, project_id),
+        ).fetchone()
+        if target is None:
+            raise ValidationError(f"in_reply_to post not found: {in_reply_to}")
+        return in_reply_to
 
     def _validate_post_fields(
         self, *, handle: str, text: str, ref: str | None, kind: str | None = None
@@ -419,6 +561,20 @@ class FeedService:
             raise ValidationError(
                 f"{image_path} does not look like an image (png/jpeg/gif/webp/svg)"
             )
+        sha = self.blobs.put(namespace=project_id, data=data)
+        return sha, content_type
+
+    def _capture_embed_bytes(
+        self, *, project_id: str, html_path: str, data: bytes
+    ) -> tuple[str, str]:
+        """Store already-read HTML embed bytes, returning (sha, content_type)."""
+        if len(data) > MAX_EMBED_BYTES:
+            raise ValidationError(
+                f"embed is {len(data)} bytes; keep feed embeds under {MAX_EMBED_BYTES}"
+            )
+        content_type = sniff_html_type(data)
+        if content_type is None:
+            raise ValidationError(f"{html_path} does not look like an HTML document")
         sha = self.blobs.put(namespace=project_id, data=data)
         return sha, content_type
 
@@ -494,8 +650,9 @@ class FeedService:
             has_more = len(items) > limit
             items = items[:limit]
             next_cursor = items[-1]["created_seq"] if (has_more and items) else None
+            views = [self._post_view(item, conn=conn) for item in items]
             result: dict[str, Any] = {
-                "posts": [self._post_view(item) for item in items],
+                "posts": views,
                 "next_cursor": next_cursor,
             }
             # On the first page (an agent reading the feed), include the soft
@@ -506,9 +663,40 @@ class FeedService:
                 nudge = self.feed_nudge(project_id=project_id, conn=conn)
                 if nudge is not None:
                     result["nudge"] = nudge
+                # Surface what the researcher has reacted to, most recent first,
+                # so an agent reading page 1 sees it without a separate call.
+                attention = [
+                    {
+                        "post_id": view["id"],
+                        "reactions": [
+                            kind for kind, on in view["reactions"].items() if on
+                        ],
+                        "text_snippet": (view["text"] or "")[:80],
+                    }
+                    for view in views
+                    if any(view["reactions"].values())
+                ][:5]
+                if attention:
+                    result["researcher_attention"] = attention
             return result
         finally:
             conn.close()
+
+    def get_embed(self, *, project_id: str, post_id: str) -> str:
+        """Return the CSP-wrapped HTML document for a post's embed."""
+        conn = self.store.connect()
+        try:
+            project_id = self.store.require_project_id(conn=conn, project_id=project_id)
+            row = conn.execute(
+                "SELECT embed_sha256 FROM posts WHERE id = ? AND project_id = ?",
+                (post_id, project_id),
+            ).fetchone()
+        finally:
+            conn.close()
+        if row is None or not row["embed_sha256"]:
+            raise NotFoundError(f"no embed for post: {post_id}")
+        data = self.blobs.get(namespace=project_id, sha256=str(row["embed_sha256"]))
+        return wrap_embed_html(data)
 
     def get_image(self, *, project_id: str, post_id: str) -> tuple[bytes, str]:
         """Return (bytes, content_type) for a post's image, for the HTTP route."""
@@ -556,7 +744,44 @@ class FeedService:
             ctype or "application/octet-stream",
         )
 
-    def _post_view(self, item: dict[str, Any]) -> dict[str, Any]:
+    def set_reaction(
+        self, *, post_id: str, kind: str, on: bool, project_id: str | None = None
+    ) -> dict[str, Any]:
+        """Idempotently set/clear a researcher reaction, returning the post view."""
+        kind = (kind or "").strip().lower()
+        if kind not in REACTION_KINDS:
+            raise ValidationError(
+                f"unknown reaction kind: {kind}. Allowed: {', '.join(sorted(REACTION_KINDS))}"
+            )
+        with self.store.transaction() as conn:
+            project_id = self.store.require_project_id(conn=conn, project_id=project_id)
+            row = conn.execute(
+                "SELECT * FROM posts WHERE id = ? AND project_id = ?",
+                (post_id, project_id),
+            ).fetchone()
+            if row is None:
+                raise NotFoundError(f"post not found: {post_id}")
+            if on:
+                conn.execute(
+                    """
+                    INSERT INTO post_reactions (project_id, post_id, kind, created_at)
+                    VALUES (?, ?, ?, ?)
+                    ON CONFLICT(project_id, post_id, kind) DO NOTHING
+                    """,
+                    (project_id, post_id, kind, now_iso()),
+                )
+            else:
+                conn.execute(
+                    "DELETE FROM post_reactions WHERE project_id = ? AND post_id = ? AND kind = ?",
+                    (project_id, post_id, kind),
+                )
+            row = conn.execute(
+                "SELECT * FROM posts WHERE id = ? AND project_id = ?",
+                (post_id, project_id),
+            ).fetchone()
+            return {"post": self._post_view(row_to_dict(row=row) or {}, conn=conn)}
+
+    def _post_view(self, item: dict[str, Any], *, conn: Any) -> dict[str, Any]:
         preview_raw = item.get("link_preview_json") or "{}"
         try:
             link_preview = json.loads(preview_raw)
@@ -584,19 +809,40 @@ class FeedService:
             "text": item.get("text"),
             "ref": item.get("ref") or None,
             "kind": item.get("kind") or None,
+            "in_reply_to": item.get("in_reply_to") or None,
             "has_image": bool(item.get("image_sha256")),
+            "has_embed": bool(item.get("embed_sha256")),
             "link_url": item.get("link_url") or None,
             "link_preview": clean_preview,
+            "reactions": self._reactions_for_post(
+                conn=conn, project_id=str(item.get("project_id") or ""), post_id=str(item.get("id") or "")
+            ),
             "created_at": item.get("created_at"),
             "created_seq": item.get("created_seq"),
         }
 
+    def _reactions_for_post(
+        self, *, conn: Any, project_id: str, post_id: str
+    ) -> dict[str, bool]:
+        rows = conn.execute(
+            "SELECT kind FROM post_reactions WHERE project_id = ? AND post_id = ?",
+            (project_id, post_id),
+        ).fetchall()
+        on = {str(row["kind"]) for row in rows}
+        return {kind: kind in on for kind in sorted(REACTION_KINDS)}
+
     # -- posting nudge (backup cadence signal) ------------------------------
 
     def feed_signal(self, *, project_id: str, conn: Any) -> dict[str, Any]:
-        """Raw cadence numbers: events and hours since the last post."""
+        """Raw cadence numbers: events and hours since the last AGENT post.
+
+        A researcher reply is not agent activity — it must not reset the
+        cold-feed clock, or a human commenting on an old post would silence
+        the nudge without the agent having posted anything new.
+        """
         last = conn.execute(
-            "SELECT created_at FROM posts WHERE project_id = ? ORDER BY created_seq DESC LIMIT 1",
+            "SELECT created_at FROM posts WHERE project_id = ? AND author_role <> 'researcher' "
+            "ORDER BY created_seq DESC LIMIT 1",
             (project_id,),
         ).fetchone()
         last_post_at = last["created_at"] if last is not None else None
@@ -657,6 +903,78 @@ class FeedService:
             ),
             **signal,
         }
+
+    # -- event-carried advisory (rides tool responses, not feed.list) -------
+
+    def feed_note_for(
+        self, *, project_id: str, entity_id: str, event: str
+    ) -> str | None:
+        """A one-line, optional advisory for another tool's response.
+
+        The nudge above only reaches an agent that already remembers to call
+        feed.list. This is the other half: other services attach this note to
+        their own tool responses at story-worthy moments (an experiment
+        completing, a review verdict landing, an MLflow run finishing), so an
+        agent that never thinks to check the feed still gets reminded it
+        exists — reusing a response it was already going to read.
+
+        Returns None once the feed has said anything at all about
+        ``entity_id`` in this project — either a post's ``ref`` points at it,
+        or its ``text`` mentions it inline — so there is no separate "already
+        nudged" state to track: the dedup is just "has anyone posted about
+        this yet".
+
+        Never raises on missing/blank inputs (returns None); callers still
+        wrap the call, since a feed hiccup must never break the workflow
+        transition whose response this rides on.
+        """
+        project_id = (project_id or "").strip()
+        entity_id = (entity_id or "").strip()
+        if not project_id or not entity_id:
+            return None
+        conn = self.store.connect()
+        try:
+            mentioned = conn.execute(
+                "SELECT 1 FROM posts WHERE project_id = ? "
+                "AND (ref = ? OR text LIKE ? ESCAPE '\\') LIMIT 1",
+                (project_id, entity_id, f"%{_escape_like(entity_id)}%"),
+            ).fetchone()
+        finally:
+            conn.close()
+        if mentioned is not None:
+            return None
+        phrase = _FEED_NOTE_PHRASES.get(
+            event, "{entity} just had a workflow update"
+        ).format(entity=entity_id)
+        return (
+            f"{phrase} and the feed has never mentioned it — if there's a "
+            "takeaway worth sharing, consider a post (see the feed-posting skill)."
+        )
+
+
+# Phrasing for feed_note_for, keyed by the caller-supplied ``event`` — kept as
+# plain data so new attach points can add a phrase without touching the
+# lookup logic. Unknown events fall back to a generic phrase (see above).
+_FEED_NOTE_PHRASES: dict[str, str] = {
+    "experiment_complete": "{entity} just completed",
+    "experiment_failed": "{entity} just failed",
+    "experiment_abandoned": "{entity} was just abandoned",
+    "experiment_review_verdict": "a review verdict just landed on {entity}",
+    "mlflow_run_finalized": "an MLflow run for {entity} just finished",
+}
+
+
+def _escape_like(value: str) -> str:
+    """Escape SQL LIKE metacharacters so ``value`` is matched literally.
+
+    Entity ids commonly contain ``_`` (``exp_``, `claim_``, ...), itself a
+    LIKE single-char wildcard — left unescaped it would make the substring
+    search too permissive. ``LIKE ... ESCAPE '\\'`` is portable across both
+    the SQLite and Postgres dialects (unlike SQLite-only ``instr``).
+    """
+    return (
+        value.replace("\\", "\\\\").replace("%", "\\%").replace("_", "\\_")
+    )
 
 
 def _hours_since(iso_ts: str | None) -> float | None:

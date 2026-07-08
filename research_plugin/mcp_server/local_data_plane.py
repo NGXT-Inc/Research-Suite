@@ -181,20 +181,27 @@ class LocalDataPlane:
             "handle": self._required_arg(arguments, "handle"),
             "text": self._required_arg(arguments, "text"),
         }
-        for key in ("url", "ref", "kind"):
+        for key in ("url", "ref", "kind", "in_reply_to"):
             if arguments.get(key) is not None:
                 payload[key] = arguments.get(key)
         self._control_api_post(
             "/api/data-plane/feed/validate-post",
             {
                 key: payload[key]
-                for key in ("project_id", "handle", "text", "ref", "kind")
+                for key in ("project_id", "handle", "text", "ref", "kind", "in_reply_to")
                 if key in payload
             },
         )
         image_path = str(arguments.get("image_path") or "")
+        html_path = str(arguments.get("html_path") or "")
+        if image_path and html_path:
+            raise LocalDataPlaneError(
+                "a post may carry an image or an embed, not both"
+            )
         if image_path:
             payload["image"] = self._feed_image_payload(image_path=image_path)
+        if html_path:
+            payload["html"] = self._feed_embed_payload(html_path=html_path)
         return self._control_api_post("/api/data-plane/feed/post", payload)
 
     def _feed_image_payload(self, *, image_path: str) -> dict[str, Any]:
@@ -203,6 +210,14 @@ class LocalDataPlane:
         return {
             "path": str(image["path"]),
             "data_b64": base64.b64encode(image["data"]).decode("ascii"),
+        }
+
+    def _feed_embed_payload(self, *, html_path: str) -> dict[str, Any]:
+        reader_cls = _import_attr("backend.dataplane.feed_embeds", "LocalFeedEmbedReader")
+        embed = reader_cls(repo_root=self.repo_root).read_embed(path=html_path)
+        return {
+            "path": str(embed["path"]),
+            "data_b64": base64.b64encode(embed["data"]).decode("ascii"),
         }
 
     def _register_resource_files(

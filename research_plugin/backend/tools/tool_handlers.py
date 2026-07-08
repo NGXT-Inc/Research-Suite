@@ -19,6 +19,43 @@ from .exhibits import (
     preview_metrics_exhibit,
 )
 
+# Terminal experiment statuses that are story-worthy enough to carry a
+# feed_note (see _attach_feed_note): a completed, failed, or abandoned/killed
+# run. Kept local to the surface layer rather than imported from
+# domain.workflow_gates.TERMINAL_STATUSES — the event phrasing is a
+# surface-level presentation concern, not a workflow-gate one.
+_TERMINAL_EXPERIMENT_FEED_EVENTS = {
+    "complete": "experiment_complete",
+    "failed": "experiment_failed",
+    "abandoned": "experiment_abandoned",
+}
+
+
+def _attach_feed_note(
+    result: dict[str, Any],
+    *,
+    feed: Any,
+    project_id: str,
+    entity_id: str,
+    event: str,
+) -> None:
+    """Attach an optional ``feed_note`` advisory to ``result`` in place.
+
+    Never raises: a feed hiccup (a bad connection, a schema surprise, ...)
+    must not break the workflow transition, review check, or MLflow call
+    whose response this rides on. Absent rather than null when there is
+    nothing to say, matching how every other optional response field in this
+    module (``mlflow``, ``metrics_exhibit``, ...) is attached.
+    """
+    try:
+        note = feed.feed_note_for(
+            project_id=project_id, entity_id=entity_id, event=event
+        )
+    except Exception:  # noqa: BLE001 - advisory only, must never block
+        note = None
+    if note is not None:
+        result["feed_note"] = note
+
 
 def _experiment_get_state_agent(
     *,
@@ -271,6 +308,7 @@ def build_control_tool_handlers(
     sandboxes: Any,
     mlflow_tracking: Any,
     feed: Any,
+    research_map: Any,
 ) -> dict[str, Callable[..., dict[str, Any]]]:
     """Map control-plane tool names to service methods.
 
@@ -361,6 +399,15 @@ def build_control_tool_handlers(
                 ),
                 "verdict": exhibit["verdict"],
             }
+        terminal_event = _TERMINAL_EXPERIMENT_FEED_EVENTS.get(str(slim.get("status")))
+        if terminal_event is not None:
+            _attach_feed_note(
+                slim,
+                feed=feed,
+                project_id=resolved_project_id,
+                entity_id=experiment_id,
+                event=terminal_event,
+            )
         return slim
 
     def experiment_exhibit_agent(
@@ -458,7 +505,103 @@ def build_control_tool_handlers(
         out["project_id"] = resolved_project_id
         out["experiment_id"] = experiment_id
         out["experiment"] = slim
+        if isinstance(run, dict) and run.get("run_id"):
+            _attach_feed_note(
+                out,
+                feed=feed,
+                project_id=resolved_project_id,
+                entity_id=experiment_id,
+                event="mlflow_run_finalized",
+            )
         return out
+
+    def review_status_agent(
+        *, target_type: str, target_id: str, project_id: str | None = None
+    ) -> dict[str, Any]:
+        """Wraps reviews.status so the PRODUCER side — not the reviewer, who
+        already saw the verdict at review.submit — gets the feed_note. This
+        is the tool workflow.status_and_next's review_gate tells the agent to
+        poll (``allowed: ["review.status"]``) while a review is pending, so
+        it is the one main-agent-visible read naturally keyed to "the
+        experiment under review". Only fires once a verdict actually exists
+        (a bare pending-request check has nothing story-worthy to say yet)."""
+        result = reviews.status(
+            target_type=target_type, target_id=target_id, project_id=project_id
+        )
+        if target_type == "experiment" and result.get("reviews"):
+            try:
+                resolved_project_id = str(
+                    experiments.get_state(
+                        experiment_id=target_id, project_id=project_id
+                    ).get("project_id")
+                    or project_id
+                    or ""
+                )
+            except Exception:  # noqa: BLE001 - advisory only, must never block
+                resolved_project_id = ""
+            if resolved_project_id:
+                _attach_feed_note(
+                    result,
+                    feed=feed,
+                    project_id=resolved_project_id,
+                    entity_id=target_id,
+                    event="experiment_review_verdict",
+                )
+        return result
+
+    def _map_snapshot_result(png: bytes, meta: dict[str, Any]) -> dict[str, Any]:
+        """Tool-shaped snapshot: the PNG rides as base64 under the reserved
+        key the stdio proxy converts into an MCP image content block (with a
+        file-path fallback the agent can Read). Same renderer as the UI —
+        the pixel-parity hard line."""
+        import base64
+
+        viewport = meta["viewport"]
+        return {
+            **meta,
+            "image_png_base64": base64.b64encode(png).decode("ascii"),
+            "media_type": "image/png",
+            "guidance": (
+                "Read the image; margin letters/numbers are grid cell refs — "
+                "map.snapshot(cell='C4') zooms into a cell, or reuse this "
+                f"viewport (cx={viewport['cx']:.0f}, cy={viewport['cy']:.0f}) "
+                "with a higher zoom. Entity ids become readable at L3."
+            ),
+        }
+
+    def map_overview_agent(
+        *, project_id: str, w: int = 1200, h: int = 800
+    ) -> dict[str, Any]:
+        png, meta = research_map.snapshot(project_id=project_id, w=w, h=h)
+        return _map_snapshot_result(png, meta)
+
+    def map_snapshot_agent(
+        *,
+        project_id: str,
+        cx: float | None = None,
+        cy: float | None = None,
+        zoom: float | None = None,
+        cell: str | None = None,
+        w: int = 1200,
+        h: int = 800,
+    ) -> dict[str, Any]:
+        png, meta = research_map.snapshot(
+            project_id=project_id, cx=cx, cy=cy, zoom=zoom, cell=cell, w=w, h=h
+        )
+        return _map_snapshot_result(png, meta)
+
+    def map_locate_agent(
+        *,
+        project_id: str,
+        entity_id: str,
+        zoom: float = 2.2,
+        w: int = 1200,
+        h: int = 800,
+    ) -> dict[str, Any]:
+        png, meta = research_map.locate(
+            project_id=project_id, entity_id=entity_id, zoom=zoom, w=w, h=h
+        )
+        return {**_map_snapshot_result(png, meta), "entity_id": entity_id}
 
     handlers = {
         "workflow.status_and_next": workflow.status_and_next_agent,
@@ -487,7 +630,7 @@ def build_control_tool_handlers(
         "review.request": reviews.request,
         "review.start": reviews.start,
         "review.submit": reviews.submit,
-        "review.status": reviews.status,
+        "review.status": review_status_agent,
         "sandbox.options": sandboxes.options,
         "sandbox.get": sandboxes.get,
         "sandbox.list": sandboxes.list_sandboxes,
@@ -498,6 +641,9 @@ def build_control_tool_handlers(
         "sandbox.health": sandboxes.health,
         "feed.register": feed.register,
         "feed.list": feed.list_posts,
+        "map.overview": map_overview_agent,
+        "map.snapshot": map_snapshot_agent,
+        "map.locate": map_locate_agent,
     }
     if storage is not None:
         handlers.update(
@@ -529,6 +675,7 @@ def build_local_tool_handlers(
     sandboxes: Any,
     mlflow_tracking: Any,
     feed: Any,
+    research_map: Any,
     resource_register_file: Callable[..., dict[str, Any]],
     resource_validate: Callable[..., dict[str, Any]],
     experiment_materialize_folders: Callable[..., dict[str, Any]],
@@ -565,6 +712,7 @@ def build_local_tool_handlers(
         sandboxes=sandboxes,
         mlflow_tracking=mlflow_tracking,
         feed=feed,
+        research_map=research_map,
     )
     handlers.update(
         {
