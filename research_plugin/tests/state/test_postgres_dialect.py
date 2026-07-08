@@ -704,7 +704,7 @@ class PostgresStoreBehaviorTest(unittest.TestCase):
                 )
 
     def test_association_upsert_replaces_pin_and_keeps_created_seq(self) -> None:
-        """The resource.associate ON CONFLICT path: re-associating the same
+        """The resource.register association ON CONFLICT path: re-associating the same
         (resource, target, role, attempt) updates the pinned version but keeps
         the original insertion order — rowid parity."""
         project_id = self._seed_project()

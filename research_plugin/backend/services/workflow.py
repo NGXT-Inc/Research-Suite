@@ -770,8 +770,9 @@ class WorkflowService:
                     "figures with relative markdown image links (e.g. "
                     "![project graph](figures/project_graph.png)); every linked "
                     "image must resolve to a local file under 5 MB or "
-                    "resource.associate rejects the doc. Then register the file "
-                    "and associate it with role 'reflection_doc' for this reflection wave."
+                    "resource.register rejects the doc. Then register the file to "
+                    "this reflection wave with role 'reflection_doc' in one "
+                    "resource.register call."
                 ),
             }
         if key == "change_spec":
@@ -881,9 +882,10 @@ class WorkflowService:
                 "explicitly. Keep it under 16 KB: link raw metrics files instead "
                 "of inlining data. Reference figures with relative markdown image "
                 "links (e.g. ![loss](figures/loss.png)); every linked image must "
-                "resolve to a local file under 5 MB or resource.associate rejects "
+                "resolve to a local file under 5 MB or resource.register rejects "
                 "the report, so copy figures off the sandbox first. "
-                "Then register the report and associate it with role 'report'."
+                "Then register the report with role 'report' in one "
+                "resource.register call."
             ),
         }
 

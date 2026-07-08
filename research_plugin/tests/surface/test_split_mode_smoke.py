@@ -67,25 +67,10 @@ class ProxyLocalDataPlaneSmokeTest(unittest.TestCase):
         )
         local_names = {tool["name"] for tool in proxy._local_tool_catalog()}
 
-        self.assertIn("resource.register_file", local_names)
+        self.assertIn("resource.register", local_names)
         self.assertIn("sandbox.get", local_names)
         self.assertIn("sandbox.pull_outputs", local_names)
         self.assertNotIn("claim.create", local_names)
-
-    def test_resource_validate_reads_local_file_without_control_mutation(self) -> None:
-        (self.repo / "plan.md").write_text(
-            "## Summary\nPlan.\n\n## Objective & hypothesis\nGoal.\n\n## Evaluation\nMetric.\n",
-            encoding="utf-8",
-        )
-
-        plane = self._plane(api_post=lambda _path, _payload: self.fail("unexpected HTTP"))
-        result = plane.call_tool(
-            name="resource.validate",
-            arguments={"path": "plan.md", "role": "plan"},
-        )
-
-        self.assertTrue(result["ok"])
-        self.assertEqual(result["path"], "plan.md")
 
     def test_experiment_materialize_folders_uses_linked_project(self) -> None:
         captured: list[tuple[str, dict]] = []
@@ -278,7 +263,7 @@ class ProxyLocalDataPlaneSmokeTest(unittest.TestCase):
 
         with self.assertRaises(LocalDataPlaneError):
             self._plane(api_post=api_post).call_tool(
-                name="resource.associate",
+                name="resource.register",
                 arguments={
                     "resource_id": "res_1",
                     "target_type": "experiment",
@@ -301,7 +286,7 @@ class ProxyLocalDataPlaneSmokeTest(unittest.TestCase):
 
         with self.assertRaises(ValidationError):
             self._plane(api_post=api_post).call_tool(
-                name="resource.associate",
+                name="resource.register",
                 arguments={
                     "resource_id": "res_report",
                     "target_type": "experiment",
@@ -445,11 +430,11 @@ class SplitModeSmokeTest(unittest.TestCase):
         )
 
         resource = self._call(
-            "resource.register_file",
+            "resource.register",
             {"path": "experiments/split-proxy-loop/plan.md", "kind": "note"},
         )
         associated = self._call(
-            "resource.associate",
+            "resource.register",
             {
                 "resource_id": resource["id"],
                 "target_type": "experiment",

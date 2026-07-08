@@ -888,11 +888,11 @@ class FeedNoteTransitionIntegrationTest(unittest.TestCase):
 
     def _write_and_associate(self, *, exp_id: str, path: str, role: str, body: str) -> None:
         (self.repo / path).write_text(body)
-        res = self.call("resource.register_file", project_id=self.pid, path=path, kind=role)
         self.call(
-            "resource.associate",
+            "resource.register",
             project_id=self.pid,
-            resource_id=res["id"],
+            path=path,
+            kind=role,
             target_type="experiment",
             target_id=exp_id,
             role=role,

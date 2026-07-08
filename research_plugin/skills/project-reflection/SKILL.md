@@ -99,9 +99,9 @@ Spawn five subagents in parallel. Each gets:
 - the instruction to write its reflection to
   `syntheses/<syn_id>/reflections/<lens_id>.md` (the filename **must** be
   `<lens_id>.md` — coverage is matched by filename), then
-  `resource.register_file` it and `resource.associate` it to the reflection wave
-  with role `reflection_lens_doc` — **the subagent submits its own reflection**; do
-  not collect and submit on its behalf.
+  `resource.register` it to the reflection wave with role `reflection_lens_doc`
+  (one call — pass the `path` plus `target_type`/`target_id`/`role`) — **the
+  subagent submits its own reflection**; do not collect and submit on its behalf.
 
 After the wave publishes, each lens may also register a distinct handle with
 `feed.register` (`role="lens"`) and post ONE `feed.post` with its single

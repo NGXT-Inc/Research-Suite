@@ -96,17 +96,12 @@ class LocalShippingTest(unittest.TestCase):
             "## Objective & hypothesis\nThreshold rule beats the majority class.\n\n"
             "## Evaluation\nMetric: accuracy. Baseline: majority class. Success if higher.\n"
         )
-        plan = self._tool(
+        self._tool(
             proc,
-            "resource.register_file",
+            "resource.register",
             path="experiments/shipping/plan.md",
             kind="note",
             title="Shipping plan",
-        )
-        self._tool(
-            proc,
-            "resource.associate",
-            resource_id=plan["id"],
             target_type="experiment",
             target_id=exp_id,
             role="plan",
@@ -122,16 +117,11 @@ class LocalShippingTest(unittest.TestCase):
         self._tool(proc, "experiment.transition", experiment_id=exp_id, transition="start_running")
 
         (self.research_repo / "experiments" / "shipping" / "results.json").write_text('{"accuracy": 1.0}\n')
-        result = self._tool(
-            proc,
-            "resource.register_file",
-            path="experiments/shipping/results.json",
-            kind="result",
-        )
         self._tool(
             proc,
-            "resource.associate",
-            resource_id=result["id"],
+            "resource.register",
+            path="experiments/shipping/results.json",
+            kind="result",
             target_type="experiment",
             target_id=exp_id,
             role="result",
@@ -142,16 +132,11 @@ class LocalShippingTest(unittest.TestCase):
             "## Deviations from plan\nNone.\n\n"
             "## Conclusion\nDecision rule met: accuracy beats the majority baseline.\n"
         )
-        report = self._tool(
-            proc,
-            "resource.register_file",
-            path="experiments/shipping/report.md",
-            kind="report",
-        )
         self._tool(
             proc,
-            "resource.associate",
-            resource_id=report["id"],
+            "resource.register",
+            path="experiments/shipping/report.md",
+            kind="report",
             target_type="experiment",
             target_id=exp_id,
             role="report",
@@ -162,16 +147,11 @@ class LocalShippingTest(unittest.TestCase):
             '{"id": "out", "kind": "outcome", "label": "Beat the majority baseline"}],'
             ' "edges": [{"from": "obj", "to": "out"}]}\n'
         )
-        graph = self._tool(
-            proc,
-            "resource.register_file",
-            path="experiments/shipping/graph.json",
-            kind="other",
-        )
         self._tool(
             proc,
-            "resource.associate",
-            resource_id=graph["id"],
+            "resource.register",
+            path="experiments/shipping/graph.json",
+            kind="other",
             target_type="experiment",
             target_id=exp_id,
             role="graph",

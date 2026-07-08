@@ -15,7 +15,7 @@
   "interface": {
     "displayName": "Research Plugin",
     "shortDescription": "Project-scoped claims, experiments, resources, reviews, and cloud sandboxes",
-    "longDescription": "A lean research-state plug-in where Codex operates through skills and a project-local MCP proxy. The backend service (a single local server in local mode, or a hosted control plane with a proxy-local data plane in split mode) controls durable memory, permissioned mutations, repo-file resources, workflow state, adversarial review records, and cloud sandbox provisioning. Agents use project.current for folder context, copy sandbox outputs back via storage tools or client-side rsync, and use resource.associate for repo artifacts.",
+    "longDescription": "A lean research-state plug-in where Codex operates through skills and a project-local MCP proxy. The backend service (a single local server in local mode, or a hosted control plane with a proxy-local data plane in split mode) controls durable memory, permissioned mutations, repo-file resources, workflow state, adversarial review records, and cloud sandbox provisioning. Agents use project.current for folder context, copy sandbox outputs back via storage tools or client-side rsync, and use resource.register for repo artifacts.",
     "developerName": "Papyrus",
     "category": "Productivity",
     "capabilities": [

@@ -21,8 +21,8 @@
     - Risks & confounders
 
   Figures are supported: relative image links (e.g. figures/diagram.png) are
-  captured when the plan is associated and rendered in the UI. Every link must
-  resolve to a local file under 5 MB, or resource.associate rejects the plan.
+  captured when the plan is registered and rendered in the UI. Every link must
+  resolve to a local file under 5 MB, or resource.register rejects the plan.
 
   Keep the title line (`# ...`) to one line; it is the headline. The durable
   `intent` you pass to experiment.create should match it. Delete a RECOMMENDED

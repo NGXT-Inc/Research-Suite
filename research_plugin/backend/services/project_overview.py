@@ -262,7 +262,7 @@ class ProjectOverviewService:
             "resource_id": res.get("id"),
             "path": res.get("path"),
             "version_id": res.get("association_version_id"),
-            "read_with": "resource.resolve",
+            "read_with": "resource.find",
             "read_args": {"resource_id": res.get("id"), "include_history": True},
         }
 

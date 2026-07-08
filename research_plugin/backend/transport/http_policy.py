@@ -47,8 +47,10 @@ HOSTED_CONTROL_TOOL_POLICIES = {
 
 
 # Browser-visible /api/meta capability keys for local data-plane HTTP routes.
-# Proxy submission endpoints are not browser UI capabilities.
+# Proxy submission endpoints are not browser UI capabilities. Register and
+# associate are one tool now (resource.register), but the two browser
+# capability keys stay distinct so the UI's feature surface is unchanged.
 HTTP_DATA_PLANE_FEATURE_TO_TOOL = {
-    "resource_registration": "resource.register_file",
-    "resource_association": "resource.associate",
+    "resource_registration": "resource.register",
+    "resource_association": "resource.register",
 }

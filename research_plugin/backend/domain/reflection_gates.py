@@ -104,7 +104,7 @@ REFLECTION_GATE_TABLE: dict[str, ForwardTransition] = {
                 validator="roster",
                 gate="reflection_roster_incomplete",
                 action="fan_out_reflection_subagents",
-                allowed=("resource.register_file", "resource.associate"),
+                allowed=("resource.register",),
                 missing=(
                     "one reflection document per roster lens "
                     "(role 'reflection_lens_doc')"
@@ -141,7 +141,7 @@ REFLECTION_GATE_TABLE: dict[str, ForwardTransition] = {
                 validator="graph",
                 gate="project_graph_required",
                 action="update_and_associate_project_graph",
-                allowed=("resource.register_file", "resource.associate"),
+                allowed=("resource.register",),
                 missing="project logic graph resource (role 'project_graph')",
                 guidance_key="project_graph",
             ),
@@ -157,7 +157,7 @@ REFLECTION_GATE_TABLE: dict[str, ForwardTransition] = {
                 validator="reflection_doc",
                 gate="reflection_doc_required",
                 action="write_and_associate_reflection_doc",
-                allowed=("resource.register_file", "resource.associate"),
+                allowed=("resource.register",),
                 missing="reflection document resource (role 'reflection_doc')",
                 guidance_key="reflection_doc",
             ),
@@ -173,7 +173,7 @@ REFLECTION_GATE_TABLE: dict[str, ForwardTransition] = {
                 validator="change_spec",
                 gate="change_spec_required",
                 action="write_and_associate_change_spec",
-                allowed=("resource.register_file", "resource.associate"),
+                allowed=("resource.register",),
                 missing="change spec resource (role 'change_spec')",
                 guidance_key="change_spec",
             ),

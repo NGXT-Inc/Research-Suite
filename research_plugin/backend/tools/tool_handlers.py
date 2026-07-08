@@ -514,6 +514,37 @@ def build_control_tool_handlers(
             )
         return out
 
+    def resource_find(
+        *,
+        resource_id: str | None = None,
+        include_history: bool = False,
+        kind: str | None = None,
+        experiment_id: str | None = None,
+        missing: bool | None = None,
+        compact: bool = False,
+        limit: int | None = None,
+        offset: int = 0,
+        project_id: str | None = None,
+    ) -> dict[str, Any]:
+        """resource_id → resolve one hydrated resource; otherwise list with
+        filters. Both branches call the same record-service methods the former
+        resource.resolve / resource.list handlers used."""
+        if resource_id is not None:
+            return resources.resolve(
+                resource_id=resource_id,
+                include_history=include_history,
+                project_id=project_id,
+            )
+        return resources.list_resources(
+            kind=kind,
+            experiment_id=experiment_id,
+            missing=missing,
+            compact=compact,
+            limit=limit,
+            offset=offset,
+            project_id=project_id,
+        )
+
     def review_status_agent(
         *, target_type: str, target_id: str, project_id: str | None = None
     ) -> dict[str, Any]:
@@ -570,8 +601,7 @@ def build_control_tool_handlers(
         "reflection.list": reflections.list,
         "reflection.transition": reflections.transition,
         "resource.delete": resources.delete,
-        "resource.list": resources.list_resources,
-        "resource.resolve": resources.resolve,
+        "resource.find": resource_find,
         "review.request": reviews.request,
         "review.start": reviews.start,
         "review.submit": reviews.submit,
@@ -663,7 +693,6 @@ def build_local_tool_handlers(
     mlflow_tracking: Any,
     feed: Any,
     resource_register_file: Callable[..., dict[str, Any]],
-    resource_validate: Callable[..., dict[str, Any]],
     experiment_materialize_folders: Callable[..., dict[str, Any]],
     # Data-plane local IO: required — there is no control-plane fallback.
     sandbox_pull_outputs: Callable[..., dict[str, Any]],
@@ -673,17 +702,52 @@ def build_local_tool_handlers(
     storage_download_file: Callable[..., dict[str, Any]] | None = None,
 ) -> dict[str, Callable[..., dict[str, Any]]]:
     """Map all local-mode tool names to service methods."""
-    def resource_associate_batch(
-        *, associations: list[dict[str, Any]], project_id: str | None = None
+    def resource_register(
+        *,
+        path: str | None = None,
+        paths: list[str] | None = None,
+        resource_id: str | None = None,
+        kind: str = "other",
+        title: str = "",
+        created_by: str = "codex",
+        target_type: str | None = None,
+        target_id: str | None = None,
+        role: str | None = None,
+        project_id: str | None = None,
     ) -> dict[str, Any]:
+        """Register file(s) and optionally associate, composing the same
+        register_file / associate callables the two old tools used."""
         associate = (
             resource_associate if resource_associate is not None else resources.associate
         )
-        applied = [
-            associate(project_id=project_id, **dict(association))
-            for association in associations
-        ]
-        return {"associations": applied, "count": len(applied)}
+
+        def _associate(rid: str) -> dict[str, Any]:
+            return associate(
+                project_id=project_id,
+                resource_id=rid,
+                target_type=target_type,
+                target_id=target_id,
+                role=role,
+            )
+
+        has_target = None not in (target_type, target_id, role)
+        if resource_id is not None:
+            return _associate(resource_id)
+        registered = resource_register_file(
+            project_id=project_id,
+            path=path,
+            paths=paths,
+            kind=kind,
+            title=title,
+            created_by=created_by,
+        )
+        if not has_target:
+            return registered
+        batch = registered.get("resources")
+        if isinstance(batch, list):
+            associations = [_associate(str(res.get("id"))) for res in batch]
+            return {"resources": batch, "associations": associations, "count": len(batch)}
+        return {"resource": registered, "association": _associate(str(registered.get("id")))}
 
     handlers = build_control_tool_handlers(
         workflow=workflow,
@@ -708,12 +772,7 @@ def build_local_tool_handlers(
     handlers.update(
         {
             "project.connect": project_connect_proxy_only,
-            "resource.register_file": resource_register_file,
-            "resource.validate": resource_validate,
-            "resource.associate": (
-                resource_associate if resource_associate is not None else resources.associate
-            ),
-            "resource.associate_batch": resource_associate_batch,
+            "resource.register": resource_register,
             "experiment.materialize_folders": experiment_materialize_folders,
             "sandbox.request": sandboxes.request,
             "sandbox.attach": sandboxes.attach,

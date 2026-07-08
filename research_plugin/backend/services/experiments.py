@@ -881,8 +881,8 @@ class ExperimentService:
     ) -> tuple[str, str, str]:
         """(text, version_id, path) of the current attempt's submitted artifact.
 
-        Gates lint the bytes pinned at resource.associate — never the working
-        tree — so fixing an artifact means fix the file AND re-associate it.
+        Gates lint the bytes pinned at resource.register — never the working
+        tree — so fixing an artifact means fix the file AND re-register it.
         """
         if self.pinned is None:
             raise WorkflowError(

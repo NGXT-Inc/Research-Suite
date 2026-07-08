@@ -47,8 +47,7 @@ class ExperimentSlimTest(unittest.TestCase):
             p = self.repo / path
             p.parent.mkdir(parents=True, exist_ok=True)
             p.write_text("x" * 50)
-            r = self.call("resource.register_file", project_id=self.project_id, path=path, kind=kind)
-            self.call("resource.associate", project_id=self.project_id, resource_id=r["id"],
+            self.call("resource.register", project_id=self.project_id, path=path, kind=kind,
                       target_type="experiment", target_id=exp_id, role=role)
         return exp_id
 

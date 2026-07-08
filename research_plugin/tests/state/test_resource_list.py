@@ -22,9 +22,9 @@ class ResourceListTest(unittest.TestCase):
         # Three resources of two kinds; one associated with the experiment.
         for name, kind in (("a.md", "note"), ("b.csv", "dataset"), ("c.py", "code")):
             (self.repo / name).write_text(f"{name} content\n")
-            self.call("resource.register_file", project_id=self.project_id, path=name, kind=kind)
+            self.call("resource.register", project_id=self.project_id, path=name, kind=kind)
         self.call(
-            "resource.associate", project_id=self.project_id, resource_id=self._rid("b.csv"),
+            "resource.register", project_id=self.project_id, resource_id=self._rid("b.csv"),
             target_type="experiment", target_id=self.exp_id, role="input",
         )
 
@@ -36,25 +36,25 @@ class ResourceListTest(unittest.TestCase):
         return self.app.call_tool(tool_name, kwargs)
 
     def _rid(self, path: str) -> str:
-        for r in self.call("resource.list", project_id=self.project_id)["resources"]:
+        for r in self.call("resource.find", project_id=self.project_id)["resources"]:
             if r["path"] == path:
                 return r["id"]
         raise AssertionError(f"resource {path} not found")
 
     def test_list_returns_metadata(self) -> None:
-        res = self.call("resource.list", project_id=self.project_id)
+        res = self.call("resource.find", project_id=self.project_id)
         self.assertEqual(res["total"], 3)
         self.assertEqual(res["count"], 3)
         self.assertFalse(res["has_more"])
         self.assertFalse(res["compact"])
 
     def test_filter_by_kind(self) -> None:
-        res = self.call("resource.list", project_id=self.project_id, kind="dataset")
+        res = self.call("resource.find", project_id=self.project_id, kind="dataset")
         self.assertEqual([r["path"] for r in res["resources"]], ["b.csv"])
         self.assertEqual(res["total"], 1)
 
     def test_filter_by_experiment(self) -> None:
-        res = self.call("resource.list", project_id=self.project_id, experiment_id=self.exp_id)
+        res = self.call("resource.find", project_id=self.project_id, experiment_id=self.exp_id)
         self.assertEqual([r["path"] for r in res["resources"]], ["b.csv"])
 
     def test_filter_by_missing(self) -> None:
@@ -65,14 +65,14 @@ class ResourceListTest(unittest.TestCase):
                 "UPDATE resources SET missing = 1 WHERE project_id = ? AND path = ?",
                 (self.project_id, "a.md"),
             )
-        present = self.call("resource.list", project_id=self.project_id, missing=False)
-        missing = self.call("resource.list", project_id=self.project_id, missing=True)
+        present = self.call("resource.find", project_id=self.project_id, missing=False)
+        missing = self.call("resource.find", project_id=self.project_id, missing=True)
         self.assertNotIn("a.md", [r["path"] for r in present["resources"]])
         self.assertEqual([r["path"] for r in missing["resources"]], ["a.md"])
 
     def test_pagination(self) -> None:
-        page1 = self.call("resource.list", project_id=self.project_id, limit=2, offset=0)
-        page2 = self.call("resource.list", project_id=self.project_id, limit=2, offset=2)
+        page1 = self.call("resource.find", project_id=self.project_id, limit=2, offset=0)
+        page2 = self.call("resource.find", project_id=self.project_id, limit=2, offset=2)
         self.assertEqual(page1["count"], 2)
         self.assertTrue(page1["has_more"])
         self.assertEqual(page2["count"], 1)
@@ -81,9 +81,9 @@ class ResourceListTest(unittest.TestCase):
         self.assertEqual(sorted(seen), ["a.md", "b.csv", "c.py"])
 
     def test_compact_omits_heavy_payload_keeps_version_token(self) -> None:
-        full = self.call("resource.list", project_id=self.project_id)["resources"][0]
+        full = self.call("resource.find", project_id=self.project_id)["resources"][0]
         self.assertIn("current_version", full)  # heavy nested object present by default
-        compact = self.call("resource.list", project_id=self.project_id, compact=True)
+        compact = self.call("resource.find", project_id=self.project_id, compact=True)
         first = compact["resources"][0]
         self.assertTrue(compact["compact"])
         self.assertNotIn("current_version", first)

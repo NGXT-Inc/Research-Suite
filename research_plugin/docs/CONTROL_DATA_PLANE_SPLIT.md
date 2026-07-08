@@ -73,7 +73,7 @@ brain/proxy production path.
 Control tools go to the brain. Data tools run in the proxy and submit explicit
 facts or bytes to the brain:
 
-- `resource.register_file`, `resource.validate`, `resource.associate_batch`
+- `resource.register` (register file(s) + optionally associate + capture bytes)
 - `experiment.materialize_folders`
 - `sandbox.pull_outputs`
 - `project.connect` — served by the proxy process itself: it validates (or

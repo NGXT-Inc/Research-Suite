@@ -150,7 +150,7 @@ def preview_metrics_exhibit(
         raise WorkflowError(
             f"experiment.exhibit previews a running experiment; this one is "
             f"{state.get('status')!r}. After submit_results, read the pinned "
-            "exhibit resource instead (resource.resolve)."
+            "exhibit resource instead (resource.find)."
         )
     exhibit = generate_metrics_exhibit(
         experiments=experiments,

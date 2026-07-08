@@ -224,11 +224,11 @@ class ExhibitFlowTest(unittest.TestCase):
         target = self.repo / path
         target.parent.mkdir(parents=True, exist_ok=True)
         target.write_text(body)
-        res = self.call("resource.register_file", project_id=self.project_id, path=path, kind=role)
         self.call(
-            "resource.associate",
+            "resource.register",
             project_id=self.project_id,
-            resource_id=res["id"],
+            path=path,
+            kind=role,
             target_type="experiment",
             target_id=exp_id,
             role=role,
@@ -477,10 +477,10 @@ class ExhibitFlowTest(unittest.TestCase):
         # The exhibit role is not associable through the agent surface.
         forged = self.repo / "forged.json"
         forged.write_text("{}")
-        res = self.call("resource.register_file", project_id=self.project_id, path="forged.json", kind="result")
+        res = self.call("resource.register", project_id=self.project_id, path="forged.json", kind="result")
         with self.assertRaises(ValidationError):
             self.call(
-                "resource.associate",
+                "resource.register",
                 project_id=self.project_id,
                 resource_id=res["id"],
                 target_type="experiment",
@@ -491,7 +491,7 @@ class ExhibitFlowTest(unittest.TestCase):
         (self.repo / exhibit_path).parent.mkdir(parents=True, exist_ok=True)
         (self.repo / exhibit_path).write_text('{"forged": true}')
         with self.assertRaises(ValidationError):
-            self.call("resource.register_file", project_id=self.project_id, path=exhibit_path, kind="result")
+            self.call("resource.register", project_id=self.project_id, path=exhibit_path, kind="result")
         with self.assertRaises(ValidationError):
             self.call("resource.delete", project_id=self.project_id, resource_id=association["resource_id"])
 

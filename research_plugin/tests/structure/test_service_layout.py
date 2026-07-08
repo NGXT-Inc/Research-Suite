@@ -926,8 +926,8 @@ class ServiceLayoutTest(unittest.TestCase):
         self.assertEqual(
             HTTP_DATA_PLANE_FEATURE_TO_TOOL,
             {
-                "resource_registration": "resource.register_file",
-                "resource_association": "resource.associate",
+                "resource_registration": "resource.register",
+                "resource_association": "resource.register",
             },
         )
         self.assertIn("HTTP_DATA_PLANE_FEATURE_TO_TOOL", policy_source)

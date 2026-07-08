@@ -43,13 +43,11 @@ class ReviewPolicyTest(unittest.TestCase):
             "experiment.create", name=name, project_id=self.project_id, intent="Policy."
         )["id"]
         (self.repo / "plan.md").write_text(VALID_PLAN)
-        res = self.call(
-            "resource.register_file", project_id=self.project_id, path="plan.md", kind="plan"
-        )
         self.call(
-            "resource.associate",
+            "resource.register",
             project_id=self.project_id,
-            resource_id=res["id"],
+            path="plan.md",
+            kind="plan",
             target_type="experiment",
             target_id=exp_id,
             role="plan",

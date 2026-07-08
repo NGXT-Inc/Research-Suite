@@ -182,7 +182,8 @@ After any experiment execution, Codex should:
 
 1. identify changed files with git/status or filesystem checks
 2. decide which files are research resources
-3. call `resource.register_file` with the retained local `paths`
+3. call `resource.register` with the retained local `paths` (add the
+   `target_type`/`target_id`/`role` trio to associate them in the same call)
 4. ask `workflow.status_and_next`
 5. launch experiment reviewer if requested
 6. wait for review submission status through MCP
@@ -228,8 +229,8 @@ artifact exists: if a submitted artifact would fail the transition's lint, the g
 `plan_invalid` / `report_invalid` / `graph_invalid` with the lint problems in
 `missing_evidence` and the action `fix_<role>_resource` — the workflow never
 answers "ready to submit" for an artifact the transition would reject. The
-lints read the SUBMITTED bytes (pinned at resource.associate), so clearing
-the gate means fixing the file AND re-associating it to submit the revision.
+lints read the SUBMITTED bytes (pinned at resource.register), so clearing
+the gate means fixing the file AND re-registering it to submit the revision.
 
 On rejection, the attached revision context includes a soft reminder to
 *consider* updating the logic graph — whether the rejection and rework belong

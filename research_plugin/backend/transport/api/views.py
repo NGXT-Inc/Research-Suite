@@ -204,7 +204,7 @@ class ResearchHttpApi:
         # slimmed `workflow.status_and_next` tool is for the agent only, so call
         # the service method directly here.
         status = self.app.workflow.status_and_next(project_id=project_id)
-        resources = self.call_tool(name="resource.list", arguments={"project_id": project_id})["resources"]
+        resources = self.call_tool(name="resource.find", arguments={"project_id": project_id})["resources"]
         reviews = self.review_queue(project_id=project_id)
         events = self.events(project_id=project_id, limit=25)["events"]
         claims = status["project"]["active_claims"]
@@ -254,7 +254,7 @@ class ResearchHttpApi:
         }
 
     def resources_tree(self, project_id: str) -> dict[str, Any]:
-        resources = self.call_tool(name="resource.list", arguments={"project_id": project_id})["resources"]
+        resources = self.call_tool(name="resource.find", arguments={"project_id": project_id})["resources"]
         by_kind: dict[str, list[dict[str, Any]]] = {}
         for resource in resources:
             by_kind.setdefault(resource.get("kind", "other"), []).append(resource)
@@ -304,7 +304,7 @@ class ResearchHttpApi:
     def resource_content(
         self, project_id: str, resource_id: str, version: str | None = None
     ) -> dict[str, Any]:
-        resource = self.call_tool(name="resource.resolve", arguments={"project_id": project_id, "resource_id": resource_id})
+        resource = self.call_tool(name="resource.find", arguments={"project_id": project_id, "resource_id": resource_id})
         # An explicit version pins the EXACT submitted bytes of one resource
         # version (used by the reflection-wave UI to render a past wave's
         # graph, reflection doc, or change spec faithfully, not the latest
@@ -442,7 +442,7 @@ class ResearchHttpApi:
     def resource_file(
         self, project_id: str, resource_id: str, rel: str | None = None
     ) -> tuple[bytes, dict[str, str]]:
-        resource = self.call_tool(name="resource.resolve", arguments={"project_id": project_id, "resource_id": resource_id})
+        resource = self.call_tool(name="resource.find", arguments={"project_id": project_id, "resource_id": resource_id})
         if rel:
             # A file referenced by the resource, e.g. a markdown relative image
             # link. Submitted figures serve from the blob store; uncaptured
@@ -507,7 +507,7 @@ class ResearchHttpApi:
         if not path:
             raise ValidationError("resource creation requires a repo-relative path")
         return self.call_tool(
-            name="resource.register_file",
+            name="resource.register",
             arguments={
                 "project_id": project_id,
                 "path": path,
@@ -525,7 +525,7 @@ class ResearchHttpApi:
         return {"experiments": experiments}
 
     def filter_resources(self, project_id: str, kind: str | None) -> dict[str, Any]:
-        resources = self.call_tool(name="resource.list", arguments={"project_id": project_id})["resources"]
+        resources = self.call_tool(name="resource.find", arguments={"project_id": project_id})["resources"]
         if kind:
             resources = [res for res in resources if res.get("kind") == kind]
         return {"resources": resources}

@@ -70,11 +70,11 @@ class WorkflowGateTest(unittest.TestCase):
 
     def _write_and_associate(self, *, exp_id: str, path: str, role: str, body: str) -> None:
         (self.repo / path).write_text(body)
-        res = self.call("resource.register_file", project_id=self.project_id, path=path, kind=role)
         self.call(
-            "resource.associate",
+            "resource.register",
             project_id=self.project_id,
-            resource_id=res["id"],
+            path=path,
+            kind=role,
             target_type="experiment",
             target_id=exp_id,
             role=role,
@@ -212,7 +212,7 @@ class WorkflowGateTest(unittest.TestCase):
         exp = self.call("experiment.create", name="plan-fig", project_id=self.project_id, intent="Plan figure gate.")
         plan = VALID_PLAN + "\n![arch](figures/diagram.png)\n"
         (self.repo / "plan.md").write_text(plan)
-        res = self.call("resource.register_file", project_id=self.project_id, path="plan.md", kind="plan")
+        res = self.call("resource.register", project_id=self.project_id, path="plan.md", kind="plan")
         self.app._control_api_post(
             "/api/data-plane/resources/associate",
             {
@@ -249,36 +249,6 @@ class WorkflowGateTest(unittest.TestCase):
             set(plan_sections_missing("# Title only\n")),
             {"Summary", "Objective & hypothesis", "Evaluation"},
         )
-
-    def test_resource_validate_preflights_plan_before_association(self) -> None:
-        (self.repo / "plan.md").write_text("## Summary\nToo thin.\n", encoding="utf-8")
-
-        invalid = self.call(
-            "resource.validate",
-            project_id=self.project_id,
-            path="plan.md",
-            role="plan",
-        )
-
-        self.assertFalse(invalid["ok"])
-        self.assertTrue(invalid["gated"])
-        self.assertTrue(
-            any("Objective & hypothesis" in problem for problem in invalid["problems"])
-        )
-        self.assertEqual(
-            self.call("resource.list", project_id=self.project_id)["resources"],
-            [],
-        )
-
-        (self.repo / "plan.md").write_text(VALID_PLAN, encoding="utf-8")
-        valid = self.call(
-            "resource.validate",
-            project_id=self.project_id,
-            path="plan.md",
-            role="plan",
-        )
-        self.assertTrue(valid["ok"])
-        self.assertEqual(valid["problems"], [])
 
     # ---- transition discovery (allowed_transitions + helpful errors) ----
 
@@ -574,38 +544,25 @@ class WorkflowGateTest(unittest.TestCase):
         out = self.call("experiment.transition", project_id=self.project_id, experiment_id=exp_id, transition="submit_results")
         self.assertEqual(out["status"], "experiment_review")
 
-    def test_resource_associate_batch_satisfies_results_gate(self) -> None:
+    def test_register_with_trio_satisfies_results_gate(self) -> None:
         exp_id = self._drive_to_running_with_result()
-        files = {
-            "report.md": ("report", VALID_REPORT),
-            "graph.json": ("graph", VALID_GRAPH),
-        }
-        associations = []
-        for path, (role, body) in files.items():
+        for path, role, body in (
+            ("report.md", "report", VALID_REPORT),
+            ("graph.json", "graph", VALID_GRAPH),
+        ):
             (self.repo / path).write_text(body)
-            resource = self.call(
-                "resource.register_file",
+            registered = self.call(
+                "resource.register",
                 project_id=self.project_id,
                 path=path,
                 kind=role,
+                target_type="experiment",
+                target_id=exp_id,
+                role=role,
             )
-            associations.append(
-                {
-                    "resource_id": resource["id"],
-                    "target_type": "experiment",
-                    "target_id": exp_id,
-                    "role": role,
-                }
-            )
+            self.assertIn("association", registered)
+            self.assertIn("resource", registered)
 
-        associated = self.call(
-            "resource.associate_batch",
-            project_id=self.project_id,
-            associations=associations,
-        )
-
-        self.assertEqual(associated["count"], 2)
-        self.assertEqual(len(associated["associations"]), 2)
         state = self.call(
             "experiment.get_state",
             project_id=self.project_id,
@@ -624,6 +581,74 @@ class WorkflowGateTest(unittest.TestCase):
             experiment_id=exp_id,
             transition="submit_results",
         )
+
+    def test_one_call_register_matches_two_step_resource_id_association(self) -> None:
+        # register+associate in one call must land the same association state as
+        # registering, then associating the returned resource_id separately.
+        exp_a = self.call("experiment.create", name="one-call", project_id=self.project_id, intent="x")["id"]
+        exp_b = self.call("experiment.create", name="two-step", project_id=self.project_id, intent="y")["id"]
+        (self.repo / "plan.md").write_text(VALID_PLAN)
+
+        one_call = self.call(
+            "resource.register",
+            project_id=self.project_id,
+            path="plan.md",
+            kind="plan",
+            target_type="experiment",
+            target_id=exp_a,
+            role="plan",
+        )["association"]
+
+        # Two-step through the SAME tool: register (path only), then associate
+        # the returned resource_id.
+        registered = self.call("resource.register", project_id=self.project_id, path="plan.md", kind="plan")
+        two_step = self.call(
+            "resource.register",
+            project_id=self.project_id,
+            resource_id=registered["id"],
+            target_type="experiment",
+            target_id=exp_b,
+            role="plan",
+        )
+
+        def assoc(hydrated: dict, exp_id: str) -> dict:
+            return next(
+                a for a in hydrated["associations"]
+                if a["target_id"] == exp_id and a["role"] == "plan"
+            )
+
+        a = assoc(one_call, exp_a)
+        b = assoc(two_step, exp_b)
+        self.assertEqual(a["role"], b["role"])
+        self.assertEqual(a["version_id"], b["version_id"])
+        self.assertEqual(a["attempt_index"], b["attempt_index"])
+
+    def test_register_paths_batch_associates_every_file_to_the_trio(self) -> None:
+        exp_id = self._drive_to_running_with_result()
+        for name in ("results/a.json", "results/b.json"):
+            p = self.repo / name
+            p.parent.mkdir(parents=True, exist_ok=True)
+            p.write_text('{"metric": 1}\n')
+        out = self.call(
+            "resource.register",
+            project_id=self.project_id,
+            paths=["results/a.json", "results/b.json"],
+            kind="result",
+            target_type="experiment",
+            target_id=exp_id,
+            role="result",
+        )
+        self.assertEqual(out["count"], 2)
+        self.assertEqual(len(out["resources"]), 2)
+        self.assertEqual(len(out["associations"]), 2)
+        state = self.call("experiment.get_state", project_id=self.project_id, experiment_id=exp_id)
+        associated = {
+            item["path"]
+            for item in state["current_attempt_resources"]
+            if item["association_role"] == "result"
+        }
+        self.assertIn("results/a.json", associated)
+        self.assertIn("results/b.json", associated)
 
     def test_logic_graph_node_budget_is_enforced(self) -> None:
         exp_id = self._drive_to_running_with_result()

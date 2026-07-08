@@ -114,7 +114,7 @@ Heavy artifacts should go to durable object storage instead of into the repo.
    — it validates or creates the project and links this folder to it. If
    `exists` is true, read `at_a_glance`: it links the latest reflection
    document and project graph, shows whether newer experiments or claim changes
-   happened since that reflection, and gives recommended `resource.resolve`
+   happened since that reflection, and gives recommended `resource.find`
    reads (plus the reflection id for `reflection.get`) for more context.
 2. Ask MCP for `workflow.status_and_next(experiment_id?)` before acting.
 3. Identify the claim or experiment being worked on.
@@ -380,14 +380,14 @@ not lint-enforced, but the design reviewer can return `needs_changes` if they
 are missing or too thin for this experiment. Scale their depth to the work.
 
 Plans may include figures: every relative image link must resolve to a local
-file under 5 MB when you associate the plan — a dangling or oversized link is
-rejected at `resource.associate`, and `submit_design` re-checks that each
+file under 5 MB when you register the plan — a dangling or oversized link is
+rejected at `resource.register`, and `submit_design` re-checks that each
 linked figure was submitted alongside the plan.
 
 If `submit_design` is rejected for missing sections, fill them in and
-**re-associate the plan** (`resource.associate` with role `plan`) before
-retrying — the lint reads the bytes you SUBMITTED at associate time, never the
-live file, so an edit counts only once it is re-associated.
+**re-register the plan** (`resource.register` with role `plan`) before
+retrying — the lint reads the bytes you SUBMITTED at register time, never the
+live file, so an edit counts only once it is re-registered.
 
 ## Results report
 
@@ -475,20 +475,23 @@ When the agent creates or changes files during an experiment:
 - if the experiment ran in a sandbox, pull retained files off the box with
   `sandbox.pull_outputs` first; resource tools operate on local files and
   cannot associate remote sandbox files
-- call the MCP resource register tool
-- associate local resources with the current experiment, claim, or review
+- call `resource.register` with the local `path` (or `paths` for a batch) and
+  the association trio (`target_type`, `target_id`, `role`) to register the
+  file(s) and associate them to the current experiment, claim, or review in one
+  call; to associate an already-registered resource, pass its `resource_id`
+  with the trio instead of a path
 - when `workflow.status_and_next` includes `resource_guidance`, follow its
   `association_role`; do not guess plural role names such as `results`,
   `reports`, or `output` (the singular roles are `result`, `report`, and
   `graph`)
-- gates and lints judge the SUBMITTED bytes (pinned at `resource.associate`),
+- gates and lints judge the SUBMITTED bytes (pinned at `resource.register`),
   never the live working tree: after fixing a gated artifact (plan, report,
   graph, project_graph, reflection_lens_doc, reflection_doc, change_spec),
-  re-associate it to submit the
+  re-register it to submit the
   fix — editing the file alone changes nothing the workflow can see
 - do not create artifact manifests or content-addressed resource objects
 - do not restore old versions through MCP; edit the live file normally and
-  re-associate it to submit a new version
+  re-register it to submit a new version
 
 ## Review discipline
 

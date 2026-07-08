@@ -1,5 +1,5 @@
 """Reflection-wave artifact lints shared by the transition gates and the
-data-plane preflight (`resource.validate`).
+local data-plane resource-validation helper.
 
 Structure lives here so the two surfaces cannot drift. DB-backed checks
 (claim existence, taken experiment names, active-experiment caps) are

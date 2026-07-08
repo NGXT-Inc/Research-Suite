@@ -1,4 +1,4 @@
-"""Local gated-artifact reads for resource.associate."""
+"""Local gated-artifact reads for the resource.register association step."""
 
 from __future__ import annotations
 

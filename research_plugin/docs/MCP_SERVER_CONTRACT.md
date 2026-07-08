@@ -64,7 +64,7 @@ claim.update(project_id, claim_id, status?, confidence?)  # statement/scope are 
 experiment.list(project_id)
 experiment.create(project_id, name, intent, tested_claim_ids?)
 experiment.get_state(project_id, experiment_id)   # see "get_state shape" below
-resource.list(project_id, kind?, experiment_id?, missing?, compact?, limit?, offset?)
+resource.find(project_id, resource_id?, include_history?, kind?, experiment_id?, missing?, compact?, limit?, offset?)  # resource_id → resolve one; else list
 review.status(project_id, target_type, target_id) # REST/UI + internal dispatch only; not in the agent tools/list (agents poll workflow.status_and_next)
 ```
 
@@ -197,38 +197,42 @@ experiment-scoped calls keep the plain terminal answer.
 ### Resource tools
 
 ```text
-resource.register_file(project_id, path?, paths?, kind, title?)  # single file or batch
-resource.validate(project_id, path, role)                         # preflight local lint
-resource.associate_batch(project_id, associations=[{resource_id, target_type, target_id, role}, ...])
-resource.resolve(project_id, resource_id, include_history?)       # include_history adds versions
+resource.register(project_id, path?, paths?, resource_id?, kind, title?, target_type?, target_id?, role?)
+    # path/paths → register/observe file(s); resource_id → associate an existing resource.
+    # Add the trio (target_type, target_id, role) to associate the registered resource(s).
+resource.find(project_id, resource_id?, include_history?, kind?, experiment_id?, missing?, compact?, limit?, offset?)
+    # resource_id → resolve one hydrated resource (include_history adds versions); else list with filters.
+resource.delete(project_id, resource_id)  # UI-convenience; hidden from the agent tools/list.
 ```
 
-The server observes local repo files by path, stores latest metadata in
-`resources`, and records append-only observations in `resource_versions`.
-Each observed version captures size, mtime, content sha256, and mimetype;
-file content itself is not stored — historical content lives in the user's
-own repo / git history.
+`resource.register` is exactly one of three modes (a Pydantic model validator
+enforces this): pass `path` (one file), `paths` (a changed-files batch), or
+`resource_id` (associate an already-registered resource). The association trio
+(`target_type`, `target_id`, `role`) is all-or-none; the `resource_id` mode
+requires it. The server observes local repo files by path, stores latest
+metadata in `resources`, and records append-only observations in
+`resource_versions`. Each observed version captures size, mtime, content
+sha256, and mimetype; file content itself is not stored — historical content
+lives in the user's own repo / git history.
 
-`resource.validate` reads the current local file without registering or
-associating it. For gated roles such as `plan`, `report`, and `graph`, it
-preflights the same byte caps, required sections, figure availability (every
-relative image link in a markdown plan/report/reflection doc must resolve to
-a local file under 5 MB), and graph envelope checks that would otherwise fail
-at association or transition time.
+Association validates the file against the role. For gated roles such as `plan`,
+`report`, and `graph`, `resource.register` enforces the byte caps and figure
+availability (every relative image link in a markdown plan/report/reflection
+doc must resolve to a local file under 5 MB) at register time; the required
+sections and graph-envelope structure lints run authoritatively at the workflow
+transition gate against the pinned bytes.
 
 When a resource is associated with an experiment, MCP stores the experiment's
 current `attempt_index` and current `version_id` on that association. Workflow
 gates only count resources from the current attempt, so stale result files from
-a failed attempt cannot satisfy a rerun.
+a failed attempt cannot satisfy a rerun. A batch (`paths` with the trio) applies
+each row in order through the same role validation, gated-artifact byte capture,
+and attempt scoping as a single association.
 
-`resource.associate_batch` is a data-plane convenience wrapper over
-`resource.associate`: rows are applied in order through the same role validation,
-gated-artifact byte capture, and attempt scoping as single associations.
-
-Gates and lints judge the bytes SUBMITTED at `resource.associate` (pinned to
+Gates and lints judge the bytes SUBMITTED at `resource.register` (pinned to
 a version and stored in the blob store), never the live working tree. There is
 no background reconciliation: editing or deleting a file after association
-changes nothing the workflow can see — re-associate the resource to submit the
+changes nothing the workflow can see — re-register the resource to submit the
 new content. MCP does not scan the repo or register new files.
 
 ### Workflow tools
@@ -308,7 +312,7 @@ all-attempts `resources` list, per-resource version bookkeeping (`version_token`
 `mtime_ns`, `*_version_id`, `git_commit`, timestamps), full review
 prose/`evidence`/`target_snapshot_id`, and the project-wide claim/experiment
 detail. For those, call the scoped tools (`experiment.get_state`,
-`resource.list`) — `experiment.get_state` carries the full review
+`resource.find`) — `experiment.get_state` carries the full review
 `findings`/`notes`/`evidence`/`verdict`. Called **without** `experiment_id` (only at
 project setup, before any experiment exists), it returns
 `{ "scope": "project", "workflow", "project": { id, name, summary, claims[] } }`.
@@ -379,7 +383,7 @@ the conclusion text is clear enough. What
   `target_id`, `target_type`, `project_id`.
 
 The UI gets the full shape (the HTTP routes call the service directly). For
-per-resource version history, use `resource.resolve(include_history=true)`.
+per-resource version history, use `resource.find(resource_id, include_history=true)`.
 
 ### Execution tools
 
@@ -492,8 +496,8 @@ are named in `files_kept_stale` (check it before registering results from a
 re-run), and `files_transferred` counts what actually landed. Remote symlinks
 and device nodes are never recreated locally. A failing path is reported in
 `errors` / `paths_failed` without discarding the paths that succeeded. After
-pulling files locally, use `resource.register_file` / `resource.associate` for
-retained artifacts. Heavy artifacts should go through durable storage tools.
+pulling files locally, use `resource.register` for retained artifacts. Heavy
+artifacts should go through durable storage tools.
 
 When the backend has `HF_TOKEN` in its env file or process environment,
 `sandbox.request` / `sandbox.get` include an `environment.available_tokens`

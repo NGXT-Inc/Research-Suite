@@ -21,7 +21,7 @@
       numbers, logs, and large tables live in linked result resources
       (results.json, metrics.csv), not here.
     - Every relative image link must resolve to a local file under 5 MB, or
-      resource.associate rejects the report. Save figures next to the report
+      resource.register rejects the report. Save figures next to the report
       (e.g. figures/*.png), copy them off any sandbox first, then submit.
 
   RECOMMENDED — not lint-enforced, but the experiment reviewer judges whether

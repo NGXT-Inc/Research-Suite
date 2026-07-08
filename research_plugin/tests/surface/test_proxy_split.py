@@ -87,7 +87,7 @@ class SplitProxyLocalDataTest(unittest.TestCase):
         names = {tool["name"] for tool in response["result"]["tools"]}
 
         self.assertIn("claim.create", names)
-        self.assertIn("resource.register_file", names)
+        self.assertIn("resource.register", names)
         self.assertIn("sandbox.get", names)
         self.assertIn("project.connect", names)
         self.assertNotIn("project.list", names)
@@ -113,7 +113,7 @@ class SplitProxyLocalDataTest(unittest.TestCase):
     def test_data_tool_reads_local_file_and_submits_observation_to_control(self) -> None:
         (self.repo / "note.txt").write_text("hello from proxy-local data plane\n")
 
-        resource = self._call("resource.register_file", {"path": "note.txt"})
+        resource = self._call("resource.register", {"path": "note.txt"})
 
         self.assertEqual(resource["path"], "note.txt")
         self.assertEqual(resource["project_id"], self.project["id"])
@@ -129,7 +129,7 @@ class SplitProxyLocalDataTest(unittest.TestCase):
         self.assertTrue(health["control_plane"]["reachable"])
         self.assertTrue(health["control_plane"]["configured"])
 
-    def test_cloud_outage_blocks_control_submission_but_not_local_validation(self) -> None:
+    def test_cloud_outage_surfaces_brain_not_running_on_control_submission(self) -> None:
         broken = HttpProxyMcpServer(
             config=ProxyConfig(
                 repo_root=self.repo,
@@ -137,22 +137,6 @@ class SplitProxyLocalDataTest(unittest.TestCase):
                 project_links_path=self.links_path,
             )
         )
-        (self.repo / "plan.md").write_text("## Summary\nLocal validation only.\n")
-        validation = broken.handle(
-            {
-                "jsonrpc": "2.0",
-                "id": 1,
-                "method": "tools/call",
-                "params": {
-                    "name": "resource.validate",
-                    "arguments": {"path": "plan.md", "role": "plan"},
-                },
-            }
-        )
-        self.assertNotIn("error", validation)
-        self.assertEqual(validation["result"]["structuredContent"]["path"], "plan.md")
-        self.assertIn("ok", validation["result"]["structuredContent"])
-
         down = broken.handle(
             {
                 "jsonrpc": "2.0",
@@ -443,10 +427,10 @@ class ProxyIdentityResolutionTest(unittest.TestCase):
 
         proxy._local_data_plane = _Executor()  # type: ignore[assignment]
         proxy._call_local_data(
-            name="resource.register_file", arguments={"project_id": "proj_evil"}
+            name="resource.register", arguments={"project_id": "proj_evil"}
         )
 
-        self.assertEqual(captured["name"], "resource.register_file")
+        self.assertEqual(captured["name"], "resource.register")
         self.assertNotIn("project_id", captured["arguments"])
 
 

@@ -163,7 +163,7 @@ class StoreMigrationTest(unittest.TestCase):
         (self.repo / "shared.md").write_text("hello\n")
         new_project = app.call_tool("project.create", {"name": "New"})
         res = app.call_tool(
-            "resource.register_file",
+            "resource.register",
             {"project_id": new_project["id"], "path": "shared.md"},
         )
         self.assertTrue(res["id"])

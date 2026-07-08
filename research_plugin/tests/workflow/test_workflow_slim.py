@@ -49,9 +49,8 @@ class WorkflowSlimTest(unittest.TestCase):
             intent="Do the thing on the staged subset.\n\nTitle: The Thing",
         )["id"]
         (self.repo / "plan.md").write_text("planned\n")
-        plan = self.call("resource.register_file", project_id=self.project_id, path="plan.md", kind="plan")
         self.call(
-            "resource.associate", project_id=self.project_id, resource_id=plan["id"],
+            "resource.register", project_id=self.project_id, path="plan.md", kind="plan",
             target_type="experiment", target_id=exp_id, role="plan",
         )
         return exp_id

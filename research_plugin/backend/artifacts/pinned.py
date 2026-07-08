@@ -1,13 +1,13 @@
 """Pinned-artifact loading: association → version → blob bytes.
 
 The pinned-artifact rule from docs/CONTROL_DATA_PLANE_SPLIT.md: workflow gates
-lint the bytes that were SUBMITTED at ``resource.associate`` — pinned to a
-version and stored in the blob store — never the live working tree. Fixing a
-gated artifact therefore means fix the file and re-associate it; editing the
-file alone changes nothing the gates can see.
+lint the bytes that were SUBMITTED at ``resource.register`` (the association
+step) — pinned to a version and stored in the blob store — never the live
+working tree. Fixing a gated artifact therefore means fix the file and
+re-register it; editing the file alone changes nothing the gates can see.
 
 There is deliberately no disk fallback here: a missing blob raises a
-WorkflowError telling the agent to re-associate, so a partially-migrated
+WorkflowError telling the agent to re-register, so a partially-migrated
 database degrades into actionable guidance instead of silently linting stale
 or live content.
 """
@@ -21,7 +21,7 @@ from ..utils import NotFoundError, WorkflowError
 
 def resubmit_hint(*, role: str, path: str) -> str:
     return (
-        f"re-associate it (resource.associate with role {role!r}) to submit "
+        f"re-register it (resource.register with role {role!r}) to submit "
         f"the current content of {path}"
     )
 

@@ -109,7 +109,7 @@ class ControlAppTest(unittest.TestCase):
             self.assertGreaterEqual(activity.json()["summary"]["total"], 1)
             names = {tool["name"] for tool in app.list_tools()}
             self.assertIn("claim.create", names)
-            self.assertNotIn("resource.register_file", names)
+            self.assertNotIn("resource.register", names)
 
     def test_hosted_control_cors_allows_authorized_ui_requests(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:

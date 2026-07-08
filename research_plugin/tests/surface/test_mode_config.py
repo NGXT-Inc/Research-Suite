@@ -217,12 +217,12 @@ class HostedControlSurfaceTest(unittest.TestCase):
         self.assertEqual(tools.status_code, 200, tools.text)
         names = {tool["name"] for tool in tools.json()["tools"]}
         self.assertIn("claim.create", names)
-        self.assertNotIn("resource.register_file", names)
+        self.assertNotIn("resource.register", names)
         self.assertNotIn("feed.post", names)
 
         rejected = self.client.post(
             "/mcp/call",
-            json={"name": "resource.register_file", "arguments": {"path": "x.txt"}},
+            json={"name": "resource.register", "arguments": {"path": "x.txt"}},
         )
         self.assertEqual(rejected.status_code, 400, rejected.text)
         self.assertEqual(rejected.json()["error_code"], "data_plane_required")
@@ -303,7 +303,7 @@ class HostedControlSurfaceTest(unittest.TestCase):
         project_id = project.json()["id"]
         (self.repo / "results.json").write_text('{"acc": 0.9}', encoding="utf-8")
         resource = self.app.call_tool(
-            name="resource.register_file",
+            name="resource.register",
             arguments={
                 "project_id": project_id,
                 "path": "results.json",

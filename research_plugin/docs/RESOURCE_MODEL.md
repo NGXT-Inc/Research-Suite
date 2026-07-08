@@ -100,7 +100,7 @@ gates and reviewers judge immutable submitted content, not the live tree:
 
 - **Gated roles** (`plan`, `report`, `graph`, reflection docs, `change_spec`,
   `project_graph`): size-capped byte capture — lints and reviews read the
-  snapshot pinned at `resource.associate`.
+  snapshot pinned at `resource.register` (the association step).
 - **Small metric result files** on role `result` (`metrics.json`,
   `results.json`, or any `results/*.json`, ≤16 KB): captured opportunistically
   so the metrics exhibit can ingest the numbers. Over-cap or non-matching
@@ -141,14 +141,18 @@ version rows when a file is re-observed without semantic change.
 
 The MCP server should expose resource operations that are intentionally boring:
 
-- `resource.register_file(project_id, path?, paths?, kind, title?)` — register/observe a
-  single `path` or a `paths` batch (the latter folds in the old `observe_file`
-  helper)
-- `resource.associate(project_id, resource_id, target_type, target_id, role)`
-- `resource.delete(project_id, resource_id)`
-- `resource.list(project_id, filters?)`
-- `resource.resolve(project_id, resource_id, include_history?)` — `include_history=true`
-  attaches the observed `versions` (the old `resource.history`)
+- `resource.register(project_id, path?, paths?, resource_id?, kind, title?, target_type?, target_id?, role?)`
+  — register/observe a single `path` or a `paths` batch, and (when the trio is
+  present) associate each registered resource; `resource_id` associates an
+  already-registered resource. Folds in the old `register_file` + `associate`
+  + `associate_batch` + preflight `validate`.
+- `resource.delete(project_id, resource_id)` — UI-convenience; hidden from the
+  agent tools/list.
+- `resource.find(project_id, resource_id?, include_history?, filters?)` —
+  `resource_id` resolves one hydrated resource (`include_history=true` attaches
+  the observed `versions`, the old `resource.history`); otherwise lists with
+  `kind`/`experiment_id`/`missing`/`compact`/`limit`/`offset` filters. Folds in
+  the old `resource.list` + `resource.resolve`.
 
 Every resource operation is project-scoped. The server must reject missing
 `project_id` rather than guessing an active project.
@@ -161,7 +165,7 @@ agents do not need to guess.
 No `artifact_ref.create`, `resource_version.create`, `manifest.create`,
 `cache_resource`, `verify_artifact`, or `restore` tool in the MVP. Restoring old
 content should happen as a normal live file edit followed by a new
-`resource.register_file`, which preserves append-only history.
+`resource.register`, which preserves append-only history.
 
 ## Rules
 

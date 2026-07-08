@@ -32,12 +32,12 @@ def build_router(ctx: ApiRouteContext) -> APIRouter:
 
     @api_router.get("/api/projects/{project_id}/resources/{resource_id}")
     def resolve_resource(project_id: str, resource_id: str) -> dict[str, Any]:
-        return api_for_project(project_id).call_tool(name="resource.resolve", arguments={"project_id": project_id, "resource_id": resource_id})
+        return api_for_project(project_id).call_tool(name="resource.find", arguments={"project_id": project_id, "resource_id": resource_id})
 
     @api_router.get("/api/projects/{project_id}/resources/{resource_id}/history")
     def resource_history(project_id: str, resource_id: str) -> dict[str, Any]:
         # UI-only read; the agent tool surface folds history into
-        # resource.resolve(include_history=true), so call the service directly.
+        # resource.find(resource_id, include_history=true), so call the service directly.
         return api_for_project(project_id).app.resources.history(
             resource_id=resource_id, project_id=project_id
         )

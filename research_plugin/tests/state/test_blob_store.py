@@ -213,17 +213,15 @@ class AssociateByteCaptureTest(unittest.TestCase):
         return self.app.call_tool(tool_name, kwargs)
 
     def _associate(self, *, path: str, role: str):
-        resource = self.call(
-            "resource.register_file", project_id=self.project_id, path=path
-        )
-        return self.call(
-            "resource.associate",
+        result = self.call(
+            "resource.register",
             project_id=self.project_id,
-            resource_id=resource["id"],
+            path=path,
             target_type="experiment",
             target_id=self.exp_id,
             role=role,
         )
+        return result["association"]
 
     def test_gated_role_associate_captures_blob_keyed_by_version_sha(self) -> None:
         content = b"## Plan\nDo the thing.\n"
@@ -270,7 +268,7 @@ class AssociateByteCaptureTest(unittest.TestCase):
             self._associate(path="plan.md", role="plan")
         self.assertIn("maximum", ctx.exception.message)
         resource = self.call(
-            "resource.register_file", project_id=self.project_id, path="plan.md"
+            "resource.register", project_id=self.project_id, path="plan.md"
         )
         self.assertEqual(resource["associations"], [])
 
@@ -278,13 +276,13 @@ class AssociateByteCaptureTest(unittest.TestCase):
         path = self.repo / "plan.md"
         path.write_text("valid enough to register\n")
         resource = self.call(
-            "resource.register_file", project_id=self.project_id, path="plan.md"
+            "resource.register", project_id=self.project_id, path="plan.md"
         )
         path.unlink()
 
         with self.assertRaisesRegex(NotFoundError, "experiment not found"):
             self.call(
-                "resource.associate",
+                "resource.register",
                 project_id=self.project_id,
                 resource_id=resource["id"],
                 target_type="experiment",

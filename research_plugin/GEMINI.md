@@ -16,7 +16,7 @@ Operating rules:
 - Call `project.current` first. Then call `workflow.status_and_next` before
   acting, and follow its `next_action`, allowed actions, and gate guidance.
 - Local file edits are not research state. A file only becomes a research
-  resource after `resource.register_file` + `resource.associate`.
+  resource after `resource.register` (register + associate in one call).
 - For the full operating procedure, load the `research-workflow` skill. For
   project-level reflection waves, load the `project-reflection` skill.
 - When `workflow.status_and_next` asks for a design, experiment, or reflection

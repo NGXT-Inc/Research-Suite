@@ -26,7 +26,7 @@ def _deleted_resource_mutation(app_for_project, method: str, path: str, body: di
     if len(parts) == 4 and parts[:2] == ["api", "projects"] and parts[3] == "resources":
         project_id = parts[2]
         return app_for_project(project_id).call_tool(
-            "resource.register_file",
+            "resource.register",
             {"project_id": project_id, **(body or {})},
         )
     if (
@@ -38,7 +38,7 @@ def _deleted_resource_mutation(app_for_project, method: str, path: str, body: di
         project_id = parts[2]
         resource_id = parts[4]
         return app_for_project(project_id).call_tool(
-            "resource.associate",
+            "resource.register",
             {"project_id": project_id, "resource_id": resource_id, **(body or {})},
         )
     return _NO_RESOURCE_MUTATION
@@ -1398,7 +1398,7 @@ class ResourceRelFileTest(unittest.TestCase):
         (self.repo / "exp" / "figures").mkdir()
         (self.repo / "exp" / "figures" / "loss.png").write_bytes(b"\x89PNG\r\n\x1a\nfake")
         self.resource_id = self.app.call_tool(
-            "resource.register_file",
+            "resource.register",
             {
                 "project_id": self.project_id,
                 "path": "exp/report.md",
@@ -1432,7 +1432,7 @@ class ResourceRelFileTest(unittest.TestCase):
             "## Evaluation\nSuccess means the backend serves submitted bytes.\n"
         )
         resource = self.app.call_tool(
-            "resource.register_file",
+            "resource.register",
             {
                 "project_id": self.project_id,
                 "path": "plans/plan.md",
@@ -1440,7 +1440,7 @@ class ResourceRelFileTest(unittest.TestCase):
             },
         )
         self.app.call_tool(
-            "resource.associate",
+            "resource.register",
             {
                 "project_id": self.project_id,
                 "resource_id": resource["id"],
@@ -1542,7 +1542,7 @@ class DegradedStatesTest(unittest.TestCase):
         # A result-role file exists on disk locally so registration succeeds...
         (self.repo / "results.json").write_text('{"acc": 0.9}', encoding="utf-8")
         res = self.app.call_tool(
-            "resource.register_file",
+            "resource.register",
             {"project_id": pid, "path": "results.json", "kind": "result"},
         )
         return pid, res["id"]

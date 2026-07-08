@@ -31,13 +31,13 @@ class ResourceVersioningTest(unittest.TestCase):
     def test_associate_snapshots_changed_live_file_without_explicit_sync(self) -> None:
         plan_path = self.repo / "plan.md"
         plan_path.write_text("version one\n")
-        plan = self.call("resource.register_file", project_id=self.project_id, path="plan.md", kind="note")
+        plan = self.call("resource.register", project_id=self.project_id, path="plan.md", kind="note")
         first_id = plan["current_version_id"]
-        first_version = self.call("resource.resolve", project_id=self.project_id, resource_id=plan["id"], include_history=True)["versions"][0]
+        first_version = self.call("resource.find", project_id=self.project_id, resource_id=plan["id"], include_history=True)["versions"][0]
 
         plan_path.write_text("version two\n")
         associated = self.call(
-            "resource.associate",
+            "resource.register",
             project_id=self.project_id,
             resource_id=plan["id"],
             target_type="experiment",
@@ -48,7 +48,7 @@ class ResourceVersioningTest(unittest.TestCase):
         second_id = associated["current_version_id"]
         self.assertNotEqual(first_id, second_id)
         self.assertEqual(associated["associations"][0]["version_id"], second_id)
-        history = self.call("resource.resolve", project_id=self.project_id, resource_id=plan["id"], include_history=True)
+        history = self.call("resource.find", project_id=self.project_id, resource_id=plan["id"], include_history=True)
         second_version = history["versions"][-1]
         self.assertEqual(len(history["versions"]), 2)
         # New version must reflect new file contents — sha256 differs.
@@ -61,8 +61,8 @@ class ResourceVersioningTest(unittest.TestCase):
             "## Objective & hypothesis\nTest the claim.\n\n"
             "## Evaluation\nMetric: accuracy vs baseline.\n"
         )
-        plan = self.call("resource.register_file", project_id=self.project_id, path="plan.md", kind="plan")
-        self.call("resource.associate", project_id=self.project_id, resource_id=plan["id"], target_type="experiment", target_id=self.exp_id, role="plan")
+        plan = self.call("resource.register", project_id=self.project_id, path="plan.md", kind="plan")
+        self.call("resource.register", project_id=self.project_id, resource_id=plan["id"], target_type="experiment", target_id=self.exp_id, role="plan")
         first_id = plan["current_version_id"]
 
         self.call("experiment.transition", project_id=self.project_id, experiment_id=self.exp_id, transition="submit_design")
@@ -105,8 +105,8 @@ class ResourceVersioningTest(unittest.TestCase):
     def test_deleting_live_file_after_submission_does_not_crash_status(self) -> None:
         plan_path = self.repo / "plan.md"
         plan_path.write_text("planned\n")
-        plan = self.call("resource.register_file", project_id=self.project_id, path="plan.md", kind="plan")
-        self.call("resource.associate", project_id=self.project_id, resource_id=plan["id"], target_type="experiment", target_id=self.exp_id, role="plan")
+        plan = self.call("resource.register", project_id=self.project_id, path="plan.md", kind="plan")
+        self.call("resource.register", project_id=self.project_id, resource_id=plan["id"], target_type="experiment", target_id=self.exp_id, role="plan")
 
         # Submission semantics: the gates lint the submitted bytes, so the
         # association survives the live file vanishing. The content here lacks
@@ -121,13 +121,13 @@ class ResourceVersioningTest(unittest.TestCase):
     def test_delete_removes_resource_from_active_tracking_but_preserves_history(self) -> None:
         plan_path = self.repo / "plan.md"
         plan_path.write_text("planned\n")
-        plan = self.call("resource.register_file", project_id=self.project_id, path="plan.md", kind="plan")
-        self.call("resource.associate", project_id=self.project_id, resource_id=plan["id"], target_type="experiment", target_id=self.exp_id, role="plan")
+        plan = self.call("resource.register", project_id=self.project_id, path="plan.md", kind="plan")
+        self.call("resource.register", project_id=self.project_id, resource_id=plan["id"], target_type="experiment", target_id=self.exp_id, role="plan")
 
         deleted = self.call("resource.delete", project_id=self.project_id, resource_id=plan["id"])
-        resources = self.call("resource.list", project_id=self.project_id)["resources"]
+        resources = self.call("resource.find", project_id=self.project_id)["resources"]
         state = self.call("experiment.get_state", project_id=self.project_id, experiment_id=self.exp_id)
-        history = self.call("resource.resolve", project_id=self.project_id, resource_id=plan["id"], include_history=True)
+        history = self.call("resource.find", project_id=self.project_id, resource_id=plan["id"], include_history=True)
 
         self.assertTrue(deleted["deleted"])
         self.assertEqual(deleted["removed_associations"], 1)
@@ -139,37 +139,37 @@ class ResourceVersioningTest(unittest.TestCase):
     def test_registering_deleted_resource_revives_same_resource_id(self) -> None:
         plan_path = self.repo / "plan.md"
         plan_path.write_text("version one\n")
-        plan = self.call("resource.register_file", project_id=self.project_id, path="plan.md", kind="plan")
+        plan = self.call("resource.register", project_id=self.project_id, path="plan.md", kind="plan")
         self.call("resource.delete", project_id=self.project_id, resource_id=plan["id"])
 
         plan_path.write_text("version two\n")
-        revived = self.call("resource.register_file", project_id=self.project_id, path="plan.md", kind="plan")
-        resources = self.call("resource.list", project_id=self.project_id)["resources"]
+        revived = self.call("resource.register", project_id=self.project_id, path="plan.md", kind="plan")
+        resources = self.call("resource.find", project_id=self.project_id)["resources"]
 
         self.assertEqual(revived["id"], plan["id"])
         self.assertEqual(revived["deleted"], 0)
         self.assertEqual(revived["missing"], 0)
         self.assertEqual(len(revived["associations"]), 0)
         self.assertEqual([item["id"] for item in resources], [plan["id"]])
-        self.assertEqual(len(self.call("resource.resolve", project_id=self.project_id, resource_id=plan["id"], include_history=True)["versions"]), 2)
+        self.assertEqual(len(self.call("resource.find", project_id=self.project_id, resource_id=plan["id"], include_history=True)["versions"]), 2)
 
     def test_same_repo_file_is_a_distinct_resource_per_project(self) -> None:
         (self.repo / "shared.md").write_text("shared\n")
         other = self.call("project.create", name="Other Project")
-        first = self.call("resource.register_file", project_id=self.project_id, path="shared.md", kind="note")
-        second = self.call("resource.register_file", project_id=other["id"], path="shared.md", kind="note")
+        first = self.call("resource.register", project_id=self.project_id, path="shared.md", kind="note")
+        second = self.call("resource.register", project_id=other["id"], path="shared.md", kind="note")
 
         self.assertNotEqual(first["id"], second["id"])
-        first_list = self.call("resource.list", project_id=self.project_id)["resources"]
-        second_list = self.call("resource.list", project_id=other["id"])["resources"]
+        first_list = self.call("resource.find", project_id=self.project_id)["resources"]
+        second_list = self.call("resource.find", project_id=other["id"])["resources"]
         self.assertEqual([r["id"] for r in first_list], [first["id"]])
         self.assertEqual([r["id"] for r in second_list], [second["id"]])
 
     def test_content_change_with_restored_mtime_is_detected_at_resubmission(self) -> None:
         plan_path = self.repo / "plan.md"
         plan_path.write_text("AAAA\n")
-        plan = self.call("resource.register_file", project_id=self.project_id, path="plan.md", kind="plan")
-        self.call("resource.associate", project_id=self.project_id, resource_id=plan["id"], target_type="experiment", target_id=self.exp_id, role="plan")
+        plan = self.call("resource.register", project_id=self.project_id, path="plan.md", kind="plan")
+        self.call("resource.register", project_id=self.project_id, resource_id=plan["id"], target_type="experiment", target_id=self.exp_id, role="plan")
         first_id = plan["current_version_id"]
         original = plan_path.stat()
 
@@ -184,7 +184,7 @@ class ResourceVersioningTest(unittest.TestCase):
         self.assertEqual(plan_path.stat().st_size, original.st_size)
 
         resubmitted = self.call(
-            "resource.associate",
+            "resource.register",
             project_id=self.project_id,
             resource_id=plan["id"],
             target_type="experiment",
@@ -202,7 +202,7 @@ class ResourceVersioningTest(unittest.TestCase):
         internal.parent.mkdir(exist_ok=True)
         internal.write_text("internal\n")
         with self.assertRaises(ValidationError):
-            self.call("resource.register_file", project_id=self.project_id, path=".research_plugin/note.md")
+            self.call("resource.register", project_id=self.project_id, path=".research_plugin/note.md")
 
 
 if __name__ == "__main__":

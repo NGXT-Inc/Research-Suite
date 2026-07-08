@@ -304,108 +304,116 @@ class ReflectionTransitionInput(ProjectScopedInput):
     ]
 
 
-class ResourceRegisterFileInput(ProjectScopedInput):
+class ResourceRegisterInput(ProjectScopedInput):
     path: str | None = Field(
-        default=None, description="Repo-relative file path for a single file."
+        default=None, description="Repo-relative file path for a single file to register."
     )
     paths: list[str] | None = Field(
         default=None,
         description=(
             "Repo-relative paths to register/observe as a batch (changed-files "
-            "sweep). Provide either 'path' (one file) or 'paths' (many)."
+            "sweep). Provide 'path' (one file), 'paths' (many), or 'resource_id' "
+            "(associate an already-registered resource)."
+        ),
+    )
+    resource_id: str | None = Field(
+        default=None,
+        description=(
+            "Associate an ALREADY-registered resource to the target trio "
+            "instead of registering a new file. Requires target_type, "
+            "target_id, and role."
         ),
     )
     kind: str = "other"
     title: str = ""
     created_by: str = "codex"
-
-
-class ResourceAssociateInput(ProjectScopedInput):
-    resource_id: str
-    target_type: str = Field(json_schema_extra={"enum": sorted(RESOURCE_TARGET_TYPES)})
-    target_id: str
-    role: str = Field(
+    target_type: str | None = Field(
+        default=None,
+        description=(
+            "Association target kind. Provide the trio (target_type, target_id, "
+            "role) together to associate the registered/observed resource(s)."
+        ),
+        json_schema_extra={"enum": sorted(RESOURCE_TARGET_TYPES)},
+    )
+    target_id: str | None = Field(
+        default=None, description="Id of the claim, experiment, review, or attempt to associate to."
+    )
+    role: str | None = Field(
+        default=None,
         description="Resource association role. Use 'result' for experiment output files.",
         json_schema_extra={"enum": sorted(RESOURCE_ROLES)},
     )
 
-
-class ResourceValidateInput(ProjectScopedInput):
-    path: str = Field(
-        description=(
-            "Repo-relative file path to lint before registering or associating "
-            "it as a resource."
-        )
-    )
-    role: str = Field(
-        description=(
-            "Intended resource association role. For gated artifacts, the "
-            "validator applies the same role-specific lint used by workflow gates."
-        ),
-        json_schema_extra={"enum": sorted(RESOURCE_ROLES)},
-    )
-
-
-class ResourceAssociationItemInput(ContractModel):
-    resource_id: str
-    target_type: str = Field(json_schema_extra={"enum": sorted(RESOURCE_TARGET_TYPES)})
-    target_id: str
-    role: str = Field(
-        description="Resource association role. Use 'result' for experiment output files.",
-        json_schema_extra={"enum": sorted(RESOURCE_ROLES)},
-    )
-
-
-class ResourceAssociateBatchInput(ProjectScopedInput):
-    associations: list[ResourceAssociationItemInput] = Field(
-        min_length=1,
-        description=(
-            "Resource association rows to apply in order. Each row has "
-            "resource_id, target_type, target_id, and role."
-        ),
-    )
+    @model_validator(mode="after")
+    def _check_modes(self) -> "ResourceRegisterInput":
+        sources = [
+            self.path is not None,
+            self.paths is not None,
+            self.resource_id is not None,
+        ]
+        if sum(sources) != 1:
+            raise ValueError(
+                "provide exactly one of 'path', 'paths', or 'resource_id'"
+            )
+        trio_present = [
+            self.target_type is not None,
+            self.target_id is not None,
+            self.role is not None,
+        ]
+        if any(trio_present) and not all(trio_present):
+            raise ValueError(
+                "target_type, target_id, and role must be provided together"
+            )
+        if self.resource_id is not None and not all(trio_present):
+            raise ValueError(
+                "resource_id association mode requires target_type, target_id, and role"
+            )
+        return self
 
 
 class ResourceDeleteInput(ProjectScopedInput):
     resource_id: str
 
 
-class ResourceListInput(ProjectScopedInput):
+class ResourceFindInput(ProjectScopedInput):
+    resource_id: str | None = Field(
+        default=None,
+        description=(
+            "Resolve one registered resource by id (hydrated row). Omit to list "
+            "resources with the filters below."
+        ),
+    )
+    include_history: bool = Field(
+        default=False,
+        description=(
+            "In resolve mode, also return the resource's immutable observed "
+            "'versions' (oldest-first) — the former resource.history."
+        ),
+    )
     kind: str | None = Field(
-        default=None, description="Filter to one resource kind (e.g. 'dataset', 'code')."
+        default=None, description="List filter: one resource kind (e.g. 'dataset', 'code')."
     )
     experiment_id: str | None = Field(
-        default=None, description="Only resources associated with this experiment."
+        default=None, description="List filter: only resources associated with this experiment."
     )
     missing: bool | None = Field(
         default=None,
-        description="Filter by file presence: true=only missing-on-disk, false=only present.",
+        description="List filter by file presence: true=only missing-on-disk, false=only present.",
     )
     compact: bool = Field(
         default=False,
         description=(
-            "Return a lean projection (id, path, kind, title, version_token, "
-            "current_version_id, missing, updated_at) and OMIT the heavy nested "
-            "current_version + associations. Use version_token to detect changes "
-            "without re-pulling full payloads."
+            "List mode: return a lean projection (id, path, kind, title, "
+            "version_token, current_version_id, missing, updated_at) and OMIT "
+            "the heavy nested current_version + associations. Use version_token "
+            "to detect changes without re-pulling full payloads."
         ),
     )
     limit: int | None = Field(
-        default=None, ge=1, description="Max resources to return (page size)."
+        default=None, ge=1, description="List mode: max resources to return (page size)."
     )
     offset: int = Field(
-        default=0, ge=0, description="Number of resources to skip (pagination)."
-    )
-
-
-class ResourceResolveInput(ProjectScopedInput):
-    resource_id: str
-    include_history: bool = Field(
-        default=False,
-        description=(
-            "Also return the resource's immutable observed 'versions' "
-            "(oldest-first) — the former resource.history."
-        ),
+        default=0, ge=0, description="List mode: number of resources to skip (pagination)."
     )
 
 
@@ -1060,42 +1068,20 @@ TOOL_CONTRACTS: dict[str, ToolContract] = {
             "creates the approved experiment wave."
         ),
     ),
-    "resource.register_file": ToolContract(
-        input_model=ResourceRegisterFileInput,
+    "resource.register": ToolContract(
+        input_model=ResourceRegisterInput,
         description=(
-            "Register or observe repo-relative file(s) as resources. Pass "
-            "'path' for one file, or 'paths' for a changed-files batch."
-        ),
-    ),
-    "resource.associate": ToolContract(
-        input_model=ResourceAssociateInput,
-        description=(
-            "Associate a resource to a claim, experiment, review, or attempt. "
-            "Gated-role artifacts (plan, report, graph, project_graph, "
-            "reflection_doc, reflection_lens_doc, change_spec) are "
-            "size-capped at associate time — keep them lean and reference raw "
-            "data instead of inlining it."
-        ),
-    ),
-    "resource.validate": ToolContract(
-        input_model=ResourceValidateInput,
-        description=(
-            "Preflight-lint a repo file before resource.register_file or "
-            "resource.associate. Covers every gated role — plan, report, "
-            "graph/project_graph, reflection_doc, reflection_lens_doc, and "
-            "change_spec — with the same byte caps and structural lints the "
-            "workflow transitions enforce. Two checks remain gate-only: "
-            "change-spec claim/experiment existence (needs canonical state) "
-            "and pinned-byte staleness — gates lint the bytes captured at "
-            "associate, so re-associate after editing the file."
-        ),
-    ),
-    "resource.associate_batch": ToolContract(
-        input_model=ResourceAssociateBatchInput,
-        description=(
-            "Associate multiple resources to claims, experiments, reviews, or "
-            "attempts in one data-plane call. Rows are applied in order through "
-            "the same validation and gated-byte capture path as resource.associate."
+            "Register repo file(s) as resources and, optionally, associate them "
+            "to a claim, experiment, review, or attempt in one call. Pass 'path' "
+            "(one file) or 'paths' (a changed-files batch) to register/observe "
+            "the file(s); add the association trio (target_type, target_id, "
+            "role) to also associate each registered resource. Or pass "
+            "'resource_id' to associate an ALREADY-registered resource — that "
+            "mode requires the trio. Association validates the file against the "
+            "role: gated artifacts (plan, report, graph, project_graph, "
+            "reflection_doc, reflection_lens_doc, change_spec) are size-capped "
+            "and their figure links resolved at register time, so keep them lean "
+            "and reference raw data instead of inlining it."
         ),
     ),
     "resource.delete": ToolContract(
@@ -1105,20 +1091,15 @@ TOOL_CONTRACTS: dict[str, ToolContract] = {
             "observed version history."
         ),
     ),
-    "resource.list": ToolContract(
-        input_model=ResourceListInput,
+    "resource.find": ToolContract(
+        input_model=ResourceFindInput,
         description=(
-            "List registered resources. Filter by kind/experiment_id/missing, "
-            "paginate with limit/offset, and pass compact=true for a lean "
-            "projection (omits the heavy current_version; use version_token to "
-            "detect changes) instead of re-pulling full payloads."
-        ),
-    ),
-    "resource.resolve": ToolContract(
-        input_model=ResourceResolveInput,
-        description=(
-            "Resolve one registered resource. Pass include_history=true to also "
-            "return its immutable observed versions (the former resource.history)."
+            "Find registered resources. Pass 'resource_id' (with optional "
+            "include_history=true for its immutable observed versions) to "
+            "resolve one hydrated resource; otherwise list resources with "
+            "filters (kind/experiment_id/missing), pagination (limit/offset), "
+            "and compact=true for a lean projection that omits the heavy "
+            "current_version (use version_token to detect changes)."
         ),
     ),
     "storage.put_object": ToolContract(
@@ -1260,7 +1241,7 @@ TOOL_CONTRACTS: dict[str, ToolContract] = {
             "This is a proxy-local data tool: pass key_path for the caller-owned "
             "private key when sandbox.get does not already include ssh.key_path. "
             "Use object storage tools for heavy artifacts. Use this before "
-            "resource.register_file/resource.associate or sandbox.release; "
+            "resource.register or sandbox.release; "
             "omit paths to pull common retained outputs. "
             "Existing local files are kept unless overwrite=true — ones that "
             "differ from the sandbox are reported in files_kept_stale, so check "
@@ -1378,13 +1359,9 @@ TOOL_PLANE_REGISTRY: dict[str, ToolPlane] = {
     "reflection.get": "control",
     "reflection.list": "control",
     "reflection.transition": "control",
-    "resource.register_file": "data",
-    "resource.associate": "data",
-    "resource.validate": "data",
-    "resource.associate_batch": "data",
+    "resource.register": "data",
     "resource.delete": "control",
-    "resource.list": "control",
-    "resource.resolve": "control",
+    "resource.find": "control",
     "storage.put_object": "control",
     "storage.upload_file": "data",
     "storage.complete_upload": "control",
@@ -1436,6 +1413,9 @@ MCP_HIDDEN_TOOL_NAMES: frozenset[str] = frozenset(
         # dropped from the agent-facing tools/list.
         "storage.put_object",
         "storage.complete_upload",
+        # UI-convenience delete: kept dispatchable for the REST/UI resource
+        # panel, but dropped from the agent-facing tools/list.
+        "resource.delete",
     }
 )
 

@@ -256,17 +256,16 @@ class ControlPlaneContractScenarios:
         full = self.repo / path
         full.parent.mkdir(parents=True, exist_ok=True)
         full.write_text(body)
-        resource = self.call(
-            "resource.register_file", project_id=self.project_id, path=path, kind=role
-        )
-        return self.call(
-            "resource.associate",
+        result = self.call(
+            "resource.register",
             project_id=self.project_id,
-            resource_id=resource["id"],
+            path=path,
+            kind=role,
             target_type="experiment",
             target_id=exp_id,
             role=role,
         )
+        return result["association"]
 
     def _pass_review(self, *, exp_id: str, role: str) -> None:
         request = self.call(

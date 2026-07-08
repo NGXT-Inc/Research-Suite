@@ -300,10 +300,7 @@ class ToolPlanePartitionTest(unittest.TestCase):
             DATA_PLANE_TOOL_NAMES,
             {
                 "experiment.materialize_folders",
-                "resource.register_file",
-                "resource.validate",
-                "resource.associate",
-                "resource.associate_batch",
+                "resource.register",
                 "storage.upload_file",
                 "storage.download_file",
                 "sandbox.request",
@@ -311,7 +308,7 @@ class ToolPlanePartitionTest(unittest.TestCase):
                 "sandbox.pull_outputs",
                 # feed.post reads a local image file before recording the post,
                 # so it lives on the data plane (byte capture mirrors
-                # resource.associate); register/list are pure control records.
+                # resource.register); find/delete are pure control records.
                 "feed.post",
                 # project.connect writes the proxy-local folder→project link
                 # store; the proxy serves it itself, the brain never can.
@@ -324,10 +321,7 @@ class ToolPlanePartitionTest(unittest.TestCase):
     def test_local_repo_file_readers_are_data_plane(self) -> None:
         self.assertLessEqual(
             {
-                "resource.register_file",
-                "resource.validate",
-                "resource.associate",
-                "resource.associate_batch",
+                "resource.register",
                 "storage.upload_file",
                 "feed.post",
             },
@@ -340,8 +334,8 @@ class ToolPlanePartitionTest(unittest.TestCase):
         self.assertEqual(
             HTTP_DATA_PLANE_FEATURE_TO_TOOL,
             {
-                "resource_registration": "resource.register_file",
-                "resource_association": "resource.associate",
+                "resource_registration": "resource.register",
+                "resource_association": "resource.register",
             },
         )
         self.assertLessEqual(set(HTTP_DATA_PLANE_FEATURE_TO_TOOL.values()), DATA_PLANE_TOOL_NAMES)
@@ -629,7 +623,7 @@ for name in (
         proxy_source = (PLUGIN_ROOT / "mcp_server" / "local_data_plane.py").read_text(
             encoding="utf-8"
         )
-        self.assertIn('name == "resource.register_file"', proxy_source)
+        self.assertIn('name == "resource.register"', proxy_source)
         self.assertIn("LocalResourceObserver", proxy_source)
         self.assertIn("observe_file(", proxy_source)
 

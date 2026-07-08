@@ -2,7 +2,7 @@
 
 The split storage model from docs/CONTROL_DATA_PLANE_SPLIT.md uses one
 sha256-keyed, namespace-scoped store shared by artifact submissions (gated-role bytes
-captured at resource.associate), report figures, and metrics snapshots. The local implementation is a plain directory under
+captured at resource.register), report figures, and metrics snapshots. The local implementation is a plain directory under
 ``.research_plugin/blobs/``; the cloud implementation (S3, Phase 8) implements
 the same protocol behind the same contract tests.
 

@@ -70,14 +70,8 @@ class LocalDataPlane:
                 "the folder→project link store",
                 details={"tool": name},
             )
-        if name == "resource.register_file":
-            return self._register_resource_files(arguments=arguments)
-        if name == "resource.validate":
-            return self._validate_resource_file(arguments=arguments)
-        if name == "resource.associate":
-            return self._associate_resource(arguments=arguments)
-        if name == "resource.associate_batch":
-            return self._associate_resource_batch(arguments=arguments)
+        if name == "resource.register":
+            return self._register_resource(arguments=arguments)
         if name == "experiment.materialize_folders":
             return self._materialize_experiment_folders(arguments=arguments)
         if name == "feed.post":
@@ -229,6 +223,56 @@ class LocalDataPlane:
             "data_b64": base64.b64encode(embed["data"]).decode("ascii"),
         }
 
+    def _register_resource(self, *, arguments: dict[str, Any]) -> dict[str, Any]:
+        """Register file(s) and optionally associate them in one call.
+
+        Composes the existing local register/associate helpers — no new
+        behavior. ``resource_id`` associates an already-registered resource;
+        otherwise ``path``/``paths`` register the file(s), then each is
+        associated when the target trio is present."""
+        self._validate_register_intent(arguments)
+        target_type = arguments.get("target_type")
+        target_id = arguments.get("target_id")
+        role = arguments.get("role")
+        has_target = None not in (target_type, target_id, role)
+
+        def _associate(resource_id: str) -> dict[str, Any]:
+            return self._associate_resource(
+                arguments={
+                    "resource_id": resource_id,
+                    "target_type": target_type,
+                    "target_id": target_id,
+                    "role": role,
+                }
+            )
+
+        resource_id = arguments.get("resource_id")
+        if resource_id:
+            return _associate(str(resource_id))
+        registered = self._register_resource_files(arguments=arguments)
+        if not has_target:
+            return registered
+        batch = registered.get("resources")
+        if isinstance(batch, list):
+            associations = [_associate(str(res.get("id"))) for res in batch]
+            return {
+                "resources": batch,
+                "associations": associations,
+                "count": len(batch),
+            }
+        return {
+            "resource": registered,
+            "association": _associate(str(registered.get("id"))),
+        }
+
+    def _validate_register_intent(self, arguments: dict[str, Any]) -> None:
+        """Enforce the resource.register mode constraints in the proxy path
+        (the cloud never sees this data tool). Mirrors _validate_sandbox_request."""
+        input_cls = _import_attr("backend.tools.contracts", "ResourceRegisterInput")
+        payload = dict(arguments)
+        payload.setdefault("project_id", self._project_id())
+        input_cls.model_validate(payload)
+
     def _register_resource_files(
         self, *, arguments: dict[str, Any]
     ) -> dict[str, Any]:
@@ -254,7 +298,8 @@ class LocalDataPlane:
         path = arguments.get("path")
         if not path:
             raise LocalDataPlaneError(
-                "resource.register_file requires 'path' (a single file) or 'paths' (a batch)"
+                "resource.register requires 'path' (a single file), 'paths' (a "
+                "batch), or 'resource_id' (associate an existing resource)"
             )
         return self._submit_resource_observation(
             project_id=project_id,
@@ -262,18 +307,6 @@ class LocalDataPlane:
             kind=kind,
             title=title,
             created_by=created_by,
-        )
-
-    def _validate_resource_file(self, *, arguments: dict[str, Any]) -> dict[str, Any]:
-        self._project_id()
-        validate_local_resource_artifact = _import_attr(
-            "backend.dataplane.resource_validation",
-            "validate_local_resource_artifact",
-        )
-        return validate_local_resource_artifact(
-            repo_root=self.repo_root,
-            path=self._required_arg(arguments, "path"),
-            role=self._required_arg(arguments, "role"),
         )
 
     def _associate_resource(self, *, arguments: dict[str, Any]) -> dict[str, Any]:
@@ -332,18 +365,6 @@ class LocalDataPlane:
                     if isinstance(figure.get("data"), bytes)
                 ]
         return self._control_api_post("/api/data-plane/resources/associate", payload)
-
-    def _associate_resource_batch(
-        self, *, arguments: dict[str, Any]
-    ) -> dict[str, Any]:
-        associations = arguments.get("associations")
-        if not isinstance(associations, list) or not associations:
-            raise LocalDataPlaneError("associations must be a non-empty list")
-        applied = [
-            self._associate_resource(arguments=dict(association))
-            for association in associations
-        ]
-        return {"associations": applied, "count": len(applied)}
 
     def _materialize_experiment_folders(
         self, *, arguments: dict[str, Any]

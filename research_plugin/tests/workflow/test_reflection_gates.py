@@ -125,16 +125,15 @@ class SynthesisGateTest(unittest.TestCase):
         full = self.repo / path
         full.parent.mkdir(parents=True, exist_ok=True)
         full.write_text(body)
-        res = self.call("resource.register_file", project_id=self.project_id, path=path)
-        self.call(
-            "resource.associate",
+        result = self.call(
+            "resource.register",
             project_id=self.project_id,
-            resource_id=res["id"],
+            path=path,
             target_type="reflection",
             target_id=syn_id,
             role=role,
         )
-        return res["id"]
+        return result["resource"]["id"]
 
     def _submit_reflection(self, *, syn_id: str, lens_id: str) -> None:
         self._associate_file(
@@ -710,7 +709,7 @@ class SynthesisGateTest(unittest.TestCase):
         full = self.repo / "project" / "reflection.md"
         full.parent.mkdir(parents=True, exist_ok=True)
         full.write_text(doc)
-        res = self.call("resource.register_file", project_id=self.project_id, path="project/reflection.md")
+        res = self.call("resource.register", project_id=self.project_id, path="project/reflection.md")
         self.app._control_api_post(
             "/api/data-plane/resources/associate",
             {
@@ -1326,13 +1325,10 @@ class SynthesisGateTest(unittest.TestCase):
         (self.repo / "project/logic_graph.json").write_text(
             VALID_PROJECT_GRAPH.replace("LR schedule", "Warmup schedule")
         )
-        res = self.call(
-            "resource.register_file", project_id=self.project_id, path="project/logic_graph.json"
-        )
         self.call(
-            "resource.associate",
+            "resource.register",
             project_id=self.project_id,
-            resource_id=res["id"],
+            path="project/logic_graph.json",
             target_type="reflection",
             target_id=syn_id,
             role="project_graph",
@@ -1418,15 +1414,10 @@ class ReflectionSignalTest(unittest.TestCase):
             path = self.repo / f"syntheses/{syn_id}/reflections/{lens_id}.md"
             path.parent.mkdir(parents=True, exist_ok=True)
             path.write_text(f"{lens_id} findings\n")
-            res = self.call(
-                "resource.register_file",
+            self.call(
+                "resource.register",
                 project_id=self.project_id,
                 path=str(path.relative_to(self.repo)),
-            )
-            self.call(
-                "resource.associate",
-                project_id=self.project_id,
-                resource_id=res["id"],
                 target_type="reflection",
                 target_id=syn_id,
                 role="reflection_lens_doc",
@@ -1445,11 +1436,10 @@ class ReflectionSignalTest(unittest.TestCase):
             full = self.repo / path
             full.parent.mkdir(parents=True, exist_ok=True)
             full.write_text(body)
-            res = self.call("resource.register_file", project_id=self.project_id, path=path)
             self.call(
-                "resource.associate",
+                "resource.register",
                 project_id=self.project_id,
-                resource_id=res["id"],
+                path=path,
                 target_type="reflection",
                 target_id=syn_id,
                 role=role,
