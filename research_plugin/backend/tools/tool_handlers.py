@@ -308,7 +308,6 @@ def build_control_tool_handlers(
     sandboxes: Any,
     mlflow_tracking: Any,
     feed: Any,
-    research_map: Any,
 ) -> dict[str, Callable[..., dict[str, Any]]]:
     """Map control-plane tool names to service methods.
 
@@ -549,60 +548,6 @@ def build_control_tool_handlers(
                 )
         return result
 
-    def _map_snapshot_result(png: bytes, meta: dict[str, Any]) -> dict[str, Any]:
-        """Tool-shaped snapshot: the PNG rides as base64 under the reserved
-        key the stdio proxy converts into an MCP image content block (with a
-        file-path fallback the agent can Read). Same renderer as the UI —
-        the pixel-parity hard line."""
-        import base64
-
-        viewport = meta["viewport"]
-        return {
-            **meta,
-            "image_png_base64": base64.b64encode(png).decode("ascii"),
-            "media_type": "image/png",
-            "guidance": (
-                "Read the image; margin letters/numbers are grid cell refs — "
-                "map.snapshot(cell='C4') zooms into a cell, or reuse this "
-                f"viewport (cx={viewport['cx']:.0f}, cy={viewport['cy']:.0f}) "
-                "with a higher zoom. Entity ids become readable at L3."
-            ),
-        }
-
-    def map_overview_agent(
-        *, project_id: str, w: int = 1200, h: int = 800
-    ) -> dict[str, Any]:
-        png, meta = research_map.snapshot(project_id=project_id, w=w, h=h)
-        return _map_snapshot_result(png, meta)
-
-    def map_snapshot_agent(
-        *,
-        project_id: str,
-        cx: float | None = None,
-        cy: float | None = None,
-        zoom: float | None = None,
-        cell: str | None = None,
-        w: int = 1200,
-        h: int = 800,
-    ) -> dict[str, Any]:
-        png, meta = research_map.snapshot(
-            project_id=project_id, cx=cx, cy=cy, zoom=zoom, cell=cell, w=w, h=h
-        )
-        return _map_snapshot_result(png, meta)
-
-    def map_locate_agent(
-        *,
-        project_id: str,
-        entity_id: str,
-        zoom: float = 2.2,
-        w: int = 1200,
-        h: int = 800,
-    ) -> dict[str, Any]:
-        png, meta = research_map.locate(
-            project_id=project_id, entity_id=entity_id, zoom=zoom, w=w, h=h
-        )
-        return {**_map_snapshot_result(png, meta), "entity_id": entity_id}
-
     handlers = {
         "workflow.status_and_next": workflow.status_and_next_agent,
         "project.create": projects.create,
@@ -641,9 +586,6 @@ def build_control_tool_handlers(
         "sandbox.health": sandboxes.health,
         "feed.register": feed.register,
         "feed.list": feed.list_posts,
-        "map.overview": map_overview_agent,
-        "map.snapshot": map_snapshot_agent,
-        "map.locate": map_locate_agent,
     }
     if storage is not None:
         handlers.update(
@@ -675,7 +617,6 @@ def build_local_tool_handlers(
     sandboxes: Any,
     mlflow_tracking: Any,
     feed: Any,
-    research_map: Any,
     resource_register_file: Callable[..., dict[str, Any]],
     resource_validate: Callable[..., dict[str, Any]],
     experiment_materialize_folders: Callable[..., dict[str, Any]],
@@ -712,7 +653,6 @@ def build_local_tool_handlers(
         sandboxes=sandboxes,
         mlflow_tracking=mlflow_tracking,
         feed=feed,
-        research_map=research_map,
     )
     handlers.update(
         {
