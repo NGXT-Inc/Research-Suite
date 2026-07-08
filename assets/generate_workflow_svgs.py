@@ -21,25 +21,27 @@ DARK = dict(
 )
 
 # System-architecture palettes: solid fills, (fill, stroke, title, sub) per box.
+# Brand orange #FF6B35 (from the intro deck) marks the Brain; everything else
+# stays in the deck's warm-neutral family (#555555, #F6F6F4, #B8BCC4).
 SYS_LIGHT = dict(
-    zone1=("#eceff3", "#b9c2cc", "#4b5563"),
-    zone2=("#dbe9fb", "#90b8e8", "#1e5aa8"),
-    plain=("#ffffff", "#9aa7b4", "#1f2328", "#4b5563"),
-    hub=("#334155", "#1e293b", "#ffffff", "#cbd5e1"),
-    brain=("#2563eb", "#1d4ed8", "#ffffff", "#dbeafe"),
-    frontend=("#ffffff", "#90b8e8", "#1e5aa8", "#5583b8"),
-    infra=("#b45309", "#8f4408", "#ffffff", "#fde3c0"),
-    arrow="#55606c", ret="#55606c", label="#4b5563", legend="#4b5563",
+    zone1=("#f6f6f4", "#d5d3cd", "#555555"),
+    zone2=("#fdeee6", "#f2c3aa", "#c24d1e"),
+    plain=("#ffffff", "#b8bcc4", "#1f2328", "#555555"),
+    hub=("#3f4348", "#26282c", "#ffffff", "#cfd2d6"),
+    brain=("#ff6b35", "#e0521d", "#ffffff", "#ffe1d4"),
+    frontend=("#ffffff", "#f2c3aa", "#c24d1e", "#bd7a58"),
+    infra=("#767b83", "#5a5f66", "#ffffff", "#e3e5e8"),
+    arrow="#5b5b5b", ret="#5b5b5b", label="#555555", legend="#555555",
 )
 SYS_DARK = dict(
-    zone1=("#161c23", "#3d444d", "#9198a1"),
-    zone2=("#0e2038", "#2b5590", "#7db0ea"),
-    plain=("#1f242b", "#4a545f", "#e6edf3", "#9198a1"),
-    hub=("#3c4c60", "#8298ad", "#ffffff", "#c2cedb"),
-    brain=("#1a56c4", "#3f74d8", "#ffffff", "#c3d8f8"),
-    frontend=("#132c4a", "#2b5590", "#7db0ea", "#5d86b8"),
-    infra=("#6b4210", "#9c6a1d", "#f0d3a0", "#c7a15f"),
-    arrow="#8b949e", ret="#8b949e", label="#9198a1", legend="#9198a1",
+    zone1=("#16181c", "#3a3d42", "#9aa0a6"),
+    zone2=("#2a180e", "#7a4426", "#ff8f63"),
+    plain=("#1e2126", "#4a4e55", "#e6e8eb", "#9aa0a6"),
+    hub=("#495059", "#8a929c", "#ffffff", "#c9ced4"),
+    brain=("#e85d2c", "#ff8a5e", "#ffffff", "#ffd9c7"),
+    frontend=("#1d1712", "#7a4426", "#ff9d73", "#c98d6e"),
+    infra=("#4d5157", "#75797f", "#e8eaec", "#b4b8bd"),
+    arrow="#8b949e", ret="#8b949e", label="#9aa0a6", legend="#9aa0a6",
 )
 
 W = 992
