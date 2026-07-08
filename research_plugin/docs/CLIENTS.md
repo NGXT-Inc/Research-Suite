@@ -123,9 +123,10 @@ Two Cursor-specific notes:
 (`RESEARCH_PLUGIN_CONTROL_URL` points at the brain. Use the localhost default
 for local deployments, or a hosted HTTPS URL for hosted deployments.)
 
-The plugin exposes ~35 MCP tools; Cursor historically limits the number of
-active tools (~40 community-reported). If you run other MCP servers in the
-same workspace, disable unused servers or allowlist the research tools.
+The plugin exposes ~55 MCP tools; Cursor historically limits the number of
+active tools (~40 community-reported), so the plugin alone can exceed that
+ceiling. Disable unused MCP servers in the workspace and allowlist the
+research tools you need.
 
 ## Use with Gemini CLI
 

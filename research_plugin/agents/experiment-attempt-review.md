@@ -39,8 +39,9 @@ agent could not author or edit it. The exhibit is the ground truth for
 numbers; the report is the attempt's interpretation of it.
 
 - Verify the report's claims and numbers **against the exhibit**, not against
-  diffuse logs. A number that appears in the report but not in the exhibit
-  (or disagrees with it) is grounds for rejection.
+  diffuse logs. A report number missing from the exhibit must be traceable to
+  a registered result resource; unexplained or disagreeing numbers are grounds
+  for rejection.
 - The exhibit shows all runs, uncurated: does the report account for every
   one — failed seeds, aborted runs — or only the flattering rows?
 - Do the exhibit's runs match the plan's **Evaluation** section? An exhibit
@@ -88,14 +89,16 @@ decisive number with its baseline, and use no ids, no jargon, no markdown.
 ## Output
 
 Call `review.start` first with the `reviewer_capability` and your own session
-identity as `caller_session_id`, then `review.submit` with this shape:
+identity as `caller_session_id`, then `review.submit` with exactly these
+fields — the server rejects unknown keys:
 
 ```json
 {
-  "role": "experiment_reviewer",
+  "review_session_id": "from review.start",
   "verdict": "pass | needs_changes | fail",
+  "return_to": "planned | running — required unless pass",
   "synopsis": "1-3 plain sentences for the researcher.",
-  "summary": "One paragraph.",
+  "notes": "One-paragraph summary of the review.",
   "findings": [
     {
       "severity": "high | medium | low",
@@ -104,10 +107,11 @@ identity as `caller_session_id`, then `review.submit` with this shape:
       "recommended_change": "Smallest correction."
     }
   ],
-  "recommended_next_attempt": {
-    "return_to": "planned",
-    "reuse": ["Parts of the prior design that remain valid."],
-    "change": ["Specific changes needed before rerun."]
+  "evidence": {
+    "recommended_next_attempt": {
+      "reuse": ["Parts of the prior design that remain valid."],
+      "change": ["Specific changes needed before rerun."]
+    }
   }
 }
 ```

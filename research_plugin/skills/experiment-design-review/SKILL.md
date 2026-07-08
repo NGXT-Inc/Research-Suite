@@ -48,20 +48,23 @@ experiment page, so write it that way — what the plan tries, and your
 verdict's so-what. Name things by their human names, use at most one decisive
 number with its baseline, and use no ids, no jargon, no markdown.
 
-- Bad: `exp_3f2a val_bpb=1.037680 vs anchor 1.038715, verdict pass`
-- Good: `The embedding-initialized head narrowly beat its rerun baseline, so
-  the claim holds in scope — but the older stronger setup still wins overall.`
+- Bad: `exp_3f2a Evaluation present, threshold val_bpb<1.038, verdict pass`
+- Good: `The plan pits the new tokenizer against the current one on held-out
+  perplexity with a clear pass bar, so one run will settle the claim either
+  way.`
 
 ## Output
 
-Return and submit (verdict, synopsis, summary, findings):
+Submit through `review.submit` with exactly these fields — the server rejects
+unknown keys. Omit `return_to`: a design-review rejection always returns the
+experiment to `planned`.
 
 ```json
 {
-  "role": "design_reviewer",
+  "review_session_id": "from review.start",
   "verdict": "pass | needs_changes | fail",
   "synopsis": "1-3 plain sentences for the researcher.",
-  "summary": "One paragraph.",
+  "notes": "One-paragraph summary of the review.",
   "findings": [
     {
       "severity": "high | medium | low",
@@ -70,8 +73,8 @@ Return and submit (verdict, synopsis, summary, findings):
       "recommended_change": "Smallest correction."
     }
   ],
-  "required_before_execution": [
-    "Specific action, if any."
-  ]
+  "evidence": {
+    "required_before_execution": ["Specific action, if any."]
+  }
 }
 ```

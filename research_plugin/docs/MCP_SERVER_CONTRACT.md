@@ -57,12 +57,13 @@ claim.create(project_id, statement, scope?)
 claim.update(project_id, claim_id, status?, confidence?)  # statement/scope are immutable; revise text via a reviewed reflection change spec or abandon-and-recreate
 experiment.list(project_id)
 experiment.create(project_id, name, intent, tested_claim_ids?)
-experiment.get(project_id, experiment_id)
 experiment.get_state(project_id, experiment_id)   # see "get_state shape" below
 resource.list(project_id, kind?, experiment_id?, missing?, compact?, limit?, offset?)
 review.status(project_id, target_type, target_id)
-event.list(project_id, limit?)
 ```
+
+Activity events are not an MCP tool: the UI reads them over HTTP
+(`/api/projects/<id>/events` and `/api/projects/<id>/events/stream`).
 
 `experiment.create` is intentionally simple in durable storage: it creates a
 planned experiment with a short unique `name`, one `intent` string, and
@@ -213,11 +214,8 @@ new content. MCP does not scan the repo or register new files.
 
 ```text
 workflow.status_and_next(project_id, experiment_id?)
-workflow.next_action(project_id, experiment_id)
-workflow.transition(project_id, experiment_id, transition, evidence?)
+experiment.transition(project_id, experiment_id, transition, evidence?)
 experiment.materialize_folders(project_id, experiment_id?, status?)
-workflow.record_blocker(project_id, experiment_id, reason)
-workflow.request_human_review(project_id, experiment_id, reason)
 ```
 
 `experiment.materialize_folders` creates canonical local folders under
@@ -565,10 +563,9 @@ to use before creating the folder's project.
 ### Review tools
 
 ```text
-review.require(project_id, target_type, target_id, reason)
-review.request(project_id, target_type, target_id, role, reason)
-review.start(review_request_id, reviewer_capability, declared_agent?)
-review.submit(review_session_id, verdict, synopsis, notes, findings, evidence?)
+review.request(project_id, target_type, target_id, role, reason?)
+review.start(review_request_id, reviewer_capability, caller_session_id, declared_agent?)
+review.submit(review_session_id, verdict, synopsis, return_to?, notes?, findings?, evidence?)
 review.status(project_id, target_type, target_id)
 ```
 
@@ -661,16 +658,12 @@ MCP should reject a review when:
 This creates a practical local independence boundary. It does not prove
 cryptographic independence, so high-risk gates can require `human` review.
 
-### Mutation tools
+### Mutation model
 
-```text
-state.propose_mutation(kind, payload, rationale)
-state.apply_approved(change_id)
-state.reject(change_id, reason)
-```
-
-Most MVP tools can be narrower than this, but the server should keep the same
-mental model: proposed mutation, policy decision, accepted event.
+There is no generic mutation-proposal queue. Every mutation is one of the typed
+tools above, validated and gated server-side (workflow gates, review gates,
+lints), and each accepted mutation appends an activity event in the same
+transaction.
 
 ## Permission rules
 

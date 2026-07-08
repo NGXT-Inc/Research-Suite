@@ -104,27 +104,28 @@ five subagents to fix a reflection-artifact flaw.
 ## Synopsis — the researcher's TLDR
 
 `review.submit` requires a `synopsis`: 1-3 plain sentences for the human
-researcher, not the orchestrator. It is the first thing they read on the
-experiment page, so write it that way — what the wave concluded, and your
+researcher, not the orchestrator. It is the first thing they read when the
+wave publishes, so write it that way — what the wave concluded, and your
 verdict's so-what. Name things by their human names, use at most one decisive
 number with its baseline, and use no ids, no jargon, no markdown.
 
-- Bad: `exp_3f2a val_bpb=1.037680 vs anchor 1.038715, verdict pass`
-- Good: `The embedding-initialized head narrowly beat its rerun baseline, so
-  the claim holds in scope — but the older stronger setup still wins overall.`
+- Bad: `syn_2b41 graph v3, 2 claim updates, decision create_experiments, verdict pass`
+- Good: `Three of the five efficiency bets are now dead ends; the graph says
+  so honestly, and the next wave doubles down on the one approach that
+  survived.`
 
 ## Output
 
-Submit through `review.submit` (verdict, `return_to` on rejection, synopsis,
-notes, findings, evidence) and return:
+Submit through `review.submit` with exactly these fields — the server rejects
+unknown keys:
 
 ```json
 {
-  "role": "reflection_reviewer",
+  "review_session_id": "from review.start",
   "verdict": "pass | needs_changes | fail",
-  "return_to": "synthesizing | reflecting (required unless pass)",
+  "return_to": "synthesizing | reflecting — required unless pass",
   "synopsis": "1-3 plain sentences for the researcher.",
-  "summary": "One paragraph.",
+  "notes": "One-paragraph summary of the review.",
   "findings": [
     {
       "severity": "high | medium | low",
