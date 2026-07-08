@@ -11,6 +11,7 @@ the repository checkout lives.
 from __future__ import annotations
 
 import ast
+import json
 import os
 import subprocess
 import sys
@@ -869,6 +870,50 @@ class ProxyStdlibOnlyTest(unittest.TestCase):
                     external,
                     f"{path.name} imports non-stdlib modules: {sorted(external)}",
                 )
+
+    def test_mcp_server_dynamic_imports_stay_in_backend(self) -> None:
+        # Static imports are pinned above, but the proxy also lazy-imports
+        # backend modules by string (importlib.import_module / _import_attr).
+        # Pin every dynamic target to the backend package so a third-party
+        # module can never sneak in through the dynamic path — and remember:
+        # any new dynamic target must either be pydantic-free or sit behind an
+        # ImportError fallback (tests/surface/test_static_tool_catalog.py
+        # drives the proxy with pydantic blocked to prove it).
+        plugin_root = BACKEND_ROOT.parent
+        targets: set[str] = set()
+        for path in sorted((plugin_root / "mcp_server").glob("*.py")):
+            for node in ast.walk(ast.parse(path.read_text(encoding="utf-8"))):
+                if not isinstance(node, ast.Call) or not node.args:
+                    continue
+                func = node.func
+                is_import_module = (
+                    isinstance(func, ast.Attribute) and func.attr == "import_module"
+                )
+                is_import_attr = isinstance(func, ast.Name) and func.id == "_import_attr"
+                first = node.args[0]
+                if (is_import_module or is_import_attr) and isinstance(first, ast.Constant):
+                    targets.add(str(first.value))
+        self.assertTrue(targets, "expected the proxy's lazy backend imports to be found")
+        for target in sorted(targets):
+            self.assertEqual(
+                target.split(".")[0],
+                "backend",
+                f"dynamic import of {target!r} — the proxy may lazy-import "
+                "only backend modules",
+            )
+
+    def test_mcp_server_ships_the_static_tool_catalog(self) -> None:
+        # The bare-python fallback for tools/list: the file must ship with the
+        # tree and carry the routing fields the proxy reads. Freshness against
+        # the live contracts is pinned by test_static_tool_catalog.py.
+        catalog_path = BACKEND_ROOT.parent / "mcp_server" / "_tool_catalog.json"
+        self.assertTrue(catalog_path.is_file())
+        tools = json.loads(catalog_path.read_text(encoding="utf-8"))["tools"]
+        self.assertTrue(tools)
+        for tool in tools:
+            self.assertIn("name", tool)
+            self.assertIn("inputSchema", tool)
+            self.assertIn("plane", tool)
 
     def test_mcp_server_does_not_require_datetime_utc_alias(self) -> None:
         # Codex may launch the stdio proxy with Apple CLT Python 3.9.

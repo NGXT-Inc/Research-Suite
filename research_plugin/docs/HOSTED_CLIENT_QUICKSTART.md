@@ -15,11 +15,14 @@ SQLite link file under `~/.research_plugin/`.
 
 ```bash
 git clone <research-suite-repo-url> ~/research-suite
-cd ~/research-suite/research_plugin
-
-python3 -m venv .venv
-.venv/bin/pip install -e .
 ```
+
+That is the whole install: the stdio proxy runs on bare `python3` (3.11+) with
+no pip installs — the tool catalog ships as a checked-in JSON so no
+third-party package is ever imported on a client machine. A venv
+(`python3 -m venv .venv && .venv/bin/pip install -e .` inside
+`research_plugin/`) is only needed on machines that run a **local brain**
+(`research-plugin-http`).
 
 ## Fast path: register the MCP and let the agent link
 

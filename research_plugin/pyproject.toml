@@ -11,9 +11,12 @@ requires-python = ">=3.11"
 license = { text = "UNLICENSED" }
 authors = [{ name = "Papyrus" }]
 keywords = ["research", "ml", "mcp", "experiments"]
-# Base deps are the common HTTP surface. Provider SDKs (modal) and the
-# Postgres/object-store/auth deps live in the profile extras below so the stdio
-# proxy stays stdlib-only (verified by tests/structure/test_proxy_stdlib).
+# Base deps are the common HTTP surface, needed only to run a brain. The stdio
+# proxy runs on bare python3 with no installs: static imports are pinned by
+# ProxyStdlibOnlyTest (tests/structure/test_plane_layout.py), and the lazy
+# contracts import falls back to the checked-in mcp_server/_tool_catalog.json,
+# kept fresh and driven pydantic-free by tests/surface/test_static_tool_catalog.py.
+# Provider SDKs (modal) and Postgres/object-store/auth deps live in the extras.
 dependencies = [
     "fastapi>=0.115,<1",
     "httpx>=0.27,<1",

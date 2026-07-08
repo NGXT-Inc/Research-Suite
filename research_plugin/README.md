@@ -116,10 +116,11 @@ Install the slim client on the agent machine/VM:
 
 ```bash
 git clone <research-suite-repo-url> ~/research-suite
-cd ~/research-suite/research_plugin
-python3 -m venv .venv
-.venv/bin/pip install -e .
 ```
+
+That is the whole client install — the stdio proxy runs on bare `python3`
+(3.11+) with no pip installs. The venv + `pip install -e .` step is only for
+machines that run a local brain (`research-plugin-http`).
 
 Linking a checkout to its hosted project happens in-session: when
 `project.current` reports no link, the agent asks which project to use and

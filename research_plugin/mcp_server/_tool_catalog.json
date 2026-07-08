@@ -1,0 +1,881 @@
+{
+  "tools": [
+    {
+      "description": "Link the current folder to a hosted project so every later tool call resolves to it. Pass project_id to link an existing project, or a user-confirmed name (+ summary) to create a new project and link it in one step. Ask the user which project before calling \u2014 never guess an id. The folder-to-project link is stored on this machine only; the brain never sees the folder path. Re-linking a linked folder requires overwrite=true.",
+      "inputSchema": {
+        "additionalProperties": false,
+        "properties": {
+          "name": {
+            "default": "",
+            "description": "User-confirmed name for a new project (min 3 chars) when project_id is empty. Do not infer a placeholder from the folder name unless the user explicitly asked for that.",
+            "title": "Name",
+            "type": "string"
+          },
+          "overwrite": {
+            "default": false,
+            "description": "Must be true to re-link a folder that is already linked to a different project.",
+            "title": "Overwrite",
+            "type": "boolean"
+          },
+          "project_id": {
+            "default": "",
+            "description": "Existing hosted project id to link this folder to. Leave empty when creating a new project via name.",
+            "title": "Project Id",
+            "type": "string"
+          },
+          "summary": {
+            "default": "",
+            "description": "Short user-confirmed purpose for a new project.",
+            "title": "Summary",
+            "type": "string"
+          }
+        },
+        "type": "object"
+      },
+      "name": "project.connect",
+      "plane": "data"
+    },
+    {
+      "description": "Create canonical local experiment folders under experiments/<name>/ for a project. Use after reflection publish or experiment.create when planned experiments exist in state but their local folders do not yet exist.",
+      "inputSchema": {
+        "additionalProperties": false,
+        "properties": {
+          "experiment_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "description": "Optional experiment id. When provided, materialize only that experiment's folder regardless of status.",
+            "title": "Experiment Id"
+          },
+          "project_id": {
+            "description": "Explicit project scope. Project-local MCP adapters may fill this from hidden repo context before the call reaches core services.",
+            "title": "Project Id",
+            "type": "string"
+          },
+          "status": {
+            "anyOf": [
+              {
+                "enum": [
+                  "planned",
+                  "design_review",
+                  "ready_to_run",
+                  "running",
+                  "experiment_review",
+                  "complete",
+                  "failed",
+                  "abandoned"
+                ],
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": "planned",
+            "description": "When experiment_id is omitted, materialize experiments with this status. Null materializes every experiment in the project.",
+            "title": "Status"
+          }
+        },
+        "required": [
+          "project_id"
+        ],
+        "type": "object"
+      },
+      "name": "experiment.materialize_folders",
+      "plane": "data"
+    },
+    {
+      "description": "Register or observe repo-relative file(s) as resources. Pass 'path' for one file, or 'paths' for a changed-files batch.",
+      "inputSchema": {
+        "additionalProperties": false,
+        "properties": {
+          "created_by": {
+            "default": "codex",
+            "title": "Created By",
+            "type": "string"
+          },
+          "kind": {
+            "default": "other",
+            "title": "Kind",
+            "type": "string"
+          },
+          "path": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "description": "Repo-relative file path for a single file.",
+            "title": "Path"
+          },
+          "paths": {
+            "anyOf": [
+              {
+                "items": {
+                  "type": "string"
+                },
+                "type": "array"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "description": "Repo-relative paths to register/observe as a batch (changed-files sweep). Provide either 'path' (one file) or 'paths' (many).",
+            "title": "Paths"
+          },
+          "project_id": {
+            "description": "Explicit project scope. Project-local MCP adapters may fill this from hidden repo context before the call reaches core services.",
+            "title": "Project Id",
+            "type": "string"
+          },
+          "title": {
+            "default": "",
+            "title": "Title",
+            "type": "string"
+          }
+        },
+        "required": [
+          "project_id"
+        ],
+        "type": "object"
+      },
+      "name": "resource.register_file",
+      "plane": "data"
+    },
+    {
+      "description": "Associate a resource to a claim, experiment, review, or attempt. Gated-role artifacts (plan, report, graph, project_graph, reflection_doc, reflection_lens_doc, change_spec) are size-capped at associate time \u2014 keep them lean and reference raw data instead of inlining it.",
+      "inputSchema": {
+        "additionalProperties": false,
+        "properties": {
+          "project_id": {
+            "description": "Explicit project scope. Project-local MCP adapters may fill this from hidden repo context before the call reaches core services.",
+            "title": "Project Id",
+            "type": "string"
+          },
+          "resource_id": {
+            "title": "Resource Id",
+            "type": "string"
+          },
+          "role": {
+            "description": "Resource association role. Use 'result' for experiment output files.",
+            "enum": [
+              "change_spec",
+              "code",
+              "config",
+              "graph",
+              "input",
+              "model",
+              "note",
+              "other",
+              "plan",
+              "project_graph",
+              "reflection_doc",
+              "reflection_lens_doc",
+              "report",
+              "result"
+            ],
+            "title": "Role",
+            "type": "string"
+          },
+          "target_id": {
+            "title": "Target Id",
+            "type": "string"
+          },
+          "target_type": {
+            "enum": [
+              "attempt",
+              "claim",
+              "experiment",
+              "reflection",
+              "review"
+            ],
+            "title": "Target Type",
+            "type": "string"
+          }
+        },
+        "required": [
+          "project_id",
+          "resource_id",
+          "target_type",
+          "target_id",
+          "role"
+        ],
+        "type": "object"
+      },
+      "name": "resource.associate",
+      "plane": "data"
+    },
+    {
+      "description": "Preflight-lint a repo file before resource.register_file or resource.associate. Covers every gated role \u2014 plan, report, graph/project_graph, reflection_doc, reflection_lens_doc, and change_spec \u2014 with the same byte caps and structural lints the workflow transitions enforce. Two checks remain gate-only: change-spec claim/experiment existence (needs canonical state) and pinned-byte staleness \u2014 gates lint the bytes captured at associate, so re-associate after editing the file.",
+      "inputSchema": {
+        "additionalProperties": false,
+        "properties": {
+          "path": {
+            "description": "Repo-relative file path to lint before registering or associating it as a resource.",
+            "title": "Path",
+            "type": "string"
+          },
+          "project_id": {
+            "description": "Explicit project scope. Project-local MCP adapters may fill this from hidden repo context before the call reaches core services.",
+            "title": "Project Id",
+            "type": "string"
+          },
+          "role": {
+            "description": "Intended resource association role. For gated artifacts, the validator applies the same role-specific lint used by workflow gates.",
+            "enum": [
+              "change_spec",
+              "code",
+              "config",
+              "graph",
+              "input",
+              "model",
+              "note",
+              "other",
+              "plan",
+              "project_graph",
+              "reflection_doc",
+              "reflection_lens_doc",
+              "report",
+              "result"
+            ],
+            "title": "Role",
+            "type": "string"
+          }
+        },
+        "required": [
+          "project_id",
+          "path",
+          "role"
+        ],
+        "type": "object"
+      },
+      "name": "resource.validate",
+      "plane": "data"
+    },
+    {
+      "description": "Associate multiple resources to claims, experiments, reviews, or attempts in one data-plane call. Rows are applied in order through the same validation and gated-byte capture path as resource.associate.",
+      "inputSchema": {
+        "$defs": {
+          "ResourceAssociationItemInput": {
+            "additionalProperties": false,
+            "properties": {
+              "resource_id": {
+                "title": "Resource Id",
+                "type": "string"
+              },
+              "role": {
+                "description": "Resource association role. Use 'result' for experiment output files.",
+                "enum": [
+                  "change_spec",
+                  "code",
+                  "config",
+                  "graph",
+                  "input",
+                  "model",
+                  "note",
+                  "other",
+                  "plan",
+                  "project_graph",
+                  "reflection_doc",
+                  "reflection_lens_doc",
+                  "report",
+                  "result"
+                ],
+                "title": "Role",
+                "type": "string"
+              },
+              "target_id": {
+                "title": "Target Id",
+                "type": "string"
+              },
+              "target_type": {
+                "enum": [
+                  "attempt",
+                  "claim",
+                  "experiment",
+                  "reflection",
+                  "review"
+                ],
+                "title": "Target Type",
+                "type": "string"
+              }
+            },
+            "required": [
+              "resource_id",
+              "target_type",
+              "target_id",
+              "role"
+            ],
+            "title": "ResourceAssociationItemInput",
+            "type": "object"
+          }
+        },
+        "additionalProperties": false,
+        "properties": {
+          "associations": {
+            "description": "Resource association rows to apply in order. Each row has resource_id, target_type, target_id, and role.",
+            "items": {
+              "$ref": "#/$defs/ResourceAssociationItemInput"
+            },
+            "minItems": 1,
+            "title": "Associations",
+            "type": "array"
+          },
+          "project_id": {
+            "description": "Explicit project scope. Project-local MCP adapters may fill this from hidden repo context before the call reaches core services.",
+            "title": "Project Id",
+            "type": "string"
+          }
+        },
+        "required": [
+          "project_id",
+          "associations"
+        ],
+        "type": "object"
+      },
+      "name": "resource.associate_batch",
+      "plane": "data"
+    },
+    {
+      "description": "Upload a local file to durable storage and complete the ledger object in one call. Relative paths are resolved against the project repo root; omit name to use the repo-relative path. Use storage for files that are too large or noisy for repo resources, or expensive to regenerate: checkpoints/models, precious datasets, dataset shards, parquet/archive outputs, generated caches that must survive, and logs/traces over about 10 MB.",
+      "inputSchema": {
+        "additionalProperties": false,
+        "properties": {
+          "content_type": {
+            "default": "",
+            "title": "Content Type",
+            "type": "string"
+          },
+          "kind": {
+            "enum": [
+              "dataset",
+              "model",
+              "other"
+            ],
+            "title": "Kind",
+            "type": "string"
+          },
+          "name": {
+            "default": "",
+            "description": "Optional storage object name. Defaults to the repo-relative path.",
+            "title": "Name",
+            "type": "string"
+          },
+          "notes": {
+            "default": "",
+            "title": "Notes",
+            "type": "string"
+          },
+          "path": {
+            "description": "Repo-relative file path to upload ('..' and absolute paths are rejected).",
+            "title": "Path",
+            "type": "string"
+          },
+          "producing_experiment_id": {
+            "default": "",
+            "title": "Producing Experiment Id",
+            "type": "string"
+          },
+          "producing_run": {
+            "default": "",
+            "title": "Producing Run",
+            "type": "string"
+          },
+          "project_id": {
+            "description": "Explicit project scope. Project-local MCP adapters may fill this from hidden repo context before the call reaches core services.",
+            "title": "Project Id",
+            "type": "string"
+          },
+          "source_uri": {
+            "default": "",
+            "title": "Source Uri",
+            "type": "string"
+          }
+        },
+        "required": [
+          "project_id",
+          "path",
+          "kind"
+        ],
+        "type": "object"
+      },
+      "name": "storage.upload_file",
+      "plane": "data"
+    },
+    {
+      "description": "Resolve a storage object and download it to a local file, verifying size and sha256 before replacing the destination.",
+      "inputSchema": {
+        "additionalProperties": false,
+        "properties": {
+          "name": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "title": "Name"
+          },
+          "object_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "title": "Object Id"
+          },
+          "overwrite": {
+            "default": false,
+            "description": "Refuse to replace an existing local file unless true.",
+            "title": "Overwrite",
+            "type": "boolean"
+          },
+          "path": {
+            "description": "Repo-relative destination path ('..' and absolute paths are rejected).",
+            "title": "Path",
+            "type": "string"
+          },
+          "project_id": {
+            "description": "Explicit project scope. Project-local MCP adapters may fill this from hidden repo context before the call reaches core services.",
+            "title": "Project Id",
+            "type": "string"
+          },
+          "version": {
+            "anyOf": [
+              {
+                "minimum": 1,
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "title": "Version"
+          }
+        },
+        "required": [
+          "project_id",
+          "path"
+        ],
+        "type": "object"
+      },
+      "name": "storage.download_file",
+      "plane": "data"
+    },
+    {
+      "description": "Procure (reuse or create) a project sandbox, optionally attached to an experiment, and return SSH details plus runtime guidance for the remote work folder, expiry, copy-out, and durable storage. On Thunder Compute or Lambda Labs, omit instance_type to receive a live menu of available machines to pick from. SSH key custody: the sandbox authorizes a caller-side public key. The primary path is bring-your-own-key \u2014 the requesting side generates its own ed25519 keypair (ssh-keygen) under .research_plugin/sandboxes/keys/ (keep .research_plugin/ gitignored; never commit key material) and passes its single-line OpenSSH PUBLIC key as public_key so it gets authorized on the VM. The response's persisted public_key_source is 'caller' for new requests; legacy 'managed' rows remain readable/releasable. ssh.key_path appears only when a local proxy enrichment knows the private key path.",
+      "inputSchema": {
+        "additionalProperties": false,
+        "properties": {
+          "additional": {
+            "default": false,
+            "description": "When true with experiment_id, provision a new sandbox and add it to that experiment's active sandbox list instead of reusing an already attached live sandbox.",
+            "title": "Additional",
+            "type": "boolean"
+          },
+          "cpu": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "description": "Requested Modal CPU cores (1 core = 2 vCPUs). Default 2 cores. Ignored by Lambda Labs, where the instance_type fixes the vCPUs.",
+            "title": "Cpu"
+          },
+          "experiment_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "description": "Optional experiment to attach the sandbox to. Omit to create a standalone sandbox addressed by sandbox_uid.",
+            "title": "Experiment Id"
+          },
+          "gpu": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "description": "GPU type. On Modal a concrete attachable GPU (e.g. 'A100', 'H100'); omit for a CPU-only sandbox. On Lambda Labs a free-form filter over live instance types \u2014 prefer instance_type there.",
+            "title": "Gpu"
+          },
+          "instance_type": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "description": "Provider-bundled machine SKU (GPU + CPU + RAM together). Required by the Lambda Labs and Thunder Compute backends: call this with no instance_type (or use sandbox.options) to get a live menu, then pick one of options[].instance_type. Ignored by Modal (which composes the machine from gpu/cpu/memory).",
+            "title": "Instance Type"
+          },
+          "memory": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "description": "Requested sandbox memory in MiB. Default 8192. Ignored by Lambda Labs, where the instance_type fixes the RAM.",
+            "title": "Memory"
+          },
+          "project_id": {
+            "description": "Explicit project scope. Project-local MCP adapters may fill this from hidden repo context before the call reaches core services.",
+            "title": "Project Id",
+            "type": "string"
+          },
+          "public_key": {
+            "description": "Required OpenSSH public key to authorize on the VM. Pass only the single-line public key, never private-key material.",
+            "title": "Public Key",
+            "type": "string"
+          },
+          "region": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "description": "Optional datacenter/region for the chosen instance_type (Lambda Labs). Omit to auto-pick a region that currently has capacity.",
+            "title": "Region"
+          },
+          "time_limit": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "description": "Max sandbox lifetime in seconds (60..86400). Default 3600.",
+            "title": "Time Limit"
+          }
+        },
+        "required": [
+          "project_id",
+          "public_key"
+        ],
+        "type": "object"
+      },
+      "name": "sandbox.request",
+      "plane": "data"
+    },
+    {
+      "description": "Get sandbox status, SSH details, expiry, and polling/runtime guidance by sandbox_uid or by an experiment's active sandbox association. Use it to poll provisioning and inspect terminated or expired sandboxes. Includes public_key_source so callers know whether the VM authorized a caller-supplied public key or a legacy managed fallback key.",
+      "inputSchema": {
+        "additionalProperties": false,
+        "properties": {
+          "experiment_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "description": "Experiment whose live sandbox association should be read. Omit when sandbox_uid is supplied.",
+            "title": "Experiment Id"
+          },
+          "project_id": {
+            "description": "Explicit project scope. Project-local MCP adapters may fill this from hidden repo context before the call reaches core services.",
+            "title": "Project Id",
+            "type": "string"
+          },
+          "sandbox_uid": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "description": "Optional sandbox_uid to read; omitted targets the primary sandbox.",
+            "title": "Sandbox Uid"
+          }
+        },
+        "required": [
+          "project_id"
+        ],
+        "type": "object"
+      },
+      "name": "sandbox.get",
+      "plane": "control"
+    },
+    {
+      "description": "Associate an existing running sandbox with an experiment without changing the VM, workdir, SSH connection, or lifecycle. A live sandbox can be associated with multiple active experiments.",
+      "inputSchema": {
+        "additionalProperties": false,
+        "properties": {
+          "experiment_id": {
+            "description": "Target experiment to attach the live sandbox to.",
+            "title": "Experiment Id",
+            "type": "string"
+          },
+          "project_id": {
+            "description": "Explicit project scope. Project-local MCP adapters may fill this from hidden repo context before the call reaches core services.",
+            "title": "Project Id",
+            "type": "string"
+          },
+          "sandbox_uid": {
+            "description": "Existing running sandbox_uid to associate with the target experiment.",
+            "title": "Sandbox Uid",
+            "type": "string"
+          }
+        },
+        "required": [
+          "project_id",
+          "experiment_id",
+          "sandbox_uid"
+        ],
+        "type": "object"
+      },
+      "name": "sandbox.attach",
+      "plane": "data"
+    },
+    {
+      "description": "Copy selected files or directories from a running sandbox's remote experiment_dir into the local experiment folder over SSH/rsync. This is a proxy-local data tool: pass key_path for the caller-owned private key when sandbox.get does not already include ssh.key_path. Use object storage tools for heavy artifacts. Use this before resource.register_file/resource.associate or sandbox.release; omit paths to pull common retained outputs. Existing local files are kept unless overwrite=true \u2014 ones that differ from the sandbox are reported in files_kept_stale, so check it before registering results from a re-run. Remote symlinks and device nodes are never recreated locally. One failing path is reported in errors/paths_failed without discarding the rest.",
+      "inputSchema": {
+        "additionalProperties": false,
+        "properties": {
+          "destination_path": {
+            "default": "",
+            "description": "Repo-relative local destination directory. Defaults to the sandbox's local_experiment_dir.",
+            "title": "Destination Path",
+            "type": "string"
+          },
+          "experiment_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "description": "Experiment whose running sandbox should be copied from. Omit when sandbox_uid is supplied.",
+            "title": "Experiment Id"
+          },
+          "key_path": {
+            "default": "",
+            "description": "Local private key path for the caller-owned public_key authorized on the sandbox. Required when sandbox.get does not include an ssh.key_path enrichment.",
+            "title": "Key Path",
+            "type": "string"
+          },
+          "overwrite": {
+            "default": false,
+            "description": "When false, existing local files are preserved/refused. Set true only when replacing local retained outputs is intentional.",
+            "title": "Overwrite",
+            "type": "boolean"
+          },
+          "paths": {
+            "description": "Repo-relative paths under the sandbox experiment_dir to pull. Omit to pull existing common outputs: results/, figures/, report.md, graph.json, metrics.json, and results.json.",
+            "items": {
+              "type": "string"
+            },
+            "title": "Paths",
+            "type": "array"
+          },
+          "project_id": {
+            "description": "Explicit project scope. Project-local MCP adapters may fill this from hidden repo context before the call reaches core services.",
+            "title": "Project Id",
+            "type": "string"
+          },
+          "sandbox_uid": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "description": "Optional sandbox_uid to copy from; omitted targets the primary sandbox.",
+            "title": "Sandbox Uid"
+          }
+        },
+        "required": [
+          "project_id"
+        ],
+        "type": "object"
+      },
+      "name": "sandbox.pull_outputs",
+      "plane": "data"
+    },
+    {
+      "description": "Check the execution backend is reachable.",
+      "inputSchema": {
+        "additionalProperties": false,
+        "properties": {},
+        "type": "object"
+      },
+      "name": "sandbox.health",
+      "plane": "control"
+    },
+    {
+      "description": "Post a brief, high-signal aha-moment to the project's social feed for the human to glance at \u2014 a surprising result, a bottleneck, an exciting direction, a hunch worth surfacing. NOT one post per experiment: post only what genuinely stands out. Keep it short with a high-value visual where you can. Posts are permanent (no edit or delete \u2014 correct a post by posting again).",
+      "inputSchema": {
+        "additionalProperties": false,
+        "properties": {
+          "handle": {
+            "description": "Your registered handle (see feed.register).",
+            "title": "Handle",
+            "type": "string"
+          },
+          "html_path": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "description": "Optional repo-relative path to a self-contained interactive HTML file to embed (e.g. a plotly chart) \u2014 under 512KB. Served sandboxed (scripts run, but isolated: no same-origin, no top navigation). Mutually exclusive with image_path.",
+            "title": "Html Path"
+          },
+          "image_path": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "description": "Optional repo-relative path to an image to attach (a training plot, a generated graphic, a document excerpt). Most posts should carry a visual. Stored server-side; the file is read once. Mutually exclusive with html_path.",
+            "title": "Image Path"
+          },
+          "in_reply_to": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "description": "Optional id of an existing post this one threads under.",
+            "title": "In Reply To"
+          },
+          "kind": {
+            "anyOf": [
+              {
+                "enum": [
+                  "finding",
+                  "hunch",
+                  "bottleneck",
+                  "kill",
+                  "direction",
+                  "status"
+                ],
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "description": "Optional editorial kind, shown as the post's accent: finding (a result landed), hunch (calibrated intuition), bottleneck (something is in the way), kill (a path ruled out), direction (a pivot or new plan), status (a mid-run checkpoint in a live experiment thread). Pick the one that matches your post's point, or omit it.",
+            "title": "Kind"
+          },
+          "project_id": {
+            "description": "Explicit project scope. Project-local MCP adapters may fill this from hidden repo context before the call reaches core services.",
+            "title": "Project Id",
+            "type": "string"
+          },
+          "ref": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "description": "Optional id of the entity this post is about (exp_/claim_/res_/rver_/syn_/rev_). Leave empty for an un-anchored thought.",
+            "title": "Ref"
+          },
+          "text": {
+            "description": "The post body. Brief and high-signal \u2014 like old Twitter, one idea, no essay (hard cap ~280 chars). Lead with the aha-moment.",
+            "title": "Text",
+            "type": "string"
+          },
+          "url": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "description": "Optional link to embed. We fetch it server-side into a static preview card; an unreachable or disallowed link degrades to a plain link rather than failing the post.",
+            "title": "Url"
+          }
+        },
+        "required": [
+          "project_id",
+          "handle",
+          "text"
+        ],
+        "type": "object"
+      },
+      "name": "feed.post",
+      "plane": "data"
+    }
+  ]
+}

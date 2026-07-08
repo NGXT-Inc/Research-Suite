@@ -48,6 +48,48 @@ LONG_VERB_TIMEOUT_SECONDS = 90.0
 LONG_VERBS = frozenset({"sandbox.request"})
 _LOCAL_ENRICHED_CONTROL_TOOLS = frozenset({"sandbox.get", "sandbox.health"})
 
+# Checked-in rendering of the proxy-local tool catalog, for machines running
+# the proxy on bare python3 where the live contracts (pydantic) cannot be
+# imported. scripts/regen_tool_catalog.py rewrites it;
+# tests/surface/test_static_tool_catalog.py pins it identical to the live
+# render so it can never go stale.
+_STATIC_CATALOG_PATH = Path(__file__).with_name("_tool_catalog.json")
+
+
+def _live_local_tool_catalog(*, storage_enabled: bool | None = None) -> list[dict[str, Any]]:
+    """Render the proxy-served tool catalog from the live contracts (pydantic)."""
+    contracts = importlib.import_module("backend.tools.contracts")
+    allowed = contracts.DATA_PLANE_TOOL_NAMES | _LOCAL_ENRICHED_CONTROL_TOOLS
+    return [
+        tool
+        for tool in contracts.static_tool_catalog(storage_enabled=storage_enabled)
+        if tool.get("name") in allowed
+    ]
+
+
+def _render_static_catalog_text() -> str:
+    """Canonical text of _tool_catalog.json: the full catalog, storage included
+    (the reader applies the storage filter at runtime)."""
+    tools = _live_local_tool_catalog(storage_enabled=True)
+    return json.dumps({"tools": tools}, indent=2, sort_keys=True) + "\n"
+
+
+def _static_local_tool_catalog() -> list[dict[str, Any]]:
+    tools = json.loads(_STATIC_CATALOG_PATH.read_text(encoding="utf-8"))["tools"]
+    if not _storage_feature_enabled():
+        tools = [tool for tool in tools if not str(tool.get("name", "")).startswith("storage.")]
+    return tools
+
+
+def _storage_feature_enabled() -> bool:
+    # backend.config is pinned stdlib-safe (it must import without pydantic);
+    # the guard is for a torn tree only.
+    try:
+        config = importlib.import_module("backend.config")
+    except ImportError:  # pragma: no cover - the tree always ships backend/
+        return False
+    return bool(config.storage_feature_enabled())
+
 # The transport taxonomy (plan §3.3): returned as TOOL RESULTS, not protocol
 # errors, so a transient outage of one plane never disables the server. Domain
 # errors the upstream reports (validation_error, …) stay protocol errors.
@@ -512,13 +554,13 @@ class HttpProxyMcpServer:
         return self._tool_cache.get(name, _ToolMeta())
 
     def _local_tool_catalog(self) -> list[dict[str, Any]]:
-        contracts = importlib.import_module("backend.tools.contracts")
-        allowed = contracts.DATA_PLANE_TOOL_NAMES | _LOCAL_ENRICHED_CONTROL_TOOLS
-        return [
-            tool
-            for tool in contracts.static_tool_catalog()
-            if tool.get("name") in allowed
-        ]
+        # Prefer the live contracts so development never serves a stale
+        # catalog; fall back to the checked-in JSON on bare-python clients
+        # where pydantic is not installed.
+        try:
+            return _live_local_tool_catalog()
+        except ImportError:
+            return _static_local_tool_catalog()
 
     def _local_executor(self) -> LocalDataPlane:
         if self._local_data_plane is None:

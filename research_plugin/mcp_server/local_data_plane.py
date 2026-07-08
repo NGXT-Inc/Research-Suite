@@ -545,7 +545,12 @@ class LocalDataPlane:
         )
 
     def _validate_sandbox_request(self, payload: dict[str, Any]) -> None:
-        input_cls = _import_attr("backend.tools.contracts", "SandboxRequestInput")
+        # Local pre-validation is a convenience: on bare-python machines
+        # without pydantic, skip it — the brain re-validates the payload.
+        try:
+            input_cls = _import_attr("backend.tools.contracts", "SandboxRequestInput")
+        except ImportError:
+            return
         input_cls.model_validate(payload)
 
     def _storage_guidance(self) -> str:

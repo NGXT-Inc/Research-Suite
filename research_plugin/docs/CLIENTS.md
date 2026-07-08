@@ -23,6 +23,10 @@ Shared invariants across all clients:
   the project from `RESEARCH_PLUGIN_REPO_ROOT`, defaulting to `$PWD`. Clients
   that do not spawn stdio servers in the project directory (Cursor) must set
   the env var explicitly; the others rely on cwd.
+- The proxy needs no pip installs: it runs on bare `python3` (3.11+). The
+  tool catalog ships as checked-in JSON (`mcp_server/_tool_catalog.json`) so
+  client machines never import third-party packages; a venv is only needed to
+  run a local brain.
 - Skills follow the cross-tool Agent Skills layout (`skills/<name>/SKILL.md`
   with `name` + `description` frontmatter), which Claude Code, Codex, Cursor,
   Gemini CLI, and OpenCode all read natively.
