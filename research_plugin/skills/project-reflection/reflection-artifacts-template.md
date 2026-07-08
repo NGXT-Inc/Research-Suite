@@ -21,6 +21,10 @@ could not verify. The `avoid` lens should center its ledger table:
 | longer warmup    | exp_a, attempt 2 | no effect beyond noise | LR floor dominated | retry only with a lower LR floor |
 ```
 
+The ledger is cumulative across waves: re-verify still-binding rows from the
+previous wave's `avoid` reflection and carry them forward, so the current
+table stands alone.
+
 ## 2. The project logic graph — e.g. `project/logic_graph.json` (role `project_graph`)
 
 One **living** JSON file for the whole project, edited in place each wave.

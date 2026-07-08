@@ -123,7 +123,11 @@ A reflection wave (`syn_…`) is the project-level reflection record:
 One wave may be open per project. `reflection.create` validates the roster
 envelope (the core lens ids `amplify`/`avoid`/`entropy` plus two
 authored lenses, each with `charter` + `why_distinct`) and snapshots the
-corpus. `submit_reflections` requires a current-attempt role-`reflection_lens_doc`
+corpus. The snapshot includes the wave's new signal —
+`new_terminal_experiments`, the experiments that reached a terminal state
+since the last published wave — plus `previous_published_reflection_id` and
+`previous_lens_reflections` (lens id → path of that lens's reflection in the
+last published wave, for lens agents to learn from their own prior round). `submit_reflections` requires a current-attempt role-`reflection_lens_doc`
 resource named `<lens_id>.md` for every roster lens — each submitted by its
 own subagent. `submit_reflection_artifacts` requires the project logic graph (role
 `project_graph`, the same `graph_lint` envelope as experiment graphs — ≤16 nodes,

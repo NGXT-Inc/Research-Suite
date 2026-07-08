@@ -37,6 +37,7 @@ from ..domain.reflection_artifacts import (
     validate_reflection_roster,
 )
 from ..domain.reflection_policy import (
+    covered_terminal_ids,
     post_publish_guidance,
     reflection_signal_state,
 )
@@ -141,7 +142,7 @@ class ReflectionService:
         terminal = ", ".join(f"'{s}'" for s in sorted(EXPERIMENT_TERMINAL_STATUSES))
         exp_rows = conn.execute(
             f"""
-            SELECT id, attempt_index, status FROM experiments
+            SELECT id, name, attempt_index, status FROM experiments
             WHERE project_id = ? AND status IN ({terminal})
             ORDER BY created_at, id
             """,
@@ -151,10 +152,36 @@ class ReflectionService:
             "SELECT id, status FROM claims WHERE project_id = ? ORDER BY created_at, id",
             (project_id,),
         ).fetchall()
+        experiments = rows_to_dicts(rows=exp_rows)
+        previous = self.latest_published(conn=conn, project_id=project_id)
+        covered = covered_terminal_ids(
+            None if previous is None else (previous.get("corpus") or {})
+        )
+        # The wave's new signal: terminal experiments the last published wave
+        # never saw. The reflection still reads the whole project; these name
+        # why it is happening now. Previous lens-reflection paths let a lens
+        # learn from its own prior round without the orchestrator digging.
         return {
             "captured_at": now_iso(),
-            "terminal_experiments": rows_to_dicts(rows=exp_rows),
+            "terminal_experiments": experiments,
             "claims": rows_to_dicts(rows=claim_rows),
+            "new_terminal_experiments": [
+                {"id": exp["id"], "name": exp["name"], "status": exp["status"]}
+                for exp in experiments
+                if str(exp["id"]) not in covered
+            ],
+            "previous_published_reflection_id": (
+                None if previous is None else previous["id"]
+            ),
+            "previous_lens_reflections": (
+                {}
+                if previous is None
+                else {
+                    str(lens["lens_id"]): lens["path"]
+                    for lens in previous["reflection_coverage"]["lenses"]
+                    if lens.get("covered")
+                }
+            ),
         }
 
     # ---- read ----

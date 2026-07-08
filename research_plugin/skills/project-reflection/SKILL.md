@@ -78,6 +78,22 @@ Spawn five subagents in parallel. Each gets:
 - **the list of the other four lenses running**, with the instruction to stay
   in its lane — anything squarely in another lens's charter is that agent's
   job, not yours to duplicate;
+- **the wave's new signal** — `reflection.get`'s corpus lists
+  `new_terminal_experiments`, the experiments that finished since the last
+  published wave. Pass the list with this framing: these are why the project
+  is reflecting now — they carry the signal the last wave never saw — but the
+  job stays macro. Read the whole project through your lens and weigh the new
+  results against everything that came before; do not narrow into a review of
+  the new experiments;
+- **for the three core lenses, the lens's previous reflection** —
+  `corpus.previous_lens_reflections[<lens_id>]`, once a wave has published.
+  Hand the path over as private context, not source material: it shows what
+  this lens concluded last time, so the agent can learn from its own prior
+  round — what held up, what broke, what deserves different weight now. The
+  researcher sees only the current wave's reflection, so it must stand alone:
+  no "as noted last wave", no references to the previous document, and no
+  conclusion carried forward without re-verifying it against the current
+  records. (Authored lenses are wave-specific and start fresh.);
 - read-only project access (claims, experiments and their logic graphs,
   reports, reviews, resources — via MCP reads and repo files);
 - the instruction to write its reflection to
@@ -114,7 +130,10 @@ The three core lens briefs:
 > a table: direction tested · setting · what happened · why it failed · what
 > would have to change before trying again. This is the project's
 > highest-value memory — the thing that stops the next wave from re-running a
-> known dead end.
+> known dead end. The ledger is cumulative: because the researcher reads only
+> the current wave, re-verify still-binding rows from your previous
+> reflection and carry them forward, and drop rows the records no longer
+> support — the current table must stand alone.
 
 > **Core 3 · `entropy` — Entropy & weird bets: "what strange, high-variance
 > things should we try to escape the current local optimum?"**

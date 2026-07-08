@@ -1487,6 +1487,40 @@ class ReflectionSignalTest(unittest.TestCase):
         )
         return syn_id
 
+    def test_corpus_delta_names_new_signal_and_previous_lens_reflections(self) -> None:
+        first = self._finish_experiment(intent="first signal")
+        wave1_id = self._publish_wave()
+        corpus1 = self.call(
+            "reflection.get", project_id=self.project_id, reflection_id=wave1_id
+        )["corpus"]
+        # The first wave's new signal is everything terminal so far.
+        self.assertEqual(
+            [exp["id"] for exp in corpus1["new_terminal_experiments"]], [first]
+        )
+        self.assertIsNone(corpus1["previous_published_reflection_id"])
+        self.assertEqual(corpus1["previous_lens_reflections"], {})
+
+        second = self._finish_experiment(intent="second signal")
+        corpus2 = self.call(
+            "reflection.create",
+            project_id=self.project_id,
+            title="Wave 2",
+            lenses=full_roster(),
+        )["corpus"]
+        # The second wave's delta excludes what wave 1 already covered and
+        # points each lens at its own previous reflection.
+        self.assertEqual(
+            [exp["id"] for exp in corpus2["new_terminal_experiments"]], [second]
+        )
+        self.assertEqual(corpus2["previous_published_reflection_id"], wave1_id)
+        self.assertEqual(
+            corpus2["previous_lens_reflections"],
+            {
+                lens_id: f"syntheses/{wave1_id}/reflections/{lens_id}.md"
+                for lens_id in ALL_LENS_IDS
+            },
+        )
+
     def test_quiet_before_threshold_then_first_reflection_nudge(self) -> None:
         for i in range(REFLECTION_NUDGE_NEW_TERMINAL_THRESHOLD - 1):
             self._finish_experiment(intent=f"quiet-{i}")

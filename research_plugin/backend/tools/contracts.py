@@ -965,7 +965,9 @@ TOOL_CONTRACTS: dict[str, ToolContract] = {
             "Declares the 5-lens reflection roster (3 core: amplify, "
             "avoid, entropy; plus 2 you design with charter + "
             "why_distinct) and snapshots the corpus of finished experiments "
-            "the wave covers. One wave may be open at a time. See the "
+            "the wave covers — including new_terminal_experiments (the new "
+            "signal since the last published wave) and each lens's previous "
+            "reflection path. One wave may be open at a time. See the "
             "project-reflection skill."
         ),
     ),
