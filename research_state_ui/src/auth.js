@@ -65,6 +65,21 @@ export async function signInWithGoogle() {
   if (error) throw new Error(error.message);
 }
 
+export async function signUp(emailInput, password) {
+  const { error } = await client.auth.signUp({ email: emailInput, password });
+  if (error) throw new Error(error.message);
+}
+
+// Sends a Supabase recovery email. redirectTo is the origin; if it isn't in the
+// project's allow-list Supabase falls back to the Site URL (the shared
+// RapidReview reset page), so the same account is reset either way.
+export async function resetPassword(emailInput) {
+  const { error } = await client.auth.resetPasswordForEmail(emailInput, {
+    redirectTo: window.location.origin,
+  });
+  if (error) throw new Error(error.message);
+}
+
 export async function signOut() {
   if (client) await client.auth.signOut();
   applySession(null);
