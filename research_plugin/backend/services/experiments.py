@@ -37,6 +37,24 @@ from ..utils import now_iso
 from .review_gate import review_gate_state
 
 
+def _parse_advisories(raw: Any) -> list[dict[str, Any]]:
+    try:
+        decoded = json.loads(str(raw or "[]"))
+    except json.JSONDecodeError:
+        return []
+    return [entry for entry in decoded if isinstance(entry, dict)] if isinstance(decoded, list) else []
+
+
+def _advisory_key(advisory: dict[str, Any]) -> str:
+    """Dedup identity for a stored advisory: the same problem on the same
+    run's metric is one advisory however many reads observe it."""
+    return (
+        f"{advisory.get('run_id') or ''}:"
+        f"{advisory.get('metric') or ''}:"
+        f"{advisory.get('code') or ''}"
+    )
+
+
 class ExperimentService:
     def __init__(
         self,
@@ -311,6 +329,9 @@ class ExperimentService:
                 else []
             )
             data["mlflow_run"] = self._mlflow_run_from_row(experiment=data)
+            data["mlflow_advisories"] = _parse_advisories(
+                data.pop("mlflow_advisories_json", None)
+            )
             review_rows = conn.execute(
                 """
                 SELECT * FROM reviews
@@ -441,6 +462,71 @@ class ExperimentService:
                 },
             )
             return self.get_state(experiment_id=experiment_id, conn=conn)
+
+    def note_mlflow_advisories(
+        self,
+        *,
+        experiment_id: str,
+        advisories: list[dict[str, Any]],
+        project_id: str | None = None,
+    ) -> list[dict[str, Any]]:
+        """Persist the advisory set observed on an MLflow read and surface
+        each newly seen advisory as a durable project event.
+
+        The stored list mirrors the latest observation — advisories that no
+        longer reproduce disappear (the events table keeps their history) —
+        and the ``experiment.mlflow_advisory`` event fires once per
+        (run, metric, code), so repeated reads of an unchanged ledger write
+        nothing. Callers must not pass an unavailable read's empty list here:
+        an unreachable MLflow is not evidence that a problem cleared.
+        """
+        incoming = [entry for entry in advisories if isinstance(entry, dict)]
+        with self.store.transaction() as conn:
+            project_id = self.store.require_project_id(conn=conn, project_id=project_id)
+            row = conn.execute(
+                "SELECT project_id, mlflow_advisories_json FROM experiments WHERE id = ?",
+                (experiment_id,),
+            ).fetchone()
+            if row is None or row["project_id"] != project_id:
+                raise NotFoundError(f"experiment not found: {experiment_id}")
+            previous = str(row["mlflow_advisories_json"] or "[]")
+            known = {
+                _advisory_key(entry): entry for entry in _parse_advisories(previous)
+            }
+            now = now_iso()
+            stored: list[dict[str, Any]] = []
+            for advisory in incoming:
+                prior = known.get(_advisory_key(advisory))
+                stored.append({
+                    **advisory,
+                    "first_detected_at": (
+                        prior.get("first_detected_at") if prior else None
+                    ) or now,
+                })
+                if prior is None:
+                    self.store.record_event(
+                        conn=conn,
+                        project_id=project_id,
+                        event_type="experiment.mlflow_advisory",
+                        target_type="experiment",
+                        target_id=experiment_id,
+                        payload={
+                            key: advisory.get(key)
+                            for key in (
+                                "code", "severity", "metric", "run_id",
+                                "run_name", "summary", "reasoning", "evidence",
+                            )
+                        },
+                    )
+            encoded = json.dumps(stored, sort_keys=True)
+            if encoded != previous:
+                # Deliberately no updated_at bump: observation bookkeeping is
+                # not a workflow mutation.
+                conn.execute(
+                    "UPDATE experiments SET mlflow_advisories_json = ? WHERE id = ?",
+                    (encoded, experiment_id),
+                )
+            return stored
 
     def _claim_update_suggestions(
         self, *, experiment: dict[str, Any]

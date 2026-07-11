@@ -82,8 +82,14 @@ def slim_status_and_next(full: dict[str, Any]) -> dict[str, Any]:
     return result
 
 
+_SLIM_ADVISORY_FIELDS = (
+    "code", "severity", "metric", "run_id", "run_name",
+    "summary", "reasoning", "first_detected_at",
+)
+
+
 def _slim_experiment(exp: dict[str, Any]) -> dict[str, Any]:
-    return {
+    slim = {
         "id": exp.get("id"),
         "name": exp.get("name"),
         "status": exp.get("status"),
@@ -107,6 +113,17 @@ def _slim_experiment(exp: dict[str, Any]) -> dict[str, Any]:
             for review in exp.get("reviews", [])
         ],
     }
+    # Live-run advisories ride the constantly-polled orientation call so a
+    # running agent hears that a metric looks off — observation only; whether
+    # anything is wrong, and what to do, stays the agent's call. Quiet for
+    # every other status: post-run readers get them from get_state/the UI.
+    if str(exp.get("status")) == "running" and exp.get("mlflow_advisories"):
+        slim["mlflow_advisories"] = [
+            {field: advisory.get(field) for field in _SLIM_ADVISORY_FIELDS}
+            for advisory in exp.get("mlflow_advisories", [])
+            if isinstance(advisory, dict)
+        ]
+    return slim
 
 
 def slim_synthesis(syn: dict[str, Any]) -> dict[str, Any]:

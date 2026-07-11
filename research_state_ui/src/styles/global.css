@@ -4597,6 +4597,25 @@ a.results-metrics-sub:hover { color: var(--active); text-decoration: underline; 
 .lgc-xlabels { position: relative; height: 16px; margin-top: 4px; }
 .lgc-xlabels span { position: absolute; transform: translateX(-50%); font-family: var(--font-mono); font-size: 10px; color: var(--faint); white-space: nowrap; max-width: 76px; overflow: hidden; text-overflow: ellipsis; }
 
+/* Metric advisories — "something looks off" observations over MLflow
+   histories. Warnings (non-finite, divergence) in the review amber; notices
+   (plateaus) quieter. Never red: red is a verdict, these are questions. */
+.madv { display: flex; flex-direction: column; gap: 6px; margin: 8px 0; }
+.madv-row { display: flex; gap: 9px; align-items: baseline; }
+.madv-dot { flex: none; width: 7px; height: 7px; border-radius: 50%; position: relative; top: -1px; }
+.madv-row--warning .madv-dot { background: var(--qualifies); box-shadow: 0 0 0 2px rgba(var(--qualifies-rgb), 0.18); }
+.madv-row--notice .madv-dot { background: var(--faint); }
+.madv-body { display: flex; flex-direction: column; gap: 1px; min-width: 0; }
+.madv-summary { font-size: var(--text-sm); }
+.madv-row--warning .madv-summary { color: var(--qualifies); }
+.madv-run { color: var(--faint); font-family: var(--font-mono); font-size: var(--text-xs); }
+.madv-why { font-size: var(--text-xs); color: var(--muted); max-width: 88ch; }
+.madv-exp {
+  border: 0; background: none; padding: 0; cursor: pointer;
+  font: inherit; color: inherit; font-weight: 600;
+}
+.madv-exp:hover { text-decoration: underline; }
+
 .lgd-line { font-size: var(--text-xs); color: var(--muted); margin: 6px 0; }
 .lgd-line-k { font-family: var(--font-mono); color: var(--faint); }
 .lgd-chip { font-family: var(--font-mono); }

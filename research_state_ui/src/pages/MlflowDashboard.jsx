@@ -116,6 +116,12 @@ export default function MlflowDashboard() {
 
   const focusedExp = focusExpId ? experiments.find(e => e.experiment_id === focusExpId) : null;
 
+  // Live advisories across the project's experiments — the system's
+  // "something looks off, here's why" observations, never instructions.
+  const advisories = useMemo(() => experiments.flatMap(e =>
+    (e.metrics?.advisories || []).map(a => ({ ...a, expId: e.experiment_id, expName: e.name })),
+  ), [experiments]);
+
   return (
     <div className="page-stage">
       <header className="page-header page-header--lg">
@@ -154,6 +160,35 @@ export default function MlflowDashboard() {
               onClear={() => toggleFocus(null)}
               openHref={px(`/experiments/${focusedExp.experiment_id}`)}
             />
+          )}
+
+          {advisories.length > 0 && (
+            <section className="section">
+              <h2 className="section-title">Advisories</h2>
+              <div className="madv">
+                {advisories.map(a => (
+                  <div
+                    className={`madv-row madv-row--${a.severity === 'warning' ? 'warning' : 'notice'}`}
+                    key={`${a.expId}:${a.run_id}:${a.metric}:${a.code}`}
+                  >
+                    <span className="madv-dot" aria-hidden="true" />
+                    <div className="madv-body">
+                      <span className="madv-summary">
+                        <button type="button" className="madv-exp" onClick={() => toggleFocus(a.expId)}>
+                          {a.expName}
+                        </button>
+                        {' — '}{a.summary}
+                        {a.run_name && <span className="madv-run"> · {a.run_name}</span>}
+                      </span>
+                      {a.reasoning && <span className="madv-why">{a.reasoning}</span>}
+                    </div>
+                  </div>
+                ))}
+              </div>
+              <p className="lgd-note">
+                Observations, not instructions — the system takes no action and prescribes none.
+              </p>
+            </section>
           )}
 
           {hasLedger && plan.focus && (

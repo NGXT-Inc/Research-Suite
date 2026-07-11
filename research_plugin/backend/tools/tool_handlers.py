@@ -6,6 +6,7 @@ from collections.abc import Callable
 from typing import Any
 
 from ..mlflow import (
+    ADVISORY_NOTE,
     METRICS_EXHIBIT_FILENAME,
     MLFLOW_TERMINAL_RUN_STATUSES,
     mlflow_experiment_name,
@@ -618,8 +619,17 @@ def build_control_tool_handlers(
             "your MCP client."
         )
 
+    def workflow_status_and_next_agent(**kwargs: Any) -> dict[str, Any]:
+        result = workflow.status_and_next_agent(**kwargs)
+        # The slim experiment carries live-run advisories (research_core data);
+        # the surface layer adds the contract sentence so agents reading the
+        # envelope know these are observations to investigate, not orders.
+        if (result.get("experiment") or {}).get("mlflow_advisories"):
+            result["mlflow_advisory_note"] = ADVISORY_NOTE
+        return result
+
     handlers = {
-        "workflow.status_and_next": workflow.status_and_next_agent,
+        "workflow.status_and_next": workflow_status_and_next_agent,
         "project": project_control,
         "project.update": projects.update,
         "project.get": projects.get,

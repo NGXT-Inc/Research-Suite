@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react';
 import { api } from '../api';
 import RunMetrics, { runsFromMetrics } from './RunMetrics';
+import MetricAdvisories from './MetricAdvisories';
 
 /**
  * ExperimentMetrics — durable MLflow results for one experiment, inline on the
@@ -30,6 +31,7 @@ export default function ExperimentMetrics({ projectId, experimentId, refreshKey,
   if (dense) {
     return (
       <section className="results-metrics results-metrics--dense">
+        <MetricAdvisories advisories={data.advisories} dense />
         <RunMetrics runs={runs} />
         {drillUrl && (
           <a className="results-metrics-drill" href={drillUrl} target="_blank" rel="noreferrer">MLflow ↗</a>
@@ -46,6 +48,7 @@ export default function ExperimentMetrics({ projectId, experimentId, refreshKey,
           ? <a className="results-metrics-sub" href={drillUrl} target="_blank" rel="noreferrer">Open in MLflow ↗</a>
           : <span className="results-metrics-sub">durable</span>}
       </div>
+      <MetricAdvisories advisories={data.advisories} />
       <RunMetrics runs={runs} />
     </section>
   );

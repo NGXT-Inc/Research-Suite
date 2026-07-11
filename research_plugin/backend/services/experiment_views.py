@@ -74,4 +74,8 @@ def slim_experiment_state(full: dict[str, Any]) -> dict[str, Any]:
             {field: res.get(field) for field in _PRIOR_RESOURCE_FIELDS}
             for res in prior
         ]
+    # Advisories the system observed on this experiment's MLflow reads —
+    # observations, never instructions. Absent when nothing was flagged.
+    if full.get("mlflow_advisories"):
+        slim["mlflow_advisories"] = full["mlflow_advisories"]
     return slim

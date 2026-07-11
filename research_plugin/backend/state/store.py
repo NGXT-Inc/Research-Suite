@@ -116,6 +116,7 @@ CREATE TABLE IF NOT EXISTS experiments (
   mlflow_run_artifact_uri TEXT NOT NULL DEFAULT '',
   mlflow_run_created_at TEXT,
   mlflow_run_error TEXT NOT NULL DEFAULT '',
+  mlflow_advisories_json TEXT NOT NULL DEFAULT '[]',
   created_at TEXT NOT NULL,
   updated_at TEXT NOT NULL,
   FOREIGN KEY(project_id) REFERENCES projects(id)
@@ -579,6 +580,10 @@ MIGRATIONS: tuple[tuple[int, str, str], ...] = (
         "reactivate_hard_stopped_projects",
         "UPDATE projects SET status = 'active' WHERE status = 'stopped'",
     ),
+    # MLflow advisories (July 2026): latest observed advisory set per
+    # experiment, so agent orientation calls carry it without an MLflow read.
+    # Fresh schemas have the column; this backfills existing stores.
+    (18, "add_experiment_mlflow_advisories", ""),
 )
 
 
@@ -720,6 +725,8 @@ class BaseStateStore:
                 self._rename_syntheses_to_reflections(conn=conn)
             elif name == "add_sandbox_last_command_columns":
                 self._ensure_sandbox_last_command_columns(conn=conn)
+            elif name == "add_experiment_mlflow_advisories":
+                self._ensure_experiment_mlflow_advisories(conn=conn)
             else:
                 conn.execute(statement)
             conn.execute(
@@ -737,6 +744,12 @@ class BaseStateStore:
         for column, ddl in EXPERIMENT_MLFLOW_COLUMNS.items():
             if not self._has_column(conn=conn, table="experiments", column=column):
                 conn.execute(f"ALTER TABLE experiments ADD COLUMN {column} {ddl}")
+
+    def _ensure_experiment_mlflow_advisories(self, *, conn: Connection) -> None:
+        if not self._has_column(conn=conn, table="experiments", column="mlflow_advisories_json"):
+            conn.execute(
+                "ALTER TABLE experiments ADD COLUMN mlflow_advisories_json TEXT NOT NULL DEFAULT '[]'"
+            )
 
     def _ensure_review_synopsis(self, *, conn: Connection) -> None:
         if not self._has_column(conn=conn, table="reviews", column="synopsis"):

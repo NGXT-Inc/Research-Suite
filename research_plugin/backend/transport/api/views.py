@@ -11,7 +11,13 @@ from ...artifacts.figure_view import build_experiment_figure
 from ...artifacts.resource_selection import preferred_associated_resource
 from ...artifacts.roles import GATED_ROLES, PROJECT_GRAPH_ROLES
 from ...domain.graph_lint import MAX_GRAPH_NODES, graph_problems
-from ...mlflow import mlflow_experiment_name, mlflow_visible_for_status
+from ...mlflow import (
+    ADVISORY_NOTE,
+    detect_snapshot_advisories,
+    iso_to_epoch_ms,
+    mlflow_experiment_name,
+    mlflow_visible_for_status,
+)
 from ...sandbox.sandbox_support import ACTIVE_SANDBOX_STATUSES
 from ...state.activity import effective_source, is_event_ok
 from ...utils import (
@@ -591,9 +597,44 @@ class ResearchHttpApi:
 
     def results_metrics_view(self, *, project_id: str, experiment_id: str) -> dict[str, Any]:
         """Centralized MLflow metrics for one experiment."""
-        return self.app.mlflow_tracking.results_metrics(
+        metrics = self.app.mlflow_tracking.results_metrics(
             experiment_id=experiment_id, project_id=project_id
         )
+        return self._with_ledger_advisories(
+            project_id=project_id, experiment_id=experiment_id, metrics=metrics
+        )
+
+    def _with_ledger_advisories(
+        self, *, project_id: str, experiment_id: str, metrics: Any
+    ) -> Any:
+        """Attach attempt-window advisories to a results_metrics payload and
+        record the observation on the experiment (deduped events + stored
+        latest set, so agent orientation calls carry it without re-reading
+        MLflow). Advisories are observations, not instructions. Best-effort:
+        bookkeeping must never break a read, and an unavailable payload
+        records nothing — an unreachable MLflow is not evidence that a
+        previously seen problem cleared.
+        """
+        if not isinstance(metrics, dict) or not metrics.get("available"):
+            return metrics
+        try:
+            window = self.app.experiments.attempt_started_running_at(
+                experiment_id=experiment_id
+            )
+            advisories = detect_snapshot_advisories(
+                metrics, window_started_ms=iso_to_epoch_ms(window)
+            )
+            if advisories:
+                metrics["advisories"] = advisories
+                metrics["advisory_note"] = ADVISORY_NOTE
+            self.app.experiments.note_mlflow_advisories(
+                experiment_id=experiment_id,
+                project_id=project_id,
+                advisories=advisories,
+            )
+        except Exception:  # noqa: BLE001 - advisory bookkeeping is best-effort
+            pass
+        return metrics
 
     def mlflow_overview_view(self, *, project_id: str) -> dict[str, Any]:
         """Project-wide MLflow context for the UI.
@@ -610,8 +651,12 @@ class ResearchHttpApi:
             if not eid:
                 continue
             # results_metrics owns the deep-link (namespace→#/experiments/<id>).
-            metrics = self.app.mlflow_tracking.results_metrics(
-                experiment_id=eid, project_id=project_id
+            metrics = self._with_ledger_advisories(
+                project_id=project_id,
+                experiment_id=eid,
+                metrics=self.app.mlflow_tracking.results_metrics(
+                    experiment_id=eid, project_id=project_id
+                ),
             )
             items.append({
                 "experiment_id": eid,
@@ -653,8 +698,12 @@ class ResearchHttpApi:
             eid = str(exp.get("id") or "")
             if not eid:
                 continue
-            metrics = self.app.mlflow_tracking.results_metrics(
-                experiment_id=eid, project_id=project_id
+            metrics = self._with_ledger_advisories(
+                project_id=project_id,
+                experiment_id=eid,
+                metrics=self.app.mlflow_tracking.results_metrics(
+                    experiment_id=eid, project_id=project_id
+                ),
             )
             items.append({
                 "experiment_id": eid,

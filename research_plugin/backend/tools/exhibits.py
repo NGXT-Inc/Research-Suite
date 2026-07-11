@@ -15,9 +15,12 @@ from typing import Any
 
 from ..domain.paths import experiment_folder_rel
 from ..mlflow import (
+    ADVISORY_NOTE,
     METRICS_EXHIBIT_FILENAME,
     build_metrics_exhibit,
+    detect_snapshot_advisories,
     exhibit_bytes,
+    iso_to_epoch_ms,
     mlflow_experiment_name,
 )
 from ..artifacts.roles import EXHIBIT_ROLE
@@ -36,10 +39,11 @@ def generate_metrics_exhibit(
     resources: Any,
     mlflow_tracking: Any,
     state: dict[str, Any],
-) -> dict[str, Any]:
+) -> tuple[dict[str, Any], dict[str, Any] | None]:
     """One exhibit generation from current state — shared verbatim by the
     preview tool and the submit_results finalize, so preview == final for
-    identical state."""
+    identical state. Returns (exhibit, snapshot); the snapshot rides along so
+    callers can run advisory detection without a second MLflow read."""
     project_id = str(state.get("project_id") or "")
     experiment_id = str(state.get("id") or "")
     attempt_index = int(state.get("attempt_index") or 1)
@@ -54,7 +58,7 @@ def generate_metrics_exhibit(
             snapshot = mlflow_tracking.results_metrics(
                 project_id=project_id, experiment_id=experiment_id
             )
-    return build_metrics_exhibit(
+    exhibit = build_metrics_exhibit(
         project_id=project_id,
         experiment_id=experiment_id,
         attempt_index=attempt_index,
@@ -70,6 +74,32 @@ def generate_metrics_exhibit(
             target_id=experiment_id, attempt_index=attempt_index
         ),
     )
+    return exhibit, snapshot
+
+
+def observe_exhibit_advisories(
+    *,
+    experiments: Any,
+    state: dict[str, Any],
+    exhibit: dict[str, Any],
+    snapshot: dict[str, Any] | None,
+) -> list[dict[str, Any]]:
+    """Detect advisories on the attempt-window runs and record the
+    observation on the experiment (deduped events + latest stored set).
+    An unavailable snapshot records nothing — an unreachable MLflow is not
+    evidence that a previously seen problem cleared."""
+    if not isinstance(snapshot, dict) or not snapshot.get("available"):
+        return []
+    advisories = detect_snapshot_advisories(
+        snapshot,
+        window_started_ms=iso_to_epoch_ms(exhibit["window"]["started_at"] or None),
+    )
+    experiments.note_mlflow_advisories(
+        experiment_id=str(state.get("id") or ""),
+        project_id=str(state.get("project_id") or "") or None,
+        advisories=advisories,
+    )
+    return advisories
 
 
 def _should_pin(*, exhibit: dict[str, Any], state: dict[str, Any]) -> bool:
@@ -99,11 +129,16 @@ def finalize_metrics_exhibit(
     as a system-authored resource on the current attempt, and record the
     generation verdict. Returns the exhibit, or None when the attempt has
     nothing quantitative to exhibit (no gate machinery for those)."""
-    exhibit = generate_metrics_exhibit(
+    exhibit, snapshot = generate_metrics_exhibit(
         experiments=experiments,
         resources=resources,
         mlflow_tracking=mlflow_tracking,
         state=state,
+    )
+    # The finalize read is the attempt's last observation — record what it
+    # saw so the review has the advisory trail beside the pinned numbers.
+    observe_exhibit_advisories(
+        experiments=experiments, state=state, exhibit=exhibit, snapshot=snapshot
     )
     project_id = str(state.get("project_id") or "")
     experiment_id = str(state.get("id") or "")
@@ -153,17 +188,20 @@ def preview_metrics_exhibit(
             f"{state.get('status')!r}. After submit_results, read the pinned "
             "exhibit resource instead (resource.find)."
         )
-    exhibit = generate_metrics_exhibit(
+    exhibit, snapshot = generate_metrics_exhibit(
         experiments=experiments,
         resources=resources,
         mlflow_tracking=mlflow_tracking,
         state=state,
     )
+    advisories = observe_exhibit_advisories(
+        experiments=experiments, state=state, exhibit=exhibit, snapshot=snapshot
+    )
     path = exhibit_rel_path(
         experiment_id=str(state.get("id") or experiment_id),
         name=str(state.get("name") or ""),
     )
-    return {
+    result: dict[str, Any] = {
         "project_id": str(state.get("project_id") or ""),
         "experiment_id": experiment_id,
         "exhibit_path": path,
@@ -180,3 +218,7 @@ def preview_metrics_exhibit(
             "rather than restate numbers by hand."
         ),
     }
+    if advisories:
+        result["advisories"] = advisories
+        result["advisory_note"] = ADVISORY_NOTE
+    return result

@@ -161,6 +161,11 @@ experiments and provides dashboard links when configured; each overview item
 also carries `tested_claims` (compact claim identity + belief state) so ledger
 surfaces can link runs back to the claims they are evidence for.
 
+Both metrics payloads may carry `advisories` (with `advisory_note`): the
+brain's deterministic "this metric looks off, and here is why" observations
+over the attempt-window histories (see docs/CENTRALIZED_MLFLOW.md). They are
+observations for the reader — the system takes no action on them.
+
 ## Reflections
 
 ```http

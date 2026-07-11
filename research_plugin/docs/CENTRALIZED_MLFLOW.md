@@ -214,6 +214,33 @@ exhibit. Compatibility reads are bounded to the newest 50 runs; when that limit
 is reached, the exhibit records the cap rather than claiming an uncapped
 history.
 
+## Advisories
+
+The brain runs deterministic anomaly detection over the metric histories it
+reads (non-finite values, a directional metric moving away from its best, a
+long plateau on a still-running run). Detection is scoped to the current
+attempt window and thresholds are conservative by design.
+
+Advisories are observations, not instructions: the system states what it saw
+and why that pattern is usually worth a look, takes no action, and prescribes
+none. Whether anything is actually wrong — and what to do about it — is the
+agent's call.
+
+Where advisories appear:
+
+- `experiment.exhibit` previews and the UI compatibility views carry an
+  `advisories` list (plus `advisory_note`) computed from the same bounded
+  snapshot they already read.
+- The latest observed set is stored on the experiment record
+  (`mlflow_advisories` in `experiment.get_state`), and
+  `workflow.status_and_next` surfaces it while the experiment is `running`,
+  so a polling agent hears about a suspect metric without an MLflow read.
+- Each newly seen advisory (per run, metric, and code) is recorded once as an
+  `experiment.mlflow_advisory` project event; repeated reads of an unchanged
+  ledger write nothing. Advisories that stop reproducing drop from the stored
+  set — the events table keeps their history. An unreachable MLflow never
+  clears the stored set: no read is not evidence that a problem resolved.
+
 ## UI compatibility views
 
 The brain exposes bounded MLflow views for the UI:
