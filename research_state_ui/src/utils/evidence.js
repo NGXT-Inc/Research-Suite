@@ -12,15 +12,25 @@
  * Design-review verdicts deliberately don't count here — they gate
  * execution, not evidence.
  */
+/**
+ * The verdict-bearing review: the newest experiment-level review (agent or
+ * human). Shared so every consumer (outcome classification, the story's
+ * reviewer synopsis and verdict timestamps) picks the SAME review.
+ */
+export function latestExperimentReview(experiment) {
+  const reviews = Array.isArray(experiment?.reviews) ? experiment.reviews : [];
+  let latest = null;
+  for (const r of reviews) {
+    if (!r || (r.role !== 'experiment_reviewer' && r.role !== 'human')) continue;
+    if (!latest || (r.created_at || '').localeCompare(latest.created_at || '') > 0) latest = r;
+  }
+  return latest;
+}
+
 export function classifyExperiment(experiment) {
   if (!experiment) return 'inflight';
   const status = experiment.status;
-  const reviews = Array.isArray(experiment.reviews) ? experiment.reviews : [];
-  const latestExpReview = reviews
-    .filter(r => r && (r.role === 'experiment_reviewer' || r.role === 'human'))
-    .slice()
-    .sort((a, b) => (a.created_at || '').localeCompare(b.created_at || ''))
-    .pop();
+  const latestExpReview = latestExperimentReview(experiment);
 
   if (status === 'complete') return 'supports';
   if (status === 'failed') {

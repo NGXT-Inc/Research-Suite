@@ -15,6 +15,7 @@ import FSMStrip from '../components/FSMStrip';
 import SandboxTable from '../components/SandboxTable';
 import ActiveExperimentPager from '../components/ActiveExperimentPager';
 import ProjectSynthesisPanel from '../components/ProjectSynthesisPanel';
+import ResearchStory from '../components/story/ResearchStory';
 import { expName } from '../utils/experiment';
 
 export default function Home() {
@@ -42,6 +43,10 @@ export default function Home() {
     if (activeExperiments.length <= 1) return undefined;
     const onKey = (e) => {
       if (e.target && /^(INPUT|TEXTAREA|SELECT)$/.test(e.target.tagName)) return;
+      // Focus resting on any interactive control (story ribbon segments,
+      // chapter toggles, chips…) keeps its own arrow-key meaning — don't
+      // flip the spotlight underneath it.
+      if (e.target && typeof e.target.closest === 'function' && e.target.closest('a, button')) return;
       if (e.key === 'ArrowLeft') {
         setActiveIdx((i) => Math.max(0, i - 1));
       } else if (e.key === 'ArrowRight') {
@@ -70,6 +75,9 @@ export default function Home() {
           <p className="page-summary page-summary--lead">{project.summary}</p>
         </header>
       )}
+
+      {/* The narrative arc first: what happened, chapter by chapter, live. */}
+      <ResearchStory />
 
       {workflow && (
         <section className="section section--focused-exp">

@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import { api } from '../api';
+import { useReflections } from '../store/useReflections';
 import LogicGraph from './LogicGraph';
 import ReviewCard from './ReviewCard';
 import ResourceContentView from './ResourceContentView';
@@ -53,26 +54,13 @@ function Collapsible({ label, count, children }) {
 }
 
 export default function ProjectSynthesisPanel({ projectId }) {
-  const [data, setData] = useState(null);
+  // One shared poll with the Research Story (useReflections) — the two Home
+  // sections read the same payload, so they can never disagree about a wave.
+  const data = useReflections(projectId);
   const [pinnedId, setPinnedId] = useState(null); // null = follow the live wave
   const [graphAvailable, setGraphAvailable] = useState(false);
   const [expanded, setExpanded] = useState(false);
   const toggleExpand = useCallback(() => setExpanded(v => !v), []);
-
-  const fetchSyntheses = useCallback(async () => {
-    try {
-      const payload = await api.getSyntheses(projectId);
-      setData(prev => (JSON.stringify(prev) === JSON.stringify(payload) ? prev : payload));
-    } catch {
-      // Non-fatal: Home still works without the panel's metadata.
-    }
-  }, [projectId]);
-
-  useEffect(() => {
-    fetchSyntheses();
-    const t = setInterval(fetchSyntheses, 8000);
-    return () => clearInterval(t);
-  }, [fetchSyntheses]);
 
   // Same fullscreen affordance as the experiment graphs: Escape or the
   // backdrop collapses, page scroll locks while open.

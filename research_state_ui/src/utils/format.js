@@ -17,6 +17,12 @@ export function formatBytes(n) {
   }
 }
 
+// Parse an ISO stamp to epoch ms, or null when absent/unparsable.
+export function parseTs(iso) {
+  const t = Date.parse(iso || '');
+  return Number.isFinite(t) ? t : null;
+}
+
 // Compact absolute stamp for chronological scanning ("Jul 1, 21:05").
 // 24-hour on purpose: fixed width, sorts visually.
 export function fmtStamp(ms) {

@@ -18,9 +18,14 @@ export function computeClaimShifts(events) {
     const type = ev.event_type || ev.type;
     const p = ev.payload || {};
     if (type === 'claim.created') {
-      // claim.create defaults; synthesis-born claims get corrected by the
-      // update that follows within the same wave.
-      last.set(ev.target_id, { status: 'active', confidence: 'medium', statement: p.statement });
+      // Baseline from the event payload when it carries the real values
+      // (synthesis-born claims can start weakened/low); defaults only for
+      // older events that predate the richer payload.
+      last.set(ev.target_id, {
+        status: p.status || 'active',
+        confidence: p.confidence || 'medium',
+        statement: p.statement,
+      });
       continue;
     }
     if (type !== 'claim.updated') continue;
