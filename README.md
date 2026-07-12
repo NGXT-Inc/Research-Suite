@@ -75,16 +75,21 @@ Then enable **merv** on Cursor's Customize page and restart Cursor. (To update l
 
 ### Sign in
 
-The hosted brain requires a RapidReview account. Once per machine:
+The hosted brain requires a RapidReview account. The `merv-client` helper
+ships inside the plugin (it is not added to your PATH). Once per machine, run
+the copy your install created:
 
 ```bash
-merv-client login
+# Claude Code (marketplace install):
+~/.claude/plugins/cache/rapidreview/merv/*/merv/bin/merv-client login
+
+# Cursor / cloned repo:
+~/Merv/merv/bin/merv-client login
 ```
 
 This opens the browser to complete sign-in; the session is stored locally and
-shared by every client on the machine. On a headless box, use
-`merv-client login --no-browser` (prints the URL) or
-`merv-client login --api-key rr_sk_...`.
+shared by every client on the machine. On a headless box, add `--no-browser`
+(prints the URL to open elsewhere) or use `--api-key rr_sk_...`.
 
 ### First run
 
@@ -113,7 +118,7 @@ claude plugin uninstall research-plugin@research-suite
 claude plugin marketplace remove research-suite
 claude plugin marketplace add https://rapidreview.io/marketplace.json
 claude plugin install merv@rapidreview
-merv-client login
+~/.claude/plugins/cache/rapidreview/merv/*/merv/bin/merv-client login
 ```
 
 Restart Claude Code. (If you already run `merv@rapidreview`, just
@@ -137,4 +142,4 @@ command = "/path/to/Merv/merv/bin/merv-mcp"
 ```
 
 (The old `research-plugin-mcp` binary no longer exists.) Restart Codex, then
-run `merv-client login` if you haven't already.
+run `/path/to/Merv/merv/bin/merv-client login` if you haven't already.
