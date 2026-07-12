@@ -44,8 +44,9 @@ claude plugin install merv@rapidreview
 ```
 
 Restart Claude Code, then [sign in](#sign-in). If you already run
-`merv@rapidreview`, this is just
-`claude plugin marketplace update rapidreview && claude plugin update merv`.
+`merv@rapidreview`, this is just `claude plugin marketplace update
+rapidreview && claude plugin update merv@rapidreview` (the full
+`name@marketplace` form is required).
 
 ## Cursor
 
