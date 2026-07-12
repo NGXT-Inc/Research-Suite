@@ -58,7 +58,7 @@ def build_router(ctx: ApiRouteContext) -> APIRouter:
                 "The local thin-pipe daemon path was removed in plugin 0.0010; "
                 "the stdio MCP proxy now performs local file work itself and "
                 "dials RESEARCH_PLUGIN_CONTROL_URL. Stop this daemon and "
-                "upgrade the research_plugin package."
+                "upgrade the merv package."
             ),
         }
 

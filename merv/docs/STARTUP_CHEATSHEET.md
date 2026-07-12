@@ -26,8 +26,8 @@ machine.
 Set convenient paths:
 
 ```bash
-export RESEARCH_SUITE=/path/to/research-suite
-export RESEARCH_PLUGIN="$RESEARCH_SUITE/research_plugin"
+export RESEARCH_SUITE=/path/to/Merv
+export RESEARCH_PLUGIN="$RESEARCH_SUITE/merv"
 export RESEARCH_REPO=/path/to/research/repo
 ```
 

@@ -50,12 +50,12 @@ Prerequisites for every client are `python3` 3.11+ and a POSIX shell. No `pip`
 install or local brain is required; the proxy talks to the hosted brain by
 default. Sandbox SSH and output-pull workflows additionally use the system
 OpenSSH client and `rsync`. For Codex, Gemini CLI, and OpenCode, see
-[research_plugin/docs/CLIENTS.md](research_plugin/docs/CLIENTS.md).
+[merv/docs/CLIENTS.md](merv/docs/CLIENTS.md).
 
 ### Claude Code
 
 ```bash
-claude plugin marketplace add NGXT-Inc/Research-Suite
+claude plugin marketplace add NGXT-Inc/Merv
 claude plugin install merv@rapidreview
 ```
 
@@ -66,12 +66,12 @@ Restart Claude Code.
 Cursor loads local plugins from a directory, so clone the repo and link the plugin bundle into `~/.cursor/plugins/local`:
 
 ```bash
-git clone https://github.com/NGXT-Inc/Research-Suite.git ~/Research-Suite
+git clone https://github.com/NGXT-Inc/Merv.git ~/Merv
 mkdir -p ~/.cursor/plugins/local
-ln -sfn ~/Research-Suite/research_plugin ~/.cursor/plugins/local/merv
+ln -sfn ~/Merv/merv ~/.cursor/plugins/local/merv
 ```
 
-Then enable **merv** on Cursor's Customize page and restart Cursor. (To update later: `git -C ~/Research-Suite pull` and restart.)
+Then enable **merv** on Cursor's Customize page and restart Cursor. (To update later: `git -C ~/Merv pull` and restart.)
 
 ### First run
 

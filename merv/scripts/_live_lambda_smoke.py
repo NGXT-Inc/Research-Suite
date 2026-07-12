@@ -6,7 +6,7 @@ Drives the REAL Lambda Cloud API end-to-end through ResearchPluginApp:
   3. provision the cheapest available SKU, SSH in, run nvidia-smi
   4. release/terminate (guaranteed teardown)
 
-Run from research_plugin/ with the Lambda key available:
+Run from merv/ with the Lambda key available:
   RESEARCH_PLUGIN_LAMBDA_ENV_FILE=$PWD/.env .venv/bin/python scripts/_live_lambda_smoke.py
 """
 
@@ -19,7 +19,7 @@ import tempfile
 import time
 from pathlib import Path
 
-# Make the research_plugin package root importable when run as a bare script.
+# Make the merv package root importable when run as a bare script.
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
 # Test-only: point the remote workspace at /home/ubuntu (exists at boot).

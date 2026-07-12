@@ -679,7 +679,7 @@ def build_control_tool_handlers(
                 )["experiments"],
             }
         raise ValidationError(
-            f'project action="{action}" is served by the local research_plugin '
+            f'project action="{action}" is served by the local merv '
             "proxy, not the brain. Seeing this means your Merv client "
             "is older than the brain — update the plugin (git pull) and restart "
             "your MCP client."

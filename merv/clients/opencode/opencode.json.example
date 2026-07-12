@@ -3,7 +3,7 @@
   "mcp": {
     "merv": {
       "type": "local",
-      "command": ["/absolute/path/to/research_plugin/bin/merv-mcp"],
+      "command": ["/absolute/path/to/merv/bin/merv-mcp"],
       "enabled": true,
       "environment": {
         "RESEARCH_PLUGIN_CONTROL_URL": ""

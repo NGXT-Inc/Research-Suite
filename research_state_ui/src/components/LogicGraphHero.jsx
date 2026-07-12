@@ -2,7 +2,7 @@
  * LogicGraphHero — the first-run backdrop. A ghostly, self-forming version of
  * the product's real logic graph (Claim → Approach → Attempts → Outcome), drawn
  * in the verdict palette from utils/evidence. The empty state thus previews what
- * research_plugin actually builds, instead of showing a bare form in a void.
+ * merv actually builds, instead of showing a bare form in a void.
  *
  * Pure SVG + CSS keyframes (no rAF loop), deterministic layout, decorative only
  * (aria-hidden, pointer-events: none). All motion is gated behind

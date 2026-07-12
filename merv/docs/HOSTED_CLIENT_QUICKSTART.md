@@ -6,7 +6,7 @@ access and caller SSH keys local.
 ## Install
 
 ```bash
-git clone <research-suite-repo-url> ~/research-suite
+git clone <merv-repo-url> ~/Merv
 ```
 
 The stdio proxy runs on bare `python3` 3.11+ and needs no pip install or access
@@ -38,7 +38,7 @@ An unconfigured proxy uses the hosted brain. To point this machine at another
 brain, write the machine config:
 
 ```bash
-~/research-suite/research_plugin/bin/merv-client configure \
+~/Merv/merv/bin/merv-client configure \
   --control-url https://your-control-plane.example.com
 ```
 
@@ -52,7 +52,7 @@ take effect.
 The CLI can inspect or directly edit the machine-local folder link database:
 
 ```bash
-CLI=~/research-suite/research_plugin/bin/merv-client
+CLI=~/Merv/merv/bin/merv-client
 $CLI link --project-id proj_123   # write/replace this folder's local mapping
 $CLI links                        # list local mappings on this machine
 $CLI route                        # show this folder's stored mapping

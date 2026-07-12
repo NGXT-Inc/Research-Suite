@@ -743,7 +743,7 @@ class ServiceLayoutTest(unittest.TestCase):
                         imported = {alias.name for alias in node.names}
                         module = node.module.split(".") if node.module else []
                         if "state" in imported and (
-                            not module or module[-1] in {"backend", "research_plugin"}
+                            not module or module[-1] in {"backend", "merv"}
                         ):
                             self.fail(
                                 "services should not import the state package directly"

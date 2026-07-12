@@ -105,7 +105,7 @@ def _serve_control(*, host: str, port: int) -> int:
         fastapi_app=server.fastapi_app, host=host, port=port
     )
     print(
-        f"research_plugin CONTROL plane listening on http://{host}:{selected_port}",
+        f"merv CONTROL plane listening on http://{host}:{selected_port}",
         flush=True,
     )
     try:
@@ -127,7 +127,7 @@ def _serve_local(*, host: str, port: int, state_dir: Path) -> int:
         fastapi_app=server.fastapi_app, host=host, port=port
     )
     print(
-        f"research_plugin brain listening on http://{host}:{selected_port}",
+        f"merv brain listening on http://{host}:{selected_port}",
         flush=True,
     )
     try:

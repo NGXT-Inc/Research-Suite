@@ -1,5 +1,5 @@
 /**
- * Thin fetch wrapper for the research_plugin HTTP API (UI_API.md).
+ * Thin fetch wrapper for the merv HTTP API (UI_API.md).
  *
  * In dev, Vite proxies /api and /health to 127.0.0.1:8787. In production
  * the UI is intended to run alongside the backend on the same host; allow
@@ -19,7 +19,7 @@ const BASE = (
 
 // The UI build's wire version, stamped on every request as X-RP-Client-Version
 // (the cloud control plane reads it for the compat handshake; local mode
-// ignores it). Kept in lockstep with the research_plugin package version.
+// ignores it). Kept in lockstep with the merv package version.
 export const CLIENT_VERSION = '0.0012';
 
 // Bearer token for the hosted control plane. Dormant in local mode: with no

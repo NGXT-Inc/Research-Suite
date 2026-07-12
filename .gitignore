@@ -1,16 +1,16 @@
 .DS_Store
 *.sqlite
 **/__pycache__/
-research_plugin/.venv/
-research_plugin/.research_plugin/
-research_plugin/.versioning_real_user_project/
+merv/.venv/
+merv/.research_plugin/
+merv/.versioning_real_user_project/
 
 # Secrets — never commit env files (Modal tokens etc.)
 .env
 .env.*
 **/.env
 **/.env.*
-!research_plugin/.env.example
+!merv/.env.example
 
 logs/
 

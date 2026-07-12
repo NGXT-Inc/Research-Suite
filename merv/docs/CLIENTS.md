@@ -136,7 +136,7 @@ Three Cursor-specific notes:
   "mcpServers": {
     "merv": {
       "type": "stdio",
-      "command": "/absolute/path/to/research_plugin/bin/merv-mcp",
+      "command": "/absolute/path/to/merv/bin/merv-mcp",
       "env": {
         "RESEARCH_PLUGIN_REPO_ROOT": "${workspaceFolder}",
         "RESEARCH_PLUGIN_CONTROL_URL": ""
@@ -170,9 +170,9 @@ bundles the MCP server (launcher via `${extensionPath}`, project root via
 Install from a local checkout (or link for development):
 
 ```bash
-gemini extensions install /path/to/research_plugin
+gemini extensions install /path/to/merv
 # or, during development:
-gemini extensions link /path/to/research_plugin
+gemini extensions link /path/to/merv
 ```
 
 Notes:
@@ -188,7 +188,7 @@ Notes:
 OpenCode has no declarative plugin bundle, so the adapter is an installer:
 
 ```bash
-/path/to/research_plugin/clients/opencode/install.sh
+/path/to/merv/clients/opencode/install.sh
 ```
 
 It symlinks the canonical skills into `~/.config/opencode/skills/`, the

@@ -12,7 +12,7 @@ and size-capped evidence bytes.
 ## Get started
 
 ```bash
-git clone <research-suite-repo-url> ~/research-suite
+git clone <merv-repo-url> ~/Merv
 ```
 
 That is the whole Python install — the proxy runs on bare `python3` (3.11+),
@@ -64,7 +64,7 @@ brain-managed artifacts.
 For development, or to keep all state on your machine:
 
 ```bash
-cd /path/to/research_plugin
+cd /path/to/merv
 python3 -m venv .venv && .venv/bin/pip install -r requirements.txt
 ./bin/merv-http --host 127.0.0.1 --port 8787
 bin/merv-client configure --control-url http://127.0.0.1:8787

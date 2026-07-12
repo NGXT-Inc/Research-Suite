@@ -197,7 +197,7 @@ def load_modal_env_file() -> None:
 
     Resolution order:
       1. ``RESEARCH_PLUGIN_MODAL_ENV_FILE`` when set (must exist).
-      2. A ``.env`` at the research_plugin package root (source-checkout default).
+      2. A ``.env`` at the merv package root (source-checkout default).
 
     Values already present in the environment always win over file values, so an
     explicit ``export MODAL_TOKEN_ID=...`` is never overridden.
@@ -218,7 +218,7 @@ def load_modal_env_file() -> None:
     elif _env_discovery_disabled():
         return  # control mode: no implicit .env discovery
     else:
-        # research_plugin/backend/execution/backends/modal/config.py -> research_plugin/
+        # merv/backend/execution/backends/modal/config.py -> merv/
         path = Path(__file__).resolve().parents[4] / ".env"
         if not path.exists():
             return

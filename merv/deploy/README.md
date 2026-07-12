@@ -23,7 +23,7 @@ is deployed separately and talks directly to the brain.
 
 ## Start the reference stack
 
-From `research_plugin/`:
+From `merv/`:
 
 ```sh
 docker compose -f deploy/docker-compose.yml up --build
