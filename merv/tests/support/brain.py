@@ -7,6 +7,8 @@ from typing import Any
 
 from fastapi.testclient import TestClient
 
+from research_plugin_shared.project_dirs import PROJECT_STATE_DIR_NAMES
+
 from backend.composition import build_local_server
 from backend.execution.backends.fake import FakeSandboxBackend
 from backend.state import StateStore
@@ -49,6 +51,11 @@ class TestBrain:
     ) -> None:
         self.repo_root = Path(repo_root).expanduser().resolve()
         self.db_path = Path(db_path).expanduser().resolve()
+        # Materialize the pinned state dir up front so the project-state-dir
+        # resolver behaves identically whether or not an injected store ever
+        # touches the filesystem (StateStore mkdirs it; PostgresStateStore
+        # does not).
+        self.db_path.parent.mkdir(parents=True, exist_ok=True)
         self.workspace = SimpleNamespace(repo_root=self.repo_root)
         self._active_project_id: str | None = None
         self._store = store if store is not None else StateStore(db_path=self.db_path)
@@ -83,7 +90,7 @@ class TestBrain:
         )
 
     def _brain_root(self) -> Path:
-        if self.db_path.parent.name == ".research_plugin":
+        if self.db_path.parent.name in PROJECT_STATE_DIR_NAMES:
             return self.db_path.parent.parent
         return self.db_path.parent
 

@@ -30,13 +30,15 @@ class LocalFeedEmbedReaderTest(unittest.TestCase):
         with tempfile.TemporaryDirectory() as tmp:
             repo = Path(tmp)
             reader = LocalFeedEmbedReader(repo_root=repo)
-            (repo / ".research_plugin").mkdir()
-            (repo / ".research_plugin" / "chart.html").write_bytes(_HTML)
+            for state_dir in (".research_plugin", ".merv"):
+                (repo / state_dir).mkdir()
+                (repo / state_dir / "chart.html").write_bytes(_HTML)
 
             for path in (
                 "/tmp/chart.html",
                 "../chart.html",
                 ".research_plugin/chart.html",
+                ".merv/chart.html",
                 "missing.html",
             ):
                 with self.subTest(path=path):

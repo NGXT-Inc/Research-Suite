@@ -5,4 +5,4 @@ lifecycle, and HTTP surfaces. A separate stdio MCP proxy owns checkout-local
 I/O in both hosted and local deployments.
 """
 
-__version__ = "0.0012"
+__version__ = "0.0013"

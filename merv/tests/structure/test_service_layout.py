@@ -666,7 +666,12 @@ class ServiceLayoutTest(unittest.TestCase):
         self.assertNotIn("os.path", source)
 
         repo_paths = BACKEND_ROOT / "dataplane" / "repo_paths.py"
-        self.assertEqual(_import_module_names(repo_paths), {"pathlib", "typing", "utils"})
+        # research_plugin_shared.project_dirs is the stdlib-only single owner
+        # of the checkout state-dir names the guard excludes.
+        self.assertEqual(
+            _import_module_names(repo_paths),
+            {"pathlib", "typing", "utils", "research_plugin_shared.project_dirs"},
+        )
         repo_path_source = repo_paths.read_text(encoding="utf-8")
         self.assertIn("def resolve_repo_path", repo_path_source)
         self.assertIn("def repo_relative_path", repo_path_source)

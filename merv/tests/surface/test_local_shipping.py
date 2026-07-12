@@ -15,6 +15,7 @@ from urllib.request import Request, urlopen
 
 from backend import __version__ as BACKEND_VERSION
 from mcp_server import __version__ as MCP_VERSION
+from research_plugin_shared.project_dirs import PROJECT_STATE_DIR_NAMES
 from tests.paths import PLUGIN_ROOT
 
 
@@ -173,7 +174,8 @@ class LocalShippingTest(unittest.TestCase):
         self.assertEqual(completed["status"], "complete")
         self.assertTrue((self.root / "brain" / ".research_plugin" / "state.sqlite").exists())
         self.assertTrue((self.root / "project_links.sqlite").exists())
-        self.assertFalse((self.install_dir / ".research_plugin").exists())
+        for state_dir in PROJECT_STATE_DIR_NAMES:
+            self.assertFalse((self.install_dir / state_dir).exists())
 
     def _start_mcp_from_config(self, extra_env: dict[str, str] | None = None):
         manifest = json.loads((self.install_dir / ".codex-plugin" / "plugin.json").read_text())
@@ -264,8 +266,9 @@ class LocalShippingTest(unittest.TestCase):
         )
         self.assertNotEqual(proc.returncode, 0)
         self.assertIn("unrecognized arguments: --repo", proc.stderr)
-        self.assertFalse((self.research_repo / ".research_plugin" / "state.sqlite").exists())
-        self.assertFalse((self.install_dir / ".research_plugin").exists())
+        for state_dir in PROJECT_STATE_DIR_NAMES:
+            self.assertFalse((self.research_repo / state_dir / "state.sqlite").exists())
+            self.assertFalse((self.install_dir / state_dir).exists())
 
     def _submit_review(
         self,

@@ -4,6 +4,8 @@ from __future__ import annotations
 
 from pathlib import Path
 
+from research_plugin_shared.project_dirs import resolve_project_state_dir
+
 from .utils import safe_experiment_dirname
 
 
@@ -21,7 +23,7 @@ class LocalWorkspace:
 
     @property
     def research_dir(self) -> Path:
-        return self.repo_root / ".research_plugin"
+        return resolve_project_state_dir(self.repo_root)
 
     def experiment_dir(self, *, experiment_id: str, name: str = "") -> Path:
         return local_experiment_dir(
@@ -71,8 +73,7 @@ def local_sessions_dir(
     clobbers another's history.
     """
     base = (
-        repo_root
-        / ".research_plugin"
+        resolve_project_state_dir(repo_root)
         / "sessions"
         / safe_experiment_dirname(experiment_id)
     )

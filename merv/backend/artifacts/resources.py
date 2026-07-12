@@ -8,6 +8,8 @@ import os
 from pathlib import Path
 from typing import Any
 
+from research_plugin_shared.project_dirs import PROJECT_STATE_DIR_NAMES
+
 from ..utils import NotFoundError, ValidationError, WorkflowError, new_id, now_iso
 from ..ports.resource_records import ResourceAssociationPolicy
 from ..storage.blobs import BlobStore
@@ -672,8 +674,11 @@ class ResourceService:
         rel = Path(path)
         if any(part == ".." for part in rel.parts):
             raise ValidationError("resource path may not contain '..'")
-        if rel.parts and rel.parts[0] == ".research_plugin":
-            raise ValidationError("resource path may not point inside .research_plugin")
+        if rel.parts and rel.parts[0] in PROJECT_STATE_DIR_NAMES:
+            raise ValidationError(
+                "resource path may not point inside the project state dir "
+                "(.merv or .research_plugin)"
+            )
         return rel.as_posix()
 
     def _validate_content_sha256(self, value: str) -> None:

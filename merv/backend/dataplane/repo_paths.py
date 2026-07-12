@@ -5,6 +5,8 @@ from __future__ import annotations
 from pathlib import Path
 from typing import Any
 
+from research_plugin_shared.project_dirs import PROJECT_STATE_DIR_NAMES
+
 from ..utils import ValidationError
 
 
@@ -16,8 +18,11 @@ def repo_relative_path(*, path: str, subject: str = "path") -> str:
         raise ValidationError(f"{subject} must be repo-relative")
     if any(part == ".." for part in rel.parts):
         raise ValidationError(f"{subject} may not contain '..'")
-    if rel.parts and rel.parts[0] == ".research_plugin":
-        raise ValidationError(f"{subject} may not point inside .research_plugin")
+    if rel.parts and rel.parts[0] in PROJECT_STATE_DIR_NAMES:
+        raise ValidationError(
+            f"{subject} may not point inside the project state dir "
+            "(.merv or .research_plugin)"
+        )
     return rel.as_posix()
 
 

@@ -1364,8 +1364,8 @@ class StateStore(BaseStateStore):
         # Cloud-split Phase 3 (June 2026): machine-local values left the
         # cloud-bound sandboxes row — the per-experiment SSH key path and the
         # local sync dir live in the data-plane worker's local store now
-        # (.research_plugin/dataplane_state.sqlite). Both columns were always
-        # derivable, so no value migration is needed.
+        # (dataplane_state.sqlite under the checkout state dir). Both columns
+        # were always derivable, so no value migration is needed.
         self._drop_columns(
             conn=conn,
             table="sandboxes",

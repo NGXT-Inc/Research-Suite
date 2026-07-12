@@ -116,7 +116,12 @@ class StorageHttpApiTest(unittest.TestCase):
 
     def test_storage_file_tools_reject_paths_outside_the_repo(self) -> None:
         outside = Path(self.tmp.name).parent / "outside-secret.txt"
-        for path in ("../outside-secret.txt", str(outside), ".research_plugin/state.sqlite"):
+        for path in (
+            "../outside-secret.txt",
+            str(outside),
+            ".research_plugin/state.sqlite",
+            ".merv/state.sqlite",
+        ):
             with self.assertRaises(ValidationError):
                 self.app.call_tool(
                     "storage.upload_file",
@@ -128,7 +133,12 @@ class StorageHttpApiTest(unittest.TestCase):
             "storage.upload_file",
             {"project_id": self.project_id, "path": "in-repo.log", "kind": "other"},
         )
-        for path in ("../escape.log", str(outside), ".research_plugin/clobber"):
+        for path in (
+            "../escape.log",
+            str(outside),
+            ".research_plugin/clobber",
+            ".merv/clobber",
+        ):
             with self.assertRaises(ValidationError):
                 self.app.call_tool(
                     "storage.download_file",

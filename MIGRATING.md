@@ -20,6 +20,10 @@ untouched — the switch is a plugin swap plus a one-time login.
   folder-to-project link, activity log, sandbox keys) keeps its name and
   format. The new plugin reads the exact same files. Do not move, rename,
   or delete it.
+- From v0.0013, checkouts that don't already have a `.research_plugin/`
+  folder keep their state in `.merv/` instead (fresh clones included). Any
+  existing `.research_plugin/` folder keeps working forever and always wins
+  when both directories are present — no migration, ever.
 - The machine config in `~/.research_plugin/` and all `RESEARCH_PLUGIN_*`
   environment variables also keep their names.
 - Projects, claims, experiments, reviews, and reflections live in the

@@ -19,4 +19,7 @@ logs/
 deprecated/
 .research_plugin/
 
+# Checkout-local project state (current name)
+.merv/
+
 /graphify-out

@@ -42,14 +42,16 @@ class LocalResourceObserverTest(unittest.TestCase):
         with tempfile.TemporaryDirectory() as tmp:
             repo = Path(tmp)
             observer = LocalResourceObserver(repo_root=repo)
-            (repo / ".research_plugin").mkdir()
-            (repo / ".research_plugin" / "state.sqlite").write_text("internal\n")
+            for state_dir in (".research_plugin", ".merv"):
+                (repo / state_dir).mkdir()
+                (repo / state_dir / "state.sqlite").write_text("internal\n")
             (repo / "folder").mkdir()
 
             cases = [
                 ("/tmp/file.txt", ValidationError),
                 ("../outside.txt", ValidationError),
                 (".research_plugin/state.sqlite", ValidationError),
+                (".merv/state.sqlite", ValidationError),
                 ("missing.txt", NotFoundError),
                 ("folder", ValidationError),
             ]

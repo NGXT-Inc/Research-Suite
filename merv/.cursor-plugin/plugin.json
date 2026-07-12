@@ -1,6 +1,6 @@
 {
   "name": "merv",
-  "version": "0.0012",
+  "version": "0.0013",
   "description": "Lean research-state workflow with project-local MCP context, resources, reviews, and cloud SSH sandboxes. Skills for the agent loop, subagents for read-only design, experiment, and reflection review.",
   "license": "UNLICENSED",
   "keywords": [

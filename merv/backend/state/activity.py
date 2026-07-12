@@ -10,6 +10,11 @@ import traceback
 from pathlib import Path
 from typing import Any, Callable
 
+from research_plugin_shared.project_dirs import (
+    ensure_project_state_dir,
+    resolve_project_state_dir,
+)
+
 from ..env import env_bool
 from ..utils import now_iso
 
@@ -64,14 +69,17 @@ class ActivityLogger:
             else mirror_stderr
         )
         configured = os.environ.get("RESEARCH_PLUGIN_ACTIVITY_LOG_PATH")
-        if log_path is not None:
-            self.log_path = log_path
-        elif configured:
-            self.log_path = Path(configured)
-        else:
-            self.log_path = repo_root / ".research_plugin" / "activity.jsonl"
-        if not self.log_path.is_absolute():
-            self.log_path = repo_root / self.log_path
+        explicit = log_path if log_path is not None else (Path(configured) if configured else None)
+        if explicit is not None and not explicit.is_absolute():
+            explicit = repo_root / explicit
+        # Default path resolves per-write (see project_dirs: never cache).
+        self._explicit_log_path = explicit
+
+    @property
+    def log_path(self) -> Path:
+        if self._explicit_log_path is not None:
+            return self._explicit_log_path
+        return resolve_project_state_dir(self.repo_root) / "activity.jsonl"
 
     def emit(self, *, event_type: str, payload: dict[str, Any]) -> None:
         if not self.enabled:
@@ -82,7 +90,10 @@ class ActivityLogger:
             **payload,
         }
         line = json.dumps(event, sort_keys=True, separators=(",", ":"))
-        self.log_path.parent.mkdir(parents=True, exist_ok=True)
+        if self._explicit_log_path is None:
+            ensure_project_state_dir(self.repo_root)
+        else:
+            self.log_path.parent.mkdir(parents=True, exist_ok=True)
         with self.log_path.open("a", encoding="utf-8") as handle:
             handle.write(line + "\n")
         if self.mirror_stderr:

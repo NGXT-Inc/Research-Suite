@@ -10,6 +10,7 @@
 !deploy/.env.example
 **/credentials.json
 **/.research_plugin/
+**/.merv/
 
 # Python build + cache churn.
 __pycache__/

@@ -1,3 +1,3 @@
 """Merv MCP server."""
 
-__version__ = "0.0012"
+__version__ = "0.0013"

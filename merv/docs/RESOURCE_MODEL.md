@@ -133,7 +133,8 @@ the caller should not choose it.
 
 - Paths are repo-relative and must remain inside the configured checkout.
 - Directories are not resources.
-- `.research_plugin/` state cannot be registered as research evidence.
+- Project state dirs (`.merv/`, and the legacy `.research_plugin/`) cannot
+  be registered as research evidence.
 - Ignored files are not discovered automatically, but an explicit valid path may
   be registered.
 - Moving and registering a file at a new path creates or revives the resource at

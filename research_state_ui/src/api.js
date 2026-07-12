@@ -20,7 +20,7 @@ const BASE = (
 // The UI build's wire version, stamped on every request as X-RP-Client-Version
 // (the cloud control plane reads it for the compat handshake; local mode
 // ignores it). Kept in lockstep with the merv package version.
-export const CLIENT_VERSION = '0.0012';
+export const CLIENT_VERSION = '0.0013';
 
 // Bearer token for the hosted control plane. Dormant in local mode: with no
 // token configured no Authorization header is sent, and the local backend

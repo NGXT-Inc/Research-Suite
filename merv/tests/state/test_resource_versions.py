@@ -198,11 +198,17 @@ class ResourceVersioningTest(unittest.TestCase):
         )
 
     def test_internal_state_directory_cannot_be_registered_as_resource(self) -> None:
-        internal = self.repo / ".research_plugin" / "note.md"
-        internal.parent.mkdir(exist_ok=True)
-        internal.write_text("internal\n")
-        with self.assertRaises(ValidationError):
-            self.call("resource.register", project_id=self.project_id, path=".research_plugin/note.md")
+        for state_dir in (".research_plugin", ".merv"):
+            with self.subTest(state_dir=state_dir):
+                internal = self.repo / state_dir / "note.md"
+                internal.parent.mkdir(exist_ok=True)
+                internal.write_text("internal\n")
+                with self.assertRaises(ValidationError):
+                    self.call(
+                        "resource.register",
+                        project_id=self.project_id,
+                        path=f"{state_dir}/note.md",
+                    )
 
 
 if __name__ == "__main__":

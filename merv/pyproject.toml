@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "merv"
-version = "0.0012"
+version = "0.0013"
 description = "Lean research-state workflow with project-local MCP context, resources, reviews, and cloud SSH sandboxes."
 readme = "README.md"
 requires-python = ">=3.11"

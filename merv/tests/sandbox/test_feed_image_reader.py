@@ -32,13 +32,15 @@ class LocalFeedImageReaderTest(unittest.TestCase):
         with tempfile.TemporaryDirectory() as tmp:
             repo = Path(tmp)
             reader = LocalFeedImageReader(repo_root=repo)
-            (repo / ".research_plugin").mkdir()
-            (repo / ".research_plugin" / "plot.png").write_bytes(_PNG)
+            for state_dir in (".research_plugin", ".merv"):
+                (repo / state_dir).mkdir()
+                (repo / state_dir / "plot.png").write_bytes(_PNG)
 
             for path in (
                 "/tmp/plot.png",
                 "../plot.png",
                 ".research_plugin/plot.png",
+                ".merv/plot.png",
                 "missing.png",
             ):
                 with self.subTest(path=path):
