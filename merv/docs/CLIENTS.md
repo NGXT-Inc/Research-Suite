@@ -118,7 +118,7 @@ symlinks whose target is outside `~/.cursor/plugins/local` (you will see
 the Cursor Plugins log). Re-`rsync` after editing the checkout, or keep a
 real directory under `plugins/local` as your working tree.
 
-If the machine's default `python3` is older than 3.10, create a venv in the
+If the machine's default `python3` is older than 3.11, create a venv in the
 local install so the launcher does not fall through to a broken interpreter:
 `python3.11 -m venv ~/.cursor/plugins/local/merv/.venv`.
 

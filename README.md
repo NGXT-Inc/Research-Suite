@@ -70,7 +70,7 @@ git clone https://github.com/NGXT-Inc/Merv.git ~/Merv
 mkdir -p ~/.cursor/plugins/local
 rsync -a --delete --exclude '.venv' --exclude '__pycache__' --exclude '*.egg-info' \
   ~/Merv/merv/ ~/.cursor/plugins/local/merv/
-# Optional but recommended if `python3` on PATH is older than 3.10:
+# Optional but recommended if `python3` on PATH is older than 3.11:
 python3.11 -m venv ~/.cursor/plugins/local/merv/.venv
 ```
 
@@ -103,48 +103,7 @@ project with `project(action="connect")`; then call
 
 ## Migrating from Research Suite (`research-plugin`)
 
-Everything was renamed in v0.0012: the plugin is **merv** (was
-`research-plugin`), the marketplace is **rapidreview** (was `research-suite`),
-the repo is `NGXT-Inc/Merv` (was `NGXT-Inc/Research-Suite`; old URLs
-redirect), the plugin directory inside the repo is `merv/` (was
-`research_plugin/`), and the binaries are `merv-mcp` / `merv-client` /
-`merv-http` / `merv-control`. The hosted brain also now requires sign-in.
-
-Your data is untouched: projects, folder links, and the machine config in
-`~/.research_plugin/` all carry over. `RESEARCH_PLUGIN_*` environment
-variables keep their names.
-
-**Claude Code** — the old plugin cannot be updated in place; swap it:
-
-```bash
-claude plugin uninstall research-plugin@research-suite
-claude plugin marketplace remove research-suite
-claude plugin marketplace add https://rapidreview.io/marketplace.json
-claude plugin install merv@rapidreview
-~/.claude/plugins/cache/rapidreview/merv/*/merv/bin/merv-client login
-```
-
-Restart Claude Code. (If you already run `merv@rapidreview`, just
-`claude plugin marketplace update rapidreview && claude plugin update merv`.)
-
-**Cursor** — replace the old install with a real copy of the renamed plugin directory:
-
-```bash
-git -C ~/Merv pull   # or wherever your clone lives; old remotes redirect
-rm -rf ~/.cursor/plugins/local/research-plugin ~/.cursor/plugins/local/merv
-rsync -a --delete --exclude '.venv' --exclude '__pycache__' --exclude '*.egg-info' \
-  ~/Merv/merv/ ~/.cursor/plugins/local/merv/
-python3.11 -m venv ~/.cursor/plugins/local/merv/.venv
-```
-
-Re-enable **merv** on Cursor's Customize page and restart Cursor.
-
-**Codex** — in `~/.codex/config.toml`, replace the old server entry:
-
-```toml
-[mcp_servers.merv]
-command = "/path/to/Merv/merv/bin/merv-mcp"
-```
-
-(The old `research-plugin-mcp` binary no longer exists.) Restart Codex, then
-run `/path/to/Merv/merv/bin/merv-client login` if you haven't already.
+Upgrading from the old `research-plugin`? Everything was renamed in v0.0012
+and the hosted brain now requires sign-in, but your data carries over
+untouched. See [MIGRATING.md](MIGRATING.md) for the per-client steps
+(Claude Code, Cursor, Codex).
