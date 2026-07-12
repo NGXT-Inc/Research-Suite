@@ -55,7 +55,7 @@ OpenSSH client and `rsync`. For Codex, Gemini CLI, and OpenCode, see
 ### Claude Code
 
 ```bash
-claude plugin marketplace add NGXT-Inc/Merv
+claude plugin marketplace add https://rapidreview.io/marketplace.json
 claude plugin install merv@rapidreview
 ```
 
@@ -73,9 +73,68 @@ ln -sfn ~/Merv/merv ~/.cursor/plugins/local/merv
 
 Then enable **merv** on Cursor's Customize page and restart Cursor. (To update later: `git -C ~/Merv pull` and restart.)
 
+### Sign in
+
+The hosted brain requires a RapidReview account. Once per machine:
+
+```bash
+merv-client login
+```
+
+This opens the browser to complete sign-in; the session is stored locally and
+shared by every client on the machine. On a headless box, use
+`merv-client login --no-browser` (prints the URL) or
+`merv-client login --api-key rr_sk_...`.
+
 ### First run
 
 Open the repo you want to research as the workspace, then ask the agent to call
 `project(action="current")`. If the folder is unlinked, connect or create the
 project with `project(action="connect")`; then call
 `workflow.status_and_next()`.
+
+## Migrating from Research Suite (`research-plugin`)
+
+Everything was renamed in v0.0012: the plugin is **merv** (was
+`research-plugin`), the marketplace is **rapidreview** (was `research-suite`),
+the repo is `NGXT-Inc/Merv` (was `NGXT-Inc/Research-Suite`; old URLs
+redirect), the plugin directory inside the repo is `merv/` (was
+`research_plugin/`), and the binaries are `merv-mcp` / `merv-client` /
+`merv-http` / `merv-control`. The hosted brain also now requires sign-in.
+
+Your data is untouched: projects, folder links, and the machine config in
+`~/.research_plugin/` all carry over. `RESEARCH_PLUGIN_*` environment
+variables keep their names.
+
+**Claude Code** — the old plugin cannot be updated in place; swap it:
+
+```bash
+claude plugin uninstall research-plugin@research-suite
+claude plugin marketplace remove research-suite
+claude plugin marketplace add https://rapidreview.io/marketplace.json
+claude plugin install merv@rapidreview
+merv-client login
+```
+
+Restart Claude Code. (If you already run `merv@rapidreview`, just
+`claude plugin marketplace update rapidreview && claude plugin update merv`.)
+
+**Cursor** — replace the old link with the renamed plugin directory:
+
+```bash
+git -C ~/Merv pull   # or wherever your clone lives; old remotes redirect
+rm -f ~/.cursor/plugins/local/research-plugin
+ln -sfn ~/Merv/merv ~/.cursor/plugins/local/merv
+```
+
+Re-enable **merv** on Cursor's Customize page and restart Cursor.
+
+**Codex** — in `~/.codex/config.toml`, replace the old server entry:
+
+```toml
+[mcp_servers.merv]
+command = "/path/to/Merv/merv/bin/merv-mcp"
+```
+
+(The old `research-plugin-mcp` binary no longer exists.) Restart Codex, then
+run `merv-client login` if you haven't already.
