@@ -49,18 +49,24 @@ Any member can manage members (two-trusted-users model; no roles).
   supabase_anon_key}`; the AuthGate then shows sign-in (email/password or
   Google). Nothing is baked into the bundle; local backends advertise
   `required: false` and the UI never loads supabase-js.
-- **MCP plugin (Claude Code / Cursor)**: `merv-client login` — opens the
-  browser (Google or email/password on the hosted UI's /auth/sdk page), the
-  terminal polls until sign-in completes, and the session lands 0600 in
-  `~/.research_plugin/client.json`. The proxy attaches it to cloud calls only
-  and refreshes it silently (`POST /api/sdk/auth/refresh`, proxied to
-  Supabase, so clients never talk to Supabase directly). Headless fallback:
-  `merv-client login --api-key rr_sk_...` (env `RESEARCH_PLUGIN_API_KEY`
-  overrides); `--no-browser` prints the URL for SSH sessions. Device-flow
-  routes (`/api/sdk/auth/*`) exist only on auth-enabled deployments. The
-  minted `auth_url` points at `RESEARCH_PLUGIN_UI_BASE_URL` (a path-mounted
-  UI like `https://rapidreview.io/merv` is fine), falling back to the first
-  CORS origin, then the API's own origin.
+- **MCP plugin**: for durable agent authentication, sign in at
+  [RapidReview Maps](https://rapidreview.io/map), then open **Account →
+  Settings → API Keys** and create an `rr_sk_` key. Run `merv-client login
+  --api-key rr_sk_...` to save it in the machine-wide
+  `~/.research_plugin/client.json` with `0600` permissions; see the
+  [hosted client quickstart](HOSTED_CLIENT_QUICKSTART.md) for a command that
+  avoids putting the key in shell history. `RESEARCH_PLUGIN_API_KEY` overrides
+  the stored key. The same credential serves every checkout on that machine;
+  project membership still controls authorization.
+- **Browser-session alternative**: `merv-client login` opens the browser
+  (Google or email/password on the hosted UI's `/auth/sdk` page), polls until
+  sign-in completes, and stores the session in the same private client file.
+  The proxy refreshes it silently through `POST /api/sdk/auth/refresh`, so
+  clients never talk to Supabase directly. `--no-browser` prints the URL for
+  SSH sessions. Device-flow routes (`/api/sdk/auth/*`) exist only on
+  auth-enabled deployments. The minted `auth_url` points at
+  `RESEARCH_PLUGIN_UI_BASE_URL`, falling back to the first CORS origin and then
+  the API's own origin.
 - **Agents / MLflow**: `mlflow.context` env blocks carry
   `MLFLOW_TRACKING_USERNAME/PASSWORD` (the key in the password slot) when
   `RESEARCH_PLUGIN_MLFLOW_AGENT_KEY` is set; sandbox provisioning also

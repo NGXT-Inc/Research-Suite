@@ -6,13 +6,44 @@ access and caller SSH keys local.
 ## Install
 
 ```bash
-git clone <merv-repo-url> ~/Merv
+git clone https://github.com/NGXT-Inc/Merv.git ~/Merv
 ```
 
-The stdio proxy runs on bare `python3` 3.11+ and needs no pip install or access
-token. Its launcher requires a POSIX shell; sandbox SSH and explicit output
-pulls use the system OpenSSH client and `rsync`. A project environment is needed
-only when running a localhost brain or the backend test suite.
+The stdio proxy runs on bare `python3` 3.11+ and needs no pip install. Its
+launcher requires a POSIX shell; sandbox SSH and explicit output pulls use the
+system OpenSSH client and `rsync`. A project environment is needed only when
+running a localhost brain or the backend test suite.
+
+## Authenticate this machine
+
+Hosted Merv uses the same `rr_sk_` API keys as RapidReview. Create one for this
+machine:
+
+1. Open [RapidReview Maps](https://rapidreview.io/map) and sign in.
+2. Open **Account**, then **Settings**.
+3. Open **API Keys**, create a key, and copy it when shown.
+
+Save it in Merv's machine-wide client configuration without putting the key in
+shell history:
+
+```bash
+CLI=~/Merv/merv/bin/merv-client
+printf 'Paste the rr_sk_ key: '
+IFS= read -r -s MERV_API_KEY
+printf '\n'
+"$CLI" login --api-key "$MERV_API_KEY"
+unset MERV_API_KEY
+```
+
+This writes the key to `~/.research_plugin/client.json` with `0600` file
+permissions. The file is local to the OS user, not encrypted, and must never be
+committed or shared. It authenticates every Merv checkout on this machine; the
+folder-to-project links described below remain per checkout. An exported
+`RESEARCH_PLUGIN_API_KEY` overrides the stored key.
+
+Open a new agent session after changing credentials so the MCP process reloads
+them. Browser-session authentication remains available with `"$CLI" login`,
+but API keys avoid session-expiry and refresh-token interruptions for agents.
 
 ## Connect a checkout
 

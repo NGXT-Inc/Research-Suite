@@ -12,7 +12,7 @@ and size-capped evidence bytes.
 ## Get started
 
 ```bash
-git clone <merv-repo-url> ~/Merv
+git clone https://github.com/NGXT-Inc/Merv.git ~/Merv
 ```
 
 That is the whole Python install — the proxy runs on bare `python3` (3.11+),
@@ -21,7 +21,9 @@ output pulls also use the system OpenSSH client and `rsync`. Then:
 
 1. Register the plugin in your client — per-client steps in
    [docs/CLIENTS.md](docs/CLIENTS.md).
-2. Open your research repo and start a session:
+2. For the hosted brain, authenticate the machine once with a RapidReview API
+   key — see [docs/HOSTED_CLIENT_QUICKSTART.md](docs/HOSTED_CLIENT_QUICKSTART.md).
+3. Open your research repo and start a session:
 
 ```text
 Use Merv. Start with project(action="current"), then workflow.status_and_next.
@@ -88,6 +90,7 @@ off cloud providers.
 
 - [docs/CLIENTS.md](docs/CLIENTS.md) - per-client install and reviewer handoff
 - [docs/HOSTED_CLIENT_QUICKSTART.md](docs/HOSTED_CLIENT_QUICKSTART.md) - hosted setup
+- [docs/AUTH.md](docs/AUTH.md) - hosted authentication and project membership
 - [docs/STARTUP_CHEATSHEET.md](docs/STARTUP_CHEATSHEET.md) - local startup flow
 - [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) - backend and mode architecture
 - [docs/CONTROL_DATA_PLANE_SPLIT.md](docs/CONTROL_DATA_PLANE_SPLIT.md) - brain/proxy ownership boundary
