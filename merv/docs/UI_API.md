@@ -20,10 +20,10 @@ document.
   validated facts or bytes to the brain.
 - Local and hosted brains expose the same HTTP shape. Local mode normally uses
   SQLite and local blobs; control mode uses operator-configured durable stores.
-- End-user authentication is not implemented. Every request currently runs as
-  the implicit `local` principal, including in control mode. Authorization
-  headers are accepted by CORS but are not an identity or tenant boundary. A
-  hosted brain must remain on a trusted network.
+- Hosted control requires Supabase bearer authentication and project
+  membership; local mode uses the implicit `local` principal. Operator routes
+  have no separate administrator role, so a hosted brain must still remain on
+  a trusted network.
 
 ## Server identity and compatibility
 
@@ -299,8 +299,8 @@ and UI telemetry.
 ```http
 GET  /api/activity?limit=100&source={mcp|http|app}&project_id={project_id}
 GET  /api/debug/tool-calls?minutes=&source=&status=&tool=&project_id=&limit=&sort=&order=
-GET  /api/debug/tool-calls/{call_id}
-POST /api/debug/tool-calls/clear
+GET  /api/debug/tool-calls/{call_id}?project_id={project_id}
+POST /api/debug/tool-calls/clear?project_id={project_id}
 ```
 
 These are diagnostic rings, not durable research records:
@@ -313,8 +313,12 @@ These are diagnostic rings, not durable research records:
 The durable research timeline is `GET /api/projects/{project_id}/events`, whose
 rows are committed with accepted state changes.
 
-Because there is no current authentication boundary, the diagnostic and clear
-routes are private-operator surfaces and are not tenant-isolated.
+In hosted control, all four routes require bearer authentication, an explicit
+`project_id`, and membership in that project. Activity omits unattributed
+events; detail and clear operations are restricted to the selected project's
+tool calls. Local mode intentionally retains single-user global diagnostics.
+These remain private-operator surfaces because operator/admin roles are not
+separated from ordinary authenticated users.
 
 ## Errors
 

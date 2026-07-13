@@ -1,10 +1,12 @@
 from __future__ import annotations
 
 import tempfile
+import time
 import unittest
 from pathlib import Path
 from unittest.mock import patch
 
+import jwt
 from fastapi.testclient import TestClient
 
 from tests.support.brain import TestBrain
@@ -22,6 +24,11 @@ from backend.config import (
     storage_feature_enabled,
 )
 from backend.execution.backends.fake import FakeSandboxBackend
+from backend.services.auth import (
+    SUPABASE_JWT_SECRET_ENV_VAR,
+    SUPABASE_URL_ENV_VAR,
+    SupabaseVerifier,
+)
 from backend.transport.http_api import create_fastapi_app
 from backend.transport.http_policy import HttpSurfacePolicy
 from backend.utils import ValidationError
@@ -42,6 +49,30 @@ def _hosted_surface() -> HttpSurfacePolicy:
         restrict_cors=True,
         hosted_control=True,
     )
+
+
+_HOSTED_USER_ID = "11111111-1111-1111-1111-111111111111"
+_HOSTED_JWT_SECRET = "hosted-test-secret"
+
+
+def _hosted_verifier() -> SupabaseVerifier:
+    return SupabaseVerifier(
+        supabase_url="https://example.supabase.co",
+        jwt_secret=_HOSTED_JWT_SECRET,
+    )
+
+
+def _hosted_headers() -> dict[str, str]:
+    token = jwt.encode(
+        {
+            "sub": _HOSTED_USER_ID,
+            "aud": "authenticated",
+            "exp": int(time.time()) + 3600,
+        },
+        _HOSTED_JWT_SECRET,
+        algorithm="HS256",
+    )
+    return {"Authorization": f"Bearer {token}"}
 
 
 class ModeConfigTest(unittest.TestCase):
@@ -184,7 +215,12 @@ class HostedControlSurfaceTest(unittest.TestCase):
             execution_backend=FakeSandboxBackend(),
         )
         self.client = TestClient(
-            create_fastapi_app(self.app, surface_policy=_hosted_surface()),
+            create_fastapi_app(
+                self.app,
+                surface_policy=_hosted_surface(),
+                auth=_hosted_verifier(),
+            ),
+            headers=_hosted_headers(),
             raise_server_exceptions=False,
         )
 
@@ -194,23 +230,38 @@ class HostedControlSurfaceTest(unittest.TestCase):
     def assertNoLocalDataPlaneFields(self, value) -> None:  # noqa: ANN001
         if isinstance(value, dict):
             leaked = self.LOCAL_RESPONSE_KEYS & set(value)
-            self.assertFalse(leaked, f"leaked local data-plane fields: {sorted(leaked)}")
+            self.assertFalse(
+                leaked, f"leaked local data-plane fields: {sorted(leaked)}"
+            )
             for item in value.values():
                 self.assertNoLocalDataPlaneFields(item)
         elif isinstance(value, list):
             for item in value:
                 self.assertNoLocalDataPlaneFields(item)
 
-    def test_private_control_needs_no_token_and_health_is_slim(self) -> None:
+    def test_control_requires_token_and_health_stays_open(self) -> None:
+        anonymous = TestClient(
+            create_fastapi_app(
+                self.app,
+                surface_policy=_hosted_surface(),
+                auth=_hosted_verifier(),
+            ),
+            raise_server_exceptions=False,
+        )
+        self.assertEqual(anonymous.get("/api/projects").status_code, 401)
         projects = self.client.get("/api/projects")
         self.assertEqual(projects.status_code, 200, projects.text)
 
-        health = self.client.get("/health")
+        health = anonymous.get("/health")
         self.assertEqual(health.status_code, 200)
         body = health.json()
         self.assertTrue(body["ok"])
         self.assertNotIn("repo_root", body)
         self.assertNotIn("store", body)
+
+    def test_hosted_surface_requires_verifier(self) -> None:
+        with self.assertRaisesRegex(ValueError, "authentication verifier"):
+            create_fastapi_app(self.app, surface_policy=_hosted_surface())
 
     def test_control_mcp_hides_and_rejects_data_plane_tools(self) -> None:
         tools = self.client.get("/mcp/tools")
@@ -337,7 +388,9 @@ class HostedControlSurfaceTest(unittest.TestCase):
                 self.app,
                 surface_policy=_hosted_surface(),
                 cleanup=cleanup,
+                auth=_hosted_verifier(),
             ),
+            headers=_hosted_headers(),
             raise_server_exceptions=False,
         )
 
@@ -346,16 +399,18 @@ class HostedControlSurfaceTest(unittest.TestCase):
         self.assertEqual(ok.json()["cleaned"], {"ok": True})
         self.assertEqual(cleanup.calls, 1)
 
-    def test_data_plane_submission_endpoint_is_private_but_not_token_gated(self) -> None:
+    def test_data_plane_submission_accepts_authenticated_caller(self) -> None:
         client = TestClient(
             create_fastapi_app(
                 self.app,
                 surface_policy=_hosted_surface(),
+                auth=_hosted_verifier(),
             ),
+            headers=_hosted_headers(),
             raise_server_exceptions=False,
         )
 
-        project = self.app.projects.list_projects()["projects"][0]
+        project = client.post("/api/projects", json={"name": "Data Plane"}).json()
         observed = client.post(
             "/api/data-plane/resources/observe",
             json={
@@ -430,9 +485,7 @@ class SecretStoreCredentialsTest(unittest.TestCase):
 
         os.environ["RESEARCH_PLUGIN_MODE"] = "local"
         os.environ.pop("RESEARCH_PLUGIN_MODAL_ENV_FILE", None)
-        with patch.object(
-            modal_config.Path, "exists", return_value=True
-        ), patch.object(
+        with patch.object(modal_config.Path, "exists", return_value=True), patch.object(
             modal_config.Path, "read_text", return_value="MODAL_TOKEN_ID=local_ok\n"
         ):
             modal_config.load_modal_env_file()
@@ -449,7 +502,12 @@ class VersionHandshakeTest(unittest.TestCase):
             execution_backend=FakeSandboxBackend(),
         )
         self.client = TestClient(
-            create_fastapi_app(self.app, surface_policy=_hosted_surface()),
+            create_fastapi_app(
+                self.app,
+                surface_policy=_hosted_surface(),
+                auth=_hosted_verifier(),
+            ),
+            headers=_hosted_headers(),
             raise_server_exceptions=False,
         )
         self.local_client = TestClient(
@@ -521,12 +579,18 @@ class ModeCompositionTest(unittest.TestCase):
     def tearDown(self) -> None:
         self.tmp.cleanup()
 
-    def test_control_server_builds_private_surface_and_data_plane_submission(self) -> None:
+    def test_control_server_builds_private_surface_and_data_plane_submission(
+        self,
+    ) -> None:
         from backend.composition import build_control_server
 
         server = build_control_server(
             repo_root=self.repo,
-            env=_mounted_mgmt_key_env(self.repo),
+            env={
+                **_mounted_mgmt_key_env(self.repo),
+                SUPABASE_URL_ENV_VAR: "https://example.supabase.co",
+                SUPABASE_JWT_SECRET_ENV_VAR: "test-secret",
+            },
         )
         self.addCleanup(server.shutdown)
         paths = {getattr(r, "path", "") for r in server.fastapi_app.routes}
@@ -534,7 +598,7 @@ class ModeCompositionTest(unittest.TestCase):
         self.assertNotIn("/api/daemon/tasks", paths)
         self.assertIn("/mcp/call", paths)
         client = TestClient(server.fastapi_app, raise_server_exceptions=False)
-        self.assertEqual(client.get("/api/projects").status_code, 200)
+        self.assertEqual(client.get("/api/projects").status_code, 401)
 
     def test_daemon_builder_is_removed(self) -> None:
         import backend.composition as composition

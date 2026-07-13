@@ -315,6 +315,7 @@ class ServiceLayoutTest(unittest.TestCase):
 
     def test_ports_are_neutral_and_outside_services(self) -> None:
         expected_imports = {
+            "blob_quota_admission.py": {"typing"},
             "mgmt_keys.py": {"pathlib", "typing"},
             "quota_admission.py": {"dataclasses", "typing"},
             "review_policy.py": {"typing"},

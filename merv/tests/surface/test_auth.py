@@ -15,6 +15,7 @@ import tempfile
 import time
 import unittest
 from pathlib import Path
+from unittest.mock import patch
 
 import httpx
 import jwt
@@ -24,6 +25,7 @@ from tests.support.brain import TestBrain
 from backend.config import UI_BASE_URL_ENV_VAR, resolve_ui_base_url
 from backend.execution.backends.fake import FakeSandboxBackend
 from backend.services.auth import SupabaseVerifier, UnauthorizedError
+from backend.services.identity import Principal
 from backend.transport.http_api import create_fastapi_app
 from backend.transport.http_policy import HttpSurfacePolicy
 from backend.version import CLIENT_VERSION_HEADER
@@ -152,6 +154,7 @@ class AuthedSurfaceTest(unittest.TestCase):
             db_path=self.repo / ".research_plugin" / "state.sqlite",
             execution_backend=FakeSandboxBackend(),
         )
+        self.verifier = _verifier()
         self.client = TestClient(
             create_fastapi_app(
                 self.app,
@@ -159,7 +162,7 @@ class AuthedSurfaceTest(unittest.TestCase):
                 surface_policy=HttpSurfacePolicy.for_surface(
                     restrict_cors=True, hosted_control=True
                 ),
-                auth=_verifier(),
+                auth=self.verifier,
             ),
             raise_server_exceptions=False,
         )
@@ -202,6 +205,37 @@ class AuthedSurfaceTest(unittest.TestCase):
         )
         self.assertEqual(bad.status_code, 401)
 
+    def test_project_creation_uses_authenticated_tenant(self) -> None:
+        principal = Principal(
+            tenant_id="tenant-a", client_id="test-client", user_id=USER_A
+        )
+        with patch.object(self.verifier, "verify_bearer", return_value=principal):
+            rest = self.client.post(
+                "/api/projects", json={"name": "REST tenant"}, headers=_bearer()
+            )
+            mcp = self.client.post(
+                "/mcp/call",
+                json={
+                    "name": "project",
+                    "arguments": {"action": "create", "name": "MCP tenant"},
+                },
+                headers=_bearer(),
+            )
+        self.assertEqual(rest.status_code, 201, rest.text)
+        self.assertEqual(mcp.status_code, 200, mcp.text)
+        conn = self.app.store.connect()
+        try:
+            tenants = {
+                row["tenant_id"]
+                for row in conn.execute(
+                    "SELECT tenant_id FROM projects WHERE id IN (?, ?)",
+                    (rest.json()["id"], mcp.json()["result"]["id"]),
+                ).fetchall()
+            }
+        finally:
+            conn.close()
+        self.assertEqual(tenants, {"tenant-a"})
+
     def test_version_floor_beats_auth(self) -> None:
         response = self.client.get(
             "/api/projects", headers={CLIENT_VERSION_HEADER: "0.0001"}
@@ -226,6 +260,144 @@ class AuthedSurfaceTest(unittest.TestCase):
         )
         self.assertEqual(denied.status_code, 404, denied.text)
         self.assertEqual(denied.json()["error_code"], "not_found")
+
+    def test_rest_mutation_path_ids_override_body_ids(self) -> None:
+        project_a = self._create_project("Route A", _bearer(USER_A))
+        project_b = self._create_project("Route B", _bearer(USER_B))
+
+        created = self.client.post(
+            f"/api/projects/{project_a}/claims",
+            json={"project_id": project_b, "statement": "Stays in route A."},
+            headers=_bearer(USER_A),
+        )
+        self.assertEqual(created.status_code, 201, created.text)
+        self.assertEqual(
+            len(
+                self.client.get(
+                    f"/api/projects/{project_a}/claims", headers=_bearer(USER_A)
+                ).json()["claims"]
+            ),
+            1,
+        )
+        self.assertEqual(
+            self.client.get(
+                f"/api/projects/{project_b}/claims", headers=_bearer(USER_B)
+            ).json()["claims"],
+            [],
+        )
+
+        cases = (
+            (
+                "PATCH",
+                f"/api/projects/{project_a}",
+                {"project_id": project_b, "name": "Still Route A"},
+                "project.update",
+                {"project_id": project_a},
+            ),
+            (
+                "PATCH",
+                f"/api/projects/{project_a}/claims/claim_from_path",
+                {
+                    "project_id": project_b,
+                    "claim_id": "claim_from_body",
+                    "status": "supported",
+                },
+                "claim.update",
+                {"project_id": project_a, "claim_id": "claim_from_path"},
+            ),
+            (
+                "POST",
+                f"/api/projects/{project_a}/experiments/exp_from_path/transition",
+                {
+                    "project_id": project_b,
+                    "experiment_id": "exp_from_body",
+                    "transition": "abandon",
+                },
+                "experiment.transition",
+                {"project_id": project_a, "experiment_id": "exp_from_path"},
+            ),
+            (
+                "POST",
+                f"/api/projects/{project_a}/reviews/request",
+                {
+                    "project_id": project_b,
+                    "target_type": "experiment",
+                    "target_id": "exp_from_body",
+                    "role": "design_reviewer",
+                },
+                "review.request",
+                {"project_id": project_a},
+            ),
+        )
+        with patch.object(self.app, "call_tool", return_value={"ok": True}) as call:
+            for method, path, body, tool, authoritative in cases:
+                with self.subTest(tool=tool):
+                    response = self.client.request(
+                        method, path, json=body, headers=_bearer(USER_A)
+                    )
+                    self.assertLess(response.status_code, 400, response.text)
+                    arguments = call.call_args.kwargs["arguments"]
+                    self.assertEqual(call.call_args.kwargs["name"], tool)
+                    for key, value in authoritative.items():
+                        self.assertEqual(arguments[key], value)
+                    call.reset_mock()
+
+    def test_debug_detail_and_clear_are_project_scoped(self) -> None:
+        project_a = self._create_project("Debug A", _bearer(USER_A))
+        project_b = self._create_project("Debug B", _bearer(USER_B))
+        self.app.tool_calls.record(
+            tool="claim.create",
+            source="http",
+            status="ok",
+            duration_ms=1,
+            arguments={"project_id": project_a},
+            result={"id": "claim_a"},
+        )
+        call_a_id = self.app.tool_calls.stats(project_id=project_a)["calls"][0]["id"]
+        self.app.tool_calls.record(
+            tool="claim.create",
+            source="http",
+            status="ok",
+            duration_ms=1,
+            arguments={"project_id": project_b},
+            result={"id": "claim_b"},
+        )
+        call_b_id = self.app.tool_calls.stats(project_id=project_b)["calls"][0]["id"]
+
+        self.assertEqual(
+            self.client.get(
+                f"/api/debug/tool-calls/{call_a_id}", headers=_bearer(USER_A)
+            ).status_code,
+            400,
+        )
+        self.assertEqual(
+            self.client.post(
+                "/api/debug/tool-calls/clear", headers=_bearer(USER_A)
+            ).status_code,
+            400,
+        )
+        stats = self.client.get(
+            f"/api/debug/tool-calls?project_id={project_a}", headers=_bearer(USER_A)
+        )
+        self.assertEqual(stats.status_code, 200, stats.text)
+        self.assertEqual({row["id"] for row in stats.json()["calls"]}, {call_a_id})
+        hidden = self.client.get(
+            f"/api/debug/tool-calls/{call_b_id}?project_id={project_a}",
+            headers=_bearer(USER_A),
+        )
+        self.assertEqual(hidden.status_code, 404, hidden.text)
+
+        cleared = self.client.post(
+            f"/api/debug/tool-calls/clear?project_id={project_a}",
+            headers=_bearer(USER_A),
+        )
+        self.assertEqual(cleared.status_code, 200, cleared.text)
+        self.assertEqual(cleared.json()["cleared"], 1)
+        remaining = self.client.get(
+            f"/api/debug/tool-calls/{call_b_id}?project_id={project_b}",
+            headers=_bearer(USER_B),
+        )
+        self.assertEqual(remaining.status_code, 200, remaining.text)
 
     def test_sharing_grants_and_revokes_access(self) -> None:
         project_id = self._create_project("Shared", _bearer(USER_A))
@@ -262,12 +434,18 @@ class AuthedSurfaceTest(unittest.TestCase):
 
     def test_activity_requires_project_scope_and_membership(self) -> None:
         project_id = self._create_project("Audited", _bearer(USER_A))
+        self.client.get(
+            f"/api/projects/{project_id}/claims", headers=_bearer(USER_A)
+        )
         unscoped = self.client.get("/api/activity", headers=_bearer(USER_A))
         self.assertEqual(unscoped.status_code, 400, unscoped.text)
         member = self.client.get(
             f"/api/activity?project_id={project_id}", headers=_bearer(USER_A)
         )
         self.assertEqual(member.status_code, 200, member.text)
+        tools = {event.get("tool") for event in member.json()["events"]}
+        self.assertIn("claim.list", tools)
+        self.assertNotIn("project", tools)
         stranger = self.client.get(
             f"/api/activity?project_id={project_id}", headers=_bearer(USER_B)
         )

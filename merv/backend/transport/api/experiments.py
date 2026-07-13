@@ -62,9 +62,25 @@ def build_router(ctx: ApiRouteContext) -> APIRouter:
         # Agent-authored logic graph (role 'graph'); UI-only read, no agent tool.
         return api_for_project(project_id).experiment_logic_graph(project_id=project_id, experiment_id=experiment_id)
 
-    @api_router.post("/api/projects/{project_id}/experiments/{experiment_id}/transition")
-    def transition_experiment(project_id: str, experiment_id: str, body: JsonBody = Body(default=None)) -> dict[str, Any]:
-        return api_for_project(project_id).call_tool(name="experiment.transition", arguments={"project_id": project_id, "experiment_id": experiment_id, **(body or {})})
+    @api_router.post(
+        "/api/projects/{project_id}/experiments/{experiment_id}/transition"
+    )
+    def transition_experiment(
+        project_id: str,
+        experiment_id: str,
+        request: Request,
+        body: JsonBody = Body(default=None),
+    ) -> dict[str, Any]:
+        return route_call_tool(
+            name="experiment.transition",
+            arguments={
+                **(body or {}),
+                "project_id": project_id,
+                "experiment_id": experiment_id,
+            },
+            activity_source="http",
+            principal=getattr(request.state, "principal", LOCAL_PRINCIPAL),
+        )
 
     @api_router.get("/api/projects/{project_id}/experiments/{experiment_id}/results/metrics")
     def experiment_results_metrics(project_id: str, experiment_id: str) -> dict[str, Any]:
@@ -75,6 +91,5 @@ def build_router(ctx: ApiRouteContext) -> APIRouter:
     @api_router.get("/api/projects/{project_id}/mlflow")
     def project_mlflow(project_id: str) -> dict[str, Any]:
         return api_for_project(project_id).mlflow_overview_view(project_id=project_id)
-
 
     return api_router

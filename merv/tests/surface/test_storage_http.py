@@ -15,6 +15,7 @@ from tests.fakes import FakeObjectStore
 from tests.support.brain import TestBrain
 from backend.composition import build_local_server
 from backend.config import STORAGE_PROVIDER_ENV_VAR
+from backend.control.storage_quotas import StorageQuotaService
 from backend.execution.backends.fake import FakeSandboxBackend
 from backend.state.store import StateStore
 from backend.storage.service import StorageLedgerService
@@ -27,7 +28,11 @@ class StorageHttpApiTest(unittest.TestCase):
         self.tmp = tempfile.TemporaryDirectory()
         self.repo = Path(self.tmp.name)
         store = StateStore(db_path=self.repo / ".research_plugin" / "state.sqlite")
-        storage = StorageLedgerService(store=store, objects=FakeObjectStore())
+        storage = StorageLedgerService(
+            store=store,
+            objects=FakeObjectStore(),
+            blob_quotas=StorageQuotaService(),
+        )
         self.app = TestBrain(
             repo_root=self.repo,
             db_path=self.repo / ".research_plugin" / "state.sqlite",

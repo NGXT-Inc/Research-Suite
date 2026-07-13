@@ -165,6 +165,14 @@ services:
       RESEARCH_PLUGIN_REQUIRE_AGENT_MLFLOW: ${RESEARCH_PLUGIN_REQUIRE_AGENT_MLFLOW:-0}
       # Dev-only mounted management key from the mgmtkey one-shot above.
       RESEARCH_PLUGIN_MGMT_KEY_PATH: /run/secrets/research_plugin_mgmt_key/key
+      # Fail-closed path only: this reference stack does not mount or enroll
+      # dynamic VM host keys. Keep VM providers disabled until that is supplied.
+      RESEARCH_PLUGIN_MGMT_KNOWN_HOSTS_FILE: ${RESEARCH_PLUGIN_MGMT_KNOWN_HOSTS_FILE:-~/.ssh/known_hosts}
+      # Hosted control refuses startup without its Supabase verifier.
+      SUPABASE_URL: ${SUPABASE_URL:?set SUPABASE_URL}
+      SUPABASE_JWT_SECRET: ${SUPABASE_JWT_SECRET:?set SUPABASE_JWT_SECRET}
+      SUPABASE_SERVICE_KEY: ${SUPABASE_SERVICE_KEY:-}
+      SUPABASE_ANON_KEY: ${SUPABASE_ANON_KEY:-}
       AWS_ACCESS_KEY_ID: rpminio
       AWS_SECRET_ACCESS_KEY: rpminio_dev_password
       AWS_DEFAULT_REGION: us-east-1

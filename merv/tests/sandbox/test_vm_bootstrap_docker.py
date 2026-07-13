@@ -150,6 +150,19 @@ class VmBootstrapDockerTest(unittest.TestCase):
             + "\n/usr/sbin/sshd || true\n"
         )
         cls._exec(bootstrap, check=True)
+        # Docker exec is the trusted control channel for this fixture. Enroll
+        # the container's actual host key through it before making any SSH
+        # connection, mirroring the production requirement without TOFU.
+        host_key = cls._exec(
+            "cat /etc/ssh/ssh_host_ed25519_key.pub", check=True
+        ).stdout.strip().split()
+        if len(host_key) < 2:
+            raise AssertionError("container did not expose an Ed25519 host key")
+        cls.known_hosts = base / "known_hosts"
+        cls.known_hosts.write_text(
+            f"[127.0.0.1]:{cls.ssh_port} {host_key[0]} {host_key[1]}\n"
+        )
+        os.environ["RESEARCH_PLUGIN_MGMT_KNOWN_HOSTS_FILE"] = str(cls.known_hosts)
         cls._wait_for_mgmt_ssh()
 
     @classmethod
@@ -185,8 +198,8 @@ class VmBootstrapDockerTest(unittest.TestCase):
                 "-i", str(key),
                 "-p", str(cls.ssh_port),
                 "-o", "BatchMode=yes",
-                "-o", "StrictHostKeyChecking=no",
-                "-o", "UserKnownHostsFile=/dev/null",
+                "-o", "StrictHostKeyChecking=yes",
+                "-o", f"UserKnownHostsFile={cls.known_hosts}",
                 "-o", "ConnectTimeout=10",
                 f"{user}@127.0.0.1",
                 command,

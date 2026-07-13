@@ -426,6 +426,19 @@
             "description": "Optional datacenter/region for the chosen instance_type (Lambda Labs). Omit to auto-pick a region that currently has capacity.",
             "title": "Region"
           },
+          "sandbox_uid": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "description": "Existing standalone sandbox identity for an idempotent retry.",
+            "title": "Sandbox Uid"
+          },
           "time_limit": {
             "anyOf": [
               {

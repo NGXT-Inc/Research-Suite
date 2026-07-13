@@ -7,18 +7,19 @@ This runbook covers the `control` deployment preset served by
 
 ## Security boundary
 
-The current hosted brain is a private operator service, not a public SaaS API.
-End-user authentication is not implemented: every HTTP request runs as the
-implicit `local` principal, bearer tokens are not validated, and HTTP project
-access is not tenant-isolated.
+The hosted brain refuses to start without a Supabase verifier. Except for its
+documented bootstrap/liveness routes, HTTP requests require a verified bearer
+credential, and project routes require project membership. Operator endpoints
+do not have a separate administrator role, so the brain remains a private
+operator service rather than a public SaaS API.
 
 Consequences:
 
 - place the brain behind TLS and a trusted network boundary;
 - do not expose `/api/*`, `/mcp/*`, `/api/data-plane/*`, or `/api/admin/*`
   directly to the public internet;
-- treat CORS and `X-RP-Client-Version` as browser/compatibility controls, not
-  authentication;
+- treat CORS and `X-RP-Client-Version` as browser/compatibility controls; bearer
+  verification remains the authentication boundary;
 - protect the separately served Merv UI and MLflow endpoint at the
   same infrastructure boundary.
 
@@ -53,7 +54,17 @@ fails fast unless these durable dependencies are configured:
 - `RESEARCH_PLUGIN_BLOB_BUCKET` plus the applicable `AWS_*` credential, region,
   and endpoint configuration — the S3-compatible submitted-byte store;
 - `RESEARCH_PLUGIN_MGMT_KEY_PATH` — the mounted **private-key file**, readable
-  by the control user and mode `0600` or stricter.
+  by the control user and mode `0600` or stricter; and
+- `SUPABASE_URL` and `SUPABASE_JWT_SECRET` — the mandatory hosted request
+  verifier. Startup fails when either is missing.
+
+VM-backed management operations separately require
+`RESEARCH_PLUGIN_MGMT_KNOWN_HOSTS_FILE`, which defaults to
+`~/.ssh/known_hosts` inside the control container. Configuration does not mount
+or populate it and startup does not validate it. Populate entries through a
+trusted provider channel before contacting Lambda Labs or Thunder Compute;
+nonstandard ports use OpenSSH's `[host]:port` form. Unknown or changed keys fail
+closed. The reference stack does not yet implement secure dynamic enrollment.
 
 The management public key comes from `RESEARCH_PLUGIN_MGMT_PUBLIC_KEY` or an
 adjacent `<private-key-path>.pub` file. The key is fingerprinted at startup;
@@ -72,7 +83,7 @@ default; an empty list blocks cross-origin browser clients. Include the hosted
 UI origin explicitly.
 
 `RESEARCH_PLUGIN_CONTROL_RESTRICT_CORS=0` disables that restriction, but does
-not add authentication and is inappropriate for an exposed deployment.
+not relax mandatory authentication and is inappropriate for an exposed deployment.
 
 ### Heavy-object storage
 
@@ -156,13 +167,15 @@ credentials and is responsible for billing cleanup.
 instance-price, GPU-hour, and USD limits from the sandbox-generation ledger. It
 also supports global and per-tenant provisioning kill switches. There is no
 public quota-management HTTP surface; these are operator/service integrations.
-With the current unauthenticated HTTP surface, externally created projects use
-the implicit `local` tenant.
+The current identity layer maps authenticated principals to the shared `local`
+tenant; project membership remains the per-user authorization boundary.
 
 ## Periodic cleanup
 
-The brain constructs `CleanupService` but does not run a cleanup scheduler.
-Call the private operator endpoint from managed cron or a sidecar:
+The sandbox daemon already reaps expired rows and stale provisions on its
+in-process cadence. The brain also constructs `CleanupService`, but does not
+schedule the broader blob/storage/running-row sweeps. Call the private operator
+endpoint from managed cron or a sidecar:
 
 ```http
 POST /api/admin/cleanup
@@ -175,15 +188,15 @@ One pass performs four idempotent, best-effort sweeps:
 2. **submitted-blob expiry** — deletes blobs past their TTL;
 3. **heavy-storage expiry** — expires eligible object-ledger rows using
    refcount-aware cleanup;
-4. **stale-provision cleanup** — fails or terminates provisioning rows that did
-   not reach a usable VM before the deadline.
+4. **stale-provision cleanup** — repeats the in-process safety pass for
+   provisioning rows that did not reach a usable VM before the deadline.
 
 The first sweep does not enumerate and terminate provider VMs that have no
 registry row. Provider-specific deterministic-name cleanup during provisioning
 and stale-provision handling cover the implemented orphan defenses.
 
-The in-process expiry reaper is separate from these broader periodic sweeps and
-continues to run between cleanup calls.
+The in-process expiry/stale-provision reaper continues to run between cleanup
+calls.
 
 ## Observability
 
@@ -197,8 +210,8 @@ GET /api/admin/tenants/{tenant_id}/counters
 
 The private counter endpoint reports `tool_calls` (currently counted from the
 project event table), sandbox generations, and closed-generation sandbox hours
-for the requested stored tenant id. Under the current unauthenticated surface,
-request logs normally carry tenant `local`.
+for the requested stored tenant id. With the current identity mapping, request
+logs normally carry tenant `local`.
 
 Three different records serve different purposes:
 
@@ -218,6 +231,8 @@ slower safety pollers for external state such as MLflow.
 
 Terminal reads use management SSH and are coalesced by the bounded,
 TTL-controlled transcript cache. Metrics sampling is also briefly coalesced.
+Management operations require a matching trusted host key and fail closed;
+this includes post-boot secret delivery.
 
 Because the brain has no checkout access:
 
@@ -248,7 +263,8 @@ provider health/options, and object-storage upload/download. The default Compose
 stack may intentionally start without provider credentials or an agent tracking
 URI; in that record-only configuration the full doctor is expected to fail.
 
-Production operators must additionally provide TLS termination, real user
-authentication and authorization, managed Postgres and backups, a secret
-store, the cleanup schedule, durable object lifecycle policy,
-monitoring/alerting, and separately hosted UI/MLflow services.
+Production operators must additionally provide TLS termination, Supabase secret
+rotation and membership backfill, separate operator/admin authorization,
+managed Postgres and backups, a secret store, trusted VM host-key enrollment,
+the cleanup schedule, durable object lifecycle policy, monitoring/alerting,
+and separately hosted UI/MLflow services.

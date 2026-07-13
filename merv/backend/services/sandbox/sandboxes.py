@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import time
 from datetime import datetime, timedelta
+from math import ceil
 from pathlib import Path
 from typing import Any, Callable
 
@@ -82,6 +83,8 @@ class SandboxService:
             raise ValidationError("quotas.check_admission is required")
         if not callable(getattr(quotas, "check_lifetime_extension", None)):
             raise ValidationError("quotas.check_lifetime_extension is required")
+        if not callable(getattr(quotas, "reserve_provisioning", None)):
+            raise ValidationError("quotas.reserve_provisioning is required")
         # Cost governance (cloud plan Phase 7): admission gate at the
         # procurement choke point. The 'local' tenant has no quota row ⇒
         # unlimited ⇒ a no-op, so local mode is byte-identical.
@@ -142,6 +145,7 @@ class SandboxService:
             registry=self.registry,
             backend=sandbox_backend,
             lifecycle=self.lifecycle,
+            quotas=quotas,
             stale_provision_seconds=env_float(
                 "RESEARCH_PLUGIN_SANDBOX_STALE",
                 stale_provision_seconds,
@@ -203,11 +207,28 @@ class SandboxService:
         # module treats the attachment id as opaque.
         with self.store.transaction() as conn:
             project_id = self.store.require_project_id(conn=conn, project_id=project_id)
+        requested_uid = (sandbox_uid or "").strip()
         if experiment_id and self.attachment_check is not None:
             self.attachment_check(
                 attachment_id=experiment_id, project_id=project_id
             )
-        if experiment_id:
+        if requested_uid:
+            try:
+                existing = self.registry.fetch_scoped(
+                    experiment_id=experiment_id,
+                    project_id=project_id,
+                    sandbox_uid=requested_uid,
+                )
+            except NotFoundError:
+                try:
+                    self.registry.get_by_uid(sandbox_uid=requested_uid)
+                except NotFoundError:
+                    existing = None
+                else:
+                    raise NotFoundError(
+                        f"sandbox not found in project {project_id}: {requested_uid}"
+                    )
+        elif experiment_id:
             try:
                 existing = self.registry.load_row(experiment_id=experiment_id)
             except NotFoundError:
@@ -216,7 +237,6 @@ class SandboxService:
             existing = None
             additional = False
 
-        requested_uid = (sandbox_uid or "").strip()
         sandbox_uid = (
             requested_uid
             or (
@@ -245,6 +265,15 @@ class SandboxService:
         management_public_key = self.mgmt_keys.ensure(sandbox_uid=sandbox_uid)
 
         # 1) Reuse a live sandbox immediately — the common mid-session case.
+        existing_alive = None
+        if existing and existing.get("status") in ACTIVE_SANDBOX_STATUSES and existing.get(
+            "sandbox_id"
+        ):
+            existing_alive = self.lifecycle.liveness(
+                sandbox_id=str(existing["sandbox_id"])
+            )
+            if existing_alive is False:
+                existing = self.lifecycle.reconcile(row=existing)
         if (
             not additional
             and existing
@@ -253,8 +282,7 @@ class SandboxService:
             # Unknown liveness (provider blip) still reuses: a dead SSH target
             # fails loudly and cheaply, whereas falling through to ensure_job
             # would cleanup_orphan — i.e. TERMINATE — a possibly-healthy VM.
-            and self.lifecycle.liveness(sandbox_id=str(existing["sandbox_id"]))
-            is not False
+            and existing_alive is not False
         ):
             self.registry.touch_alive(
                 experiment_id=experiment_id,
@@ -301,21 +329,20 @@ class SandboxService:
             )
 
         # 2b) Cost-governance admission (cloud plan Phase 7). The choke point for
-        #     a NEW provision: count the tenant's running sandboxes and check the
-        #     request's time_limit + (resolvable) instance price against the
-        #     tenant's ceilings. The 'local' tenant has no quota row ⇒ unlimited
+        #     a NEW provision: reserve its maximum GPU/USD commitment together
+        #     with its provisioning row. The 'local' tenant has no quota row ⇒ unlimited
         #     ⇒ this raises nothing, so local mode is unchanged. Reuse (step 1)
         #     is already past this gate — only fresh procurement is governed.
-        self.quotas.check_admission(
-            request=AdmissionRequest(
-                tenant_id=self.registry.tenant_for_project(project_id=project_id),
-                time_limit_seconds=int(time_limit),
-                price_usd_per_hour=self._price_for_instance(
-                    instance_type=instance_type, region=region
-                ),
-            )
+        price, gpu_count = self._quota_quote(
+            instance_type=instance_type, region=region, gpu=gpu
         )
-
+        admission = AdmissionRequest(
+            tenant_id=self.registry.tenant_for_project(project_id=project_id),
+            time_limit_seconds=int(time_limit),
+            price_usd_per_hour=price,
+            gpu_count=gpu_count,
+            sandbox_uid=sandbox_uid,
+        )
         # 3) Otherwise (re)start provisioning in the background and best-effort
         #    wait up to the budget. A big first sync or a cold GPU returns
         #    `provisioning` (the agent polls sandbox.get); a fast one returns SSH
@@ -348,11 +375,17 @@ class SandboxService:
             project_id=project_id,
             req=req,
             existing=None if additional else existing,
+            admission=admission,
             sandbox_uid=sandbox_uid,
             create_new=additional,
         )
-        job.done.wait(timeout=self.request_wait_seconds)
-        row = self.registry.get_by_uid(sandbox_uid=sandbox_uid)
+        if job is not None:
+            job.done.wait(timeout=self.request_wait_seconds)
+        row = self.registry.fetch_scoped(
+            experiment_id=None,
+            project_id=project_id,
+            sandbox_uid=sandbox_uid,
+        )
         reused = False if row.get("status") == "running" else None
         # Post-boot secret delivery (plan Phase 9, risk 16): once the VM is up,
         # push provider credentials over the management channel rather than
@@ -563,12 +596,6 @@ class SandboxService:
         tenant = str(row.get("tenant_id") or self.registry.tenant_for_project(
             project_id=resolved_project_id
         ))
-        price = row.get("price_usd_per_hour")
-        self.quotas.check_lifetime_extension(
-            tenant_id=tenant,
-            total_time_limit_seconds=new_limit,
-            price_usd_per_hour=float(price) if price is not None else None,
-        )
         if not self.activity_policy.is_active_snapshot(
             snapshot=self.registry.heartbeat_snapshot(row=row),
             command=self.registry.command_snapshot(row=row),
@@ -577,11 +604,40 @@ class SandboxService:
                 "sandbox.extend requires a running command or active heartbeat metrics"
             )
         old_expires_at = str(row.get("expires_at") or "")
-        new_expires_at = format_iso(expires_at + timedelta(seconds=seconds))
-        updated = self.registry.extend_lifetime(
-            sandbox_uid=str(row.get("sandbox_uid") or ""),
-            expires_at=new_expires_at,
-            time_limit=new_limit,
+        new_expires = expires_at + timedelta(seconds=seconds)
+        new_expires_at = format_iso(new_expires)
+        sandbox_uid = str(row.get("sandbox_uid") or "")
+        price = (
+            float(row.get("price_usd_per_hour") or 0.0)
+            if int(row.get("price_known") or 0)
+            else None
+        )
+        count = int(row.get("gpu_count") if row.get("gpu_count") is not None else -1)
+        updated: dict[str, Any] = {}
+
+        def reserve(conn: Connection) -> None:
+            updated.update(
+                self.registry.extend_lifetime(
+                    conn=conn,
+                    sandbox_uid=sandbox_uid,
+                    expires_at=new_expires_at,
+                    time_limit=new_limit,
+                )
+            )
+
+        self.quotas.check_lifetime_extension(
+            tenant_id=tenant,
+            total_time_limit_seconds=new_limit,
+            price_usd_per_hour=price,
+            gpu_count=count if count >= 0 else None,
+            sandbox_uid=sandbox_uid,
+            remaining_time_limit_seconds=ceil(
+                max(
+                    0.0,
+                    (new_expires - datetime.now(tz=new_expires.tzinfo)).total_seconds(),
+                )
+            ),
+            reservation=reserve,
         )
         resolved_experiment_id = experiment_id or str(updated.get("experiment_id") or "")
         self.registry.emit_event(
@@ -745,20 +801,46 @@ class SandboxService:
     def _release_row(self, *, row: dict[str, Any]) -> dict[str, Any]:
         experiment_id = str(row.get("experiment_id") or "")
         sandbox_uid = str(row.get("sandbox_uid") or "")
+        if row.get("status") not in (ACTIVE_SANDBOX_STATUSES | {"provisioning"}):
+            fresh = self.registry.get_by_uid(sandbox_uid=sandbox_uid)
+            view = self._row_view(row=fresh)
+            view["hint"] = (
+                "Release snapshot was superseded; no stale action was applied."
+                if fresh.get("status") in (ACTIVE_SANDBOX_STATUSES | {"provisioning"})
+                else "Sandbox is already terminal; no release action was needed."
+            )
+            return view
         # Signal any in-flight provisioning job to abort. It terminates whatever
         # it created via the cancel path (acquire's cleanup), even if create is
         # still mid-flight when we return.
-        self.provisioner.cancel(experiment_id=experiment_id, sandbox_uid=sandbox_uid)
+        self.provisioner.cancel(
+            experiment_id=experiment_id,
+            sandbox_uid=sandbox_uid,
+            claim_token=str(row.get("provision_claim") or ""),
+        )
         was_active = bool(row.get("sandbox_id") and row.get("status") in ACTIVE_SANDBOX_STATUSES)
         # Direct terminate applies only to rows the provider may still be
         # running; anything else goes straight to orphan cleanup + confirm.
-        outcome = self.lifecycle.terminate_vm(
-            row=row,
-            try_direct=bool(
-                row.get("sandbox_id")
-                and row.get("status") in (ACTIVE_SANDBOX_STATUSES | {"provisioning"})
-            ),
-        )
+        provisioning = row.get("status") == "provisioning"
+        if provisioning:
+            outcome = (
+                "stopped"
+                if self.lifecycle.settle_provisioning(
+                    row=row, status="terminated"
+                )
+                else "maybe_alive"
+            )
+        elif row.get("status") == "running":
+            outcome = self.lifecycle.settle_running(row=row)
+        if outcome == "lost":
+            view = self._row_view(
+                row=self.registry.get_by_uid(sandbox_uid=sandbox_uid)
+            )
+            view["hint"] = (
+                "Release was superseded by another lifecycle operation; "
+                "poll sandbox.get."
+            )
+            return view
         if outcome == "maybe_alive":
             # Never strand the row as terminated over a possibly-live VM (it
             # would bill invisibly forever). Left running, a retried release
@@ -784,9 +866,6 @@ class SandboxService:
             )
             return view
         stopped = outcome == "stopped"
-        self.lifecycle.mark_terminated(
-            experiment_id=experiment_id, sandbox_uid=sandbox_uid
-        )
         self.registry.emit_event(
             project_id=str(row["project_id"]),
             event_type="sandbox.released",
@@ -1191,14 +1270,14 @@ class SandboxService:
         )
 
     def _deliver_secrets_once(self, *, row: dict[str, Any], experiment_id: str) -> None:
-        """Deliver post-boot secrets the first time a running row is observed."""
+        """Deliver post-boot secrets once, retrying incomplete writes on later polls."""
         uid = str(row.get("sandbox_uid") or "")
         if not uid or row.get("status") != "running" or uid in self._secrets_delivered:
             return
-        self._deliver_secrets(row=row, experiment_id=experiment_id)
-        self._secrets_delivered.add(uid)
+        if self._deliver_secrets(row=row, experiment_id=experiment_id):
+            self._secrets_delivered.add(uid)
 
-    def _deliver_secrets(self, *, row: dict[str, Any], experiment_id: str) -> None:
+    def _deliver_secrets(self, *, row: dict[str, Any], experiment_id: str) -> bool:
         """Push provider credentials over the management channel post-boot.
 
         Replaces the cleartext-in-user_data token embed (plan Phase 9, risk 16).
@@ -1206,29 +1285,31 @@ class SandboxService:
         and something to deliver. Best-effort: any failure (no mgmt key, VM not
         yet reachable, no tokens configured) is swallowed — the worst case is
         the agent's HF downloads lack a token, never a failed provision. The
-        secret value is never logged.
+        secret value is never logged. Returns whether delivery is complete.
         """
         if row.get("status") != "running":
-            return
+            return False
         sandbox_id = str(row.get("sandbox_id") or "")
         if not sandbox_id:
-            return
+            return False
         try:
             secrets = self.backend.sandbox_secrets()
         except Exception:  # noqa: BLE001
-            secrets = {}
+            return False
         if not secrets:
-            return
+            return True
         try:
-            self.backend.write_secrets(
-                sandbox_id=sandbox_id,
-                secrets=secrets,
-                ssh_host=str(row.get("ssh_host") or ""),
-                ssh_port=int(row.get("ssh_port") or 0),
-                key_path=str(self._mgmt_key_path(row=row)),
+            return bool(
+                self.backend.write_secrets(
+                    sandbox_id=sandbox_id,
+                    secrets=secrets,
+                    ssh_host=str(row.get("ssh_host") or ""),
+                    ssh_port=int(row.get("ssh_port") or 0),
+                    key_path=str(self._mgmt_key_path(row=row)),
+                )
             )
         except Exception:  # noqa: BLE001 — secret delivery must never fail a request
-            pass
+            return False
 
     # ---------- paths / management-key plumbing ----------
 
@@ -1363,29 +1444,31 @@ class SandboxService:
 
     # ---------- backend introspection ----------
 
-    def _price_for_instance(
-        self, *, instance_type: str | None, region: str | None
-    ) -> float | None:
-        """Resolve the catalog price for a chosen SKU, for the quota price gate.
+    def _quota_quote(
+        self, *, instance_type: str | None, region: str | None, gpu: str | None
+    ) -> tuple[float | None, int | None]:
+        """Resolve authoritative price/GPU count for quota reservation.
 
-        Best-effort: only meaningful for bundled-hardware backends that expose a
-        catalog with prices (Lambda, the fake's selection mode). Returns None
-        when there is no instance_type or no matching priced option, in which
-        case quota admission skips the price ceiling (Modal has no per-hour quote).
+        Configurable backends request zero or one GPU directly; fixed-SKU
+        backends must resolve both facts from their provider catalog.
         """
         if not instance_type:
-            return None
+            return None, (1 if gpu else 0) if self.backend.capabilities.configurable_resources else None
         try:
             catalog = self.backend.hardware_catalog(region=region)
-        except Exception:  # noqa: BLE001 — admission must not hinge on a catalog call
-            return None
+        except Exception:  # noqa: BLE001
+            return None, None
         if not catalog:
-            return None
+            return None, None
         for option in catalog.get("options", []) or []:
             if str(option.get("instance_type") or "") == instance_type:
                 price = option.get("price_usd_per_hour")
-                return float(price) if price is not None else None
-        return None
+                count = option.get("gpu_count")
+                return (
+                    float(price) if price is not None else None,
+                    int(count) if count is not None and int(count) >= 0 else None,
+                )
+        return None, None
 
     def _hardware_catalog(
         self, *, gpu: str | None = None, region: str | None = None

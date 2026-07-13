@@ -26,7 +26,6 @@ from ..config import (
     build_object_store,
     build_state_store,
     REQUIRE_AGENT_MLFLOW_ENV_VAR,
-    REQUIRE_AUTH_ENV_VAR,
     REQUIRE_SANDBOX_BACKEND_ENV_VAR,
     resolve_blob_bucket,
     resolve_db_url,
@@ -37,6 +36,7 @@ from ..config import (
 )
 from ..control.control_app import ControlApp
 from ..control.control_runtime import ControlTaskChannel
+from ..control.storage_quotas import StorageQuotaService
 from ..env import env_bool
 from ..execution import build_sandbox_backend
 from ..transport.http_api import create_fastapi_app
@@ -122,7 +122,15 @@ def build_control_app(
     )
     if storage is _UNSET:
         objects = build_object_store(default_root=staging / ".research_plugin", env=env)
-        storage = StorageLedgerService(store=store, objects=objects) if objects else None
+        storage = (
+            StorageLedgerService(
+                store=store,
+                objects=objects,
+                blob_quotas=StorageQuotaService(),
+            )
+            if objects
+            else None
+        )
     task_channel = task_channel if task_channel is not None else ControlTaskChannel()
     if execution_backend is None:
         execution_backend = build_sandbox_backend(repo_root=staging)
@@ -162,15 +170,13 @@ def build_control_app(
 def _validate_auth_requirement(
     *,
     auth: SupabaseVerifier | None,
-    env: Mapping[str, str] | None = None,
 ) -> None:
-    if auth is not None or not env_bool(REQUIRE_AUTH_ENV_VAR, False, env=env):
+    if auth is not None:
         return
     raise ValidationError(
-        f"{REQUIRE_AUTH_ENV_VAR}=1 requires {SUPABASE_URL_ENV_VAR} and "
-        f"{SUPABASE_JWT_SECRET_ENV_VAR}; set them (shared with the RapidReview "
-        "Supabase project) or disable the requirement for an intentionally "
-        "open deployment.",
+        "hosted control requires Supabase authentication; set "
+        f"{SUPABASE_URL_ENV_VAR} and {SUPABASE_JWT_SECRET_ENV_VAR} "
+        "(shared with the RapidReview Supabase project)",
         details={"missing": [SUPABASE_URL_ENV_VAR, SUPABASE_JWT_SECRET_ENV_VAR]},
     )
 
@@ -182,6 +188,8 @@ def build_control_server(
     allowed_origins: list[str] | None = None,
 ) -> ControlPlaneServer:
     """Build the hosted-control FastAPI brain."""
+    auth = SupabaseVerifier.from_env(env)
+    _validate_auth_requirement(auth=auth)
     app, task_channel = build_control_app(repo_root=repo_root, env=env)
     origins = (
         resolve_allowed_origins(env) if allowed_origins is None else allowed_origins
@@ -192,17 +200,9 @@ def build_control_server(
             "%s is empty; browser clients will be blocked by hosted-control CORS",
             ALLOWED_ORIGINS_ENV_VAR,
         )
-    cleanup = CleanupService(sandboxes=app.sandboxes, blobs=app.blobs, storage=app.storage)
-    auth = SupabaseVerifier.from_env(env)
-    _validate_auth_requirement(auth=auth, env=env)
-    if auth is None:
-        LOGGER.warning(
-            "Supabase auth is not configured (%s/%s unset); the hosted control "
-            "surface is OPEN — set %s=1 to make this a startup failure",
-            SUPABASE_URL_ENV_VAR,
-            SUPABASE_JWT_SECRET_ENV_VAR,
-            REQUIRE_AUTH_ENV_VAR,
-        )
+    cleanup = CleanupService(
+        sandboxes=app.sandboxes, blobs=app.blobs, storage=app.storage
+    )
     fastapi_app = create_fastapi_app(
         app=app,
         allowed_origins=origins,

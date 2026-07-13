@@ -664,6 +664,10 @@ def _validate_openssh_public_key(value: str | None) -> str | None:
 
 
 class SandboxRequestInput(ProjectScopedInput):
+    sandbox_uid: str | None = Field(
+        default=None,
+        description="Existing standalone sandbox identity for an idempotent retry.",
+    )
     experiment_id: str | None = Field(
         default=None,
         description=(

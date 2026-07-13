@@ -21,9 +21,12 @@ dispatched by prefix (RapidReview's contract, reimplemented in
   RapidReview; this repo has no key machinery of its own.
 
 Enforcement lives in the `attach_principal` middleware
-(`backend/transport/api/app.py`): OPTIONS, `/health`, `/api/meta`, and
-`/internal/auth/mlflow` stay open; the 426 version floor runs before auth so
-stale clients get "upgrade", not "login". A verified credential becomes
+(`backend/transport/api/app.py`): OPTIONS, `/health`, and `/api/meta` are open.
+`/api/sdk/auth/*` is bearer-middleware-exempt so the device flow can bootstrap;
+those routes enforce their own session/token credentials where applicable.
+`/internal/auth/mlflow` is also middleware-exempt but self-verifies the supplied
+Basic/Bearer credential. The 426 version floor runs before auth so stale clients
+get "upgrade", not "login". A verified credential becomes
 `Principal(user_id=<supabase sub>)`.
 
 **Project membership** is the authorization layer: `project_members`
@@ -74,9 +77,9 @@ Any member can manage members (two-trusted-users model; no roles).
    RapidReview sessions.
 2. Set env on the VM: `SUPABASE_URL`, `SUPABASE_JWT_SECRET`,
    `SUPABASE_SERVICE_KEY`, `SUPABASE_ANON_KEY`,
-   `RESEARCH_PLUGIN_REQUIRE_AUTH=1`,
    `RESEARCH_PLUGIN_UI_BASE_URL=https://rapidreview.io/merv` (where
-   `merv-client login` sends the browser). Restart the brain.
+   `merv-client login` sends the browser). Hosted control refuses to start
+   without the Supabase URL and JWT secret. Restart the brain.
 3. Backfill membership for existing projects (one insert per project):
    ```sql
    INSERT INTO project_members (project_id, user_id, added_at)

@@ -117,6 +117,22 @@ def fake_socket_connection(*_args, **_kwargs):
 
 
 class LambdaAvailabilityTest(unittest.TestCase):
+    def test_terminating_instance_remains_alive_and_findable(self) -> None:
+        client = FakeLambdaSandboxClient()
+        client.get_instance = lambda _instance_id: {"status": "terminating"}
+        client.list_instances = lambda: [
+            {"id": "inst_1", "name": "rp-exp1", "status": "terminating"}
+        ]
+        backend = LambdaLabsSandboxBackend(
+            config=LambdaSandboxConfig(
+                cloud=LambdaCloudConfig(api_key="test-key")
+            ),
+            client=client,
+        )
+
+        self.assertTrue(backend.is_alive(sandbox_id="inst_1"))
+        self.assertEqual(backend.find_sandbox_id(experiment_id="exp1"), "inst_1")
+
     def test_filters_current_capacity_by_region_gpu_and_min_gpu_count(self) -> None:
         result = summarize_instance_types(
             INSTANCE_TYPES,

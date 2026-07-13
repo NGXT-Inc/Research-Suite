@@ -58,10 +58,6 @@ UI_BASE_URL_ENV_VAR = "RESEARCH_PLUGIN_UI_BASE_URL"
 # The enforcement knob below is composition policy, so it stays here.
 REQUIRE_AGENT_MLFLOW_ENV_VAR = "RESEARCH_PLUGIN_REQUIRE_AGENT_MLFLOW"
 REQUIRE_SANDBOX_BACKEND_ENV_VAR = "RESEARCH_PLUGIN_REQUIRE_SANDBOX_BACKEND"
-# Supabase auth knobs (SUPABASE_URL/JWT_SECRET/...) live in services/auth.py —
-# the extension owns them; this composition knob makes control mode fail fast
-# when they are missing instead of booting an open surface.
-REQUIRE_AUTH_ENV_VAR = "RESEARCH_PLUGIN_REQUIRE_AUTH"
 
 _POSTGRES_URL_PREFIXES = ("postgres://", "postgresql://")
 

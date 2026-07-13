@@ -108,6 +108,7 @@ class ProvisionedSandbox:
     sandbox_data_dir: str = ""
     reused: bool = False
     gpu: str = ""
+    gpu_count: int = 0
     cpu: float | None = None
     memory: int | None = None
     instance_type: str = ""
@@ -202,7 +203,7 @@ class SandboxBackend(Protocol):
         ...
 
     def find_sandbox_id(self, *, experiment_id: str, sandbox_uid: str = "") -> str | None:
-        """Optionally find an orphan sandbox by experiment. Unsupported backends return None."""
+        """Find an orphan, returning None only after an authoritative lookup."""
         ...
 
     def sandbox_secrets(self) -> dict[str, str]:

@@ -27,6 +27,7 @@ from ...ports.mgmt_keys import MgmtKeyStore
 from ...ports.task_channel import TaskChannel
 from ...sandbox.sandbox_backend import SandboxBackend
 from ...sandbox.sandbox_support import ACTIVE_SANDBOX_STATUSES, parse_iso
+from ...utils import new_id
 from .sandbox_registry import SandboxRegistry
 
 
@@ -80,19 +81,41 @@ class SandboxLifecycle:
 
     # ---------- terminal transitions (mark + teardown, one owner) ----------
 
-    def mark_terminated(self, *, experiment_id: str, sandbox_uid: str) -> None:
+    def mark_terminated(
+        self,
+        *,
+        experiment_id: str,
+        sandbox_uid: str,
+        claim_token: str | None = None,
+    ) -> bool:
         facts = self.registry.mark_terminated(
-            experiment_id=experiment_id, sandbox_uid=sandbox_uid
+            experiment_id=experiment_id,
+            sandbox_uid=sandbox_uid,
+            claim_token=claim_token,
         )
+        if facts is None:
+            return False
         self._teardown(experiment_id=experiment_id, facts=facts)
+        return True
 
     def mark_failed(
-        self, *, experiment_id: str, error: str, sandbox_uid: str
-    ) -> None:
+        self,
+        *,
+        experiment_id: str,
+        error: str,
+        sandbox_uid: str,
+        claim_token: str | None = None,
+    ) -> bool:
         facts = self.registry.mark_failed(
-            experiment_id=experiment_id, error=error, sandbox_uid=sandbox_uid
+            experiment_id=experiment_id,
+            error=error,
+            sandbox_uid=sandbox_uid,
+            claim_token=claim_token,
         )
+        if facts is None:
+            return False
         self._teardown(experiment_id=experiment_id, facts=facts)
+        return True
 
     def _teardown(self, *, experiment_id: str, facts: dict[str, Any]) -> None:
         """Tear down a terminal row's runtime attachments.
@@ -137,48 +160,42 @@ class SandboxLifecycle:
 
     def cleanup_orphan(
         self, *, experiment_id: str, row: dict[str, Any] | None
-    ) -> None:
-        """Best-effort terminate any sandbox tied to this experiment.
+    ) -> str:
+        """Terminate any sandbox tied to this experiment, preserving uncertainty.
 
         Covers both a recorded sandbox_id (from a prior/failed row) and the
         deterministic-named orphan a dead job may have left on the backend.
         """
-        seen: set[str] = set()
-        sid = (row or {}).get("sandbox_id")
-        if sid:
-            seen.add(str(sid))
-            self.terminate_quietly(sandbox_id=str(sid))
-        if not sid:
-            sandbox_uid = str((row or {}).get("sandbox_uid") or "")
-            active_sibling = bool(
-                experiment_id
-                and sandbox_uid
-                and self.registry.has_active_for_experiment(
-                    experiment_id=experiment_id, exclude_sandbox_uid=sandbox_uid
-                )
+        return self.terminate_vm(
+            row={**(row or {}), "experiment_id": experiment_id}
+        )
+
+    def _orphan_id(
+        self, *, experiment_id: str, row: dict[str, Any] | None
+    ) -> str | None:
+        sandbox_uid = str((row or {}).get("sandbox_uid") or "")
+        active_sibling = bool(
+            experiment_id
+            and sandbox_uid
+            and self.registry.has_active_for_experiment(
+                experiment_id=experiment_id, exclude_sandbox_uid=sandbox_uid
             )
-            lookup_uids: list[str] = []
-            if sandbox_uid:
-                lookup_uids.append(sandbox_uid)
-            # Legacy fallback: old providers may only be findable by the
-            # experiment-derived deterministic name. Skip that broad lookup
-            # while another live sandbox is attached to the same experiment.
-            if not active_sibling:
-                lookup_uids.append("")
-            if not lookup_uids:
-                lookup_uids.append("")
-            orphan = None
-            for lookup_uid in lookup_uids:
-                if orphan:
-                    break
-                try:
-                    orphan = self.backend.find_sandbox_id(
-                        experiment_id=experiment_id, sandbox_uid=lookup_uid
-                    )
-                except Exception:  # noqa: BLE001
-                    orphan = None
-            if orphan and str(orphan) not in seen:
-                self.terminate_quietly(sandbox_id=str(orphan))
+        )
+        lookup_uids = ([sandbox_uid] if sandbox_uid else []) + (
+            [] if active_sibling else [""]
+        )
+        uncertain = False
+        for lookup_uid in lookup_uids or [""]:
+            try:
+                sandbox_id = self.backend.find_sandbox_id(
+                    experiment_id=experiment_id, sandbox_uid=lookup_uid
+                )
+            except Exception:  # noqa: BLE001
+                uncertain = True
+                continue
+            if sandbox_id:
+                return str(sandbox_id)
+        return None if uncertain else ""
 
     def terminate_vm(self, *, row: dict[str, Any], try_direct: bool = True) -> str:
         """Terminate the provider VM behind a row. Returns:
@@ -192,20 +209,84 @@ class SandboxLifecycle:
         """
         sandbox_id = str(row.get("sandbox_id") or "")
         experiment_id = str(row.get("experiment_id") or "")
+        if not sandbox_id:
+            orphan_id = self._orphan_id(experiment_id=experiment_id, row=row)
+            if orphan_id is None:
+                return "maybe_alive"
+            sandbox_id = orphan_id
         stopped = False
         if sandbox_id and try_direct:
             try:
                 stopped = self.backend.terminate(sandbox_id=sandbox_id)
             except Exception:  # noqa: BLE001
                 stopped = False
-        if stopped:
-            return "stopped"
-        # Direct terminate failed or there was no recorded id: try the
-        # deterministic-name orphan cleanup path, then require confirmation.
-        self.cleanup_orphan(experiment_id=experiment_id, row=row)
+        # Provider terminate calls may be asynchronous. Never hide the row until
+        # the provider also confirms the VM is no longer alive.
+        if sandbox_id and not stopped:
+            self.terminate_quietly(sandbox_id=sandbox_id)
         if sandbox_id and self.liveness(sandbox_id=sandbox_id) is not False:
             return "maybe_alive"
-        return "gone"
+        return "stopped" if stopped else "gone"
+
+    def settle_provisioning(
+        self, *, row: dict[str, Any], status: str, error: str = ""
+    ) -> bool:
+        """End a provision only after its provider VM is confirmed stopped/gone."""
+        experiment_id = str(row.get("experiment_id") or "")
+        sandbox_uid = str(row.get("sandbox_uid") or "")
+        cleanup_claim = new_id(prefix="cln")
+        owned = self.registry.take_cleanup_claim(
+            sandbox_uid=sandbox_uid,
+            expected_claim=str(row.get("provision_claim") or ""),
+            cleanup_claim=cleanup_claim,
+        )
+        if owned is None:
+            return False
+        if self.terminate_vm(row=owned) == "maybe_alive":
+            self.registry.update_claimed(
+                experiment_id=experiment_id,
+                sandbox_uid=sandbox_uid,
+                claim_token=cleanup_claim,
+                phase="cleanup",
+                detail="provider termination unconfirmed; cleanup will retry",
+                error=error,
+            )
+            return False
+        if status == "failed":
+            return self.mark_failed(
+                experiment_id=experiment_id,
+                sandbox_uid=sandbox_uid,
+                error=error,
+                claim_token=cleanup_claim,
+            )
+        return self.mark_terminated(
+            experiment_id=experiment_id,
+            sandbox_uid=sandbox_uid,
+            claim_token=cleanup_claim,
+        )
+
+    def settle_running(self, *, row: dict[str, Any]) -> str:
+        """Exclusively terminate one running generation without stale writes."""
+        sandbox_uid = str(row.get("sandbox_uid") or "")
+        cleanup_claim = new_id(prefix="cln")
+        owned = self.registry.take_cleanup_claim(
+            sandbox_uid=sandbox_uid,
+            expected_claim=str(row.get("provision_claim") or ""),
+            cleanup_claim=cleanup_claim,
+            expected_status="running",
+        )
+        if owned is None:
+            return "lost"
+        outcome = self.terminate_vm(row=owned)
+        if outcome == "maybe_alive":
+            return outcome
+        if not self.mark_terminated(
+            experiment_id=str(owned.get("experiment_id") or ""),
+            sandbox_uid=sandbox_uid,
+            claim_token=cleanup_claim,
+        ):
+            return "lost"
+        return outcome
 
     # ---------- reconcile ----------
 
@@ -218,8 +299,8 @@ class SandboxLifecycle:
           the agent to keep polling (a live job owns the row at ANY age —
           Lambda boots legitimately run past the stale deadline); otherwise
           the job is gone (daemon restart) or wedged, so clean up any orphan
-          and mark failed. This is what guarantees a polling agent always
-          reaches a terminal state.
+          and mark failed. A persisted claim owned by another process remains
+          provisioning until that owner settles it or the stale reaper acts.
         """
         status = row.get("status")
         exp = str(row.get("experiment_id") or "")
@@ -233,7 +314,9 @@ class SandboxLifecycle:
                 return self.refresh_endpoint(
                     row=self.registry.get_by_uid(sandbox_uid=sandbox_uid)
                 )
-            self.mark_terminated(experiment_id=exp, sandbox_uid=sandbox_uid)
+            outcome = self.settle_running(row=row)
+            if outcome in {"lost", "maybe_alive"}:
+                return self.registry.get_by_uid(sandbox_uid=sandbox_uid)
             self.registry.emit_event(
                 project_id=str(row["project_id"]),
                 event_type="sandbox.expired",
@@ -247,16 +330,19 @@ class SandboxLifecycle:
         if status == "provisioning":
             if self._job_is_live(experiment_id=exp, sandbox_uid=sandbox_uid):
                 return row  # genuinely in flight — keep polling
+            if row.get("provision_claim"):
+                return row  # another process owns it; the stale reaper enforces age
             # The job may have JUST settled; re-read before declaring failure.
             fresh = self.registry.get_by_uid(sandbox_uid=sandbox_uid)
             if fresh.get("status") != "provisioning":
                 return self.reconcile(row=fresh)
-            self.cleanup_orphan(experiment_id=exp, row=fresh)
-            self.mark_failed(
-                experiment_id=exp,
+            settled = self.settle_provisioning(
+                row=fresh,
+                status="failed",
                 error="provisioning interrupted; call sandbox.request again",
-                sandbox_uid=sandbox_uid,
             )
+            if not settled:
+                return self.registry.get_by_uid(sandbox_uid=sandbox_uid)
             self.registry.emit_event(
                 project_id=str(row["project_id"]),
                 event_type="sandbox.failed",
@@ -376,7 +462,9 @@ class SandboxLifecycle:
         experiment_id = str(row.get("experiment_id") or "")
         sandbox_id = str(row.get("sandbox_id") or "")
         sandbox_uid = str(row.get("sandbox_uid") or "")
-        outcome = self.terminate_vm(row=row)
+        outcome = self.settle_running(row=row)
+        if outcome == "lost":
+            return False
         if outcome == "maybe_alive":
             self.registry.emit_event(
                 project_id=str(row.get("project_id")),
@@ -391,7 +479,6 @@ class SandboxLifecycle:
                 },
             )
             return False
-        self.mark_terminated(experiment_id=experiment_id, sandbox_uid=sandbox_uid)
         payload = {
             "sandbox_id": sandbox_id,
             "sandbox_uid": sandbox_uid,

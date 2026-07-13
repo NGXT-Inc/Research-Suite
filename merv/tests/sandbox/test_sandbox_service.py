@@ -1,16 +1,23 @@
 from __future__ import annotations
 
+from concurrent.futures import ThreadPoolExecutor
 import tempfile
 import threading
 import time
 import unittest
+from unittest.mock import patch
 from pathlib import Path
 
 from tests.support.brain import TestBrain
 from backend.execution.backends.fake import FakeSandboxBackend
 from backend.mlflow import CentralMlflowService
-from backend.sandbox.sandbox_backend import BackendCapabilities, SandboxRequest
-from backend.utils import NotFoundError, ValidationError, parse_iso
+from backend.sandbox.sandbox_backend import (
+    BackendCapabilities,
+    SandboxRequest,
+)
+from backend.ports.quota_admission import AdmissionRequest
+from backend.services.sandbox.sandbox_provisioner import SandboxProvisioner
+from backend.utils import NotFoundError, PermissionDeniedError, ValidationError, parse_iso
 from backend.workspace import local_experiment_dir
 
 
@@ -101,6 +108,18 @@ class SandboxServiceTest(unittest.TestCase):
         self.assertEqual(result["status"], "running")
         self.assertEqual(result["experiment_id"], "")
         self.assertTrue(result["sandbox_uid"])
+
+    def test_cpu_sandbox_records_zero_gpu_count(self) -> None:
+        result = self.call("sandbox.request", project_id=self.project_id)
+        conn = self.app.store.connect()
+        try:
+            row = conn.execute(
+                "SELECT gpu_count FROM sandbox_generations WHERE sandbox_id = ?",
+                (result["sandbox_id"],),
+            ).fetchone()
+        finally:
+            conn.close()
+        self.assertEqual(int(row["gpu_count"]), 0)
         self.assertNotIn("command", result["ssh"])
         self.assertEqual(result["public_key_source"], "caller")
         self.assertEqual(self.backend.acquired[-1].experiment_id, result["sandbox_uid"])
@@ -140,16 +159,54 @@ class SandboxServiceTest(unittest.TestCase):
             "notes": ["HF_TOKEN is available inside the sandbox."],
         }
         exp_id = self._experiment()
-        result = self.call("sandbox.request", project_id=self.project_id, experiment_id=exp_id)
+        result = self.call(
+            "sandbox.request", project_id=self.project_id, experiment_id=exp_id
+        )
         self.assertEqual(result["environment"]["available_tokens"], ["HF_TOKEN"])
         self.assertNotIn("hf_", str(result))
 
         got = self.call("sandbox.get", project_id=self.project_id, experiment_id=exp_id)
         self.assertEqual(got["environment"]["available_tokens"], ["HF_TOKEN"])
 
+    def test_secret_delivery_retries_until_write_succeeds(self) -> None:
+        attempts: list[str] = []
+        self.backend.sandbox_secrets = lambda: {"HF_TOKEN": "secret"}  # type: ignore[method-assign]
+
+        def write_secrets(**kwargs) -> bool:
+            attempts.append(kwargs["sandbox_id"])
+            return len(attempts) > 1
+
+        self.backend.write_secrets = write_secrets  # type: ignore[method-assign]
+        exp_id = self._experiment()
+        created = self.call(
+            "sandbox.request", project_id=self.project_id, experiment_id=exp_id
+        )
+
+        self.call("sandbox.get", project_id=self.project_id, experiment_id=exp_id)
+        self.call("sandbox.get", project_id=self.project_id, experiment_id=exp_id)
+
+        self.assertEqual(attempts, [created["sandbox_id"], created["sandbox_id"]])
+
+    def test_no_configured_secrets_is_terminal(self) -> None:
+        reads = 0
+
+        def sandbox_secrets() -> dict[str, str]:
+            nonlocal reads
+            reads += 1
+            return {}
+
+        self.backend.sandbox_secrets = sandbox_secrets  # type: ignore[method-assign]
+        exp_id = self._experiment()
+        self.call("sandbox.request", project_id=self.project_id, experiment_id=exp_id)
+        self.call("sandbox.get", project_id=self.project_id, experiment_id=exp_id)
+
+        self.assertEqual(reads, 1)
+
     def test_request_reuses_live_sandbox(self) -> None:
         exp_id = self._experiment()
-        first = self.call("sandbox.request", project_id=self.project_id, experiment_id=exp_id)
+        first = self.call(
+            "sandbox.request", project_id=self.project_id, experiment_id=exp_id
+        )
         second = self.call("sandbox.request", project_id=self.project_id, experiment_id=exp_id)
         self.assertTrue(second["reused"])
         self.assertEqual(first["sandbox_id"], second["sandbox_id"])
@@ -1085,6 +1142,26 @@ class SandboxServiceTest(unittest.TestCase):
         self.assertEqual(extended["extended_by_seconds"], 600)
         self.assertEqual(extended["time_limit"], 4200)
 
+    def test_extend_budget_denial_does_not_change_expiry(self) -> None:
+        created = self.call(
+            "sandbox.request", project_id=self.project_id, gpu="H100", time_limit=3600
+        )
+        self._record_running_command(sandbox_uid=created["sandbox_uid"])
+        self.app.quotas.set_quota(tenant_id="local", gpu_hours_budget=1.1)
+
+        with self.assertRaises(PermissionDeniedError):
+            self.call(
+                "sandbox.extend",
+                project_id=self.project_id,
+                sandbox_uid=created["sandbox_uid"],
+                seconds=1800,
+            )
+
+        row = self.app.sandboxes.registry.get_by_uid(
+            sandbox_uid=created["sandbox_uid"]
+        )
+        self.assertEqual(row["expires_at"], created["expires_at"])
+
     def test_extend_rejects_idle_sandbox(self) -> None:
         created = self.call("sandbox.request", project_id=self.project_id)
 
@@ -1363,6 +1440,268 @@ class SandboxServiceTest(unittest.TestCase):
         self.assertEqual(final["status"], "running")
         self.assertEqual(len(self.backend.acquired), 1)
 
+    def test_sandbox_uid_retry_without_experiment_reuses_claim(self) -> None:
+        self.app.sandboxes.request_wait_seconds = 0.05
+        self.backend.gate = threading.Event()
+        first = self.call("sandbox.request", project_id=self.project_id)
+        second = self.call(
+            "sandbox.request",
+            project_id=self.project_id,
+            sandbox_uid=first["sandbox_uid"],
+        )
+        self.assertEqual(second["sandbox_uid"], first["sandbox_uid"])
+        self.assertEqual(second["status"], "provisioning")
+        self.assertEqual(len(self.backend.acquired), 1)
+        self.backend.gate.set()
+
+    def test_db_claim_precedes_cross_process_orphan_cleanup(self) -> None:
+        uid = "uid_cross_process"
+        entered = threading.Event()
+        release = threading.Event()
+
+        def lookup(**_kwargs):
+            entered.set()
+            release.wait(timeout=2)
+            return None
+
+        self.backend.find_sandbox_id = lookup  # type: ignore[method-assign]
+        provisioners = [
+            SandboxProvisioner(
+                registry=self.app.sandboxes.registry,
+                backend=self.backend,
+                lifecycle=self.app.sandboxes.lifecycle,
+                quotas=self.app.quotas,
+                stale_provision_seconds=600,
+            )
+            for _ in range(2)
+        ]
+        req = SandboxRequest(
+            experiment_id=uid,
+            project_id=self.project_id,
+            public_key="k",
+            sandbox_uid=uid,
+        )
+        admission = AdmissionRequest(
+            tenant_id="local",
+            time_limit_seconds=req.time_limit,
+            gpu_count=0,
+            sandbox_uid=uid,
+        )
+
+        with ThreadPoolExecutor(max_workers=2) as pool:
+            first = pool.submit(
+                provisioners[0].ensure_job,
+                experiment_id="",
+                project_id=self.project_id,
+                req=req,
+                existing=None,
+                admission=admission,
+                sandbox_uid=uid,
+            )
+            self.assertTrue(entered.wait(timeout=2))
+            second = provisioners[1].ensure_job(
+                experiment_id="",
+                project_id=self.project_id,
+                req=req,
+                existing=None,
+                admission=admission,
+                sandbox_uid=uid,
+            )
+            self.assertIsNone(second)
+            release.set()
+            first_job = first.result(timeout=2)
+        self.assertIsNotNone(first_job)
+        first_job.done.wait(timeout=2)
+        self.assertEqual(len(self.backend.acquired), 1)
+
+    def test_cleanup_owner_blocks_second_settler_and_replacement(self) -> None:
+        exp_id = self._experiment()
+        uid = "uid_cleanup_owner"
+        self.app.sandboxes.registry.upsert(
+            experiment_id=exp_id,
+            sandbox_uid=uid,
+            project_id=self.project_id,
+            status="provisioning",
+            provision_claim="claim-old",
+            provision_started_at="2026-01-01T00:00:00Z",
+        )
+        self.backend.alive["sb-old"] = True
+        self.backend.by_experiment[uid] = "sb-old"
+        entered = threading.Event()
+        release = threading.Event()
+        original_terminate = self.backend.terminate
+
+        def terminate(*, sandbox_id: str) -> bool:
+            if sandbox_id == "sb-old":
+                entered.set()
+                release.wait(timeout=2)
+            return original_terminate(sandbox_id=sandbox_id)
+
+        self.backend.terminate = terminate  # type: ignore[method-assign]
+        stale = self.app.sandboxes.registry.get_by_uid(sandbox_uid=uid)
+        with ThreadPoolExecutor(max_workers=2) as pool:
+            winner = pool.submit(
+                self.app.sandboxes.lifecycle.settle_provisioning,
+                row=stale,
+                status="failed",
+                error="old failed",
+            )
+            self.assertTrue(entered.wait(timeout=2))
+            self.assertFalse(
+                self.app.sandboxes.lifecycle.settle_provisioning(
+                    row=stale, status="failed", error="stale failed"
+                )
+            )
+            with self.app.store.transaction() as conn:
+                self.assertFalse(
+                    self.app.sandboxes.registry.claim_provisioning(
+                        conn=conn,
+                        experiment_id=exp_id,
+                        sandbox_uid=uid,
+                        claim_token="claim-new",
+                        project_id=self.project_id,
+                        status="provisioning",
+                    )
+                )
+            release.set()
+            self.assertTrue(winner.result(timeout=2))
+
+        with self.app.store.transaction() as conn:
+            self.assertTrue(
+                self.app.sandboxes.registry.claim_provisioning(
+                    conn=conn,
+                    experiment_id=exp_id,
+                    sandbox_uid=uid,
+                    claim_token="claim-new",
+                    project_id=self.project_id,
+                    status="provisioning",
+                )
+            )
+        self.backend.alive["sb-new"] = True
+        self.backend.by_experiment[uid] = "sb-new"
+        self.app.sandboxes.registry.update_claimed(
+            experiment_id=exp_id,
+            sandbox_uid=uid,
+            claim_token="claim-new",
+            sandbox_id="sb-new",
+        )
+        self.assertFalse(
+            self.app.sandboxes.lifecycle.settle_provisioning(
+                row=stale, status="failed", error="very stale failed"
+            )
+        )
+        fresh = self.app.sandboxes.registry.get_by_uid(sandbox_uid=uid)
+        self.assertEqual(fresh["provision_claim"], "claim-new")
+        self.assertTrue(self.backend.alive["sb-new"])
+
+    def test_running_cleanup_owner_blocks_stale_releaser(self) -> None:
+        exp_id = self._experiment()
+        uid = "uid_running_cleanup"
+        self.app.sandboxes.registry.upsert(
+            experiment_id=exp_id,
+            sandbox_uid=uid,
+            project_id=self.project_id,
+            status="running",
+            sandbox_id="sb-old",
+        )
+        self.backend.alive["sb-old"] = True
+        entered = threading.Event()
+        release = threading.Event()
+        original_terminate = self.backend.terminate
+
+        def terminate(*, sandbox_id: str) -> bool:
+            if sandbox_id == "sb-old":
+                entered.set()
+                release.wait(timeout=2)
+            return original_terminate(sandbox_id=sandbox_id)
+
+        self.backend.terminate = terminate  # type: ignore[method-assign]
+        stale = self.app.sandboxes.registry.get_by_uid(sandbox_uid=uid)
+        with ThreadPoolExecutor(max_workers=2) as pool:
+            winner = pool.submit(
+                self.app.sandboxes.lifecycle.settle_running, row=stale
+            )
+            self.assertTrue(entered.wait(timeout=2))
+            self.assertEqual(
+                self.app.sandboxes.lifecycle.settle_running(row=stale), "lost"
+            )
+            release.set()
+            self.assertEqual(winner.result(timeout=2), "stopped")
+
+        with self.app.store.transaction() as conn:
+            self.assertTrue(
+                self.app.sandboxes.registry.claim_provisioning(
+                    conn=conn,
+                    experiment_id=exp_id,
+                    sandbox_uid=uid,
+                    claim_token="claim-new",
+                    project_id=self.project_id,
+                    status="provisioning",
+                )
+            )
+        self.backend.alive["sb-new"] = True
+        self.app.sandboxes.registry.update_claimed(
+            experiment_id=exp_id,
+            sandbox_uid=uid,
+            claim_token="claim-new",
+            sandbox_id="sb-new",
+        )
+
+        self.assertEqual(
+            self.app.sandboxes.lifecycle.settle_running(row=stale), "lost"
+        )
+        fresh = self.app.sandboxes.registry.get_by_uid(sandbox_uid=uid)
+        self.assertEqual(fresh["provision_claim"], "claim-new")
+        self.assertTrue(self.backend.alive["sb-new"])
+
+    def test_stale_release_does_not_cancel_replacement_job(self) -> None:
+        self.app.sandboxes.request_wait_seconds = 0.05
+        self.backend.gate = threading.Event()
+        uid = "uid_replacement_job"
+        replacement = self.call(
+            "sandbox.request", project_id=self.project_id, sandbox_uid=uid
+        )
+        job = self.app.sandboxes.provisioner._jobs[uid]
+        stale = {
+            **self.app.sandboxes.registry.get_by_uid(sandbox_uid=uid),
+            "status": "running",
+            "sandbox_id": "sb-old",
+            "provision_claim": "",
+        }
+
+        result = self.app.sandboxes._release_row(row=stale)
+
+        self.assertEqual(result["sandbox_uid"], replacement["sandbox_uid"])
+        self.assertFalse(job.cancel.is_set())
+        self.backend.gate.set()
+        self.assertTrue(job.done.wait(timeout=2))
+        fresh = self.app.sandboxes.registry.get_by_uid(sandbox_uid=uid)
+        self.assertEqual(fresh["status"], "running")
+
+    def test_cross_project_uid_race_cannot_return_foreign_sandbox(self) -> None:
+        other = self.call("project", action="create", name="Other Project")["id"]
+        uid = "uid_cross_project"
+
+        def race(*, sandbox_uid: str):
+            self.app.sandboxes.registry.upsert(
+                experiment_id="",
+                sandbox_uid=sandbox_uid,
+                project_id=self.project_id,
+                status="provisioning",
+                provision_claim="foreign-claim",
+            )
+            raise NotFoundError(f"sandbox not found: {sandbox_uid}")
+
+        with patch.object(self.app.sandboxes.registry, "get_by_uid", side_effect=race):
+            with self.assertRaises(NotFoundError):
+                self.app.sandboxes.request(
+                    project_id=other,
+                    sandbox_uid=uid,
+                    public_key="ssh-ed25519 AAAA race@test",
+                    include_data_plane_enrichment=False,
+                )
+        self.assertEqual(self.backend.acquired, [])
+
     def test_provisioning_failure_marks_failed_and_cleans_up(self) -> None:
         self.app.sandboxes.request_wait_seconds = 2.0
         self.backend.fail_after_create = True
@@ -1372,6 +1711,19 @@ class SandboxServiceTest(unittest.TestCase):
         self.assertTrue(result["error"])
         # The sandbox that was created before the tunnel failure got terminated.
         self.assertTrue(self.backend.terminated)
+
+    def test_provisioning_failure_stays_retryable_until_vm_is_confirmed_gone(self) -> None:
+        self.backend.fail_after_create = True
+        self.backend.terminate = lambda *, sandbox_id: False  # type: ignore[method-assign]
+        exp_id = self._experiment()
+
+        result = self.call(
+            "sandbox.request", project_id=self.project_id, experiment_id=exp_id
+        )
+
+        self.assertEqual(result["status"], "provisioning")
+        self.assertEqual(result["phase"], "cleanup")
+        self.assertTrue(self.backend.alive[str(result["sandbox_id"])])
 
     def test_release_cancels_provisioning(self) -> None:
         self.app.sandboxes.request_wait_seconds = 0.05
@@ -1394,13 +1746,62 @@ class SandboxServiceTest(unittest.TestCase):
         # A provisioning row with no in-flight job (daemon restart mid-provision)
         # must reconcile to failed so a polling agent doesn't wait forever.
         exp_id = self._experiment()
-        self.app.sandboxes.provisioner.begin_provisioning_row(
+        self.app.sandboxes.registry.upsert(
             experiment_id=exp_id,
+            sandbox_uid="uid_unclaimed_orphan",
             project_id=self.project_id,
-            req=SandboxRequest(experiment_id=exp_id, project_id=self.project_id, public_key="k"),
+            status="provisioning",
+            provision_claim="",
         )
         result = self.call("sandbox.get", project_id=self.project_id, experiment_id=exp_id)
         self.assertEqual(result["status"], "failed")
+
+    def test_request_does_not_replace_sandbox_with_uncertain_cleanup(self) -> None:
+        exp_id = self._experiment()
+        sandbox_uid = "uid_cleanup_retry"
+        self.app.sandboxes.registry.upsert(
+            experiment_id=exp_id,
+            sandbox_uid=sandbox_uid,
+            project_id=self.project_id,
+            status="provisioning",
+            phase="cleanup",
+        )
+        self.backend.find_sandbox_id = (  # type: ignore[method-assign]
+            lambda **kwargs: (_ for _ in ()).throw(RuntimeError("provider down"))
+        )
+
+        self.app.sandboxes.registry.upsert(
+            experiment_id=exp_id,
+            sandbox_uid=sandbox_uid,
+            provision_claim="remote-claim",
+        )
+        result = self.call(
+            "sandbox.request",
+            project_id=self.project_id,
+            experiment_id=exp_id,
+        )
+
+        self.assertEqual(self.backend.acquired, [])
+        self.assertEqual(result["status"], "provisioning")
+        row = self.app.sandboxes.registry.get_by_uid(sandbox_uid=sandbox_uid)
+        self.assertEqual(row["status"], "provisioning")
+        self.assertEqual(row["phase"], "cleanup")
+
+    def test_cross_process_poll_preserves_claimed_provision(self) -> None:
+        exp_id = self._experiment()
+        self.app.sandboxes.provisioner.begin_provisioning_row(
+            experiment_id=exp_id,
+            project_id=self.project_id,
+            req=SandboxRequest(
+                experiment_id=exp_id, project_id=self.project_id, public_key="k"
+            ),
+            claim_token="remote-claim",
+        )
+        result = self.call(
+            "sandbox.get", project_id=self.project_id, experiment_id=exp_id
+        )
+        self.assertEqual(result["status"], "provisioning")
+        self.assertEqual(self.backend.terminated, [])
 
     def test_get_returns_none_when_never_requested(self) -> None:
         exp_id = self._experiment()

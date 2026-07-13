@@ -94,9 +94,8 @@ def _serve_uvicorn(*, fastapi_app, host: str, port: int) -> tuple[str, int, "uvi
 def _serve_control(*, host: str, port: int) -> int:
     """Run the hosted brain preset.
 
-    Hosted/no-repo-root control requires durable DB, durable blob store, and a
-    mounted management key. It has no end-user authentication and is a private
-    operator surface.
+    Hosted/no-repo-root control requires durable DB, durable blob store, a
+    mounted management key, and Supabase authentication.
     """
     from ..composition import build_control_server
 
@@ -147,8 +146,7 @@ def control_main() -> int:
     forces control mode (RESEARCH_PLUGIN_MODE=control) so the image entrypoint
     never accidentally binds the local preset. The expiry reaper runs, but the
     broader cleanup sweeps are only built; a managed cron or sidecar must POST
-    ``/api/admin/cleanup``. This surface has no end-user authentication and must
-    be deployed behind a trusted network boundary.
+    ``/api/admin/cleanup``. Supabase authentication is mandatory at startup.
     """
     os.environ["RESEARCH_PLUGIN_MODE"] = "control"
     return main()

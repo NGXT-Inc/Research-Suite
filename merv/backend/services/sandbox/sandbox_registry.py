@@ -12,6 +12,7 @@ from __future__ import annotations
 
 import json
 import uuid
+from contextlib import nullcontext
 from typing import Any
 
 from ...sandbox.sandbox_support import ACTIVE_SANDBOX_STATUSES
@@ -337,21 +338,22 @@ class SandboxRegistry:
         *,
         experiment_id: str,
         sandbox_uid: str,
+        conn: Any | None = None,
         **fields: Any,
     ) -> None:
         now = now_iso()
-        with self.store.transaction() as conn:
+        with (nullcontext(conn) if conn is not None else self.store.transaction()) as db:
             target_uid = str(sandbox_uid or "").strip()
             if not target_uid:
                 raise ValueError("sandbox_uid is required")
-            exists = conn.execute(
+            exists = db.execute(
                 "SELECT sandbox_uid FROM sandboxes WHERE sandbox_uid = ?",
                 (target_uid,),
             ).fetchone()
             payload = dict(fields)
             payload.pop("experiment_id", None)
             if payload.get("project_id") and not payload.get("tenant_id"):
-                tenant_row = conn.execute(
+                tenant_row = db.execute(
                     "SELECT tenant_id FROM projects WHERE id = ?",
                     (payload["project_id"],),
                 ).fetchone()
@@ -362,17 +364,15 @@ class SandboxRegistry:
             if exists is None:
                 payload["sandbox_uid"] = target_uid
                 payload.setdefault("created_at", now)
-                # Insertion-order column (cloud plan Phase 6): replaces rowid
-                # ordering for the most-recent-first sandbox listings.
-                payload["created_seq"] = next_created_seq(conn=conn, table="sandboxes")
+                payload["created_seq"] = next_created_seq(conn=db, table="sandboxes")
                 columns = ", ".join(payload)
                 placeholders = ", ".join("?" for _ in payload)
-                conn.execute(
+                db.execute(
                     f"INSERT INTO sandboxes ({columns}) VALUES ({placeholders})",
                     list(payload.values()),
                 )
                 self._ensure_attachment(
-                    conn=conn,
+                    conn=db,
                     sandbox_uid=str(payload["sandbox_uid"]),
                     experiment_id=experiment_id,
                     attached_at=str(payload["created_at"]),
@@ -380,7 +380,7 @@ class SandboxRegistry:
             else:
                 sandbox_uid = str(exists["sandbox_uid"] or target_uid)
                 assignments = ", ".join(f"{key} = ?" for key in payload)
-                conn.execute(
+                db.execute(
                     f"UPDATE sandboxes SET {assignments} WHERE sandbox_uid = ?",
                     [*payload.values(), sandbox_uid],
                 )
@@ -390,17 +390,114 @@ class SandboxRegistry:
                     "failed",
                 }:
                     self._ensure_attachment(
-                        conn=conn,
+                        conn=db,
                         sandbox_uid=sandbox_uid,
                         experiment_id=experiment_id,
                         attached_at=now,
                     )
 
-    def create_sandbox(self, *, experiment_id: str, **fields: Any) -> str:
+    def create_sandbox(
+        self, *, experiment_id: str, conn: Any | None = None, **fields: Any
+    ) -> str:
         """Insert a distinct row for a parallel sandbox under the experiment."""
         sandbox_uid = str(fields.pop("sandbox_uid", "") or self.new_sandbox_uid())
-        self.upsert(experiment_id=experiment_id, sandbox_uid=sandbox_uid, **fields)
+        self.upsert(
+            experiment_id=experiment_id,
+            sandbox_uid=sandbox_uid,
+            conn=conn,
+            **fields,
+        )
         return sandbox_uid
+
+    def claim_provisioning(
+        self,
+        *,
+        conn: Any,
+        experiment_id: str,
+        sandbox_uid: str,
+        claim_token: str,
+        **fields: Any,
+    ) -> bool:
+        """Claim one row for a provider acquire under the writer transaction."""
+        row = conn.execute(
+            "SELECT project_id, status, provision_claim FROM sandboxes WHERE sandbox_uid = ?",
+            (sandbox_uid,),
+        ).fetchone()
+        if row is not None:
+            if str(row["project_id"] or "") != str(fields.get("project_id") or ""):
+                return False
+            conn.execute(
+                "UPDATE sandboxes SET provision_claim = ? "
+                "WHERE sandbox_uid = ? AND status NOT IN ('provisioning', 'running') "
+                "AND provision_claim = ?",
+                (claim_token, sandbox_uid, str(row["provision_claim"] or "")),
+            )
+            claimed = conn.execute(
+                "SELECT provision_claim FROM sandboxes WHERE sandbox_uid = ?",
+                (sandbox_uid,),
+            ).fetchone()
+            if claimed is None or str(claimed["provision_claim"] or "") != claim_token:
+                return False
+        self.upsert(
+            conn=conn,
+            experiment_id=experiment_id,
+            sandbox_uid=sandbox_uid,
+            provision_claim=claim_token,
+            **fields,
+        )
+        return True
+
+    def update_claimed(
+        self,
+        *,
+        experiment_id: str,
+        sandbox_uid: str,
+        claim_token: str,
+        **fields: Any,
+    ) -> bool:
+        with self.store.transaction() as conn:
+            row = conn.execute(
+                "SELECT status, provision_claim FROM sandboxes WHERE sandbox_uid = ?",
+                (sandbox_uid,),
+            ).fetchone()
+            if row is None or str(row["status"]) != "provisioning" or str(
+                row["provision_claim"] or ""
+            ) != claim_token:
+                return False
+            self.upsert(
+                conn=conn,
+                experiment_id=experiment_id,
+                sandbox_uid=sandbox_uid,
+                **fields,
+            )
+            return True
+
+    def take_cleanup_claim(
+        self,
+        *,
+        sandbox_uid: str,
+        expected_claim: str,
+        cleanup_claim: str,
+        expected_status: str = "provisioning",
+    ) -> dict[str, Any] | None:
+        """Atomically grant one actor exclusive cleanup ownership."""
+        with self.store.transaction() as conn:
+            row = conn.execute(
+                "SELECT status, provision_claim FROM sandboxes WHERE sandbox_uid = ?",
+                (sandbox_uid,),
+            ).fetchone()
+            if row is None or str(row["status"]) != expected_status or str(
+                row["provision_claim"] or ""
+            ) != expected_claim:
+                return None
+            conn.execute(
+                "UPDATE sandboxes SET provision_claim = ? WHERE sandbox_uid = ?",
+                (cleanup_claim, sandbox_uid),
+            )
+            fresh = conn.execute(
+                "SELECT * FROM sandboxes WHERE sandbox_uid = ?", (sandbox_uid,)
+            ).fetchone()
+            return self._row_dict(row=fresh, conn=conn)
 
     def provision_additional(self, *, experiment_id: str, **fields: Any) -> str:
         return self.create_sandbox(experiment_id=experiment_id, **fields)
@@ -457,7 +554,9 @@ class SandboxRegistry:
         sandbox_id: str = "",
         instance_type: str = "",
         gpu: str = "",
+        gpu_count: int = 1,
         price_usd_per_hour: float = 0.0,
+        conn: Any | None = None,
     ) -> str:
         """Append a per-generation spend-ledger row (cloud plan Phase 7).
 
@@ -469,18 +568,18 @@ class SandboxRegistry:
         """
         generation_id = new_id(prefix="sbg")
         now = now_iso()
-        with self.store.transaction() as conn:
-            tenant_row = conn.execute(
+        with (nullcontext(conn) if conn is not None else self.store.transaction()) as db:
+            tenant_row = db.execute(
                 "SELECT tenant_id FROM projects WHERE id = ?", (project_id,)
             ).fetchone()
             tenant_id = str(tenant_row["tenant_id"]) if tenant_row is not None else "local"
-            conn.execute(
+            db.execute(
                 """
                 INSERT INTO sandbox_generations (
                   id, experiment_id, project_id, tenant_id, sandbox_id,
-                  instance_type, gpu, price_usd_per_hour, started_at, created_seq
+                  instance_type, gpu, gpu_count, price_usd_per_hour, started_at, created_seq
                 )
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                 """,
                 (
                     generation_id,
@@ -490,12 +589,51 @@ class SandboxRegistry:
                     sandbox_id,
                     instance_type,
                     gpu,
+                    max(0, int(gpu_count)),
                     price_usd_per_hour,
                     now,
-                    next_created_seq(conn=conn, table="sandbox_generations"),
+                    next_created_seq(conn=db, table="sandbox_generations"),
                 ),
             )
         return generation_id
+
+    def mark_running_with_generation(
+        self,
+        *,
+        experiment_id: str,
+        sandbox_uid: str,
+        generation: dict[str, Any],
+        claim_token: str = "",
+        conn: Any | None = None,
+        **fields: Any,
+    ) -> None:
+        """Commit the running row and its spend generation together."""
+        with (nullcontext(conn) if conn is not None else self.store.transaction()) as db:
+            row = db.execute(
+                "SELECT status, provision_claim FROM sandboxes WHERE sandbox_uid = ?",
+                (sandbox_uid,),
+            ).fetchone()
+            if row is None or str(row["status"]) != "provisioning" or str(
+                row["provision_claim"] or ""
+            ) != claim_token:
+                raise ValidationError("sandbox provisioning claim was lost")
+            self.upsert(
+                conn=db,
+                experiment_id=experiment_id,
+                sandbox_uid=sandbox_uid,
+                status="running",
+                **fields,
+            )
+            self.record_generation(
+                conn=db,
+                experiment_id=experiment_id,
+                project_id=str(fields["project_id"]),
+                sandbox_id=str(fields["sandbox_id"]),
+                instance_type=str(fields.get("instance_type") or ""),
+                gpu=str(fields.get("gpu") or ""),
+                price_usd_per_hour=float(fields.get("price_usd_per_hour") or 0.0),
+                **generation,
+            )
 
     def close_generation(
         self,
@@ -551,15 +689,16 @@ class SandboxRegistry:
         sandbox_uid: str,
         expires_at: str,
         time_limit: int,
+        conn: Any | None = None,
     ) -> dict[str, Any]:
         now = now_iso()
-        with self.store.transaction() as conn:
+        with (nullcontext(conn) if conn is not None else self.store.transaction()) as db:
             target_uid = str(sandbox_uid or "").strip()
             if not target_uid:
                 raise NotFoundError("sandbox not found")
             # Status-guarded: extending a row the reaper just terminated would
             # resurrect a fresh expires_at onto a dead sandbox.
-            conn.execute(
+            db.execute(
                 """
                 UPDATE sandboxes
                 SET expires_at = ?, time_limit = ?, updated_at = ?
@@ -567,7 +706,7 @@ class SandboxRegistry:
                 """,
                 (expires_at, int(time_limit), now, target_uid),
             )
-            row = conn.execute(
+            row = db.execute(
                 "SELECT * FROM sandboxes WHERE sandbox_uid = ?", (target_uid,)
             ).fetchone()
             if row is None:
@@ -577,7 +716,7 @@ class SandboxRegistry:
                     f"sandbox {target_uid} is {row['status']}; only a running "
                     "sandbox can be extended"
                 )
-            return self._row_dict(row=row, conn=conn)
+            return self._row_dict(row=row, conn=db)
 
     def heartbeat_snapshot(self, *, row: dict[str, Any]) -> dict[str, Any] | None:
         try:
@@ -710,20 +849,29 @@ class SandboxRegistry:
         return {**snapshot, "snapshot_at": now}
 
     def mark_terminated(
-        self, *, experiment_id: str, sandbox_uid: str
-    ) -> dict[str, Any]:
+        self, *, experiment_id: str, sandbox_uid: str, claim_token: str | None = None
+    ) -> dict[str, Any] | None:
         return self._mark_terminal(
-            experiment_id=experiment_id, sandbox_uid=sandbox_uid, status="terminated"
+            experiment_id=experiment_id,
+            sandbox_uid=sandbox_uid,
+            status="terminated",
+            claim_token=claim_token,
         )
 
     def mark_failed(
-        self, *, experiment_id: str, error: str, sandbox_uid: str
-    ) -> dict[str, Any]:
+        self,
+        *,
+        experiment_id: str,
+        error: str,
+        sandbox_uid: str,
+        claim_token: str | None = None,
+    ) -> dict[str, Any] | None:
         return self._mark_terminal(
             experiment_id=experiment_id,
             sandbox_uid=sandbox_uid,
             status="failed",
             error=error,
+            claim_token=claim_token,
         )
 
     def _mark_terminal(
@@ -733,7 +881,8 @@ class SandboxRegistry:
         sandbox_uid: str,
         status: str,
         error: str | None = None,
-    ) -> dict[str, Any]:
+        claim_token: str | None = None,
+    ) -> dict[str, Any] | None:
         """Drive one sandbox row to a terminal status, closing its attachment
         and spend generation. `error` is set only on the failed path."""
         now = now_iso()
@@ -741,19 +890,25 @@ class SandboxRegistry:
             target_uid = str(sandbox_uid or "").strip()
             row = (
                 conn.execute(
-                    "SELECT sandbox_id, sandbox_uid FROM sandboxes WHERE sandbox_uid = ?",
+                    "SELECT sandbox_id, sandbox_uid, status, provision_claim "
+                    "FROM sandboxes WHERE sandbox_uid = ?",
                     (target_uid,),
                 ).fetchone()
                 if target_uid
                 else None
             )
+            if claim_token is not None and (
+                row is None
+                or str(row["provision_claim"] or "") != claim_token
+            ):
+                return None
             sandbox_id = str(row["sandbox_id"] or "") if row is not None else None
             row_uid = str(row["sandbox_uid"] or "") if row is not None else target_uid
             if error is None:
                 conn.execute(
                     """
                     UPDATE sandboxes
-                    SET status = ?, terminated_at = ?, updated_at = ?
+                    SET status = ?, provision_claim = '', terminated_at = ?, updated_at = ?
                     WHERE sandbox_uid = ?
                     """,
                     (status, now, now, row_uid),
@@ -762,7 +917,7 @@ class SandboxRegistry:
                 conn.execute(
                     """
                     UPDATE sandboxes
-                    SET status = ?, error = ?, phase = '', detail = '',
+                    SET status = ?, error = ?, phase = '', detail = '', provision_claim = '',
                         terminated_at = ?, updated_at = ?
                     WHERE sandbox_uid = ?
                     """,

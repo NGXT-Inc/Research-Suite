@@ -21,6 +21,7 @@ def build_router(ctx: ApiRouteContext) -> APIRouter:
     api_router = APIRouter()
     api = ctx.api
     api_for_project = ctx.api_for_project
+    route_call_tool = ctx.route_call_tool
 
     def _request_user_id(request: Request) -> str:
         principal = getattr(request.state, "principal", LOCAL_PRINCIPAL)
@@ -38,8 +39,11 @@ def build_router(ctx: ApiRouteContext) -> APIRouter:
     @api_router.post("/api/projects", status_code=201)
     def create_project(request: Request, body: JsonBody = Body(default=None)) -> dict[str, Any]:
         payload = body or {}
+        principal = getattr(request.state, "principal", LOCAL_PRINCIPAL)
         return api.create_project(
-            body=payload, tenant_id=None, user_id=_request_user_id(request)
+            body=payload,
+            tenant_id=str(getattr(principal, "tenant_id", "") or "") or None,
+            user_id=_request_user_id(request),
         )
 
     @api_router.get("/api/projects/{project_id}/members")
@@ -67,8 +71,15 @@ def build_router(ctx: ApiRouteContext) -> APIRouter:
 
     @api_router.patch("/api/projects/{project_id}")
     @api_router.put("/api/projects/{project_id}")
-    def update_project(project_id: str, body: JsonBody = Body(default=None)) -> dict[str, Any]:
-        return api_for_project(project_id).call_tool(name="project.update", arguments={"project_id": project_id, **(body or {})})
+    def update_project(
+        project_id: str, request: Request, body: JsonBody = Body(default=None)
+    ) -> dict[str, Any]:
+        return route_call_tool(
+            name="project.update",
+            arguments={**(body or {}), "project_id": project_id},
+            activity_source="http",
+            principal=getattr(request.state, "principal", LOCAL_PRINCIPAL),
+        )
 
     @api_router.get("/api/projects/{project_id}/home")
     def home(project_id: str, request: Request) -> Response:
@@ -105,6 +116,5 @@ def build_router(ctx: ApiRouteContext) -> APIRouter:
                 project_id=project_id, experiment_id=experiment_id
             )
         )
-
 
     return api_router

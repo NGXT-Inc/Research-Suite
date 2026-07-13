@@ -8,8 +8,12 @@ sandbox_generations ledger, with the price plumbed through FakeSandboxBackend.
 
 from __future__ import annotations
 
+from concurrent.futures import ThreadPoolExecutor
+from dataclasses import replace
 import tempfile
+import threading
 import unittest
+from unittest.mock import patch
 from pathlib import Path
 
 from datetime import UTC, datetime
@@ -151,14 +155,15 @@ class QuotaAdmissionTest(unittest.TestCase):
                 )
             )
 
-    def test_price_ceiling_skipped_when_price_unknown(self) -> None:
-        # Modal-like: no per-hour quote ⇒ the price gate doesn't bite.
+    def test_price_ceiling_fails_closed_when_price_unknown(self) -> None:
         self.quotas.set_quota(tenant_id="tenant_q", max_price_usd_per_hour=1.0)
-        self.quotas.check_admission(
-            request=AdmissionRequest(
-                tenant_id="tenant_q", time_limit_seconds=3600, price_usd_per_hour=None
+        with self.assertRaises(PermissionDeniedError) as ctx:
+            self.quotas.check_admission(
+                request=AdmissionRequest(
+                    tenant_id="tenant_q", time_limit_seconds=3600
+                )
             )
-        )
+        self.assertEqual(ctx.exception.details.get("unresolved"), "price")
 
     # ---- Phase 9: spend kill-switch + running-total budgets ----
 
@@ -167,6 +172,7 @@ class QuotaAdmissionTest(unittest.TestCase):
         *,
         tenant_id: str,
         price: float,
+        gpu_count: int = 1,
         started_at: str,
         ended_at: str | None,
     ) -> None:
@@ -174,14 +180,15 @@ class QuotaAdmissionTest(unittest.TestCase):
             conn.execute(
                 """
                 INSERT INTO sandbox_generations
-                  (id, experiment_id, project_id, tenant_id, price_usd_per_hour,
+                  (id, experiment_id, project_id, tenant_id, gpu_count, price_usd_per_hour,
                    started_at, ended_at, created_seq)
-                VALUES (?, 'exp_g', ?, ?, ?, ?, ?, 0)
+                VALUES (?, 'exp_g', ?, ?, ?, ?, ?, ?, 0)
                 """,
                 (
                     f"sbg_{started_at}",
                     self.project_id,
                     tenant_id,
+                    gpu_count,
                     price,
                     started_at,
                     ended_at,
@@ -250,6 +257,153 @@ class QuotaAdmissionTest(unittest.TestCase):
                 request=AdmissionRequest(tenant_id="tenant_q", time_limit_seconds=60)
             )
         self.assertEqual(ctx.exception.details.get("quota"), "usd_budget")
+
+    def test_request_projection_denies_before_spending(self) -> None:
+        self.quotas.set_quota(tenant_id="tenant_q", usd_budget=1.0)
+        with self.assertRaises(PermissionDeniedError) as ctx:
+            self.quotas.check_admission(
+                request=AdmissionRequest(
+                    tenant_id="tenant_q",
+                    time_limit_seconds=3600,
+                    price_usd_per_hour=23.92,
+                    gpu_count=8,
+                )
+            )
+        self.assertEqual(ctx.exception.details.get("quota"), "usd_budget")
+
+    def test_multi_gpu_projection_denies_before_spending(self) -> None:
+        self.quotas.set_quota(tenant_id="tenant_q", gpu_hours_budget=4.0)
+        with self.assertRaises(PermissionDeniedError) as ctx:
+            self.quotas.check_admission(
+                request=AdmissionRequest(
+                    tenant_id="tenant_q",
+                    time_limit_seconds=3600,
+                    gpu_count=8,
+                )
+            )
+        self.assertEqual(ctx.exception.details.get("quota"), "gpu_hours_budget")
+
+    def test_cpu_request_reserves_zero_gpu_hours(self) -> None:
+        self.quotas.set_quota(tenant_id="tenant_q", gpu_hours_budget=0.0)
+        self.quotas.check_admission(
+            request=AdmissionRequest(
+                tenant_id="tenant_q", time_limit_seconds=3600, gpu_count=0
+            )
+        )
+
+    def test_active_reservations_are_included_in_projection(self) -> None:
+        self.quotas.set_quota(tenant_id="tenant_q", usd_budget=1.0)
+
+        def reserve(conn) -> None:
+            conn.execute(
+                """
+                INSERT INTO sandboxes (
+                  sandbox_uid, project_id, tenant_id, status, price_usd_per_hour,
+                  price_known, gpu_count, time_limit, provision_claim, created_at,
+                  updated_at
+                ) VALUES (?, ?, ?, 'provisioning', ?, 1, 1, 3600, 'claim', ?, ?)
+                """,
+                (
+                    "uid_reserved",
+                    self.project_id,
+                    "tenant_q",
+                    0.75,
+                    "2026-01-01T00:00:00Z",
+                    "2026-01-01T00:00:00Z",
+                ),
+            )
+
+        self.quotas.reserve_provisioning(
+            request=AdmissionRequest(
+                tenant_id="tenant_q",
+                time_limit_seconds=3600,
+                price_usd_per_hour=0.75,
+                gpu_count=1,
+                sandbox_uid="uid_reserved",
+            ),
+            reservation=reserve,
+        )
+        with self.assertRaises(PermissionDeniedError) as ctx:
+            self.quotas.check_admission(
+                request=AdmissionRequest(
+                    tenant_id="tenant_q",
+                    time_limit_seconds=3600,
+                    price_usd_per_hour=0.75,
+                    gpu_count=1,
+                    sandbox_uid="uid_second",
+                )
+            )
+        self.assertEqual(ctx.exception.details.get("quota"), "usd_budget")
+
+    def test_active_unknown_duration_fails_closed(self) -> None:
+        self.quotas.set_quota(tenant_id="tenant_q", usd_budget=10.0)
+        with self.store.transaction() as conn:
+            conn.execute(
+                """
+                INSERT INTO sandboxes (
+                  sandbox_uid, project_id, tenant_id, status, price_usd_per_hour,
+                  price_known, gpu_count, time_limit, created_at, updated_at
+                ) VALUES (?, ?, ?, 'running', 1, 1, 0, 0, ?, ?)
+                """,
+                (
+                    "uid_unknown_duration",
+                    self.project_id,
+                    "tenant_q",
+                    "2026-01-01T00:00:00Z",
+                    "2026-01-01T00:00:00Z",
+                ),
+            )
+        with self.assertRaises(PermissionDeniedError) as ctx:
+            self.quotas.check_admission(
+                request=AdmissionRequest(
+                    tenant_id="tenant_q",
+                    time_limit_seconds=3600,
+                    price_usd_per_hour=1.0,
+                    gpu_count=0,
+                )
+            )
+        self.assertEqual(ctx.exception.details.get("unresolved"), "duration")
+
+    def test_lifetime_extension_replaces_current_reservation(self) -> None:
+        self.quotas.set_quota(tenant_id="tenant_q", usd_budget=2.1)
+        with self.store.transaction() as conn:
+            conn.execute(
+                """
+                INSERT INTO sandboxes (
+                  sandbox_uid, project_id, tenant_id, status, price_usd_per_hour,
+                  price_known, gpu_count, time_limit, expires_at, created_at, updated_at
+                ) VALUES (?, ?, ?, 'running', 1, 1, 1, 3600, ?, ?, ?)
+                """,
+                (
+                    "uid_extend",
+                    self.project_id,
+                    "tenant_q",
+                    "2999-01-01T01:00:00Z",
+                    "2026-01-01T00:00:00Z",
+                    "2026-01-01T00:00:00Z",
+                ),
+            )
+        reserved: list[bool] = []
+        self.quotas.check_lifetime_extension(
+            tenant_id="tenant_q",
+            total_time_limit_seconds=7200,
+            price_usd_per_hour=1.0,
+            gpu_count=1,
+            sandbox_uid="uid_extend",
+            remaining_time_limit_seconds=7200,
+            reservation=lambda conn: reserved.append(True),
+        )
+        self.assertEqual(reserved, [True])
+        self.quotas.set_quota(tenant_id="tenant_q", usd_budget=1.5)
+        with self.assertRaises(PermissionDeniedError):
+            self.quotas.check_lifetime_extension(
+                tenant_id="tenant_q",
+                total_time_limit_seconds=7200,
+                price_usd_per_hour=1.0,
+                gpu_count=1,
+                sandbox_uid="uid_extend",
+                remaining_time_limit_seconds=7200,
+            )
 
     def test_open_generation_bills_to_now(self) -> None:
         # An open generation started 4h ago bills 4 GPU-hours at "now".
@@ -480,6 +634,144 @@ class QuotaProvisionRecordingTest(unittest.TestCase):
         self.assertAlmostEqual(float(gens[0]["price_usd_per_hour"]), 1.29)
         # Local mode: the generation row carries the implicit 'local' tenant.
         self.assertEqual(gens[0]["tenant_id"], "local")
+
+    def test_multi_gpu_generation_persists_count_and_bills_gpu_hours(self) -> None:
+        exp_id = self._experiment()
+        self.app.call_tool(
+            "sandbox.request",
+            {
+                "project_id": self.project_id,
+                "experiment_id": exp_id,
+                "instance_type": "gpu_8x_h100",
+            },
+        )
+        with self.store.transaction() as conn:
+            row = conn.execute(
+                "SELECT gpu_count FROM sandbox_generations WHERE experiment_id = ?",
+                (exp_id,),
+            ).fetchone()
+            conn.execute(
+                "UPDATE sandbox_generations SET started_at = ?, ended_at = ? "
+                "WHERE experiment_id = ?",
+                (
+                    "2026-01-01T00:00:00Z",
+                    "2026-01-01T02:00:00Z",
+                    exp_id,
+                ),
+            )
+        self.assertEqual(int(row["gpu_count"]), 8)
+        spend = QuotaService(store=self.store).tenant_spend(
+            tenant_id="local", now=datetime(2026, 1, 1, 3, 0, tzinfo=UTC)
+        )
+        self.assertAlmostEqual(spend["gpu_hours"], 16.0)
+
+    def test_generation_failure_cannot_leave_a_running_unbilled_sandbox(self) -> None:
+        exp_id = self._experiment()
+        with patch.object(
+            self.app.sandboxes.registry,
+            "record_generation",
+            side_effect=RuntimeError("ledger unavailable"),
+        ):
+            result = self.app.call_tool(
+                "sandbox.request",
+                {
+                    "project_id": self.project_id,
+                    "experiment_id": exp_id,
+                    "instance_type": "gpu_1x_a10",
+                },
+            )
+        self.assertEqual(result["status"], "failed")
+        self.assertTrue(self.backend.terminated)
+        conn = self.store.connect()
+        try:
+            count = conn.execute(
+                "SELECT COUNT(*) AS n FROM sandbox_generations WHERE experiment_id = ?",
+                (exp_id,),
+            ).fetchone()
+        finally:
+            conn.close()
+        self.assertEqual(int(count["n"]), 0)
+
+    def test_actual_provider_price_is_revalidated_before_running(self) -> None:
+        with self.store.transaction() as conn:
+            conn.execute(
+                "UPDATE projects SET tenant_id = 'tenant_actual' WHERE id = ?",
+                (self.project_id,),
+            )
+        QuotaService(store=self.store).set_quota(
+            tenant_id="tenant_actual", usd_budget=1.0
+        )
+        original = self.backend.acquire
+
+        def acquire(**kwargs):
+            return replace(original(**kwargs), price_usd_per_hour=2.0)
+
+        self.backend.acquire = acquire  # type: ignore[method-assign]
+        result = self.app.call_tool(
+            "sandbox.request",
+            {
+                "project_id": self.project_id,
+                "experiment_id": self._experiment(),
+                "instance_type": "gpu_1x_a10",
+            },
+        )
+        self.assertEqual(result["status"], "failed")
+        self.assertTrue(self.backend.terminated)
+        conn = self.store.connect()
+        try:
+            count = conn.execute(
+                "SELECT COUNT(*) AS n FROM sandbox_generations"
+            ).fetchone()
+            reserved = conn.execute(
+                "SELECT price_usd_per_hour, price_known FROM sandboxes"
+            ).fetchone()
+        finally:
+            conn.close()
+        self.assertEqual(int(count["n"]), 0)
+        self.assertEqual(
+            (float(reserved["price_usd_per_hour"]), int(reserved["price_known"])),
+            (2.0, 1),
+        )
+
+    def test_parallel_requests_cannot_overbook_concurrency(self) -> None:
+        with self.store.transaction() as conn:
+            conn.execute(
+                "UPDATE projects SET tenant_id = 'tenant_race' WHERE id = ?",
+                (self.project_id,),
+            )
+        QuotaService(store=self.store).set_quota(
+            tenant_id="tenant_race", max_concurrent_sandboxes=1
+        )
+        self.app.sandboxes.request_wait_seconds = 0.05
+        self.backend.gate = threading.Event()
+        barrier = threading.Barrier(2)
+
+        def request() -> dict | PermissionDeniedError:
+            barrier.wait()
+            try:
+                return self.app.sandboxes.request(
+                    project_id=self.project_id,
+                    public_key="ssh-ed25519 AAAA race@test",
+                    instance_type="gpu_1x_a10",
+                    include_data_plane_enrichment=False,
+                )
+            except PermissionDeniedError as exc:
+                return exc
+
+        try:
+            with ThreadPoolExecutor(max_workers=2) as pool:
+                results = list(pool.map(lambda _: request(), range(2)))
+        finally:
+            self.backend.gate.set()
+
+        admitted = [result for result in results if isinstance(result, dict)]
+        denied = [
+            result for result in results if isinstance(result, PermissionDeniedError)
+        ]
+        self.assertEqual(len(admitted), 1, results)
+        self.assertEqual(admitted[0]["status"], "provisioning")
+        self.assertEqual(len(denied), 1)
+        self.assertEqual(denied[0].details.get("quota"), "max_concurrent_sandboxes")
 
     def test_each_provision_appends_a_generation_row(self) -> None:
         exp_id = self._experiment()

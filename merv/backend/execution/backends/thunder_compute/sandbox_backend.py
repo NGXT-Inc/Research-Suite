@@ -36,7 +36,7 @@ from .config import ThunderSandboxConfig
 
 BOOTSTRAP_SSH_TIMEOUT_SECONDS = 900
 ACTIVE_INSTANCE_STATUSES = frozenset({"running"})
-LIVE_INSTANCE_STATUSES = frozenset({"starting", "running"})
+GONE_INSTANCE_STATUSES = frozenset({"terminated"})
 TERMINAL_INSTANCE_STATUSES = frozenset({"terminated", "terminating", "stopped", "failed"})
 
 THUNDER_APT_PACKAGES: tuple[str, ...] = (
@@ -152,6 +152,7 @@ class ThunderComputeSandboxBackend(VmSshSandboxBackend):
                 sandbox_data_dir=self.config.sandbox_data_dir,
                 reused=False,
                 gpu=str(option.get("gpu") or request.gpu or ""),
+                gpu_count=max(1, int(option.get("gpu_count") or 1)),
                 cpu=float(option["vcpus"]),
                 memory=int(option.get("memory_gib") or 0) * 1024 or None,
                 instance_type=instance_type,
@@ -176,7 +177,7 @@ class ThunderComputeSandboxBackend(VmSshSandboxBackend):
         instance = instances.get(str(sandbox_id))
         if instance is None:
             return False
-        return _status(instance) in LIVE_INSTANCE_STATUSES
+        return _status(instance) not in GONE_INSTANCE_STATUSES
 
     def terminate(self, *, sandbox_id: str) -> bool:
         if not sandbox_id:
@@ -237,12 +238,9 @@ class ThunderComputeSandboxBackend(VmSshSandboxBackend):
         self, *, experiment_id: str, sandbox_uid: str = ""
     ) -> str | None:
         marker = f"merv-mgmt-{sandbox_uid or experiment_id}"
-        try:
-            instances = self.client.list_instances()
-        except Exception:  # noqa: BLE001
-            return None
+        instances = self.client.list_instances()
         for fallback_id, row in instances.items():
-            if _status(row) not in LIVE_INSTANCE_STATUSES:
+            if _status(row) in GONE_INSTANCE_STATUSES:
                 continue
             if _contains_key_comment(row, marker):
                 return str(row.get("id") or row.get("identifier") or fallback_id)

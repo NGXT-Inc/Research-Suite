@@ -152,6 +152,7 @@ class FakeSandboxBackend(SandboxBackendBase):
             sandbox_data_dir=DEFAULT_DATA_DIR,
             reused=False,
             gpu=request.gpu or "",
+            gpu_count=self._gpu_count_for(request.instance_type, gpu=request.gpu),
             instance_type=request.instance_type or "",
             region=request.region or "",
             # Cloud plan Phase 7: quote the catalog price for the chosen SKU so
@@ -178,6 +179,19 @@ class FakeSandboxBackend(SandboxBackendBase):
             if str(option.get("instance_type") or "") == instance_type:
                 return float(option.get("price_usd_per_hour") or 0.0)
         return 0.0
+
+    def _gpu_count_for(self, instance_type: str | None, *, gpu: str | None) -> int:
+        if not instance_type:
+            return 1 if gpu else 0
+        options = (
+            self._default_catalog_options()
+            if self._catalog_options is None
+            else self._catalog_options
+        )
+        for option in options:
+            if str(option.get("instance_type") or "") == instance_type:
+                return max(1, int(option.get("gpu_count") or 1))
+        return 1
 
     def refresh_ssh_endpoint(self, *, sandbox_id: str) -> tuple[str, int] | None:
         if not self.alive.get(sandbox_id):

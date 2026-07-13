@@ -285,6 +285,17 @@ class FakeObjectStore:
             except FileNotFoundError:
                 pass
 
+    def abort_upload(self, *, upload_id: str) -> bool:
+        meta = self.uploads.get(upload_id)
+        if meta is None:
+            return False
+        try:
+            meta["path"].unlink()
+        except FileNotFoundError:
+            pass
+        self.uploads.pop(upload_id)
+        return True
+
     def presign_download(self, *, namespace: str, sha256: str, expires_in: int) -> dict:
         import tempfile
         from pathlib import Path as _Path

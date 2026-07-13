@@ -29,8 +29,15 @@ def build_router(ctx: ApiRouteContext) -> APIRouter:
         return api_for_project(project_id).call_tool(name="review.status", arguments={"project_id": project_id, "target_type": target_type, "target_id": target_id})
 
     @api_router.post("/api/projects/{project_id}/reviews/request", status_code=201)
-    def request_review(project_id: str, body: JsonBody = Body(default=None)) -> dict[str, Any]:
-        return api_for_project(project_id).call_tool(name="review.request", arguments={"project_id": project_id, **(body or {})})
+    def request_review(
+        project_id: str, request: Request, body: JsonBody = Body(default=None)
+    ) -> dict[str, Any]:
+        return route_call_tool(
+            name="review.request",
+            arguments={**(body or {}), "project_id": project_id},
+            activity_source="http",
+            principal=getattr(request.state, "principal", LOCAL_PRINCIPAL),
+        )
 
     @api_router.post("/api/projects/{project_id}/reviews/start")
     def start_review(
@@ -47,6 +54,5 @@ def build_router(ctx: ApiRouteContext) -> APIRouter:
     @api_router.post("/api/projects/{project_id}/reviews/submit")
     def submit_review(project_id: str, body: JsonBody = Body(default=None)) -> dict[str, Any]:
         return api_for_project(project_id).submit_review(project_id=project_id, body=body or {})
-
 
     return api_router

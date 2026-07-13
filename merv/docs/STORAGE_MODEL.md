@@ -32,10 +32,11 @@ resources, or expensive to regenerate.
 ## Mental model
 
 The brain keeps a **ledger** of named aliases. Each alias points at a physical,
-content-addressed object (`sha256`) living in a bucket. The brain records the
-ledger and mints presigned URLs; it never proxies the object bytes. On the
-agent-facing path, the local MCP proxy computes the checksum and streams a
-checkout file directly to or from the object store.
+content-addressed object (`sha256`) living in a bucket. The local MCP proxy
+computes the checksum and uses presigned URLs for normal upload/download
+traffic. During S3-compatible completion, the brain reads staged multipart
+bytes to recompute SHA-256 and streams verified staged bytes to the final CAS
+key. That validation/promotion traffic therefore passes through the brain.
 
 Nothing is automatic. An object lands in storage only because the agent decided a
 file is worth keeping and called `storage.upload_file`; downloading is equally
@@ -57,7 +58,7 @@ checkout through the MCP proxy.
   "content_type": "application/x-tar",
   "namespace": "proj_...",
   "status": "uploading | completing | available | expired | deleted",
-  "expires_at": "2026-08-24T14:21:03Z",   // null while uploading or when pinned
+  "expires_at": "2026-08-24T14:21:03Z",   // new rows: null only when pinned
   "created_by": "codex | user",
   "producing_experiment_id": "exp_...",     // soft provenance — plain strings
   "producing_run": "",
@@ -88,18 +89,21 @@ non-available historical rows do not suppress a new version.
 
 ## TTL / lifecycle
 
-- A new upload intent has no expiry while it is `uploading`. Completion assigns
+- A new upload intent receives a one-hour deadline while it is `uploading`;
+  entering `completing` refreshes that deadline. Completion assigns
   `expires_at = now + 60 days`; a deduplicated alias created directly as
-  `available` receives the same deadline.
+  `available` receives the same deadline. Legacy pending rows from before this
+  policy can still have a null deadline and must be drained during cutover.
 - **Access auto-extends:** every `storage.find` resolve-mode call resets the
   clock to `now + 60d`, extend-only — it never shortens. `include_download`
   controls whether the response also contains a presigned URL, not the access
   update.
 - **Pin** clears `expires_at` (kept forever); **unpin/renew** restore a 60-day
   deadline.
-- **Sweep:** `CleanupService` calls `sweep_expired`, which marks due rows
-  `expired` and reclaims the physical object **only when the last active alias for
-  a sha is gone** (refcount).
+- **Sweep:** `CleanupService` calls `sweep_expired`, which aborts due staged
+  uploads, marks due rows `expired`, and reclaims a final physical object
+  **only when the last active alias for a sha is gone** (refcount). Provider
+  deletion/abort must succeed before the ledger releases its byte reservation.
 
 ## Operations (`storage.*` MCP tools)
 
@@ -144,9 +148,10 @@ Hidden primitives (manual presign path):
 - `storage.complete_upload(project_id, upload_id, parts?)` — finalize after the
   producer streamed bytes, apply the provider-specific verification available,
   and set `available` plus a 60-day TTL. S3 single-part completion requires a
-  matching provider `ChecksumSHA256` and enforces the declared size as a maximum;
-  multipart completion checks exact size but does not re-download the object to
-  recompute SHA-256.
+  matching provider `ChecksumSHA256`; both modes require the exact declared
+  size. Multipart completion streams the staged object to recompute SHA-256.
+  Verified bytes are promoted from an upload-specific quarantine key to the
+  final content-addressed key.
 
 ## HTTP surface (read + lifecycle, for the UI)
 
@@ -164,9 +169,10 @@ One `ObjectStore` port; one production implementation:
 
 - `S3CompatibleObjectStore` — one class for **Cloudflare R2, AWS S3, and MinIO**,
   parameterized by `endpoint_url` + region (boto3 lazy-imported). Large files
-  use multipart presigned uploads. Completion uses the provider metadata and
-  checksum guarantees described above; it never re-downloads multi-gigabyte
-  objects to recompute their checksum.
+  use multipart presigned uploads. Uploads first land under an upload-specific
+  quarantine key. Completion checks exact length, recomputes multipart SHA-256,
+  and only then streams the object to its final content-addressed key. Plan
+  brain bandwidth, completion latency, and provider request cost accordingly.
 
 Storage is optional and disabled when `RESEARCH_PLUGIN_STORAGE_PROVIDER` is
 unset; disabled backends do not advertise `storage.*` tools. The required S3
@@ -176,6 +182,16 @@ Credentials may come from the storage-specific variables, the standard `AWS_*`
 variables, or boto's normal credential chain. Local non-cloud deployments can
 run MinIO and set an endpoint URL. Users bring their own S3-like storage by
 configuration; no code change is required.
+
+## Byte quotas
+
+`tenant_quotas.blob_bytes_budget` is enforced by the heavy-object ledger. The
+quota check and ledger reservation share one database transaction: every
+`uploading`/`completing` intent reserves its declared size, while available
+content is charged once per project and SHA to match project-scoped physical
+namespaces. Failed provider abort/delete operations keep the row and quota
+reserved for retry. The quota does not account for out-of-band bucket writes or
+provider orphans that bypass `StorageLedgerService`.
 
 ## State placement
 
@@ -188,7 +204,8 @@ would leak content existence.
 ## Rules
 
 - Identity is `(project_id, name, version)`; physical bytes are shared by `sha256`.
-- The brain never proxies object bytes — producers PUT/GET via presigned URLs.
+- Producers PUT/GET via presigned URLs; S3-compatible completion reads staged
+  bytes for multipart verification and streams them again for CAS promotion.
 - Deleting an alias keeps its ledger row (audit) and reclaims bytes only when
   no active (`uploading`, `completing`, or `available`) alias references them.
 - A reaped sandbox does NOT auto-save its outputs — saving is always an explicit

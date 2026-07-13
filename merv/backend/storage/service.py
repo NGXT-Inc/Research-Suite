@@ -7,6 +7,7 @@ from datetime import datetime
 from pathlib import Path
 from typing import Any
 
+from ..ports.blob_quota_admission import BlobQuotaAdmission
 from ..ports.object_store import ObjectStore
 from ..domain.storage_guidance import storage_guidance
 from ..storage.blobs import _validate_keys
@@ -49,9 +50,16 @@ def objects_for_experiment(
 class StorageLedgerService:
     """Ledger + lifecycle owner for project-scoped heavy objects."""
 
-    def __init__(self, *, store: BaseStateStore, objects: ObjectStore) -> None:
+    def __init__(
+        self,
+        *,
+        store: BaseStateStore,
+        objects: ObjectStore,
+        blob_quotas: BlobQuotaAdmission,
+    ) -> None:
         self.store = store
         self.objects = objects
+        self.blob_quotas = blob_quotas
 
     def put_object(
         self,
@@ -70,6 +78,8 @@ class StorageLedgerService:
     ) -> dict[str, Any]:
         self._validate_kind(kind)
         self._validate_name(name)
+        if int(size_bytes) < 0:
+            raise ValidationError("storage object size_bytes cannot be negative")
         content_type = content_type or "application/octet-stream"
         with self.store.transaction() as conn:
             project_id = self.store.require_project_id(conn=conn, project_id=project_id)
@@ -92,6 +102,12 @@ class StorageLedgerService:
             version = self._next_version(conn=conn, project_id=project_id, name=name)
             stat = self.objects.stat(namespace=namespace, sha256=sha256)
             if stat is not None:
+                self.blob_quotas.check_reservation(
+                    conn=conn,
+                    project_id=project_id,
+                    sha256=sha256,
+                    size_bytes=int(stat.size_bytes),
+                )
                 row = self._insert_object(
                     conn=conn,
                     project_id=project_id,
@@ -114,6 +130,12 @@ class StorageLedgerService:
                 self._record(conn=conn, project_id=project_id, event_type="storage.registered", row=row)
                 return {"deduped": True, "object": self._hydrate(row=row)}
 
+            self.blob_quotas.check_reservation(
+                conn=conn,
+                project_id=project_id,
+                sha256=sha256,
+                size_bytes=int(size_bytes),
+            )
             upload = self.objects.presign_upload(
                 namespace=namespace,
                 sha256=sha256,
@@ -133,7 +155,7 @@ class StorageLedgerService:
                 namespace=namespace,
                 status="uploading",
                 upload_id=str(upload["upload_id"]),
-                expires_at=None,
+                expires_at=iso_after(seconds=PRESIGN_TTL_SECONDS),
                 created_by=created_by,
                 producing_experiment_id=producing_experiment_id,
                 producing_run=producing_run,
@@ -272,16 +294,35 @@ class StorageLedgerService:
             cursor = conn.execute(
                 """
                 UPDATE storage_objects
-                SET status = 'completing', updated_at = ?
+                SET status = 'completing', expires_at = ?, updated_at = ?
                 WHERE project_id = ? AND upload_id = ? AND status = 'uploading'
                 """,
-                (now_iso(), project_id, upload_id),
+                (
+                    iso_after(seconds=PRESIGN_TTL_SECONDS),
+                    now_iso(),
+                    project_id,
+                    upload_id,
+                ),
             )
             if int(getattr(cursor, "rowcount", 0)) != 1:
                 raise NotFoundError(f"upload not found in project {project_id}: {upload_id}")
             row = self._get_by_upload(conn=conn, project_id=project_id, upload_id=upload_id)
         try:
             stat = self.objects.complete_upload(upload_id=upload_id, parts=parts)
+        except (ValidationError, NotFoundError):
+            with self.store.transaction() as conn:
+                project_id = self.store.require_project_id(
+                    conn=conn, project_id=project_id
+                )
+                conn.execute(
+                    """
+                    UPDATE storage_objects
+                    SET status = 'deleted', updated_at = ?
+                    WHERE project_id = ? AND upload_id = ? AND status = 'completing'
+                    """,
+                    (now_iso(), project_id, upload_id),
+                )
+            raise
         except Exception:
             with self.store.transaction() as conn:
                 project_id = self.store.require_project_id(conn=conn, project_id=project_id)
@@ -496,6 +537,16 @@ class StorageLedgerService:
                 raise ValidationError(
                     f"storage object is completing and cannot be deleted: {object_id}"
                 )
+            reclaimed = self._reclaim_if_unreferenced(
+                conn=conn,
+                namespace=str(row["namespace"]),
+                sha256=str(row["content_sha256"]),
+                exclude_object_id=object_id,
+            )
+            if str(row["status"]) == "uploading":
+                upload_id = str(row["upload_id"])
+                if not self.objects.abort_upload(upload_id=upload_id):
+                    raise NotFoundError(f"upload cleanup target not found: {upload_id}")
             now = now_iso()
             conn.execute(
                 "UPDATE storage_objects SET status = 'deleted', updated_at = ? WHERE id = ?",
@@ -509,26 +560,35 @@ class StorageLedgerService:
                 row=updated,
             )
             obj = self._hydrate(row=updated)
-            namespace = str(row["namespace"])
-            sha256 = str(row["content_sha256"])
-        reclaimed = self._reclaim_if_unreferenced_after_commit(namespace=namespace, sha256=sha256)
         return {"deleted": True, "reclaimed": reclaimed, "object": obj}
 
     def sweep_expired(self, *, now: str | datetime | None = None) -> int:
         cutoff = self._cutoff(now=now)
         swept = 0
-        freed: list[tuple[str, str]] = []
         with self.store.transaction() as conn:
             rows = conn.execute(
                 """
                 SELECT *
                 FROM storage_objects
-                WHERE status = 'available' AND expires_at IS NOT NULL AND expires_at <= ?
+                WHERE status IN ('available', 'uploading', 'completing')
+                  AND expires_at IS NOT NULL AND expires_at <= ?
                 ORDER BY created_seq
                 """,
                 (cutoff,),
             ).fetchall()
             for row in rows:
+                self._reclaim_if_unreferenced(
+                    conn=conn,
+                    namespace=str(row["namespace"]),
+                    sha256=str(row["content_sha256"]),
+                    exclude_object_id=str(row["id"]),
+                )
+                if str(row["status"]) in {"uploading", "completing"}:
+                    aborted = self.objects.abort_upload(upload_id=str(row["upload_id"]))
+                    if not aborted and str(row["status"]) == "uploading":
+                        raise NotFoundError(
+                            f"upload cleanup target not found: {row['upload_id']}"
+                        )
                 conn.execute(
                     "UPDATE storage_objects SET status = 'expired', updated_at = ? WHERE id = ?",
                     (cutoff, row["id"]),
@@ -542,10 +602,7 @@ class StorageLedgerService:
                     event_type="storage.expired",
                     row=updated,
                 )
-                freed.append((str(row["namespace"]), str(row["content_sha256"])))
                 swept += 1
-        for namespace, sha256 in freed:
-            self._reclaim_if_unreferenced_after_commit(namespace=namespace, sha256=sha256)
         return swept
 
     def _insert_object(
@@ -690,16 +747,26 @@ class StorageLedgerService:
             return self._reclaim_if_unreferenced(conn=conn, namespace=namespace, sha256=sha256)
 
     def _reclaim_if_unreferenced(
-        self, *, conn: Connection, namespace: str, sha256: str
+        self,
+        *,
+        conn: Connection,
+        namespace: str,
+        sha256: str,
+        exclude_object_id: str | None = None,
     ) -> bool:
+        excluded = " AND id != ?" if exclude_object_id is not None else ""
+        params = [namespace, sha256]
+        if exclude_object_id is not None:
+            params.append(exclude_object_id)
         remaining = conn.execute(
-            """
+            f"""
             SELECT COUNT(*) AS count
             FROM storage_objects
             WHERE namespace = ? AND content_sha256 = ?
               AND status IN ('uploading', 'completing', 'available')
+              {excluded}
             """,
-            (namespace, sha256),
+            params,
         ).fetchone()
         if int(remaining["count"]) > 0:
             return False

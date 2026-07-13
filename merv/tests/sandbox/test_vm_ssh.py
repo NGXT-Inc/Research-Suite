@@ -1,18 +1,37 @@
 from __future__ import annotations
 
 import base64
+import os
 import sys
 import unittest
+from unittest.mock import patch
 
 from backend.execution.transcript_wire import (
     parse_transcript_tail,
     transcript_tail_command,
 )
-from backend.execution.vm_ssh import run_ssh, run_ssh_input
+from backend.execution.vm_ssh import run_ssh, run_ssh_input, ssh_command
 from backend.sandbox.sandbox_backend import TranscriptTail
 
 
 class VmSshSubprocessDecodeTest(unittest.TestCase):
+    def test_management_ssh_requires_a_pinned_host_key(self) -> None:
+        with patch.dict(
+            os.environ,
+            {"RESEARCH_PLUGIN_MGMT_KNOWN_HOSTS_FILE": "/run/rp/known_hosts"},
+        ):
+            command = ssh_command(
+                host="198.51.100.7",
+                port=31995,
+                user="rpmgmt",
+                key_path="/keys/mgmt",
+                remote_command="true",
+            )
+
+        self.assertIn("StrictHostKeyChecking=yes", command)
+        self.assertIn("UserKnownHostsFile=/run/rp/known_hosts", command)
+        self.assertNotIn("StrictHostKeyChecking=no", command)
+
     def test_run_ssh_replaces_invalid_utf8_output(self) -> None:
         result = run_ssh(
             [

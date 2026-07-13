@@ -271,6 +271,19 @@ class ThunderBackendTest(unittest.TestCase):
         self.assertEqual(backend.find_sandbox_id(experiment_id="exp1"), "8")
         self.assertIsNone(backend.find_sandbox_id(experiment_id="other"))
 
+    def test_terminating_instance_remains_alive_and_findable(self) -> None:
+        client = FakeThunderClient()
+        client.list_instances = lambda: {
+            "8": {
+                "status": "terminating",
+                "sshPublicKeys": ["ssh-ed25519 AAAAmgmt merv-mgmt-exp1"],
+            }
+        }
+        backend, _, _, _ = self._backend(client=client)
+
+        self.assertTrue(backend.is_alive(sandbox_id="8"))
+        self.assertEqual(backend.find_sandbox_id(experiment_id="exp1"), "8")
+
     def test_acquire_creates_vm_without_user_data_then_bootstraps_over_ssh(self) -> None:
         backend, client, bootstrap, ssh = self._backend()
 

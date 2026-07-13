@@ -39,7 +39,7 @@ from .config import LambdaSandboxConfig
 # Legacy rec.sh bypass sentinel; tests assert VM reads no longer send it.
 TRANSCRIPT_READ_PREFIX = "rp-transcript-read:"
 ACTIVE_INSTANCE_STATUSES = frozenset({"active"})
-LIVE_INSTANCE_STATUSES = frozenset({"booting", "active", "unhealthy"})
+GONE_INSTANCE_STATUSES = frozenset({"terminated", "preempted"})
 
 
 LAMBDA_APT_PACKAGES: tuple[str, ...] = (
@@ -168,6 +168,7 @@ class LambdaLabsSandboxBackend(VmSshSandboxBackend):
                 sandbox_data_dir=self.config.sandbox_data_dir,
                 reused=False,
                 gpu=str(specs.get("gpu") or request.gpu or ""),
+                gpu_count=max(1, int(specs.get("gpu_count") or 1)),
                 cpu=float(specs["vcpus"]) if specs.get("vcpus") else None,
                 memory=int(specs["memory_gib"]) * 1024 if specs.get("memory_gib") else None,
                 instance_type=instance_type,
@@ -196,7 +197,7 @@ class LambdaLabsSandboxBackend(VmSshSandboxBackend):
             if exc.status == 404:
                 return False  # authoritative: the instance no longer exists
             raise  # outage/timeout — callers must not read this as "gone"
-        return str(instance.get("status") or "") in LIVE_INSTANCE_STATUSES
+        return str(instance.get("status") or "").lower() not in GONE_INSTANCE_STATUSES
 
     def terminate(self, *, sandbox_id: str) -> bool:
         if not sandbox_id:
@@ -236,12 +237,11 @@ class LambdaLabsSandboxBackend(VmSshSandboxBackend):
         self, *, experiment_id: str, sandbox_uid: str = ""
     ) -> str | None:
         name = _sandbox_name(sandbox_uid or experiment_id)
-        try:
-            for instance in self.client.list_instances():
-                if instance.get("name") == name and str(instance.get("status") or "") in LIVE_INSTANCE_STATUSES:
-                    return str(instance.get("id") or "") or None
-        except Exception:  # noqa: BLE001
-            return None
+        for instance in self.client.list_instances():
+            if instance.get("name") == name and str(
+                instance.get("status") or ""
+            ).lower() not in GONE_INSTANCE_STATUSES:
+                return str(instance.get("id") or "") or None
         return None
 
     def hardware_catalog(

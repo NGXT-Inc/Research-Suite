@@ -63,11 +63,13 @@ graph:
 | Preset | Brain location | Record/blob defaults | Intended exposure |
 |---|---|---|---|
 | `local` | `http://127.0.0.1:8787` | SQLite and local-directory blobs | Loopback development; no user auth |
-| `control` | Operator-provided HTTPS URL | Postgres and S3-compatible stores | Private operator service behind TLS and network controls |
+| `control` | Operator-provided HTTPS URL | Postgres and S3-compatible stores | Supabase-authenticated operator service behind TLS and network controls |
 
-The hosted control surface does not currently implement end-user authentication.
-CORS and the client-version floor are not authentication; a hosted brain must
-remain behind trusted infrastructure.
+Hosted control refuses startup without a Supabase verifier and authorizes
+project access through membership. CORS and the client-version floor remain
+separate browser/compatibility controls. Operator routes do not have a distinct
+administrator role, so a hosted brain must still remain behind trusted
+infrastructure.
 
 ### Local MCP proxy
 

@@ -278,17 +278,19 @@ class ModalSandboxBackend(SandboxBackendBase):
             unsynced_dir=sandbox_data_dir,
             sandbox_data_dir=sandbox_data_dir,
             reused=False,
+            gpu=request.gpu or "",
+            gpu_count=1 if request.gpu else 0,
         )
 
     def find_sandbox_id(
         self, *, experiment_id: str, sandbox_uid: str = ""
     ) -> str | None:
-        """Best-effort lookup of a sandbox we created for this experiment by name.
+        """Lookup a sandbox we created for this experiment by name.
 
         Used by the registry to reconcile a provisioning row whose daemon-side
         job died before it recorded the sandbox id (e.g. a restart mid-provision)
         — the orphan still holds the deterministic name, so we can find and adopt
-        or clean it up. Returns None if no such sandbox exists.
+        or clean it up. Returns None only when Modal confirms no such sandbox exists.
         """
         name = _sandbox_name(sandbox_uid or experiment_id)
         if not name:
@@ -297,8 +299,10 @@ class ModalSandboxBackend(SandboxBackendBase):
             modal = self._modal_module()
             sandbox = modal.Sandbox.from_name(self.config.app_name, name)
             return str(getattr(sandbox, "object_id", "") or "") or None
-        except Exception:  # noqa: BLE001 — not found / unreachable
-            return None
+        except Exception as exc:  # noqa: BLE001
+            if "notfound" in type(exc).__name__.lower():
+                return None
+            raise
 
     def is_alive(self, *, sandbox_id: str) -> bool:
         if not sandbox_id:

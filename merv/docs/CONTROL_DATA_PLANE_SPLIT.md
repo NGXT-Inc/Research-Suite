@@ -98,15 +98,15 @@ brain-side operational credentials.
 
 | Deployment | Brain URL | State/blob defaults | Auth/CORS | Proxy role |
 |---|---|---|---|---|
-| Hosted (default) | `https://experiments.rapidreview.io` | durable DB + submitted-byte blob store; optional heavy-object store | private operator surface; no end-user auth | same thick data plane |
+| Hosted (default) | `https://experiments.rapidreview.io` | durable DB + submitted-byte blob store; optional heavy-object store | mandatory Supabase auth; restricted CORS by default | same thick data plane |
 | Local | `http://127.0.0.1:8787` | SQLite + local-dir blobs | no auth; foreign browser origins rejected | same thick data plane |
 
 `RESEARCH_PLUGIN_MODE` names the preset used to start the brain. It does not
 create a second composition path.
 
-CORS and the client-version floor are not authentication. Until an end-user
-authentication layer exists, hosted control must remain behind trusted network
-and operator access controls.
+CORS and the client-version floor are not authentication. Hosted control
+refuses startup without its Supabase verifier, and CORS stays independently
+restricted by default.
 
 ## Related
 

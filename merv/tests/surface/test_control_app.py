@@ -1,10 +1,12 @@
 from __future__ import annotations
 
 import tempfile
+import time
 import unittest
 from pathlib import Path
 from unittest.mock import patch
 
+import jwt
 from fastapi.testclient import TestClient
 
 from backend.composition.control_mode import build_control_app
@@ -30,6 +32,11 @@ from backend.transport.http_policy import HttpSurfacePolicy
 from backend.state import StateStore
 from backend.storage.blobs import LocalDirBlobStore
 from backend.sandbox.managed_mgmt_keys import MountedMgmtKeyStore
+from backend.services.auth import (
+    SUPABASE_JWT_SECRET_ENV_VAR,
+    SUPABASE_URL_ENV_VAR,
+    SupabaseVerifier,
+)
 from backend.utils import ValidationError
 from backend.version import CLIENT_VERSION_HEADER
 
@@ -42,6 +49,38 @@ def _mounted_mgmt_key_env(root: Path) -> dict[str, str]:
         MGMT_KEY_PATH_ENV_VAR: str(key_path),
         MGMT_PUBLIC_KEY_ENV_VAR: "ssh-ed25519 AAAAmanaged",
     }
+
+
+_HOSTED_USER_ID = "11111111-1111-1111-1111-111111111111"
+_HOSTED_JWT_SECRET = "hosted-test-secret"
+
+
+def _hosted_env(root: Path) -> dict[str, str]:
+    return {
+        **_mounted_mgmt_key_env(root),
+        SUPABASE_URL_ENV_VAR: "https://example.supabase.co",
+        SUPABASE_JWT_SECRET_ENV_VAR: _HOSTED_JWT_SECRET,
+    }
+
+
+def _hosted_headers() -> dict[str, str]:
+    token = jwt.encode(
+        {
+            "sub": _HOSTED_USER_ID,
+            "aud": "authenticated",
+            "exp": int(time.time()) + 3600,
+        },
+        _HOSTED_JWT_SECRET,
+        algorithm="HS256",
+    )
+    return {"Authorization": f"Bearer {token}"}
+
+
+def _hosted_verifier() -> SupabaseVerifier:
+    return SupabaseVerifier(
+        supabase_url="https://example.supabase.co",
+        jwt_secret=_HOSTED_JWT_SECRET,
+    )
 
 
 class ControlAppTest(unittest.TestCase):
@@ -61,13 +100,13 @@ class ControlAppTest(unittest.TestCase):
                         restrict_cors=True,
                         hosted_control=True,
                     ),
+                    auth=_hosted_verifier(),
                 ),
+                headers=_hosted_headers(),
                 raise_server_exceptions=False,
             )
 
-            created = client.post(
-                "/api/projects", json={"name": "Control Telemetry"}
-            )
+            created = client.post("/api/projects", json={"name": "Control Telemetry"})
             self.assertEqual(created.status_code, 201, created.text)
             project_id = created.json()["id"]
             claim = client.post(
@@ -91,7 +130,7 @@ class ControlAppTest(unittest.TestCase):
                 result={"capability": "rp_result"},
             )
             listed = client.get(
-                "/api/debug/tool-calls?source=all&status=all",
+                f"/api/debug/tool-calls?source=all&status=all&project_id={project_id}",
             )
             self.assertEqual(listed.status_code, 200, listed.text)
             calls = listed.json()["calls"]
@@ -99,12 +138,17 @@ class ControlAppTest(unittest.TestCase):
             self.assertTrue(listed.json()["by_tool"])
             review_call = next(call for call in calls if call["tool"] == "review.start")
             detail = client.get(
-                f"/api/debug/tool-calls/{review_call['id']}",
+                f"/api/debug/tool-calls/{review_call['id']}?project_id={project_id}",
             )
             self.assertEqual(detail.status_code, 200, detail.text)
             self.assertEqual(detail.json()["args"]["reviewer_capability"], "[redacted]")
             self.assertEqual(detail.json()["result"]["capability"], "[redacted]")
-            activity = client.get("/api/activity")
+            cleared = client.post(
+                f"/api/debug/tool-calls/clear?project_id={project_id}"
+            )
+            self.assertEqual(cleared.status_code, 200, cleared.text)
+            self.assertGreaterEqual(cleared.json()["cleared"], 1)
+            activity = client.get(f"/api/activity?project_id={project_id}")
             self.assertEqual(activity.status_code, 200, activity.text)
             self.assertGreaterEqual(activity.json()["summary"]["total"], 1)
             names = {tool["name"] for tool in app.list_tools()}
@@ -128,7 +172,9 @@ class ControlAppTest(unittest.TestCase):
                         restrict_cors=True,
                         hosted_control=True,
                     ),
+                    auth=_hosted_verifier(),
                 ),
+                headers=_hosted_headers(),
                 raise_server_exceptions=False,
             )
 
@@ -177,7 +223,9 @@ class ControlAppTest(unittest.TestCase):
                         restrict_cors=True,
                         hosted_control=True,
                     ),
+                    auth=_hosted_verifier(),
                 ),
+                headers=_hosted_headers(),
                 raise_server_exceptions=False,
             )
 
@@ -432,10 +480,10 @@ class ControlAppTest(unittest.TestCase):
             server = build_control_server(
                 repo_root=root,
                 env={
-                    **_mounted_mgmt_key_env(root),
+                    **_hosted_env(root),
                     ALLOWED_ORIGINS_ENV_VAR: (
                         "https://ui.example.com, http://localhost:5173"
-                    )
+                    ),
                 },
             )
             self.addCleanup(server.shutdown)
@@ -474,46 +522,53 @@ class ControlAppTest(unittest.TestCase):
             ) as logs:
                 server = build_control_server(
                     repo_root=root,
-                    env=_mounted_mgmt_key_env(root),
+                    env=_hosted_env(root),
                 )
             self.addCleanup(server.shutdown)
             self.assertIn(ALLOWED_ORIGINS_ENV_VAR, "\n".join(logs.output))
 
-    def test_control_server_private_surface_and_cors_are_configured_independently(self) -> None:
+    def test_control_server_refuses_to_start_without_auth(self) -> None:
         from backend.composition.control_mode import build_control_server
 
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)
-            # Auth is deliberately unconfigured here (this test's requests are
-            # tokenless), which now emits its own open-surface warning — so
-            # assert the CORS warning specifically rather than no-logs-at-all.
-            with self.assertLogs(
-                "backend.composition.control_mode", level="WARNING"
-            ) as logs:
-                server = build_control_server(
+            with self.assertRaisesRegex(
+                ValidationError, "hosted control requires Supabase authentication"
+            ):
+                build_control_server(
                     repo_root=root,
-                    env={
-                        **_mounted_mgmt_key_env(root),
-                        CONTROL_RESTRICT_CORS_ENV_VAR: "false",
-                    },
+                    env=_mounted_mgmt_key_env(root),
                 )
-            self.assertNotIn(ALLOWED_ORIGINS_ENV_VAR, "\n".join(logs.output))
+
+    def test_control_server_private_surface_and_cors_are_configured_independently(
+        self,
+    ) -> None:
+        from backend.composition.control_mode import build_control_server
+
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            server = build_control_server(
+                repo_root=root,
+                env={
+                    **_hosted_env(root),
+                    CONTROL_RESTRICT_CORS_ENV_VAR: "false",
+                },
+            )
             self.addCleanup(server.shutdown)
             client = TestClient(server.fastapi_app, raise_server_exceptions=False)
+            headers = _hosted_headers()
 
-            projects = client.get("/api/projects")
+            projects = client.get("/api/projects", headers=headers)
             self.assertEqual(projects.status_code, 200, projects.text)
 
-            old_daemon_poll = client.get("/api/daemon/tasks?wait=0")
+            old_daemon_poll = client.get("/api/daemon/tasks?wait=0", headers=headers)
             self.assertEqual(old_daemon_poll.status_code, 410, old_daemon_poll.text)
-            self.assertEqual(
-                old_daemon_poll.json().get("error_code"), "daemon_retired"
-            )
+            self.assertEqual(old_daemon_poll.json().get("error_code"), "daemon_retired")
 
-            admin_cleanup = client.post("/api/admin/cleanup")
+            admin_cleanup = client.post("/api/admin/cleanup", headers=headers)
             self.assertEqual(admin_cleanup.status_code, 200, admin_cleanup.text)
 
-            counters = client.get("/api/admin/tenants/local/counters")
+            counters = client.get("/api/admin/tenants/local/counters", headers=headers)
             self.assertEqual(counters.status_code, 200, counters.text)
 
             old_proxy = client.get(
@@ -525,8 +580,12 @@ class ControlAppTest(unittest.TestCase):
             acme_project = server.app.projects.create(
                 name="Acme Hosted", tenant_id="acme"
             )
+            server.app.store.add_project_member(
+                project_id=acme_project["id"], user_id=_HOSTED_USER_ID
+            )
             data_plane_write = client.post(
                 "/api/data-plane/resources/observe",
+                headers=headers,
                 json={
                     "project_id": acme_project["id"],
                     "path": "results.txt",

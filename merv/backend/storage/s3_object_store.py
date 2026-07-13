@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import base64
+import hashlib
 import json
 import math
 from typing import Any
@@ -62,7 +63,7 @@ class S3CompatibleObjectStore:
     ) -> dict[str, Any]:
         _validate_keys(namespace=namespace, sha256=sha256)
         upload_id = new_id(prefix="upload")
-        key = self._key(namespace=namespace, sha256=sha256)
+        key = self._upload_key(upload_id=upload_id)
         checksum = _sha256_b64(sha256)
         sidecar = {
             "upload_id": upload_id,
@@ -101,6 +102,10 @@ class S3CompatibleObjectStore:
                                 "Key": key,
                                 "UploadId": s3_upload_id,
                                 "PartNumber": part_number,
+                                "ContentLength": min(
+                                    part_size,
+                                    int(size_bytes) - (part_number - 1) * part_size,
+                                ),
                             },
                             ExpiresIn=int(expires_in),
                         ),
@@ -123,6 +128,7 @@ class S3CompatibleObjectStore:
                     "Key": key,
                     "ContentType": content_type,
                     "ChecksumSHA256": checksum,
+                    "ContentLength": int(size_bytes),
                 },
                 ExpiresIn=int(expires_in),
             ),
@@ -136,49 +142,40 @@ class S3CompatibleObjectStore:
     ) -> ObjectStat:
         sidecar = self._get_sidecar(upload_id=upload_id)
         key = self._key(namespace=str(sidecar["namespace"]), sha256=str(sidecar["sha256"]))
+        upload_key = self._upload_key(upload_id=upload_id)
+        multipart = sidecar.get("mode") == "multipart"
         try:
-            if sidecar.get("mode") == "multipart":
-                try:
-                    self._complete_multipart(sidecar=sidecar, parts=parts)
-                except Exception:
-                    self._abort_multipart(sidecar=sidecar)
-                    raise
-            size_bytes = int(sidecar["size_bytes"])
-            if sidecar.get("mode") == "multipart":
-                # Multipart trusts producer-declared sha content keys; we size-verify and do not re-hash GB objects server-side.
-                head = self._head(key=key)
+            if multipart:
+                head = self._head(key=upload_key)
                 if head is None:
-                    raise NotFoundError(f"upload received no bytes: {upload_id}")
-                actual_size = int(head.get("ContentLength") or 0)
-                if actual_size != size_bytes:
-                    raise ValidationError(
-                        f"upload {upload_id} size mismatch: "
-                        f"{actual_size} != {size_bytes} bytes"
-                    )
-                stat = self.stat(
-                    namespace=str(sidecar["namespace"]), sha256=str(sidecar["sha256"])
-                )
-                assert stat is not None
-                return stat
-            head = self._head(key=key, checksum=True)
+                    self._complete_multipart(sidecar=sidecar, parts=parts)
+                    head = self._head(key=upload_key)
+            else:
+                head = self._head(key=upload_key, checksum=True)
+            size_bytes = int(sidecar["size_bytes"])
             if head is None:
                 raise NotFoundError(f"upload received no bytes: {upload_id}")
             actual_size = int(head.get("ContentLength") or 0)
-            if actual_size > size_bytes:
+            if actual_size != size_bytes:
                 raise ValidationError(
-                    f"upload {upload_id} exceeds its size cap: "
-                    f"{actual_size} > {size_bytes} bytes"
+                    f"upload {upload_id} size mismatch: "
+                    f"{actual_size} != {size_bytes} bytes"
                 )
-            checksum = head.get("ChecksumSHA256")
-            if checksum != _sha256_b64(str(sidecar["sha256"])):
+            if multipart:
+                if self._object_sha256(key=upload_key) != str(sidecar["sha256"]):
+                    raise ValidationError(f"upload {upload_id} checksum mismatch")
+            elif head.get("ChecksumSHA256") != _sha256_b64(str(sidecar["sha256"])):
                 raise ValidationError(f"upload {upload_id} checksum mismatch")
+            self._promote_upload(source_key=upload_key, target_key=key, sidecar=sidecar)
             stat = self.stat(
                 namespace=str(sidecar["namespace"]), sha256=str(sidecar["sha256"])
             )
             assert stat is not None
-            return stat
-        finally:
-            self._delete_sidecar(upload_id=upload_id)
+        except (NotFoundError, ValidationError):
+            self._discard_upload(sidecar=sidecar, abort_multipart=multipart)
+            raise
+        self._discard_upload(sidecar=sidecar, abort_multipart=False)
+        return stat
 
     def presign_download(
         self, *, namespace: str, sha256: str, expires_in: int
@@ -194,6 +191,16 @@ class S3CompatibleObjectStore:
                 ExpiresIn=int(expires_in),
             )
         }
+
+    def abort_upload(self, *, upload_id: str) -> bool:
+        try:
+            sidecar = self._get_sidecar(upload_id=upload_id)
+        except NotFoundError:
+            return False
+        self._discard_upload(
+            sidecar=sidecar, abort_multipart=sidecar.get("mode") == "multipart"
+        )
+        return True
 
     def stat(self, *, namespace: str, sha256: str) -> ObjectStat | None:
         _validate_keys(namespace=namespace, sha256=sha256)
@@ -221,6 +228,9 @@ class S3CompatibleObjectStore:
 
     def _meta_key(self, *, upload_id: str) -> str:
         return f"{_UPLOAD_PREFIX}{upload_id}.meta"
+
+    def _upload_key(self, *, upload_id: str) -> str:
+        return f"{_UPLOAD_PREFIX}{upload_id}.data"
 
     def _part_size(self, *, size_bytes: int) -> int:
         return max(self.multipart_part_bytes, math.ceil(size_bytes / 10000))
@@ -252,30 +262,93 @@ class S3CompatibleObjectStore:
             raise ValidationError(
                 f"multipart upload needs completed parts: {sidecar['upload_id']}"
             )
-        completed = []
-        for part in parts:
-            item = {
-                "ETag": str(part.get("ETag") or part["etag"]),
-                "PartNumber": int(part.get("PartNumber") or part["part_number"]),
-            }
-            completed.append(item)
-        self._s3.complete_multipart_upload(
-            Bucket=self.bucket,
-            Key=self._key(namespace=str(sidecar["namespace"]), sha256=str(sidecar["sha256"])),
-            UploadId=str(sidecar["s3_upload_id"]),
-            MultipartUpload={"Parts": completed},
-        )
+        try:
+            completed = [
+                {
+                    "ETag": str(part.get("ETag") or part["etag"]),
+                    "PartNumber": int(
+                        part.get("PartNumber") or part["part_number"]
+                    ),
+                }
+                for part in parts
+            ]
+        except (AttributeError, KeyError, TypeError, ValueError) as exc:
+            raise ValidationError(
+                f"multipart upload has invalid completed parts: {sidecar['upload_id']}"
+            ) from exc
+        try:
+            self._s3.complete_multipart_upload(
+                Bucket=self.bucket,
+                Key=self._upload_key(upload_id=str(sidecar["upload_id"])),
+                UploadId=str(sidecar["s3_upload_id"]),
+                MultipartUpload={"Parts": completed},
+            )
+        except Exception as exc:  # noqa: BLE001
+            if _is_not_found(exc):
+                raise NotFoundError(
+                    f"multipart upload not found: {sidecar['upload_id']}"
+                ) from exc
+            raise
 
     def _abort_multipart(self, *, sidecar: dict[str, Any]) -> None:
         try:
             self._s3.abort_multipart_upload(
                 Bucket=self.bucket,
-                Key=self._key(namespace=str(sidecar["namespace"]), sha256=str(sidecar["sha256"])),
+                Key=self._upload_key(upload_id=str(sidecar["upload_id"])),
                 UploadId=str(sidecar["s3_upload_id"]),
             )
         except Exception as exc:  # noqa: BLE001
             if not _is_not_found(exc):
                 raise
+
+    def _object_sha256(self, *, key: str) -> str:
+        try:
+            body = self._s3.get_object(Bucket=self.bucket, Key=key)["Body"]
+        except Exception as exc:  # noqa: BLE001
+            if _is_not_found(exc):
+                raise NotFoundError(f"upload object not found: {key}") from exc
+            raise
+        digest = hashlib.sha256()
+        try:
+            while chunk := body.read(8 * 1024 * 1024):
+                digest.update(chunk)
+        finally:
+            close = getattr(body, "close", None)
+            if callable(close):
+                close()
+        return digest.hexdigest()
+
+    def _promote_upload(
+        self, *, source_key: str, target_key: str, sidecar: dict[str, Any]
+    ) -> None:
+        try:
+            body = self._s3.get_object(Bucket=self.bucket, Key=source_key)["Body"]
+        except Exception as exc:  # noqa: BLE001
+            if _is_not_found(exc):
+                raise NotFoundError(f"upload object not found: {source_key}") from exc
+            raise
+        try:
+            self._s3.upload_fileobj(
+                body,
+                self.bucket,
+                target_key,
+                ExtraArgs={"ContentType": str(sidecar["content_type"])},
+            )
+        finally:
+            close = getattr(body, "close", None)
+            if callable(close):
+                close()
+
+    def _discard_upload(
+        self, *, sidecar: dict[str, Any], abort_multipart: bool
+    ) -> None:
+        if abort_multipart:
+            self._abort_multipart(sidecar=sidecar)
+        upload_id = str(sidecar["upload_id"])
+        self._s3.delete_object(
+            Bucket=self.bucket, Key=self._upload_key(upload_id=upload_id)
+        )
+        self._delete_sidecar(upload_id=upload_id)
 
     def _delete_sidecar(self, *, upload_id: str) -> None:
         self._s3.delete_object(

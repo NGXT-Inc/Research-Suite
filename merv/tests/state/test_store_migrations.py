@@ -96,6 +96,33 @@ class StoreMigrationTest(unittest.TestCase):
     def tearDown(self) -> None:
         self.tmp.cleanup()
 
+    def test_gpu_count_migration_backfills_legacy_generations(self) -> None:
+        store = StateStore(db_path=self.db)
+        with store.transaction() as conn:
+            conn.executemany(
+                """
+                INSERT INTO sandbox_generations (
+                  id, experiment_id, project_id, gpu, started_at, created_seq
+                ) VALUES (?, 'exp', 'proj', ?, '2026-01-01T00:00:00Z', ?)
+                """,
+                [("gpu_gen", "H100", 1), ("cpu_gen", "", 2)],
+            )
+            conn.execute("DELETE FROM schema_migrations WHERE version >= 18")
+            conn.execute("ALTER TABLE sandbox_generations DROP COLUMN gpu_count")
+
+        migrated = StateStore(db_path=self.db)
+        conn = migrated.connect()
+        try:
+            rows = conn.execute(
+                "SELECT id, gpu_count FROM sandbox_generations ORDER BY id"
+            ).fetchall()
+        finally:
+            conn.close()
+        self.assertEqual(
+            [(row["id"], row["gpu_count"]) for row in rows],
+            [("cpu_gen", 0), ("gpu_gen", 1)],
+        )
+
     def _seed_legacy_db(self) -> None:
         conn = sqlite3.connect(self.db)
         try:

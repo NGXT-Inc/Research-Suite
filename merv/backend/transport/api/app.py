@@ -55,6 +55,8 @@ def create_fastapi_app(
         restrict_cors=False,
         hosted_control=False,
     )
+    if surface.hosted_control and auth is None:
+        raise ValueError("hosted control requires an authentication verifier")
     api = ResearchHttpApi(app=app)
 
     def api_for_project(project_id: str) -> ResearchHttpApi:
@@ -104,6 +106,7 @@ def create_fastapi_app(
         # projects 404 like nonexistent ones; project/list handlers receive
         # the user id so creation records membership and listing filters.
         user_id = str(getattr(principal, "user_id", "") or "")
+        tenant_id = str(getattr(principal, "tenant_id", "") or "")
 
         def require_member(project_id: str | None) -> None:
             if user_id and project_id and not api.app.store.is_project_member(
@@ -112,9 +115,11 @@ def create_fastapi_app(
                 raise NotFoundError(f"project not found: {project_id}")
 
         require_member(arguments.get("project_id"))
-        internal_kwargs = (
-            {"user_id": user_id} if user_id and name in ("project", "project.list") else None
-        )
+        internal_kwargs: dict[str, Any] = {}
+        if user_id and name in ("project", "project.list"):
+            internal_kwargs["user_id"] = user_id
+        if tenant_id and name == "project":
+            internal_kwargs["tenant_id"] = tenant_id
         policy = (
             HOSTED_CONTROL_TOOL_POLICIES.get(name)
             if surface.use_hosted_tool_policies
@@ -134,7 +139,7 @@ def create_fastapi_app(
                 name=name,
                 arguments=arguments,
                 activity_source=activity_source,
-                internal_kwargs=internal_kwargs,
+                internal_kwargs=internal_kwargs or None,
                 **call_kwargs,
             )
         if name in PROJECT_SCOPED_TOOL_NAMES and "project_id" not in arguments:
@@ -159,7 +164,7 @@ def create_fastapi_app(
             name=name,
             arguments=arguments,
             activity_source=activity_source,
-            internal_kwargs=internal_kwargs,
+            internal_kwargs=internal_kwargs or None,
         )
 
     http = FastAPI(title="Merv API", version=__version__)

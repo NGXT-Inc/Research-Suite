@@ -1,9 +1,4 @@
-"""Request principal vocabulary.
-
-The current private hosted-control deployment does not have user auth yet. HTTP
-requests run as the implicit local principal until the real auth system replaces
-this placeholder.
-"""
+"""Request principal vocabulary for local and authenticated hosted calls."""
 
 from __future__ import annotations
 

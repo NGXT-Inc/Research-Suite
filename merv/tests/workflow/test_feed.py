@@ -16,7 +16,7 @@ from backend.domain import feed_policy
 from backend.domain.feed_embeds import MAX_FEED_EMBED_BYTES, wrap_embed_html
 from backend.domain.feed_images import SERVEABLE_IMAGE_TYPES, sniff_image_type
 from backend.services.feed import POST_TEXT_MAX, REACTION_KINDS
-from backend.services.feed_unfurl import UnfurlError, extract_card, unfurl
+from backend.services.feed_unfurl import UnfurlError, extract_card, safe_fetch, unfurl
 from backend.transport.http_api import create_fastapi_app
 from backend.transport.feed_http import _image_headers
 from backend.utils import NotFoundError, ValidationError
@@ -712,7 +712,11 @@ class FeedUnfurlSsrfTest(unittest.TestCase):
             "http://localhost/x",
             "http://169.254.169.254/latest/meta-data",
             "http://10.0.0.5/",
+            "http://100.64.0.1/",
             "http://[::1]/",
+            "http://[::127.0.0.1]/",
+            "http://[64:ff9b::7f00:1]/",
+            "http://[2002:a9fe:a9fe::]/",
             "file:///etc/passwd",
             "ftp://example.com/x",
             "http://example.com:22/",
@@ -720,6 +724,47 @@ class FeedUnfurlSsrfTest(unittest.TestCase):
             with self.subTest(url=bad):
                 with self.assertRaises(UnfurlError):
                     unfurl(bad)
+
+    def test_fetch_connects_to_the_validated_address(self) -> None:
+        class Headers(dict):
+            def get_content_type(self):
+                return "text/html"
+
+        class Response:
+            status = 200
+            headers = Headers()
+
+            def read(self, _limit):
+                return b"ok"
+
+        class Connection:
+            def __init__(self, host, *, port, timeout):
+                self.host, self.port, self.timeout = host, port, timeout
+                self._create_connection = None
+
+            def request(self, *_args, **_kwargs):
+                self._create_connection((self.host, self.port), self.timeout)
+
+            def getresponse(self):
+                return Response()
+
+            def close(self):
+                return None
+
+        resolved = [(2, 1, 6, "", ("93.184.216.34", 0))]
+        with (
+            unittest.mock.patch("socket.getaddrinfo", return_value=resolved) as dns,
+            unittest.mock.patch("socket.create_connection") as connect,
+            unittest.mock.patch(
+                "backend.services.feed_unfurl.http.client.HTTPConnection", Connection
+            ),
+        ):
+            self.assertEqual(
+                safe_fetch("http://rebind.example/p"),
+                ("http://rebind.example/p", "text/html", b"ok"),
+            )
+        dns.assert_called_once_with("rebind.example", None)
+        self.assertEqual(connect.call_args.args[0], ("93.184.216.34", 80))
 
 
 class FeedUnfurlArxivPdfTest(unittest.TestCase):

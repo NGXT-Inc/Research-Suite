@@ -194,6 +194,73 @@ class CleanupSweepTest(unittest.TestCase):
         self.assertEqual(row["status"], "failed")
         self.assertIn("sb-unrecorded", self.backend.terminated)
 
+    def test_stale_unrecorded_orphan_retries_uncertain_termination(self) -> None:
+        exp_id = self._experiment()
+        sandbox_uid = "uid_unconfirmed"
+        self.app.sandboxes.registry.upsert(
+            experiment_id=exp_id,
+            sandbox_uid=sandbox_uid,
+            project_id=self.project_id,
+            status="provisioning",
+            phase="creating",
+            provision_started_at="2026-01-01T00:00:00Z",
+        )
+        self.backend.alive["sb-unconfirmed"] = True
+        self.backend.by_experiment[sandbox_uid] = "sb-unconfirmed"
+        self.backend.terminate = lambda *, sandbox_id: False  # type: ignore[method-assign]
+        self.backend.is_alive = (  # type: ignore[method-assign]
+            lambda *, sandbox_id: (_ for _ in ()).throw(RuntimeError("provider down"))
+        )
+
+        reaped = self.cleanup.sweep_stale_provisions(
+            now=datetime(2026, 1, 1, 0, 20, 0, tzinfo=UTC)
+        )
+
+        self.assertEqual(reaped, 0)
+        row = self.app.sandboxes.registry.get_by_uid(sandbox_uid=sandbox_uid)
+        self.assertEqual(row["status"], "provisioning")
+        self.assertEqual(row["phase"], "cleanup")
+
+    def test_successful_terminate_still_requires_liveness_confirmation(self) -> None:
+        self.backend.terminate = lambda *, sandbox_id: True  # type: ignore[method-assign]
+        for alive in (True, RuntimeError("provider down")):
+            with self.subTest(alive=alive):
+                self.backend.is_alive = (  # type: ignore[method-assign]
+                    (lambda *, sandbox_id: alive)
+                    if isinstance(alive, bool)
+                    else lambda *, sandbox_id: (_ for _ in ()).throw(alive)
+                )
+                self.assertEqual(
+                    self.app.sandboxes.lifecycle.terminate_vm(
+                        row={"sandbox_id": "sb-terminating"}
+                    ),
+                    "maybe_alive",
+                )
+
+    def test_stale_unrecorded_orphan_retries_uncertain_lookup(self) -> None:
+        exp_id = self._experiment()
+        sandbox_uid = "uid_lookup_down"
+        self.app.sandboxes.registry.upsert(
+            experiment_id=exp_id,
+            sandbox_uid=sandbox_uid,
+            project_id=self.project_id,
+            status="provisioning",
+            phase="creating",
+            provision_started_at="2026-01-01T00:00:00Z",
+        )
+        self.backend.find_sandbox_id = (  # type: ignore[method-assign]
+            lambda **kwargs: (_ for _ in ()).throw(RuntimeError("provider down"))
+        )
+
+        reaped = self.cleanup.sweep_stale_provisions(
+            now=datetime(2026, 1, 1, 0, 20, 0, tzinfo=UTC)
+        )
+
+        self.assertEqual(reaped, 0)
+        row = self.app.sandboxes.registry.get_by_uid(sandbox_uid=sandbox_uid)
+        self.assertEqual(row["status"], "provisioning")
+        self.assertEqual(row["phase"], "cleanup")
+
     def test_stale_provision_left_alone_within_deadline(self) -> None:
         exp_id = self._experiment()
         self.app.sandboxes.registry.upsert(

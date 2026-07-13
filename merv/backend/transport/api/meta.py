@@ -20,6 +20,16 @@ def build_router(ctx: ApiRouteContext) -> APIRouter:
     api_router = APIRouter()
     api = ctx.api
     surface = ctx.surface
+
+    def debug_project_ids(request: Request, project_id: str | None) -> set[str] | None:
+        if not getattr(request.state, "authenticated", False):
+            return None
+        if not project_id:
+            raise ValidationError(
+                "project_id is required", details={"field": "project_id"}
+            )
+        return {project_id}
+
     @api_router.get("/health")
     def health() -> dict[str, Any]:
         # Surface hygiene: /health is liveness only and never exposes host
@@ -69,11 +79,15 @@ def build_router(ctx: ApiRouteContext) -> APIRouter:
         source: str | None = None,
         project_id: str | None = None,
     ) -> dict[str, Any]:
-        return api.activity(limit=limit, source=source, project_id=project_id)
+        project_ids = debug_project_ids(request, project_id)
+        return api.activity(
+            limit=limit,
+            source=source,
+            project_id=project_id,
+            project_ids=project_ids,
+            include_unscoped_events=project_ids is None,
+        )
 
-    # /api/debug/* expose tool-call internals. Hosted control is currently a
-    # private operator surface; the real auth system should gate these before
-    # broad exposure.
     @api_router.get("/api/debug/tool-calls")
     def tool_call_stats(
         request: Request,
@@ -92,20 +106,25 @@ def build_router(ctx: ApiRouteContext) -> APIRouter:
             status=status,
             tool=tool,
             project_id=project_id,
-            project_ids=None,
-            limit=limit, sort=sort, order=order,
+            project_ids=debug_project_ids(request, project_id),
+            limit=limit,
+            sort=sort,
+            order=order,
         )
 
     @api_router.get("/api/debug/tool-calls/{call_id}")
-    def tool_call_detail(call_id: int, request: Request) -> dict[str, Any]:
+    def tool_call_detail(
+        call_id: int, request: Request, project_id: str | None = None
+    ) -> dict[str, Any]:
         return api.tool_call_detail(
             call_id=call_id,
-            project_ids=None,
+            project_ids=debug_project_ids(request, project_id),
         )
 
     @api_router.post("/api/debug/tool-calls/clear")
-    def tool_calls_clear(request: Request) -> dict[str, Any]:
-        return api.tool_calls_clear(project_ids=None)
-
+    def tool_calls_clear(
+        request: Request, project_id: str | None = None
+    ) -> dict[str, Any]:
+        return api.tool_calls_clear(project_ids=debug_project_ids(request, project_id))
 
     return api_router

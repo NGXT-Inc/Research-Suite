@@ -34,6 +34,8 @@ class ObjectStore(Protocol):
     ) -> ObjectStat:
         ...
 
+    def abort_upload(self, *, upload_id: str) -> bool: ...
+
     def presign_download(
         self, *, namespace: str, sha256: str, expires_in: int
     ) -> dict[str, Any]:

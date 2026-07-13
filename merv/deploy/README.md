@@ -26,9 +26,15 @@ is deployed separately and talks directly to the brain.
 From `merv/`:
 
 ```sh
+export SUPABASE_URL=https://your-project.supabase.co
+export SUPABASE_JWT_SECRET=your-rotated-jwt-secret
 docker compose -f deploy/docker-compose.yml up --build
 curl -s http://127.0.0.1:8787/api/meta
 ```
+
+Compose refuses to start the hosted control service without those verifier
+values. Use a secret-backed env file instead of shell exports outside local
+development.
 
 The compose defaults start the complete set of services, but intentionally make
 the control container **record-only**:
@@ -70,8 +76,19 @@ explicit development `repo_root`, startup requires:
 - `RESEARCH_PLUGIN_BLOB_BUCKET` plus the relevant `AWS_*` settings: durable
   submitted-byte blob store;
 - `RESEARCH_PLUGIN_MGMT_KEY_PATH`: a mounted **private-key file** readable only
-  by the control process; and
-- either `RESEARCH_PLUGIN_MGMT_PUBLIC_KEY` or an adjacent `<key>.pub` file.
+  by the control process;
+- either `RESEARCH_PLUGIN_MGMT_PUBLIC_KEY` or an adjacent `<key>.pub` file;
+- and `SUPABASE_URL` plus `SUPABASE_JWT_SECRET`: the mandatory hosted verifier.
+
+Lambda Labs and Thunder Compute additionally require a trusted OpenSSH
+known-hosts file at `RESEARCH_PLUGIN_MGMT_KNOWN_HOSTS_FILE`. The reference
+Compose stack only passes that path; it does not mount, populate, or dynamically
+enroll host keys, and startup does not validate the file. Keep VM provisioning
+disabled until keys are obtained through a trusted provider channel and the
+file is persistently mounted inside the control container. An empty file,
+`ssh-keyscan` over the untrusted path, or `accept-new` is not a secure substitute.
+Modal uses its authenticated provider control channel and is unaffected by this
+specific requirement.
 
 Heavy object storage is optional. Enable it with
 `RESEARCH_PLUGIN_STORAGE_PROVIDER` and the storage bucket/credentials. This is
@@ -103,11 +120,11 @@ is exposed under `/mlflow`, set
 `--static-prefix`. Route MLflow's tracking, artifact, UI, and `ajax-api` paths
 consistently. The Python brain itself does not read this variable.
 
-There is currently no end-user authentication or effective tenant isolation on
-the HTTP surface. CORS restrictions and the MCP client-version floor are not
-authentication. Keep the brain, MLflow, storage endpoints, and admin routes on
-a trusted operator network; do not expose the reference compose stack directly
-to the public internet.
+Hosted control refuses startup without Supabase authentication, and project
+membership enforces tenant-facing resource access. CORS restrictions and the
+MCP client-version floor remain independent controls. Keep the brain, MLflow,
+storage endpoints, and admin routes on a trusted operator network; do not
+expose the reference compose stack directly to the public internet.
 
 The UI may call control/lifecycle routes, but checkout-local data-plane
 mutations remain private proxy routes. The brain never receives a checkout root
@@ -120,9 +137,10 @@ and cannot serve arbitrary live checkout files.
 - The sandbox expiry reaper runs inside hosted control. On restart, it
   reconciles registered active rows.
 - Broader cleanup is not scheduled. Invoke `POST /api/admin/cleanup` from a
-  trusted cron or sidecar. It handles registered stale sandbox state, blob TTLs,
-  storage leases, and stale provisioning records; it does not discover and
-  terminate arbitrary provider VMs that have no ledger row.
+  trusted cron or sidecar. It handles registered running-row reconciliation,
+  blob TTLs, and storage leases; stale provisioning is also checked by the
+  in-process sandbox reaper and repeated by this endpoint for defense in depth.
+  Neither path discovers arbitrary provider VMs that have no ledger row.
 - HTTP request logs go to stdout. Diagnostic activity and tool-call rings are
   process-local and bounded, so they reset on restart.
 
@@ -131,7 +149,9 @@ and cannot serve arbitrary live checkout files.
 - TLS, routing, and a trusted network boundary;
 - managed Postgres, object storage, backups, and lifecycle rules;
 - a real secret manager and management-key rotation procedure;
+- trusted VM host-key enrollment and a persistent known-hosts mount before
+  enabling Lambda Labs or Thunder Compute;
 - a cleanup scheduler and operational alerting;
 - a separately deployed UI with explicit CORS origins; and
-- end-user authentication and authorization before any public or multi-tenant
-  use.
+- Supabase secret rotation, existing-project membership backfill, and separate
+  operator/admin authorization before any public or multi-tenant use.

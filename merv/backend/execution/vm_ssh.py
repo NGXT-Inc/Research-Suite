@@ -27,6 +27,7 @@ from .vm_bootstrap import (
 
 TRANSCRIPT_SSH_CONNECT_TIMEOUT = 10
 TRANSCRIPT_READ_TIMEOUT_SECONDS = 30
+MGMT_KNOWN_HOSTS_ENV = "RESEARCH_PLUGIN_MGMT_KNOWN_HOSTS_FILE"
 
 SshRunner = Callable[[list[str]], "subprocess.CompletedProcess[str]"]
 SshInputRunner = Callable[[list[str], str], "subprocess.CompletedProcess[str]"]
@@ -194,13 +195,14 @@ def sandbox_tokens() -> dict[str, str]:
 def ssh_command(
     *, host: str, port: int, user: str, key_path: str, remote_command: str
 ) -> list[str]:
+    known_hosts = os.environ.get(MGMT_KNOWN_HOSTS_ENV, "~/.ssh/known_hosts")
     return [
         "ssh",
         "-i", key_path,
         "-p", str(int(port) or 22),
         "-o", "BatchMode=yes",
-        "-o", "StrictHostKeyChecking=no",
-        "-o", "UserKnownHostsFile=/dev/null",
+        "-o", "StrictHostKeyChecking=yes",
+        "-o", f"UserKnownHostsFile={known_hosts}",
         "-o", f"ConnectTimeout={TRANSCRIPT_SSH_CONNECT_TIMEOUT}",
         f"{user}@{host}",
         remote_command,

@@ -353,6 +353,7 @@ CREATE TABLE IF NOT EXISTS sandboxes (
   sandbox_id TEXT NOT NULL DEFAULT '',
   status TEXT NOT NULL DEFAULT 'none',
   gpu TEXT NOT NULL DEFAULT '',
+  gpu_count INTEGER NOT NULL DEFAULT -1,
   cpu REAL NOT NULL DEFAULT 0,
   memory INTEGER NOT NULL DEFAULT 0,
   -- Provider-bundled machine SKU + datacenter, for backends (Lambda Labs) that
@@ -365,6 +366,8 @@ CREATE TABLE IF NOT EXISTS sandboxes (
   -- appended to sandbox_generations so per-generation spend is reconstructable
   -- even though the row itself only retains its current generation.
   price_usd_per_hour REAL NOT NULL DEFAULT 0,
+  price_known INTEGER NOT NULL DEFAULT 0,
+  provision_claim TEXT NOT NULL DEFAULT '',
   time_limit INTEGER NOT NULL DEFAULT 0,
   ssh_host TEXT NOT NULL DEFAULT '',
   ssh_port INTEGER NOT NULL DEFAULT 0,
@@ -496,6 +499,7 @@ CREATE TABLE IF NOT EXISTS sandbox_generations (
   sandbox_id TEXT NOT NULL DEFAULT '',
   instance_type TEXT NOT NULL DEFAULT '',
   gpu TEXT NOT NULL DEFAULT '',
+  gpu_count INTEGER NOT NULL DEFAULT 0,
   price_usd_per_hour REAL NOT NULL DEFAULT 0,
   started_at TEXT NOT NULL,
   ended_at TEXT,
@@ -590,6 +594,12 @@ MIGRATIONS: tuple[tuple[int, str, str], ...] = (
         "reactivate_hard_stopped_projects",
         "UPDATE projects SET status = 'active' WHERE status = 'stopped'",
     ),
+    (
+        18,
+        "add_sandbox_generation_gpu_count",
+        "ALTER TABLE sandbox_generations ADD COLUMN gpu_count INTEGER NOT NULL DEFAULT 0",
+    ),
+    (19, "add_sandbox_reservation_columns", ""),
 )
 
 
@@ -731,6 +741,23 @@ class BaseStateStore:
                 self._rename_syntheses_to_reflections(conn=conn)
             elif name == "add_sandbox_last_command_columns":
                 self._ensure_sandbox_last_command_columns(conn=conn)
+            elif name == "add_sandbox_generation_gpu_count":
+                if not self._has_column(
+                    conn=conn, table="sandbox_generations", column="gpu_count"
+                ):
+                    conn.execute(statement)
+                    conn.execute(
+                        "UPDATE sandbox_generations SET gpu_count = "
+                        "CASE WHEN gpu != '' THEN 1 ELSE 0 END"
+                    )
+            elif name == "add_sandbox_reservation_columns":
+                for column, ddl in {
+                    "gpu_count": "INTEGER NOT NULL DEFAULT -1",
+                    "price_known": "INTEGER NOT NULL DEFAULT 0",
+                    "provision_claim": "TEXT NOT NULL DEFAULT ''",
+                }.items():
+                    if not self._has_column(conn=conn, table="sandboxes", column=column):
+                        conn.execute(f"ALTER TABLE sandboxes ADD COLUMN {column} {ddl}")
             else:
                 conn.execute(statement)
             conn.execute(

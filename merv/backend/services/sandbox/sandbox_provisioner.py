@@ -20,6 +20,7 @@ from dataclasses import dataclass
 from datetime import datetime
 from typing import Any
 
+from ...ports.quota_admission import AdmissionRequest, QuotaAdmission
 from ...sandbox.sandbox_backend import (
     BackendPermissionError,
     BackendUnavailableError,
@@ -28,7 +29,7 @@ from ...sandbox.sandbox_backend import (
     SandboxRequest,
 )
 from ...domain.sandbox_paths import DEFAULT_DATA_DIR, remote_experiment_dir
-from ...utils import iso_after, now_iso
+from ...utils import iso_after, new_id, now_iso
 from .sandbox_lifecycle import SandboxLifecycle
 from .sandbox_registry import SandboxRegistry
 from ...sandbox.sandbox_support import parse_iso
@@ -47,6 +48,7 @@ class _ProvisionJob:
     done: threading.Event
     experiment_id: str
     sandbox_uid: str = ""
+    claim_token: str = ""
 
 
 class SandboxProvisioner:
@@ -58,11 +60,13 @@ class SandboxProvisioner:
         registry: SandboxRegistry,
         backend: SandboxBackend,
         lifecycle: SandboxLifecycle,
+        quotas: QuotaAdmission,
         stale_provision_seconds: float,
     ) -> None:
         self.registry = registry
         self.backend = backend
         self.lifecycle = lifecycle
+        self.quotas = quotas
         self.stale_provision_seconds = stale_provision_seconds
         self._jobs: dict[str, _ProvisionJob] = {}
         self._jobs_lock = threading.Lock()
@@ -98,9 +102,10 @@ class SandboxProvisioner:
         project_id: str,
         req: SandboxRequest,
         existing: dict[str, Any] | None,
+        admission: AdmissionRequest | None = None,
         sandbox_uid: str = "",
         create_new: bool = False,
-    ) -> _ProvisionJob:
+    ) -> _ProvisionJob | None:
         """Return the in-flight job for this experiment, or start a fresh one.
 
         Idempotent: a second request during provisioning attaches to the same
@@ -113,27 +118,36 @@ class SandboxProvisioner:
             job = self._jobs.get(sandbox_uid)
             if job is not None and job.thread.is_alive():
                 return job
-        # No live job. Clear any prior/orphan sandbox before a fresh provision so
-        # deterministic provider names cannot collide. Done outside the lock — it
-        # may make a network call.
-        if not create_new:
-            self.lifecycle.cleanup_orphan(experiment_id=experiment_id, row=existing)
-        with self._jobs_lock:
-            job = self._jobs.get(sandbox_uid)
-            if job is not None and job.thread.is_alive():
-                return job
-            self.begin_provisioning_row(
+            claim_token = new_id(prefix="pcl")
+            claimed = self.begin_provisioning_row(
                 experiment_id=experiment_id,
                 project_id=project_id,
                 req=req,
                 sandbox_uid=sandbox_uid,
                 create_new=create_new,
+                admission=admission,
+                claim_token=claim_token,
             )
+        if not claimed:
+            return None
+        claimed_row = self.registry.get_by_uid(sandbox_uid=sandbox_uid)
+        if self.lifecycle.cleanup_orphan(
+            experiment_id=experiment_id, row=claimed_row
+        ) == "maybe_alive":
+            self.registry.update_claimed(
+                experiment_id=experiment_id,
+                sandbox_uid=sandbox_uid,
+                claim_token=claim_token,
+                phase="cleanup",
+                detail="pre-acquire orphan cleanup is unconfirmed",
+            )
+            return None
+        with self._jobs_lock:
             cancel = threading.Event()
             done = threading.Event()
             thread = threading.Thread(
                 target=self._provision,
-                args=(experiment_id, project_id, req, cancel, done, sandbox_uid),
+                args=(experiment_id, project_id, req, cancel, done, sandbox_uid, claim_token),
                 name=f"provision-{sandbox_uid or experiment_id}",
                 daemon=True,
             )
@@ -143,12 +157,19 @@ class SandboxProvisioner:
                 done=done,
                 experiment_id=experiment_id,
                 sandbox_uid=sandbox_uid,
+                claim_token=claim_token,
             )
             self._jobs[sandbox_uid] = job
             thread.start()
             return job
 
-    def cancel(self, *, experiment_id: str, sandbox_uid: str | None = None) -> None:
+    def cancel(
+        self,
+        *,
+        experiment_id: str,
+        sandbox_uid: str | None = None,
+        claim_token: str | None = None,
+    ) -> None:
         """Signal in-flight job(s) for the experiment to abort."""
         target_uid = (sandbox_uid or "").strip()
         with self._jobs_lock:
@@ -157,6 +178,7 @@ class SandboxProvisioner:
                 for job in self._jobs.values()
                 if job.experiment_id == experiment_id
                 and (not target_uid or job.sandbox_uid == target_uid)
+                and (claim_token is None or job.claim_token == claim_token)
             ]
         for job in jobs:
             job.cancel.set()
@@ -181,28 +203,33 @@ class SandboxProvisioner:
         cancel: threading.Event,
         done: threading.Event,
         sandbox_uid: str = "",
+        claim_token: str = "",
     ) -> None:
         """Background worker: create → tunnel, updating the row per phase."""
         try:
             def on_phase(phase: str, detail: str) -> None:
                 if cancel.is_set():
                     raise _Canceled()
-                self.set_provision(
+                if not self.set_provision(
                     experiment_id=experiment_id,
                     sandbox_uid=sandbox_uid,
+                    claim_token=claim_token,
                     phase=phase,
                     detail=detail,
-                )
+                ):
+                    raise _Canceled()
 
             def on_created(sandbox_id: str, sandbox_name: str) -> None:
                 # Persist the id the moment it exists so a crash/restart can
                 # reconcile or clean it up — this is the orphan fix.
-                self.set_provision(
+                if not self.set_provision(
                     experiment_id=experiment_id,
                     sandbox_uid=sandbox_uid,
+                    claim_token=claim_token,
                     sandbox_id=sandbox_id,
                     sandbox_name=sandbox_name,
-                )
+                ):
+                    raise _Canceled()
                 if cancel.is_set():
                     raise _Canceled()
 
@@ -213,88 +240,102 @@ class SandboxProvisioner:
             # wait (cancel isn't checked there). Honor it now rather than marking
             # a just-terminated sandbox `running`.
             if cancel.is_set():
-                self.lifecycle.terminate_quietly(sandbox_id=provisioned.sandbox_id)
                 self._settle_canceled(
                     experiment_id=experiment_id,
                     project_id=project_id,
                     sandbox_uid=sandbox_uid,
-                )
-                return
-            if cancel.is_set():
-                self.lifecycle.terminate_quietly(sandbox_id=provisioned.sandbox_id)
-                self._settle_canceled(
-                    experiment_id=experiment_id,
-                    project_id=project_id,
-                    sandbox_uid=sandbox_uid,
+                    claim_token=claim_token,
                 )
                 return
             now = now_iso()
-            self.registry.upsert(
+            instance_type = provisioned.instance_type or (req.instance_type or "")
+            gpu = provisioned.gpu or (req.gpu or "")
+            reserved = self.registry.get_by_uid(sandbox_uid=sandbox_uid)
+            price = (
+                provisioned.price_usd_per_hour
+                if provisioned.price_usd_per_hour > 0
+                else float(reserved.get("price_usd_per_hour") or 0.0)
+            )
+            price_known = 1 if provisioned.price_usd_per_hour > 0 else int(
+                reserved.get("price_known") or 0
+            )
+            if not self.registry.update_claimed(
                 experiment_id=experiment_id,
                 sandbox_uid=sandbox_uid,
-                project_id=project_id,
-                status="running",
-                sandbox_id=provisioned.sandbox_id,
-                # Record what the backend actually procured so the UI/metrics
-                # frame the real reserved hardware (Lambda resolves these from
-                # the chosen SKU; Modal leaves them empty and we keep req's).
-                gpu=provisioned.gpu or (req.gpu or ""),
-                cpu=provisioned.cpu if provisioned.cpu is not None else req.cpu,
-                memory=provisioned.memory if provisioned.memory is not None else int(req.memory),
-                instance_type=provisioned.instance_type or (req.instance_type or ""),
-                region=provisioned.region or (req.region or ""),
-                # Cost governance (cloud plan Phase 7): record the provider's
-                # price quote on the row, and append a per-generation ledger row
-                # below so spend survives the row's per-experiment overwrite.
-                price_usd_per_hour=provisioned.price_usd_per_hour,
-                ssh_host=provisioned.ssh_host,
-                ssh_port=provisioned.ssh_port,
-                ssh_user=provisioned.ssh_user,
-                workdir=provisioned.workdir,
-                sync_dir=provisioned.sync_dir or provisioned.workdir,
-                unsynced_dir=provisioned.unsynced_dir or provisioned.sandbox_data_dir,
-                sandbox_data_dir=provisioned.sandbox_data_dir,
-                volume_name=provisioned.volume_name,
-                expires_at=iso_after(seconds=req.time_limit),
-                last_seen_at=now,
-                phase="",
-                detail="",
-                error="",
-                terminated_at="",
-            )
-            # Per-generation spend ledger (cloud plan Phase 7): one row per
-            # provisioned generation so the price survives the row's
-            # per-experiment overwrite. Best-effort — a ledger write must never
-            # fail an otherwise-successful provision.
-            try:
-                self.registry.record_generation(
+                claim_token=claim_token,
+                gpu_count=provisioned.gpu_count,
+                price_usd_per_hour=price,
+                price_known=price_known,
+            ):
+                raise _Canceled()
+
+            def commit(conn: Any) -> None:
+                self.registry.mark_running_with_generation(
+                    conn=conn,
                     experiment_id=experiment_id,
+                    sandbox_uid=sandbox_uid,
+                    generation={"gpu_count": provisioned.gpu_count},
+                    claim_token=claim_token,
                     project_id=project_id,
                     sandbox_id=provisioned.sandbox_id,
-                    instance_type=provisioned.instance_type or (req.instance_type or ""),
-                    gpu=provisioned.gpu or (req.gpu or ""),
-                    price_usd_per_hour=provisioned.price_usd_per_hour,
+                    instance_type=instance_type,
+                    gpu=gpu,
+                    gpu_count=provisioned.gpu_count,
+                    price_usd_per_hour=price,
+                    price_known=price_known,
+                    provision_claim="",
+                    cpu=provisioned.cpu if provisioned.cpu is not None else req.cpu,
+                    memory=(
+                        provisioned.memory
+                        if provisioned.memory is not None
+                        else int(req.memory)
+                    ),
+                    region=provisioned.region or (req.region or ""),
+                    ssh_host=provisioned.ssh_host,
+                    ssh_port=provisioned.ssh_port,
+                    ssh_user=provisioned.ssh_user,
+                    workdir=provisioned.workdir,
+                    sync_dir=provisioned.sync_dir or provisioned.workdir,
+                    unsynced_dir=provisioned.unsynced_dir or provisioned.sandbox_data_dir,
+                    sandbox_data_dir=provisioned.sandbox_data_dir,
+                    volume_name=provisioned.volume_name,
+                    expires_at=iso_after(seconds=req.time_limit),
+                    last_seen_at=now,
+                    phase="",
+                    detail="",
+                    error="",
+                    terminated_at="",
                 )
-            except Exception:  # noqa: BLE001
-                pass
+
+            self.quotas.check_lifetime_extension(
+                tenant_id=str(reserved.get("tenant_id") or "local"),
+                total_time_limit_seconds=req.time_limit,
+                price_usd_per_hour=price if price_known else None,
+                gpu_count=provisioned.gpu_count,
+                sandbox_uid=sandbox_uid,
+                remaining_time_limit_seconds=req.time_limit,
+                reservation=commit,
+            )
             self.registry.emit_event(
                 project_id=project_id,
                 event_type="sandbox.created",
                 experiment_id=experiment_id,
                 payload={
                     "sandbox_id": provisioned.sandbox_id,
-                    "gpu": provisioned.gpu or req.gpu or "",
-                    "instance_type": provisioned.instance_type or (req.instance_type or ""),
+                    "gpu": gpu,
+                    "gpu_count": provisioned.gpu_count,
+                    "instance_type": instance_type,
                     "region": provisioned.region or (req.region or ""),
                     "time_limit": req.time_limit,
                 },
             )
         except _Canceled:
-            # acquire already terminated anything it created.
+            # The backend attempted cleanup; the lifecycle confirms its outcome.
             self._settle_canceled(
                 experiment_id=experiment_id,
                 project_id=project_id,
                 sandbox_uid=sandbox_uid,
+                claim_token=claim_token,
             )
         except (BackendUnavailableError, BackendValidationError, BackendPermissionError) as exc:
             self._settle_failed(
@@ -302,6 +343,7 @@ class SandboxProvisioner:
                 project_id=project_id,
                 error=str(exc),
                 sandbox_uid=sandbox_uid,
+                claim_token=claim_token,
             )
         except Exception as exc:  # noqa: BLE001 — never lose the row to an unexpected error
             self._settle_failed(
@@ -309,6 +351,7 @@ class SandboxProvisioner:
                 project_id=project_id,
                 error=str(exc),
                 sandbox_uid=sandbox_uid,
+                claim_token=claim_token,
             )
         finally:
             done.set()
@@ -324,58 +367,82 @@ class SandboxProvisioner:
         experiment_id: str,
         project_id: str,
         req: SandboxRequest,
+        admission: AdmissionRequest | None = None,
+        claim_token: str = "",
         sandbox_uid: str = "",
         create_new: bool = False,
-    ) -> None:
+    ) -> bool:
         now = now_iso()
         sandbox_uid = str(req.sandbox_uid or sandbox_uid or "").strip()
         if not sandbox_uid:
             sandbox_uid = self.registry.new_sandbox_uid()
-        writer = self.registry.create_sandbox if create_new else self.registry.upsert
-        writer(
-            experiment_id=experiment_id,
-            sandbox_uid=sandbox_uid,
-            project_id=project_id,
-            status="provisioning",
-            phase="starting",
-            detail="",
-            error="",
-            sandbox_id="",
-            sandbox_name="",
-            ssh_host="",
-            ssh_port=0,
-            ssh_user="root",
-            workdir=req.remote_workdir or remote_experiment_dir(experiment_id=experiment_id),
-            sync_dir=req.remote_workdir or remote_experiment_dir(experiment_id=experiment_id),
-            unsynced_dir=DEFAULT_DATA_DIR,
-            # Control knows a management keypair exists for this sandbox (plan
-            # Phase 5): a store reference only — never key material.
-            mgmt_key_ref=(str(req.sandbox_uid or sandbox_uid) if req.management_public_key else ""),
-            public_key_source=req.public_key_source,
-            gpu=req.gpu or "",
-            cpu=req.cpu,
-            memory=req.memory,
-            instance_type=req.instance_type or "",
-            region=req.region or "",
-            time_limit=req.time_limit,
-            requested_at=now,
-            provision_started_at=now,
-            expires_at="",
-            last_seen_at=now,
-            terminated_at="",
+        claimed = False
+
+        def reserve(conn: Any) -> None:
+            nonlocal claimed
+            claimed = self.registry.claim_provisioning(
+                conn=conn,
+                experiment_id=experiment_id,
+                sandbox_uid=sandbox_uid,
+                claim_token=claim_token or new_id(prefix="pcl"),
+                project_id=project_id,
+                status="provisioning",
+                phase="starting",
+                detail="",
+                error="",
+                sandbox_id="",
+                sandbox_name="",
+                ssh_host="",
+                ssh_port=0,
+                ssh_user="root",
+                workdir=req.remote_workdir or remote_experiment_dir(experiment_id=experiment_id),
+                sync_dir=req.remote_workdir or remote_experiment_dir(experiment_id=experiment_id),
+                unsynced_dir=DEFAULT_DATA_DIR,
+                mgmt_key_ref=(
+                    str(req.sandbox_uid or sandbox_uid)
+                    if req.management_public_key
+                    else ""
+                ),
+                public_key_source=req.public_key_source,
+                gpu=req.gpu or "",
+                gpu_count=(admission.gpu_count if admission and admission.gpu_count is not None else -1),
+                cpu=req.cpu,
+                memory=req.memory,
+                instance_type=req.instance_type or "",
+                region=req.region or "",
+                price_usd_per_hour=(admission.price_usd_per_hour or 0.0) if admission else 0.0,
+                price_known=1 if admission and admission.price_usd_per_hour is not None else 0,
+                time_limit=req.time_limit,
+                requested_at=now,
+                provision_started_at=now,
+                expires_at="",
+                last_seen_at=now,
+                terminated_at="",
+            )
+
+        self.quotas.reserve_provisioning(
+            request=admission
+            or AdmissionRequest(
+                tenant_id=self.registry.tenant_for_project(project_id=project_id),
+                time_limit_seconds=req.time_limit,
+                sandbox_uid=sandbox_uid,
+            ),
+            reservation=reserve,
         )
+        return claimed
 
     def set_provision(
         self,
         *,
         experiment_id: str,
         sandbox_uid: str = "",
+        claim_token: str = "",
         phase: str | None = None,
         detail: str | None = None,
         sandbox_id: str | None = None,
         sandbox_name: str | None = None,
-    ) -> None:
-        fields: dict[str, Any] = {"status": "provisioning"}
+    ) -> bool:
+        fields: dict[str, Any] = {}
         if phase is not None:
             fields["phase"] = phase
         if detail is not None:
@@ -384,8 +451,11 @@ class SandboxProvisioner:
             fields["sandbox_id"] = sandbox_id
         if sandbox_name is not None:
             fields["sandbox_name"] = sandbox_name
-        self.registry.upsert(
-            experiment_id=experiment_id, sandbox_uid=sandbox_uid, **fields
+        return self.registry.update_claimed(
+            experiment_id=experiment_id,
+            sandbox_uid=sandbox_uid,
+            claim_token=claim_token,
+            **fields,
         )
 
     def reap_stale_provisions(
@@ -428,15 +498,16 @@ class SandboxProvisioner:
             if fresh.get("status") != "provisioning":
                 continue
             try:
-                self.lifecycle.cleanup_orphan(experiment_id=experiment_id, row=fresh)
-                self.lifecycle.mark_failed(
-                    experiment_id=experiment_id,
-                    sandbox_uid=sandbox_uid,
+                settled = self.lifecycle.settle_provisioning(
+                    row=fresh,
+                    status="failed",
                     error=(
                         "provisioning wedged past deadline (daemon offline?); "
-                        "the sandbox was terminated — call sandbox.request again"
+                        "call sandbox.request again"
                     ),
                 )
+                if not settled:
+                    continue
                 self.registry.emit_event(
                     project_id=str(fresh.get("project_id") or ""),
                     event_type="sandbox.failed",
@@ -455,11 +526,20 @@ class SandboxProvisioner:
     # ---------- settle helpers ----------
 
     def _settle_canceled(
-        self, *, experiment_id: str, project_id: str, sandbox_uid: str = ""
+        self,
+        *,
+        experiment_id: str,
+        project_id: str,
+        sandbox_uid: str = "",
+        claim_token: str = "",
     ) -> None:
-        self.lifecycle.mark_terminated(
-            experiment_id=experiment_id, sandbox_uid=sandbox_uid
-        )
+        row = self.registry.get_by_uid(sandbox_uid=sandbox_uid)
+        if str(row.get("provision_claim") or "") != claim_token:
+            return
+        if row.get("status") in {"terminated", "failed"}:
+            return
+        if not self.lifecycle.settle_provisioning(row=row, status="terminated"):
+            return
         self.registry.emit_event(
             project_id=project_id,
             event_type="sandbox.released",
@@ -474,12 +554,17 @@ class SandboxProvisioner:
         project_id: str,
         error: str,
         sandbox_uid: str = "",
+        claim_token: str = "",
     ) -> None:
-        self.lifecycle.mark_failed(
-            experiment_id=experiment_id,
-            error=error,
-            sandbox_uid=sandbox_uid,
-        )
+        row = self.registry.get_by_uid(sandbox_uid=sandbox_uid)
+        if str(row.get("provision_claim") or "") != claim_token:
+            return
+        if row.get("status") in {"terminated", "failed"}:
+            return
+        if not self.lifecycle.settle_provisioning(
+            row=row, status="failed", error=error
+        ):
+            return
         self.registry.emit_event(
             project_id=project_id,
             event_type="sandbox.failed",

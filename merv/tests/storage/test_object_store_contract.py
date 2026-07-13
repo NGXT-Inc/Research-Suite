@@ -4,13 +4,19 @@ from __future__ import annotations
 
 import base64
 import hashlib
+import json
 import sys
 import types
 import unittest
+from io import BytesIO
 from pathlib import Path
-from unittest.mock import patch
+from unittest.mock import MagicMock, patch
 
 from backend.utils import NotFoundError, ValidationError
+
+
+class _S3NotFound(Exception):
+    response = {"Error": {"Code": "NoSuchKey"}}
 
 
 class ObjectStoreContractMixin:
@@ -126,6 +132,317 @@ class ObjectStoreContractMixin:
             store.presign_download(
                 namespace="proj_a", sha256=expected_sha, expires_in=300
             )
+
+    def test_abort_upload_is_idempotent_and_consumes_upload(self) -> None:
+        store = self.make_store()
+        target = store.presign_upload(
+            namespace="proj_a",
+            sha256=hashlib.sha256(b"cancel").hexdigest(),
+            size_bytes=6,
+            expires_in=300,
+        )
+
+        self.assertTrue(store.abort_upload(upload_id=target["upload_id"]))
+        self.assertFalse(store.abort_upload(upload_id=target["upload_id"]))
+        with self.assertRaises(NotFoundError):
+            store.complete_upload(upload_id=target["upload_id"])
+
+
+class S3CompatibleObjectStoreVerificationTest(unittest.TestCase):
+    def test_presigned_uploads_sign_exact_content_lengths(self) -> None:
+        from backend.storage.s3_object_store import S3CompatibleObjectStore
+
+        client = MagicMock()
+        client.generate_presigned_url.return_value = "https://upload.test"
+        client.create_multipart_upload.return_value = {"UploadId": "multi"}
+        store = S3CompatibleObjectStore(
+            bucket="bucket",
+            client=client,
+            multipart_threshold_bytes=6,
+            multipart_part_bytes=5,
+        )
+        sha = hashlib.sha256(b"123456").hexdigest()
+
+        store.presign_upload(
+            namespace="proj_a", sha256=sha, size_bytes=6, expires_in=300
+        )
+        self.assertEqual(
+            client.generate_presigned_url.call_args.kwargs["Params"]["ContentLength"],
+            6,
+        )
+        client.generate_presigned_url.reset_mock()
+        store.presign_upload(
+            namespace="proj_a", sha256=sha, size_bytes=11, expires_in=300
+        )
+        self.assertEqual(
+            [
+                call.kwargs["Params"]["ContentLength"]
+                for call in client.generate_presigned_url.call_args_list
+            ],
+            [5, 5, 1],
+        )
+
+    def test_single_checksum_rejection_removes_only_quarantine(self) -> None:
+        from backend.storage.s3_object_store import S3CompatibleObjectStore
+
+        expected_sha = hashlib.sha256(b"right!").hexdigest()
+        sidecar = {
+            "upload_id": "upload_test",
+            "namespace": "proj_a",
+            "sha256": expected_sha,
+            "size_bytes": 6,
+            "content_type": "application/octet-stream",
+            "mode": "single",
+        }
+        client = MagicMock()
+        client.get_object.return_value = {
+            "Body": BytesIO(json.dumps(sidecar).encode("utf-8"))
+        }
+        client.head_object.return_value = {
+            "ContentLength": 6,
+            "ChecksumSHA256": base64.b64encode(hashlib.sha256(b"wrong!").digest()).decode(),
+        }
+        store = S3CompatibleObjectStore(bucket="bucket", client=client)
+
+        with self.assertRaisesRegex(ValidationError, "checksum mismatch"):
+            store.complete_upload(upload_id="upload_test")
+
+        deleted = [call.kwargs["Key"] for call in client.delete_object.call_args_list]
+        self.assertEqual(
+            deleted, [".uploads/upload_test.data", ".uploads/upload_test.meta"]
+        )
+
+    def test_multipart_rejects_same_size_wrong_bytes_before_promotion(self) -> None:
+        from backend.storage.s3_object_store import S3CompatibleObjectStore
+
+        expected_sha = hashlib.sha256(b"right!").hexdigest()
+        sidecar = {
+            "upload_id": "upload_test",
+            "namespace": "proj_a",
+            "sha256": expected_sha,
+            "size_bytes": 6,
+            "content_type": "application/octet-stream",
+            "mode": "multipart",
+            "s3_upload_id": "multipart_test",
+        }
+        client = MagicMock()
+        client.get_object.side_effect = [
+            {"Body": BytesIO(json.dumps(sidecar).encode("utf-8"))},
+            {"Body": BytesIO(b"wrong!")},
+        ]
+        client.head_object.return_value = {"ContentLength": 6}
+        store = S3CompatibleObjectStore(bucket="bucket", client=client)
+
+        with self.assertRaisesRegex(ValidationError, "checksum mismatch"):
+            store.complete_upload(
+                upload_id="upload_test",
+                parts=[{"PartNumber": 1, "ETag": "etag"}],
+            )
+
+        client.upload_fileobj.assert_not_called()
+        deleted = [call.kwargs["Key"] for call in client.delete_object.call_args_list]
+        self.assertEqual(
+            deleted,
+            [".uploads/upload_test.data", ".uploads/upload_test.meta"],
+        )
+
+    def test_single_promotion_failure_preserves_upload_for_retry(self) -> None:
+        from backend.storage.s3_object_store import S3CompatibleObjectStore
+
+        data = b"verified"
+        sha = hashlib.sha256(data).hexdigest()
+        sidecar = {
+            "upload_id": "upload_test",
+            "namespace": "proj_a",
+            "sha256": sha,
+            "size_bytes": len(data),
+            "content_type": "application/octet-stream",
+            "mode": "single",
+        }
+        final = {"bytes": b"trusted-existing"}
+        client = MagicMock()
+
+        def get_object(*, Key, **_kwargs):
+            body = json.dumps(sidecar).encode() if Key.endswith(".meta") else data
+            return {"Body": BytesIO(body)}
+
+        def head_object(*, Key, **_kwargs):
+            if Key.endswith(".data"):
+                return {
+                    "ContentLength": len(data),
+                    "ChecksumSHA256": base64.b64encode(bytes.fromhex(sha)).decode(),
+                }
+            return {"ContentLength": len(final["bytes"])}
+
+        attempts = 0
+
+        def promote(body, _bucket, _key, **_kwargs):
+            nonlocal attempts
+            attempts += 1
+            if attempts == 1:
+                raise RuntimeError("provider unavailable")
+            final["bytes"] = body.read()
+
+        client.get_object.side_effect = get_object
+        client.head_object.side_effect = head_object
+        client.upload_fileobj.side_effect = promote
+        store = S3CompatibleObjectStore(bucket="bucket", client=client)
+
+        with self.assertRaisesRegex(RuntimeError, "provider unavailable"):
+            store.complete_upload(upload_id="upload_test")
+        self.assertEqual(final["bytes"], b"trusted-existing")
+        client.delete_object.assert_not_called()
+
+        stat = store.complete_upload(upload_id="upload_test")
+
+        self.assertEqual(stat.sha256, sha)
+        self.assertEqual(final["bytes"], data)
+        self.assertEqual(
+            [call.kwargs["Key"] for call in client.delete_object.call_args_list],
+            [".uploads/upload_test.data", ".uploads/upload_test.meta"],
+        )
+
+    def test_multipart_hash_failure_retries_after_provider_completion(self) -> None:
+        from backend.storage.s3_object_store import S3CompatibleObjectStore
+
+        data = b"verified"
+        sha = hashlib.sha256(data).hexdigest()
+        sidecar = {
+            "upload_id": "upload_test",
+            "namespace": "proj_a",
+            "sha256": sha,
+            "size_bytes": len(data),
+            "content_type": "application/octet-stream",
+            "mode": "multipart",
+            "s3_upload_id": "multipart_test",
+        }
+        state = {"assembled": False, "hash_reads": 0, "final": b"trusted-existing"}
+        client = MagicMock()
+
+        def complete_multipart(**_kwargs):
+            state["assembled"] = True
+
+        def head_object(*, Key, **_kwargs):
+            if Key.endswith(".data"):
+                if not state["assembled"]:
+                    raise _S3NotFound()
+                return {"ContentLength": len(data)}
+            return {"ContentLength": len(state["final"])}
+
+        def get_object(*, Key, **_kwargs):
+            if Key.endswith(".meta"):
+                return {"Body": BytesIO(json.dumps(sidecar).encode())}
+            state["hash_reads"] += 1
+            if state["hash_reads"] == 1:
+                raise RuntimeError("hash read unavailable")
+            return {"Body": BytesIO(data)}
+
+        def promote(body, _bucket, _key, **_kwargs):
+            state["final"] = body.read()
+
+        client.complete_multipart_upload.side_effect = complete_multipart
+        client.head_object.side_effect = head_object
+        client.get_object.side_effect = get_object
+        client.upload_fileobj.side_effect = promote
+        store = S3CompatibleObjectStore(bucket="bucket", client=client)
+        parts = [{"PartNumber": 1, "ETag": "etag"}]
+
+        with self.assertRaisesRegex(RuntimeError, "hash read unavailable"):
+            store.complete_upload(upload_id="upload_test", parts=parts)
+        self.assertEqual(state["final"], b"trusted-existing")
+        client.delete_object.assert_not_called()
+
+        stat = store.complete_upload(upload_id="upload_test")
+
+        self.assertEqual(stat.sha256, sha)
+        self.assertEqual(state["final"], data)
+        self.assertEqual(client.complete_multipart_upload.call_count, 1)
+        client.abort_multipart_upload.assert_not_called()
+        self.assertEqual(
+            [call.kwargs["Key"] for call in client.delete_object.call_args_list],
+            [".uploads/upload_test.data", ".uploads/upload_test.meta"],
+        )
+
+    def test_missing_quarantine_consumes_sidecar(self) -> None:
+        from backend.storage.s3_object_store import S3CompatibleObjectStore
+
+        sidecar = {
+            "upload_id": "upload_test",
+            "namespace": "proj_a",
+            "sha256": hashlib.sha256(b"data").hexdigest(),
+            "size_bytes": 4,
+            "content_type": "application/octet-stream",
+            "mode": "single",
+        }
+        client = MagicMock()
+        client.get_object.return_value = {
+            "Body": BytesIO(json.dumps(sidecar).encode())
+        }
+        client.head_object.side_effect = _S3NotFound()
+        store = S3CompatibleObjectStore(bucket="bucket", client=client)
+
+        with self.assertRaisesRegex(NotFoundError, "received no bytes"):
+            store.complete_upload(upload_id="upload_test")
+
+        self.assertEqual(
+            [call.kwargs["Key"] for call in client.delete_object.call_args_list],
+            [".uploads/upload_test.data", ".uploads/upload_test.meta"],
+        )
+
+    def test_abort_multipart_cleans_provider_upload_and_sidecars(self) -> None:
+        from backend.storage.s3_object_store import S3CompatibleObjectStore
+
+        sidecar = {
+            "upload_id": "upload_test",
+            "namespace": "proj_a",
+            "sha256": hashlib.sha256(b"data").hexdigest(),
+            "size_bytes": 4,
+            "content_type": "application/octet-stream",
+            "mode": "multipart",
+            "s3_upload_id": "multipart_test",
+        }
+        client = MagicMock()
+        client.get_object.return_value = {
+            "Body": BytesIO(json.dumps(sidecar).encode("utf-8"))
+        }
+        store = S3CompatibleObjectStore(bucket="bucket", client=client)
+
+        self.assertTrue(store.abort_upload(upload_id="upload_test"))
+
+        client.abort_multipart_upload.assert_called_once_with(
+            Bucket="bucket",
+            Key=".uploads/upload_test.data",
+            UploadId="multipart_test",
+        )
+        self.assertEqual(
+            [call.kwargs["Key"] for call in client.delete_object.call_args_list],
+            [".uploads/upload_test.data", ".uploads/upload_test.meta"],
+        )
+
+    def test_abort_failure_preserves_multipart_sidecars_for_retry(self) -> None:
+        from backend.storage.s3_object_store import S3CompatibleObjectStore
+
+        sidecar = {
+            "upload_id": "upload_test",
+            "namespace": "proj_a",
+            "sha256": hashlib.sha256(b"data").hexdigest(),
+            "size_bytes": 4,
+            "content_type": "application/octet-stream",
+            "mode": "multipart",
+            "s3_upload_id": "multipart_test",
+        }
+        client = MagicMock()
+        client.get_object.return_value = {
+            "Body": BytesIO(json.dumps(sidecar).encode("utf-8"))
+        }
+        client.abort_multipart_upload.side_effect = RuntimeError("provider unavailable")
+        store = S3CompatibleObjectStore(bucket="bucket", client=client)
+
+        with self.assertRaisesRegex(RuntimeError, "provider unavailable"):
+            store.abort_upload(upload_id="upload_test")
+
+        client.delete_object.assert_not_called()
+
 
 class S3CompatibleObjectStoreClientConfigTest(unittest.TestCase):
     def test_boto3_client_receives_explicit_credentials_when_both_set(self) -> None:
