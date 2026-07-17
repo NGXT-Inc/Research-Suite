@@ -118,7 +118,10 @@ export async function resetPassword(emailInput) {
 }
 
 export async function signOut() {
-  if (client) await client.auth.signOut();
+  // scope:'local' — end THIS browser's session only. The default 'global'
+  // revokes every session the user has (all tabs, all devices), so one stale
+  // tab's 401 cleanup was destroying freshly-minted logins everywhere.
+  if (client) await client.auth.signOut({ scope: 'local' });
   applySession(null);
 }
 
