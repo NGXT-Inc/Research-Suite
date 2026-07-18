@@ -24,6 +24,7 @@ from ....sandbox.sandbox_backend import (
     BackendUnavailableError,
     BackendCapabilities,
     BackendValidationError,
+    CapacityUnavailableError,
     OnCreated,
     OnPhase,
     ProvisionedSandbox,
@@ -314,14 +315,14 @@ class LambdaLabsSandboxBackend(VmSshSandboxBackend):
         if region:
             if region not in available_regions:
                 where = ", ".join(available_regions) or "(no regions)"
-                raise BackendUnavailableError(
+                raise CapacityUnavailableError(
                     f"Lambda instance type {instance_type} has no current capacity in "
                     f"{region}. Regions with capacity now: {where}."
                 )
             chosen = region
         else:
             if not available_regions:
-                raise BackendUnavailableError(
+                raise CapacityUnavailableError(
                     f"Lambda instance type {instance_type} has no current capacity in "
                     "any region. Call sandbox.options to pick an available SKU."
                 )

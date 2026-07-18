@@ -688,6 +688,16 @@ class SandboxRequestInput(ProjectScopedInput):
             "Labs). Omit to auto-pick a region that currently has capacity."
         ),
     )
+    provider: str | None = Field(
+        default=None,
+        description=(
+            "Compute provider to serve this request when the deployment has "
+            "several configured (e.g. lambda_labs, hyperstack, digitalocean). "
+            "sandbox.options tags every hardware option with the provider that "
+            "serves it — pass that value back together with its instance_type. "
+            "Omit to use the default provider."
+        ),
+    )
     gpu: str | None = Field(
         default=None,
         description=(

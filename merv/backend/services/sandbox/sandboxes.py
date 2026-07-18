@@ -18,6 +18,8 @@ from ...utils import (
     parse_iso,
 )
 from ...sandbox.sandbox_backend import (
+    BackendCapabilities,
+    BackendValidationError,
     SandboxBackend,
     SandboxRequest,
     TranscriptTail,
@@ -179,6 +181,7 @@ class SandboxService:
         time_limit: int | None = None,
         instance_type: str | None = None,
         region: str | None = None,
+        provider: str | None = None,
         public_key: str | None = None,
         public_key_override: str | None = None,
         include_data_plane_enrichment: bool = True,
@@ -186,7 +189,10 @@ class SandboxService:
         sandbox_uid: str | None = None,
     ) -> dict[str, Any]:
         experiment_id = (experiment_id or "").strip()
-        caps = self.backend.capabilities
+        provider = (provider or "").strip() or None
+        # Per-request capabilities: the provider value routes to the serving
+        # backend (multiplexed deployments); a single backend ignores it.
+        caps = self._capabilities_for(provider=provider)
         gpu, cpu, memory, time_limit = validate_request_inputs(
             gpu=gpu,
             cpu=cpu,
@@ -311,7 +317,7 @@ class SandboxService:
                 tenant_id=self.registry.tenant_for_project(project_id=project_id),
                 time_limit_seconds=int(time_limit),
                 price_usd_per_hour=self._price_for_instance(
-                    instance_type=instance_type, region=region
+                    instance_type=instance_type, region=region, provider=caps.name
                 ),
             )
         )
@@ -338,6 +344,7 @@ class SandboxService:
             time_limit=time_limit,
             instance_type=instance_type,
             region=region,
+            provider=provider,
             # A sandbox is a machine first: its workdir is sandbox-owned. Any
             # experiment relationship lives only in sandbox_attachments.
             remote_workdir=remote_dir,
@@ -381,6 +388,7 @@ class SandboxService:
         time_limit: int | None = None,
         instance_type: str | None = None,
         region: str | None = None,
+        provider: str | None = None,
         additional: bool = False,
         sandbox_uid: str | None = None,
     ) -> dict[str, Any]:
@@ -393,6 +401,7 @@ class SandboxService:
             time_limit=time_limit,
             instance_type=instance_type,
             region=region,
+            provider=provider,
             public_key_override=public_key,
             include_data_plane_enrichment=False,
             additional=additional,
@@ -534,10 +543,6 @@ class SandboxService:
         sandbox_uid = (sandbox_uid or "").strip()
         if not experiment_id and not sandbox_uid:
             raise ValidationError("sandbox.extend requires experiment_id or sandbox_uid")
-        if not self.backend.capabilities.lifetime_extension_supported:
-            raise ValidationError(
-                f"{self.backend.capabilities.name} sandboxes do not support lifetime extension"
-            )
         seconds = int(seconds)
         if seconds <= 0 or seconds > 1800:
             raise ValidationError("sandbox.extend seconds must be between 1 and 1800")
@@ -547,6 +552,13 @@ class SandboxService:
             tenant_id=tenant_id,
             sandbox_uid=sandbox_uid,
         )
+        # Capabilities of the backend that owns THIS row (its provider column;
+        # empty = the configured default backend).
+        caps = self._capabilities_for(provider=str(row.get("provider") or "") or None)
+        if not caps.lifetime_extension_supported:
+            raise ValidationError(
+                f"{caps.name} sandboxes do not support lifetime extension"
+            )
         row = self.lifecycle.reconcile(row=row)
         if row.get("status") not in ACTIVE_SANDBOX_STATUSES:
             raise ValidationError("sandbox.extend requires a running sandbox")
@@ -1363,8 +1375,19 @@ class SandboxService:
 
     # ---------- backend introspection ----------
 
+    def _capabilities_for(self, *, provider: str | None) -> BackendCapabilities:
+        """Per-request capability resolution; unknown providers fail cleanly."""
+        try:
+            return self.backend.capabilities_for(provider=provider)
+        except BackendValidationError as exc:
+            raise ValidationError(str(exc)) from exc
+
     def _price_for_instance(
-        self, *, instance_type: str | None, region: str | None
+        self,
+        *,
+        instance_type: str | None,
+        region: str | None,
+        provider: str | None = None,
     ) -> float | None:
         """Resolve the catalog price for a chosen SKU, for the quota price gate.
 
@@ -1372,6 +1395,8 @@ class SandboxService:
         catalog with prices (Lambda, the fake's selection mode). Returns None
         when there is no instance_type or no matching priced option, in which
         case quota admission skips the price ceiling (Modal has no per-hour quote).
+        ``provider`` narrows a multi-provider catalog to the serving backend's
+        options (untagged options — single-backend catalogs — always match).
         """
         if not instance_type:
             return None
@@ -1382,9 +1407,13 @@ class SandboxService:
         if not catalog:
             return None
         for option in catalog.get("options", []) or []:
-            if str(option.get("instance_type") or "") == instance_type:
-                price = option.get("price_usd_per_hour")
-                return float(price) if price is not None else None
+            if str(option.get("instance_type") or "") != instance_type:
+                continue
+            tagged = str(option.get("provider") or "")
+            if provider and tagged and tagged != provider:
+                continue
+            price = option.get("price_usd_per_hour")
+            return float(price) if price is not None else None
         return None
 
     def _hardware_catalog(

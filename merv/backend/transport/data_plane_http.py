@@ -173,6 +173,7 @@ def register_data_plane_routes(
             time_limit=payload.get("time_limit"),
             instance_type=payload.get("instance_type"),
             region=payload.get("region"),
+            provider=payload.get("provider"),
             additional=bool(payload.get("additional")),
             sandbox_uid=payload.get("sandbox_uid"),
         )

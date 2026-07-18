@@ -70,6 +70,13 @@ class SandboxProvisioner:
     def _job_key(self, *, experiment_id: str, sandbox_uid: str = "") -> str:
         return sandbox_uid or experiment_id
 
+    def _provider_for(self, *, req: SandboxRequest) -> str:
+        """Owning backend's canonical name for this request (data-keyed)."""
+        try:
+            return self.backend.capabilities_for(provider=req.provider).name
+        except Exception:  # noqa: BLE001 — row bookkeeping must not fail a provision
+            return req.provider or ""
+
     def _job_for_row(
         self, *, experiment_id: str, sandbox_uid: str = ""
     ) -> _ProvisionJob | None:
@@ -235,6 +242,7 @@ class SandboxProvisioner:
                 project_id=project_id,
                 status="running",
                 sandbox_id=provisioned.sandbox_id,
+                provider=self._provider_for(req=req),
                 # Record what the backend actually procured so the UI/metrics
                 # frame the real reserved hardware (Lambda resolves these from
                 # the chosen SKU; Modal leaves them empty and we keep req's).
@@ -271,6 +279,7 @@ class SandboxProvisioner:
                     experiment_id=experiment_id,
                     project_id=project_id,
                     sandbox_id=provisioned.sandbox_id,
+                    provider=self._provider_for(req=req),
                     instance_type=provisioned.instance_type or (req.instance_type or ""),
                     gpu=provisioned.gpu or (req.gpu or ""),
                     price_usd_per_hour=provisioned.price_usd_per_hour,
@@ -355,6 +364,7 @@ class SandboxProvisioner:
             gpu=req.gpu or "",
             cpu=req.cpu,
             memory=req.memory,
+            provider=self._provider_for(req=req),
             instance_type=req.instance_type or "",
             region=req.region or "",
             time_limit=req.time_limit,

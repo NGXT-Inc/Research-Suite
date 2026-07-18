@@ -455,6 +455,7 @@ class SandboxRegistry:
         experiment_id: str,
         project_id: str,
         sandbox_id: str = "",
+        provider: str = "",
         instance_type: str = "",
         gpu: str = "",
         price_usd_per_hour: float = 0.0,
@@ -477,10 +478,10 @@ class SandboxRegistry:
             conn.execute(
                 """
                 INSERT INTO sandbox_generations (
-                  id, experiment_id, project_id, tenant_id, sandbox_id,
+                  id, experiment_id, project_id, tenant_id, sandbox_id, provider,
                   instance_type, gpu, price_usd_per_hour, started_at, created_seq
                 )
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                 """,
                 (
                     generation_id,
@@ -488,6 +489,7 @@ class SandboxRegistry:
                     project_id,
                     tenant_id,
                     sandbox_id,
+                    provider,
                     instance_type,
                     gpu,
                     price_usd_per_hour,

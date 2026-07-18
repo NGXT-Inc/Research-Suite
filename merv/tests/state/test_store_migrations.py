@@ -296,6 +296,42 @@ class StoreMigrationTest(unittest.TestCase):
         signal = store.project_sandbox_signal(project_id="proj_old")
         self.assertIsInstance(signal, str)
 
+    def test_legacy_sandboxes_gain_provider_columns(self) -> None:
+        # Migration 18: multi-provider rows record their owning backend.
+        # Legacy rows are backfilled to '' = "the configured default backend".
+        self._seed_legacy_db()
+        conn = sqlite3.connect(self.db)
+        try:
+            conn.executescript(OLD_SANDBOXES_SCHEMA)
+            conn.execute(
+                """
+                INSERT INTO sandboxes (
+                  experiment_id, project_id, status, created_at, updated_at
+                )
+                VALUES ('exp_old', 'proj_old', 'running',
+                        '2026-01-01T00:00:00Z', '2026-01-01T01:00:00Z')
+                """
+            )
+            conn.commit()
+        finally:
+            conn.close()
+
+        StateStore(db_path=self.db)  # converge, then re-boot for idempotence
+        store = StateStore(db_path=self.db)
+        conn = store.connect()
+        try:
+            row = conn.execute("SELECT provider FROM sandboxes").fetchone()
+            self.assertEqual(row["provider"], "")
+            generation_columns = {
+                str(item["name"])
+                for item in conn.execute(
+                    "PRAGMA table_info(sandbox_generations)"
+                ).fetchall()
+            }
+            self.assertIn("provider", generation_columns)
+        finally:
+            conn.close()
+
     def test_storage_missing_status_migrates_to_expired(self) -> None:
         conn = sqlite3.connect(self.db)
         try:

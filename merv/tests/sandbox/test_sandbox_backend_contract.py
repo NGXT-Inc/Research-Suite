@@ -23,6 +23,7 @@ from tests.paths import BACKEND_ROOT, SERVICES_ROOT
 
 BACKEND_METHODS = (
     "acquire",
+    "capabilities_for",
     "is_alive",
     "terminate",
     "read_transcript",
@@ -108,6 +109,8 @@ class SandboxBackendContractTest(unittest.TestCase):
     def test_base_optional_methods_return_sentinel_defaults(self) -> None:
         backend = MinimalBackend()
 
+        # Single-provider default: one backend serves every request.
+        self.assertIs(backend.capabilities_for(provider="anything"), backend.capabilities)
         self.assertIsNone(backend.sample_metrics(sandbox_id="sb"))
         self.assertIsNone(backend.refresh_ssh_endpoint(sandbox_id="sb"))
         self.assertIsNone(backend.hardware_catalog())
@@ -190,7 +193,16 @@ class SandboxBackendContractTest(unittest.TestCase):
         self.assertNotIn("resolve_mode", daemons_source)
 
     def test_services_do_not_dispatch_on_provider_name_literals(self) -> None:
-        provider_names = {"modal", "lambda_labs", "thunder_compute"}
+        provider_names = {
+            "modal",
+            "lambda_labs",
+            "thunder_compute",
+            "hyperstack",
+            "digitalocean",
+            "verda",
+            "voltage_park",
+            "tensordock",
+        }
         for path in SERVICES_ROOT.rglob("*.py"):
             tree = ast.parse(path.read_text(encoding="utf-8"), filename=str(path))
             string_literals = {

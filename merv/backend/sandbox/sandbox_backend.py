@@ -50,6 +50,15 @@ class BackendUnavailableError(ExecutionBackendError):
         self.status = status
 
 
+class CapacityUnavailableError(BackendUnavailableError):
+    """The provider has no stock for the requested SKU/region right now.
+
+    A routine, retryable condition — distinct from an outage: the provider
+    answered, it just has nothing to sell. Callers surface it as a clear
+    provision-failure reason and may retry another SKU, region, or provider.
+    """
+
+
 # Provisioning progress callbacks. The registry passes these to acquire() so it
 # can persist the sandbox id the instant it exists, before the slow SSH wait.
 OnPhase = Callable[[str, str], None]      # (phase, detail)
@@ -91,6 +100,9 @@ class SandboxRequest:
     remote_workdir: str = ""
     instance_type: str | None = None
     region: str | None = None
+    # Compute provider to serve this request when several are configured
+    # (multiplexed deployments); None = the configured default backend.
+    provider: str | None = None
 
 
 @dataclass(frozen=True)
@@ -131,6 +143,14 @@ class BackendCapabilities:
 
 class SandboxBackend(Protocol):
     capabilities: BackendCapabilities
+
+    def capabilities_for(self, *, provider: str | None = None) -> BackendCapabilities:
+        """Capabilities of the backend that would serve ``provider``.
+
+        Keyed by data value so services never branch on provider names; a
+        single-provider backend ignores the argument and returns its own.
+        """
+        ...
 
     def acquire(
         self,
@@ -229,6 +249,13 @@ class SandboxBackend(Protocol):
 class SandboxBackendBase:
     """Sentinel defaults for optional SandboxBackend operations."""
 
+    capabilities: BackendCapabilities
+
+    def capabilities_for(self, *, provider: str | None = None) -> BackendCapabilities:
+        """Single-provider default: one backend serves every request."""
+        _ = provider
+        return self.capabilities
+
     def sample_metrics(
         self,
         *,
@@ -294,6 +321,7 @@ __all__ = [
     "BackendPermissionError",
     "BackendUnavailableError",
     "BackendValidationError",
+    "CapacityUnavailableError",
     "ExecutionBackendError",
     "OnCreated",
     "OnPhase",

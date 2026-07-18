@@ -408,6 +408,19 @@
             "title": "Project Id",
             "type": "string"
           },
+          "provider": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "description": "Compute provider to serve this request when the deployment has several configured (e.g. lambda_labs, hyperstack, digitalocean). sandbox.options tags every hardware option with the provider that serves it \u2014 pass that value back together with its instance_type. Omit to use the default provider.",
+            "title": "Provider"
+          },
           "public_key": {
             "description": "Required OpenSSH public key to authorize on the VM. Pass only the single-line public key, never private-key material.",
             "title": "Public Key",

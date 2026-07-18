@@ -149,6 +149,8 @@ def agent_row_facts(
         "gpu": row.get("gpu") or None,
         "cpu": row.get("cpu"),
         "memory": row.get("memory"),
+        # Empty on pre-multi-provider rows = the configured default backend.
+        "provider": row.get("provider") or None,
         "instance_type": row.get("instance_type") or None,
         "region": row.get("region") or None,
         "public_key_source": row.get("public_key_source") or "managed",
@@ -289,6 +291,7 @@ def agent_summary(*, row: dict[str, Any]) -> dict[str, Any]:
         "sandbox_id": row.get("sandbox_id"),
         "status": row.get("status"),
         "gpu": row.get("gpu") or None,
+        "provider": row.get("provider") or None,
         "instance_type": row.get("instance_type") or None,
         "region": row.get("region") or None,
         "expires_at": row.get("expires_at"),
@@ -330,6 +333,7 @@ def sandbox_row_view(
         "gpu": row.get("gpu") or "",
         "cpu": row.get("cpu"),
         "memory": row.get("memory"),
+        "provider": row.get("provider") or "",
         "instance_type": row.get("instance_type") or "",
         "region": row.get("region") or "",
         "public_key_source": row.get("public_key_source") or "managed",
@@ -363,7 +367,8 @@ def needs_selection_view(
     """The 'pick a machine' response for bundled-hardware backends."""
     options = catalog.get("options", [])
     cheapest = options[0]["instance_type"] if options else None
-    return {
+    providers = catalog.get("providers")
+    view = {
         "experiment_id": experiment_id,
         "project_id": project_id,
         "status": "needs_selection",
@@ -377,9 +382,18 @@ def needs_selection_view(
             "No sandbox is attached and this provider procures whole machines, "
             "so choose one before provisioning. Re-call sandbox.request with "
             "instance_type=<one of options[].instance_type> (and optionally "
-            "region=<one of that option's regions>). Options are sorted "
-            "cheapest-first"
+            "region=<one of that option's regions>"
+            + (
+                "; multiple compute providers are configured, so also pass the "
+                "chosen option's provider"
+                if providers
+                else ""
+            )
+            + "). Options are sorted cheapest-first"
             + (f"; cheapest available now is '{cheapest}'. " if cheapest else ". ")
             + "Call sandbox.options anytime to re-list current availability."
         ),
     }
+    if providers:
+        view["providers"] = providers
+    return view

@@ -355,6 +355,10 @@ CREATE TABLE IF NOT EXISTS sandboxes (
   gpu TEXT NOT NULL DEFAULT '',
   cpu REAL NOT NULL DEFAULT 0,
   memory INTEGER NOT NULL DEFAULT 0,
+  -- Compute provider that owns this sandbox (the backend's capabilities.name).
+  -- Empty on rows that predate multi-provider support and means "the
+  -- configured default backend" at read time.
+  provider TEXT NOT NULL DEFAULT '',
   -- Provider-bundled machine SKU + datacenter, for backends (Lambda Labs) that
   -- procure a fixed instance type rather than composing cpu/memory. Empty for
   -- Modal, which sets gpu/cpu/memory above instead.
@@ -494,6 +498,8 @@ CREATE TABLE IF NOT EXISTS sandbox_generations (
   project_id TEXT NOT NULL,
   tenant_id TEXT NOT NULL DEFAULT 'local',
   sandbox_id TEXT NOT NULL DEFAULT '',
+  -- Owning compute provider (empty = pre-multi-provider row / default backend).
+  provider TEXT NOT NULL DEFAULT '',
   instance_type TEXT NOT NULL DEFAULT '',
   gpu TEXT NOT NULL DEFAULT '',
   price_usd_per_hour REAL NOT NULL DEFAULT 0,
@@ -590,6 +596,9 @@ MIGRATIONS: tuple[tuple[int, str, str], ...] = (
         "reactivate_hard_stopped_projects",
         "UPDATE projects SET status = 'active' WHERE status = 'stopped'",
     ),
+    # Multi-provider sandboxes (July 2026): rows record their owning compute
+    # provider. Existing rows keep '' = "the configured default backend".
+    (18, "add_sandbox_provider_columns", ""),
 )
 
 
@@ -731,6 +740,8 @@ class BaseStateStore:
                 self._rename_syntheses_to_reflections(conn=conn)
             elif name == "add_sandbox_last_command_columns":
                 self._ensure_sandbox_last_command_columns(conn=conn)
+            elif name == "add_sandbox_provider_columns":
+                self._ensure_sandbox_provider_columns(conn=conn)
             else:
                 conn.execute(statement)
             conn.execute(
@@ -778,6 +789,18 @@ class BaseStateStore:
         for column, ddl in self.SANDBOX_LAST_COMMAND_COLUMNS.items():
             if not self._has_column(conn=conn, table="sandboxes", column=column):
                 conn.execute(f"ALTER TABLE sandboxes ADD COLUMN {column} {ddl}")
+
+    def _ensure_sandbox_provider_columns(self, *, conn: Connection) -> None:
+        """Idempotently add the owning-provider column to both sandbox tables.
+
+        Backfill is the empty string: '' means "the configured default
+        backend" at read time, so pre-multi-provider rows keep working.
+        """
+        for table in ("sandboxes", "sandbox_generations"):
+            if not self._has_column(conn=conn, table=table, column="provider"):
+                conn.execute(
+                    f"ALTER TABLE {table} ADD COLUMN provider TEXT NOT NULL DEFAULT ''"
+                )
 
     def _rename_syntheses_to_reflections(self, *, conn: Connection) -> None:
         if self._has_table(conn=conn, table="reflections"):
