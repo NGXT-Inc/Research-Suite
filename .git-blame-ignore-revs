@@ -3,3 +3,6 @@
 # merv/docs/RESTRUCTURE_MAP.md while it exists). Each tranche appends its
 # move-commit sha below. Enable once per clone with:
 #   git config blame.ignoreRevsFile .git-blame-ignore-revs
+
+# T1: feed module -> backend/feed/
+6e908db78661f5b05ac753f72690e66243102bf4
