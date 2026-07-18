@@ -24,8 +24,13 @@ untouched — the switch is a plugin swap plus a one-time login.
   folder keep their state in `.merv/` instead (fresh clones included). Any
   existing `.research_plugin/` folder keeps working forever and always wins
   when both directories are present — no migration, ever.
-- The machine config in `~/.research_plugin/` and all `RESEARCH_PLUGIN_*`
-  environment variables also keep their names.
+- The same rule now covers machine config and environment variables: fresh
+  machines keep client state in `~/.merv/`, while an existing
+  `~/.research_plugin/` keeps working forever and wins when present. Every
+  environment variable has a `MERV_*` primary spelling (for example
+  `MERV_CONTROL_URL`); the old `RESEARCH_PLUGIN_*` names remain supported
+  forever as a fallback — set values are honored, with a one-line
+  deprecation notice pointing at the new name.
 - Projects, claims, experiments, reviews, and reflections live in the
   hosted brain, keyed by project id. Linked folders reconnect automatically
   once you sign in.
@@ -93,8 +98,9 @@ command = "/path/to/your-clone/merv/bin/merv-mcp"
 ```
 
 If your old entry had an `env` block (`RESEARCH_PLUGIN_*` variables), copy
-it over unchanged — the variable names have not changed. Restart Codex,
-then [sign in](#sign-in).
+it over unchanged — the old names keep working. New configs should prefer
+the `MERV_*` spellings (e.g. `MERV_CONTROL_URL`). Restart Codex, then
+[sign in](#sign-in).
 
 For Gemini CLI and OpenCode, update the extension paths the same way; see
 [merv/docs/CLIENTS.md](merv/docs/CLIENTS.md).

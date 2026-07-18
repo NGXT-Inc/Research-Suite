@@ -27,7 +27,7 @@ Consequences:
 Both presets use the same component graph: a brain owns records and policy,
 while an agent-launched stdio MCP proxy performs checkout-local work.
 
-| `RESEARCH_PLUGIN_MODE` | Brain preset | Record/blob defaults | Entrypoint |
+| `MERV_MODE` | Brain preset | Record/blob defaults | Entrypoint |
 |---|---|---|---|
 | `local` (default) | loopback development brain | SQLite and local-directory blobs | `merv-http` |
 | `control` | hosted private brain | Postgres, S3-compatible blobs, mounted management key | `merv-control` |
@@ -41,21 +41,21 @@ Both brains own sandbox provider lifecycle and the expiry reaper. Neither
 preset automatically copies files out of a sandbox.
 
 Unknown mode values fail at startup. The `merv-control` console
-entrypoint forces `RESEARCH_PLUGIN_MODE=control`.
+entrypoint forces `MERV_MODE=control`.
 
 ## Required control configuration
 
 The production control entrypoint has no checkout or staging directory, so it
 fails fast unless these durable dependencies are configured:
 
-- `RESEARCH_PLUGIN_DB_URL` — a `postgres://` or `postgresql://` record-store
+- `MERV_DB_URL` — a `postgres://` or `postgresql://` record-store
   URL;
-- `RESEARCH_PLUGIN_BLOB_BUCKET` plus the applicable `AWS_*` credential, region,
+- `MERV_BLOB_BUCKET` plus the applicable `AWS_*` credential, region,
   and endpoint configuration — the S3-compatible submitted-byte store;
-- `RESEARCH_PLUGIN_MGMT_KEY_PATH` — the mounted **private-key file**, readable
+- `MERV_MGMT_KEY_PATH` — the mounted **private-key file**, readable
   by the control user and mode `0600` or stricter.
 
-The management public key comes from `RESEARCH_PLUGIN_MGMT_PUBLIC_KEY` or an
+The management public key comes from `MERV_MGMT_PUBLIC_KEY` or an
 adjacent `<private-key-path>.pub` file. The key is fingerprinted at startup;
 changing it in place is rejected. Drain live sandboxes and restart the brain to
 rotate it.
@@ -66,12 +66,12 @@ fallback for the production console entrypoint.
 
 ### Browser CORS
 
-`RESEARCH_PLUGIN_ALLOWED_ORIGINS` is a comma-separated list of exact HTTP(S)
+`MERV_ALLOWED_ORIGINS` is a comma-separated list of exact HTTP(S)
 origins allowed to call the brain from a browser. Control mode restricts CORS by
 default; an empty list blocks cross-origin browser clients. Include the hosted
 UI origin explicitly.
 
-`RESEARCH_PLUGIN_CONTROL_RESTRICT_CORS=0` disables that restriction, but does
+`MERV_CONTROL_RESTRICT_CORS=0` disables that restriction, but does
 not add authentication and is inappropriate for an exposed deployment.
 
 ### Heavy-object storage
@@ -79,12 +79,12 @@ not add authentication and is inappropriate for an exposed deployment.
 Heavy storage is optional and separate from the submitted-byte blob store:
 
 ```text
-RESEARCH_PLUGIN_STORAGE_PROVIDER=s3
-RESEARCH_PLUGIN_STORAGE_BUCKET=...
-RESEARCH_PLUGIN_STORAGE_ENDPOINT_URL=...   # MinIO/R2/custom S3 endpoint
-RESEARCH_PLUGIN_STORAGE_REGION=...
-RESEARCH_PLUGIN_STORAGE_ACCESS_KEY_ID=...  # falls back to AWS_ACCESS_KEY_ID
-RESEARCH_PLUGIN_STORAGE_SECRET_ACCESS_KEY=...
+MERV_STORAGE_PROVIDER=s3
+MERV_STORAGE_BUCKET=...
+MERV_STORAGE_ENDPOINT_URL=...   # MinIO/R2/custom S3 endpoint
+MERV_STORAGE_REGION=...
+MERV_STORAGE_ACCESS_KEY_ID=...  # falls back to AWS_ACCESS_KEY_ID
+MERV_STORAGE_SECRET_ACCESS_KEY=...
 ```
 
 Presigned upload/download URLs must be reachable from the client-side proxies
@@ -98,11 +98,11 @@ does not discover credentials from a user's checkout.
 
 | Backend | Selection | Credentials |
 |---|---|---|
-| Lambda Labs | unset or `lambda_labs` | `RESEARCH_PLUGIN_LAMBDA_API_KEY`, `LAMBDA_LABS_API_KEY`, or `LAMBDA_API_KEY` |
-| Thunder Compute | `thunder_compute` | `RESEARCH_PLUGIN_THUNDER_API_KEY`, `THUNDER_COMPUTE_API_KEY`, or `TNR_API_TOKEN` |
+| Lambda Labs | unset or `lambda_labs` | `MERV_LAMBDA_API_KEY`, `LAMBDA_LABS_API_KEY`, or `LAMBDA_API_KEY` |
+| Thunder Compute | `thunder_compute` | `MERV_THUNDER_API_KEY`, `THUNDER_COMPUTE_API_KEY`, or `TNR_API_TOKEN` |
 | Modal | `modal` | `MODAL_TOKEN_ID` and `MODAL_TOKEN_SECRET` |
 
-Set `RESEARCH_PLUGIN_REQUIRE_SANDBOX_BACKEND=1` in production to make startup
+Set `MERV_REQUIRE_SANDBOX_BACKEND=1` in production to make startup
 fail when the selected provider's health check fails. Without it, the brain can
 start as a record-only service and `sandbox.health` reports the provider error.
 
@@ -118,18 +118,18 @@ the plugin.
 MLflow is the quantitative ledger; the brain does not keep a second metrics
 database.
 
-- `RESEARCH_PLUGIN_MLFLOW_TRACKING_URI` is the public run-reachable endpoint
+- `MERV_MLFLOW_TRACKING_URI` is the public run-reachable endpoint
   returned to agents. Local agent processes and remote sandboxes must both be
   able to reach it.
-- `RESEARCH_PLUGIN_MLFLOW_SERVER_URI` optionally gives the brain a different
+- `MERV_MLFLOW_SERVER_URI` optionally gives the brain a different
   internal URL for metrics reads.
-- `RESEARCH_PLUGIN_MLFLOW_DASHBOARD_URL` optionally gives humans a different
+- `MERV_MLFLOW_DASHBOARD_URL` optionally gives humans a different
   browser URL.
-- `RESEARCH_PLUGIN_REQUIRE_AGENT_MLFLOW=1` makes startup fail when agents would
+- `MERV_REQUIRE_AGENT_MLFLOW=1` makes startup fail when agents would
   receive no tracking URI.
 
 In the reference Compose stack, mounting MLflow under a path prefix requires
-matching ingress routes and `RESEARCH_PLUGIN_MLFLOW_STATIC_PREFIX`. The routing
+matching ingress routes and `MERV_MLFLOW_STATIC_PREFIX`. The routing
 example is in `../deploy/README.md`.
 
 ## Client compatibility

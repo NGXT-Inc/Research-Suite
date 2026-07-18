@@ -256,7 +256,7 @@ class LocalShippingTest(unittest.TestCase):
         # Shipped manifests must not pin a brain URL: an empty value keeps the
         # machine config from `merv-client configure` in charge,
         # with the hosted brain as the built-in fallback.
-        self.assertEqual(env["RESEARCH_PLUGIN_CONTROL_URL"], "")
+        self.assertEqual(env["MERV_CONTROL_URL"], "")
 
     def test_http_launcher_rejects_explicit_repo(self) -> None:
         proc = subprocess.run(

@@ -8,8 +8,8 @@
       "command": "${extensionPath}${/}bin${/}merv-mcp",
       "args": [],
       "env": {
-        "RESEARCH_PLUGIN_REPO_ROOT": "${workspacePath}",
-        "RESEARCH_PLUGIN_CONTROL_URL": ""
+        "MERV_REPO_ROOT": "${workspacePath}",
+        "MERV_CONTROL_URL": ""
       }
     }
   }

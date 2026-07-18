@@ -4,7 +4,7 @@
       "command": "bin/merv-mcp",
       "args": [],
       "env": {
-        "RESEARCH_PLUGIN_CONTROL_URL": ""
+        "MERV_CONTROL_URL": ""
       },
       "default_tools_approval_mode": "approve"
     }

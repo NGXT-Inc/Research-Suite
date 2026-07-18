@@ -3,5 +3,5 @@
 # not a Procfile-managed daemon.
 
 # Cloud control plane. Keep private behind a TLS-terminating load balancer.
-# Needs RESEARCH_PLUGIN_DB_URL + RESEARCH_PLUGIN_BLOB_BUCKET.
+# Needs MERV_DB_URL + MERV_BLOB_BUCKET.
 control: merv-control

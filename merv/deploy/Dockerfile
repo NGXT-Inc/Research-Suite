@@ -39,9 +39,9 @@ RUN pip install ".[control]"
 RUN useradd --create-home --uid 10001 rpcontrol
 USER rpcontrol
 
-ENV RESEARCH_PLUGIN_MODE=control \
-    RESEARCH_PLUGIN_HTTP_HOST=0.0.0.0 \
-    RESEARCH_PLUGIN_HTTP_PORT=8787
+ENV MERV_MODE=control \
+    MERV_HTTP_HOST=0.0.0.0 \
+    MERV_HTTP_PORT=8787
 
 EXPOSE 8787
 
@@ -50,7 +50,7 @@ EXPOSE 8787
 HEALTHCHECK --interval=30s --timeout=5s --start-period=20s --retries=3 \
     CMD curl -fsS http://127.0.0.1:8787/api/meta || exit 1
 
-# control_main forces RESEARCH_PLUGIN_MODE=control (data-plane submission
+# control_main forces MERV_MODE=control (data-plane submission
 # endpoints on, reaper on). Keep it behind a TLS-terminating private boundary in
 # production.
 ENTRYPOINT ["merv-control"]

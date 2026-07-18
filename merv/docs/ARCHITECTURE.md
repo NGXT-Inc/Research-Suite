@@ -57,7 +57,7 @@ The brain never receives a checkout root and never opens files from a user's
 checkout. Repo-derived facts and size-capped submitted bytes reach it only
 through explicit data-plane submissions from the proxy.
 
-`RESEARCH_PLUGIN_MODE` selects deployment defaults, not a different component
+`MERV_MODE` selects deployment defaults, not a different component
 graph:
 
 | Preset | Brain location | Record/blob defaults | Intended exposure |
@@ -91,7 +91,7 @@ require a local package installation.
 
 The proxy resolves one brain URL in this order:
 
-1. `RESEARCH_PLUGIN_CONTROL_URL`;
+1. `MERV_CONTROL_URL`;
 2. machine configuration written by `merv-client configure`;
 3. `https://experiments.rapidreview.io`.
 
@@ -115,7 +115,7 @@ pulls must go through the local MCP proxy.
 Both deployment presets use the same `ControlApp` composition. The composition
 root selects adapters and wires the modular monolith:
 
-- record store: SQLite locally or Postgres when `RESEARCH_PLUGIN_DB_URL` is set;
+- record store: SQLite locally or Postgres when `MERV_DB_URL` is set;
 - submitted-byte blob store: local directory or S3-compatible bucket;
 - optional heavy-object store: S3-compatible storage;
 - sandbox backend: Lambda Labs by default, Thunder Compute, Modal, or the fake

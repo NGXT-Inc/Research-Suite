@@ -73,7 +73,7 @@ bin/merv-client configure --control-url http://127.0.0.1:8787
 ```
 
 Sandbox provider credentials (Lambda Labs by default; Thunder, Modal, and a
-fake test backend via `RESEARCH_PLUGIN_EXECUTION_BACKEND`) belong to the brain
+fake test backend via `MERV_EXECUTION_BACKEND`) belong to the brain
 process only — see `.env.example`. Startup details:
 [docs/STARTUP_CHEATSHEET.md](docs/STARTUP_CHEATSHEET.md).
 
@@ -83,7 +83,7 @@ process only — see `.env.example`. Startup details:
 PYTHONPATH=. .venv/bin/python -m unittest discover -s tests
 ```
 
-Set `RESEARCH_PLUGIN_EXECUTION_BACKEND=fake` to keep tests and local workflows
+Set `MERV_EXECUTION_BACKEND=fake` to keep tests and local workflows
 off cloud providers.
 
 ## Documentation

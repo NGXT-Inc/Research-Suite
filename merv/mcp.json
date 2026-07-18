@@ -5,8 +5,8 @@
       "command": "${userHome}/.cursor/plugins/local/merv/bin/merv-mcp",
       "args": [],
       "env": {
-        "RESEARCH_PLUGIN_REPO_ROOT": "${workspaceFolder}",
-        "RESEARCH_PLUGIN_CONTROL_URL": ""
+        "MERV_REPO_ROOT": "${workspaceFolder}",
+        "MERV_CONTROL_URL": ""
       }
     }
   }

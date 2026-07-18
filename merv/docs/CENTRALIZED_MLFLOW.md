@@ -22,15 +22,15 @@ access.
 
 ```text
 local execution or remote sandbox
-  -> RESEARCH_PLUGIN_MLFLOW_TRACKING_URI
+  -> MERV_MLFLOW_TRACKING_URI
   -> MLflow tracking and artifact service
 
 brain
-  -> RESEARCH_PLUGIN_MLFLOW_SERVER_URI
+  -> MERV_MLFLOW_SERVER_URI
   -> run creation, finalization, health checks, and compact UI reads
 ```
 
-`RESEARCH_PLUGIN_MLFLOW_TRACKING_URI` must be reachable from every place that
+`MERV_MLFLOW_TRACKING_URI` must be reachable from every place that
 runs experiments. For a hosted deployment this normally means a public HTTPS
 URL. A Docker service name such as `http://mlflow:5000` is suitable for the
 brain's internal `SERVER_URI`, but not for agents or remote sandboxes.
@@ -45,7 +45,7 @@ https://backend.example.com         -> brain
 ```
 
 For that path layout in the reference Compose stack, set
-`RESEARCH_PLUGIN_MLFLOW_STATIC_PREFIX=/mlflow`; Compose passes it to MLflow's
+`MERV_MLFLOW_STATIC_PREFIX=/mlflow`; Compose passes it to MLflow's
 `--static-prefix` flag. The ingress must:
 
 - strip `/mlflow` for MLflow API routes such as `/mlflow/api/*`;
@@ -63,10 +63,10 @@ for local execution only; remote sandboxes need a URL they can reach directly.
 Typical hosted configuration:
 
 ```bash
-RESEARCH_PLUGIN_MLFLOW_MODE=external
-RESEARCH_PLUGIN_MLFLOW_TRACKING_URI=https://backend.example.com/mlflow
-RESEARCH_PLUGIN_MLFLOW_SERVER_URI=http://mlflow:5000
-RESEARCH_PLUGIN_MLFLOW_DASHBOARD_URL=https://backend.example.com/mlflow
+MERV_MLFLOW_MODE=external
+MERV_MLFLOW_TRACKING_URI=https://backend.example.com/mlflow
+MERV_MLFLOW_SERVER_URI=http://mlflow:5000
+MERV_MLFLOW_DASHBOARD_URL=https://backend.example.com/mlflow
 ```
 
 - `TRACKING_URI` is returned to agents and training code.
@@ -83,7 +83,7 @@ those writes require `SERVER_URI`. Configure both to use the complete workflow.
 Hosted deployments can set:
 
 ```bash
-RESEARCH_PLUGIN_REQUIRE_AGENT_MLFLOW=1
+MERV_REQUIRE_AGENT_MLFLOW=1
 ```
 
 This makes brain startup fail when `TRACKING_URI` is empty. It does not probe
@@ -238,7 +238,7 @@ MLflow is best-effort in the experiment workflow:
   occurs during initial/retry run creation, health checks, finalization, and
   compatibility reads.
 - Experiment transitions do not gate on MLflow availability.
-- `RESEARCH_PLUGIN_REQUIRE_AGENT_MLFLOW=1` separately makes brain startup fail
+- `MERV_REQUIRE_AGENT_MLFLOW=1` separately makes brain startup fail
   when `TRACKING_URI` is absent.
 - A quantitative run without usable MLflow should retain fallback result files
   in the experiment folder and explain the gap in its report.

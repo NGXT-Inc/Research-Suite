@@ -29,7 +29,7 @@ USER MACHINE
 ```
 
 The proxy always dials one brain URL, resolved as the
-`RESEARCH_PLUGIN_CONTROL_URL` env var > machine config from
+`MERV_CONTROL_URL` env var > machine config from
 `merv-client configure` > the hosted default. Local deployments
 configure `http://127.0.0.1:8787`. There is no marker discovery and no thin
 local upstream path.
@@ -101,7 +101,7 @@ brain-side operational credentials.
 | Hosted (default) | `https://experiments.rapidreview.io` | durable DB + submitted-byte blob store; optional heavy-object store | private operator surface; no end-user auth | same thick data plane |
 | Local | `http://127.0.0.1:8787` | SQLite + local-dir blobs | no auth; foreign browser origins rejected | same thick data plane |
 
-`RESEARCH_PLUGIN_MODE` names the preset used to start the brain. It does not
+`MERV_MODE` names the preset used to start the brain. It does not
 create a second composition path.
 
 CORS and the client-version floor are not authentication. Until an end-user

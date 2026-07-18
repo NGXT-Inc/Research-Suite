@@ -36,11 +36,11 @@ restrict it to the deployment account, and pass its absolute path when starting
 the stack:
 
 ```sh
-RESEARCH_PLUGIN_PROVIDER_ENV_FILE=/run/secrets/merv-provider.env \
+MERV_PROVIDER_ENV_FILE=/run/secrets/merv-provider.env \
   docker compose -f deploy/docker-compose.yml up --build -d
 ```
 
-The file may contain `RESEARCH_PLUGIN_LAMBDA_API_KEY` (or
+The file may contain `MERV_LAMBDA_API_KEY` (or
 `LAMBDA_LABS_API_KEY`), Thunder/Modal credentials, and `HF_TOKEN`. Do not also
 declare those names with empty values under the control service's
 `environment:` map: Compose gives that map precedence over `env_file`.
@@ -48,7 +48,7 @@ declare those names with empty values under the control service's
 The compose defaults start the complete set of services, but intentionally make
 the control container **record-only**:
 
-- `RESEARCH_PLUGIN_MLFLOW_TRACKING_URI` is empty, so agents are not given a
+- `MERV_MLFLOW_TRACKING_URI` is empty, so agents are not given a
   run-reachable tracking URL.
 - sandbox provider credentials are empty, so provisioning is unavailable.
 
@@ -78,18 +78,18 @@ RP_DOCTOR_URL_REWRITE=http://minio:9000=http://127.0.0.1:9000 \
 
 ## Hosted configuration
 
-`merv-control` forces `RESEARCH_PLUGIN_MODE=control`. With no
+`merv-control` forces `MERV_MODE=control`. With no
 explicit development `repo_root`, startup requires:
 
-- `RESEARCH_PLUGIN_DB_URL`: Postgres record store;
-- `RESEARCH_PLUGIN_BLOB_BUCKET` plus the relevant `AWS_*` settings: durable
+- `MERV_DB_URL`: Postgres record store;
+- `MERV_BLOB_BUCKET` plus the relevant `AWS_*` settings: durable
   submitted-byte blob store;
-- `RESEARCH_PLUGIN_MGMT_KEY_PATH`: a mounted **private-key file** readable only
+- `MERV_MGMT_KEY_PATH`: a mounted **private-key file** readable only
   by the control process; and
-- either `RESEARCH_PLUGIN_MGMT_PUBLIC_KEY` or an adjacent `<key>.pub` file.
+- either `MERV_MGMT_PUBLIC_KEY` or an adjacent `<key>.pub` file.
 
 Heavy object storage is optional. Enable it with
-`RESEARCH_PLUGIN_STORAGE_PROVIDER` and the storage bucket/credentials. This is
+`MERV_STORAGE_PROVIDER` and the storage bucket/credentials. This is
 separate from the submitted-byte blob store, which hosted startup requires.
 
 Central MLflow has three URLs because callers, the brain, and people may reach
@@ -97,24 +97,39 @@ it differently:
 
 | Variable | Consumer |
 |---|---|
-| `RESEARCH_PLUGIN_MLFLOW_TRACKING_URI` | agents and sandbox commands; must be reachable from every run location |
-| `RESEARCH_PLUGIN_MLFLOW_SERVER_URI` | brain metrics reads; may use an internal service URL |
-| `RESEARCH_PLUGIN_MLFLOW_DASHBOARD_URL` | links opened by people; defaults to the tracking URL |
+| `MERV_MLFLOW_TRACKING_URI` | agents and sandbox commands; must be reachable from every run location |
+| `MERV_MLFLOW_SERVER_URI` | brain metrics reads; may use an internal service URL |
+| `MERV_MLFLOW_DASHBOARD_URL` | links opened by people; defaults to the tracking URL |
 
-Set `RESEARCH_PLUGIN_REQUIRE_AGENT_MLFLOW=1` to reject startup without an agent
-tracking URL. Set `RESEARCH_PLUGIN_REQUIRE_SANDBOX_BACKEND=1` to reject startup
+Set `MERV_REQUIRE_AGENT_MLFLOW=1` to reject startup without an agent
+tracking URL. Set `MERV_REQUIRE_SANDBOX_BACKEND=1` to reject startup
 when the selected provider is unhealthy. Provider credentials and the brain
 management key belong only in the hosted secret store; they are never shipped
 to the MCP proxy.
 
 See `.env.example` for the supported variables.
 
+### Legacy `RESEARCH_PLUGIN_*` names
+
+`MERV_*` is the primary spelling for every variable; the legacy
+`RESEARCH_PLUGIN_*` names keep working forever as a fallback (non-empty
+`MERV_*` wins, and a legacy-sourced value logs one deprecation line). The
+reference compose file also dual-reads host-side substitutions, so a host
+that still exports only legacy names deploys unchanged.
+
+One sharp edge for operators with their own compose **override files**:
+`environment:` maps merge by key. This base file now sets container env
+under the `MERV_*` keys, and a non-empty `MERV_*` beats a legacy name inside
+the container — so an override that pins values under `RESEARCH_PLUGIN_*`
+keys no longer shadows the base defaults. Rename the keys in your override
+to `MERV_*` (or export the value host-side, which the base dual-reads).
+
 ## Network and security boundary
 
 The brain serves plain HTTP on port 8787. A real deployment must terminate TLS
 at a load balancer or reverse proxy. In the reference Compose stack, if MLflow
 is exposed under `/mlflow`, set
-`RESEARCH_PLUGIN_MLFLOW_STATIC_PREFIX=/mlflow`; Compose forwards it to MLflow's
+`MERV_MLFLOW_STATIC_PREFIX=/mlflow`; Compose forwards it to MLflow's
 `--static-prefix`. Route MLflow's tracking, artifact, UI, and `ajax-api` paths
 consistently. The Python brain itself does not read this variable.
 

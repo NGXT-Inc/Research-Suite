@@ -36,12 +36,12 @@ class ControlUrlResolutionTest(unittest.TestCase):
             with self.subTest(manifest=name):
                 config = json.loads((PLUGIN_ROOT / name).read_text())
                 server = config[servers_key]["merv"]
-                self.assertEqual(server.get(env_key, {}).get("RESEARCH_PLUGIN_CONTROL_URL", ""), "")
+                self.assertEqual(server.get(env_key, {}).get("MERV_CONTROL_URL", ""), "")
         opencode = json.loads(
             (PLUGIN_ROOT / "clients" / "opencode" / "opencode.json.example").read_text()
         )
         environment = opencode["mcp"]["merv"].get("environment", {})
-        self.assertEqual(environment.get("RESEARCH_PLUGIN_CONTROL_URL", ""), "")
+        self.assertEqual(environment.get("MERV_CONTROL_URL", ""), "")
 
 
 class CursorAdapterTest(unittest.TestCase):
@@ -55,7 +55,7 @@ class CursorAdapterTest(unittest.TestCase):
         # root must arrive via ${workspaceFolder}, never via cwd.
         config = json.loads((PLUGIN_ROOT / "mcp.json").read_text())
         server = config["mcpServers"]["merv"]
-        self.assertEqual(server["env"]["RESEARCH_PLUGIN_REPO_ROOT"], "${workspaceFolder}")
+        self.assertEqual(server["env"]["MERV_REPO_ROOT"], "${workspaceFolder}")
         # Cursor resolves stdio commands against PATH or as full paths only —
         # no plugin-relative resolution — so the bundle addresses the launcher
         # through its documented install location under ${userHome}.
@@ -73,7 +73,7 @@ class GeminiAdapterTest(unittest.TestCase):
         self.assertTrue((PLUGIN_ROOT / manifest["contextFileName"]).is_file())
 
         server = manifest["mcpServers"]["merv"]
-        self.assertEqual(server["env"]["RESEARCH_PLUGIN_REPO_ROOT"], "${workspacePath}")
+        self.assertEqual(server["env"]["MERV_REPO_ROOT"], "${workspacePath}")
         command = server["command"]
         self.assertTrue(command.startswith("${extensionPath}"))
         resolved = command.replace("${extensionPath}", str(PLUGIN_ROOT)).replace("${/}", os.sep)
