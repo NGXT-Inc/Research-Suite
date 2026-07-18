@@ -1,0 +1,459 @@
+<!DOCTYPE html>
+<html>
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500;600&family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+<style>
+  html, body { margin:0; height:100%; background:#f5f4f0; overflow:hidden; }
+  a { color:#f76b15; text-decoration:none; }
+  a:hover { color:#d55708; }
+  @keyframes pulse-dot { 0%,100% { opacity:1; } 50% { opacity:0.35; } }
+</style>
+</helmet>
+<div style="position:fixed; inset:0; background:#f5f4f0; color:#26251f; font-family:'Inter',system-ui,sans-serif; overflow:hidden;">
+  <div dc-ref="{{ canvasRef }}" onPointerDown="{{ panStart }}" onPointerMove="{{ panMove }}" onPointerUp="{{ panEnd }}" onPointerLeave="{{ panEnd }}" style="position:absolute; inset:0; cursor:{{ cursor }}; touch-action:none;">
+    <div style="position:absolute; left:0; top:0; transform:{{ camera }}; transform-origin:0 0; will-change:transform;">
+      <div style="position:absolute; left:{{ nowX }}px; top:-80px; width:1px; height:1400px; background:rgba(247,107,21,0.2); pointer-events:none;"></div>
+      <svg style="position:absolute; left:0; top:0; width:1px; height:1px; overflow:visible; pointer-events:none;">
+        <sc-for list="{{ edges }}" as="ed" hint-placeholder-count="0">
+          <path d="{{ ed.d }}" fill="none" stroke="#97938a" stroke-opacity="{{ ed.op }}" stroke-width="1" stroke-linecap="round" stroke-dasharray="{{ ed.dash }}"></path>
+          <circle cx="{{ ed.x2 }}" cy="{{ ed.y2 }}" r="2.5" fill="#97938a" fill-opacity="{{ ed.dotOp }}"></circle>
+          <circle cx="{{ ed.x1 }}" cy="{{ ed.y1 }}" r="2.5" fill="#97938a" fill-opacity="{{ ed.dotOp }}"></circle>
+        </sc-for>
+      </svg>
+      <sc-if value="{{ compact }}" hint-placeholder-val="{{ false }}">
+        <sc-for list="{{ nodes }}" as="n" hint-placeholder-count="8">
+          <div onClick="{{ n.select }}" onPointerEnter="{{ n.hover }}" onPointerLeave="{{ n.unhover }}" style="position:absolute; left:{{ n.x }}px; top:{{ n.y }}px; display:inline-flex; align-items:center; gap:11px; background:#ffffff; border-radius:999px; box-shadow:0 0 0 1px {{ n.ringColor }}; padding:11px 20px; cursor:pointer; max-width:430px;" style-hover="box-shadow:0 0 0 1px #c9c6bb">
+            <span style="width:11px; height:11px; border-radius:50%; background:{{ n.tone }}; flex-shrink:0; animation:{{ n.dotAnim }};"></span>
+            <span style="font-size:20px; font-weight:600; color:#26251f; white-space:nowrap; overflow:hidden; text-overflow:ellipsis;">{{ n.title }}</span>
+          </div>
+        </sc-for>
+      </sc-if>
+      <sc-if value="{{ fullMode }}" hint-placeholder-val="{{ true }}">
+      <sc-for list="{{ nodes }}" as="n" hint-placeholder-count="8">
+        <div onClick="{{ n.select }}" onPointerEnter="{{ n.hover }}" onPointerLeave="{{ n.unhover }}" style="position:absolute; left:{{ n.x }}px; top:{{ n.y }}px; width:284px; background:#ffffff; border-radius:8px; box-shadow:0 0 0 1px {{ n.ringColor }}; padding:13px 15px; cursor:pointer; display:flex; flex-direction:column; gap:7px;" style-hover="box-shadow:0 0 0 1px #c9c6bb">
+          <div style="display:flex; align-items:center; gap:8px; font-family:'JetBrains Mono',monospace; font-size:11px;">
+            <span style="color:#6e6b62; font-size:10.5px; white-space:nowrap;">{{ n.when }}</span>
+            <span style="margin-left:auto; display:flex; align-items:center; gap:5px; color:{{ n.tone }};">
+              <span style="width:6px; height:6px; border-radius:50%; background:{{ n.tone }}; animation:{{ n.dotAnim }};"></span>
+              {{ n.status }}
+            </span>
+          </div>
+          <div style="font-size:14px; font-weight:600; line-height:1.3; color:#26251f;">{{ n.title }}</div>
+          <div style="font-size:12px; line-height:1.5; color:#6e6b62;"><span style="font-family:'JetBrains Mono',monospace; font-size:9px; letter-spacing:0.15em; text-transform:uppercase; color:#97938a; margin-right:6px;">{{ n.tldrKind }}</span>{{ n.tldr }}</div>
+        </div>
+        <sc-for list="{{ n.sats }}" as="st" hint-placeholder-count="2">
+          <div onClick="{{ st.open }}" style="position:absolute; left:{{ st.x }}px; top:{{ st.y }}px; display:inline-flex; align-items:center; gap:5px; font-family:'JetBrains Mono',monospace; font-size:10px; color:#7a766c; background:#f0efe9; border:1px solid {{ st.border }}; border-radius:999px; padding:3px 9px 3px 7px; cursor:pointer; white-space:nowrap;" style-hover="border-color:#c9c6bb; color:#c8c5bd;">
+            <span style="color:{{ st.iconColor }}; font-size:9px;">{{ st.icon }}</span><span style="color:{{ st.color }};">{{ st.label }}</span>
+          </div>
+        </sc-for>
+      </sc-for>
+      </sc-if>
+    </div>
+  </div>
+  <sc-if value="{{ showGrid }}" hint-placeholder-val="{{ true }}">
+    <div style="position:absolute; top:60px; left:0; right:0; height:26px; pointer-events:none; border-bottom:1px solid #e6e4dc; overflow:hidden;">
+      <sc-for list="{{ axisTicks }}" as="t" hint-placeholder-count="5">
+        <div style="position:absolute; left:{{ t.sx }}px; top:2px; transform:translateX(-50%); font-family:'JetBrains Mono',monospace; font-size:10px; letter-spacing:0.12em; text-transform:uppercase; color:#97938a; white-space:nowrap;">{{ t.label }}</div>
+        <div style="position:absolute; left:{{ t.sx }}px; top:19px; width:1px; height:7px; background:#c9c6bb;"></div>
+      </sc-for>
+      <div style="position:absolute; left:{{ nowSx }}px; top:2px; transform:translateX(-50%); font-family:'JetBrains Mono',monospace; font-size:10px; letter-spacing:0.12em; text-transform:uppercase; color:#f76b15;">now</div>
+      <div style="position:absolute; left:{{ nowSx }}px; top:19px; width:1px; height:7px; background:#f76b15;"></div>
+    </div>
+  </sc-if>
+  <div style="position:absolute; top:0; left:0; right:0; padding:20px 28px; display:flex; align-items:center; gap:14px; pointer-events:none; background:linear-gradient(#f5f4f0, rgba(245,244,240,0));">
+    <span style="display:block; width:5px; height:22px; background:#f76b15; border-radius:2px;"></span>
+    <span style="font-size:16px; font-weight:700; letter-spacing:-0.01em;">Merv</span>
+    <span style="font-family:'JetBrains Mono',monospace; font-size:12px; color:#97938a;">experiment map</span>
+    <div style="margin-left:auto; display:flex; gap:16px; font-family:'JetBrains Mono',monospace; font-size:11px; color:#6e6b62;">
+      <span style="display:flex; align-items:center; gap:6px;"><span style="width:6px; height:6px; border-radius:50%; background:#3e8a4a;"></span>supports</span>
+      <span style="display:flex; align-items:center; gap:6px;"><span style="width:6px; height:6px; border-radius:50%; background:#9c7817;"></span>qualifies</span>
+      <span style="display:flex; align-items:center; gap:6px;"><span style="width:6px; height:6px; border-radius:50%; background:#b0442f;"></span>refutes</span>
+      <span style="display:flex; align-items:center; gap:6px;"><span style="width:6px; height:6px; border-radius:50%; background:#f76b15;"></span>running</span>
+    </div>
+  </div>
+  <div style="position:absolute; left:24px; bottom:24px; display:flex; flex-direction:column; gap:1px; background:#e2e0d8; border:1px solid #e2e0d8; border-radius:6px; overflow:hidden;">
+    <button onClick="{{ zoomIn }}" style="width:34px; height:32px; background:#ffffff; color:#26251f; border:none; font-size:15px; cursor:pointer; font-family:'JetBrains Mono',monospace;" style-hover="background:#efeee8;">+</button>
+    <button onClick="{{ zoomOut }}" style="width:34px; height:32px; background:#ffffff; color:#26251f; border:none; font-size:15px; cursor:pointer; font-family:'JetBrains Mono',monospace;" style-hover="background:#efeee8;">−</button>
+    <button onClick="{{ fitAll }}" style="width:34px; height:32px; background:#ffffff; color:#6e6b62; border:none; font-size:10px; cursor:pointer; font-family:'JetBrains Mono',monospace;" style-hover="background:#efeee8;">fit</button>
+  </div>
+  <sc-if value="{{ sel }}" hint-placeholder-val="{{ false }}">
+    <div style="position:absolute; top:0; right:0; bottom:0; width:380px; background:#fbfaf7; border-left:1px solid #e2e0d8; display:flex; flex-direction:column; overflow-y:auto;">
+      <div style="display:flex; align-items:center; gap:10px; padding:18px 22px; border-bottom:1px solid #e2e0d8; position:sticky; top:0; background:#fbfaf7; z-index:1;">
+        <span style="font-family:'JetBrains Mono',monospace; font-size:12px; color:#f76b15;">{{ sel.id }}</span>
+        <span style="display:flex; align-items:center; gap:5px; font-family:'JetBrains Mono',monospace; font-size:11px; color:{{ sel.tone }};">
+          <span style="width:6px; height:6px; border-radius:50%; background:{{ sel.tone }};"></span>{{ sel.status }}
+        </span>
+        <button onClick="{{ closePanel }}" style="margin-left:auto; background:none; border:none; color:#97938a; font-size:16px; cursor:pointer; padding:2px 6px;" style-hover="color:#26251f;">✕</button>
+      </div>
+      <div style="padding:20px 22px; display:flex; flex-direction:column; gap:22px;">
+        <div>
+          <div style="font-size:17px; font-weight:700; line-height:1.3; margin-bottom:8px;">{{ sel.title }}</div>
+          <div style="font-size:13px; line-height:1.6; color:#6e6b62;">{{ sel.body }}</div>
+        </div>
+        <sc-if value="{{ sel.isExp }}" hint-placeholder-val="{{ true }}">
+          <div>
+            <div style="font-family:'JetBrains Mono',monospace; font-size:10px; letter-spacing:0.2em; text-transform:uppercase; color:#f76b15; margin-bottom:10px;">Result</div>
+            <div style="display:flex; gap:8px; flex-wrap:wrap;">
+              <sc-for list="{{ sel.metrics }}" as="mt" hint-placeholder-count="2">
+                <div style="background:#f5f4f0; border:1px solid #e2e0d8; border-radius:6px; padding:8px 12px;">
+                  <div style="font-family:'JetBrains Mono',monospace; font-size:14px; color:#26251f;">{{ mt.value }}</div>
+                  <div style="font-size:10px; color:#97938a; margin-top:2px;">{{ mt.label }}</div>
+                </div>
+              </sc-for>
+            </div>
+          </div>
+          <div>
+            <div style="font-family:'JetBrains Mono',monospace; font-size:10px; letter-spacing:0.2em; text-transform:uppercase; color:#f76b15; margin-bottom:10px;">Gates</div>
+            <div style="display:flex; flex-direction:column; gap:7px;">
+              <sc-for list="{{ sel.gates }}" as="g" hint-placeholder-count="2">
+                <div style="display:flex; align-items:baseline; font-family:'JetBrains Mono',monospace; font-size:12px;">
+                  <span style="color:#6e6b62;">{{ g.label }}</span>
+                  <span style="flex:1; border-bottom:1px dotted rgba(0,0,0,0.18); margin:0 8px;"></span>
+                  <span style="color:{{ g.tone }};">{{ g.result }}</span>
+                </div>
+              </sc-for>
+            </div>
+          </div>
+        </sc-if>
+        <div>
+          <div style="font-family:'JetBrains Mono',monospace; font-size:10px; letter-spacing:0.2em; text-transform:uppercase; color:#f76b15; margin-bottom:10px;">{{ sel.refsHeading }}</div>
+          <div style="display:flex; flex-direction:column; gap:8px;">
+            <sc-for list="{{ sel.refs }}" as="r" hint-placeholder-count="3">
+              <div onClick="{{ r.open }}" style="display:flex; gap:10px; align-items:flex-start; background:#f5f4f0; border:1px solid #e2e0d8; border-radius:6px; padding:10px 12px; cursor:pointer;" style-hover="border-color:#f76b15;">
+                <span style="font-family:'JetBrains Mono',monospace; font-size:12px; color:{{ r.iconColor }}; margin-top:1px;">{{ r.icon }}</span>
+                <span style="flex:1; min-width:0;">
+                  <span style="display:block; font-size:12px; font-weight:500; color:#26251f;">{{ r.label }}</span>
+                  <span style="display:block; font-size:11px; color:#97938a; margin-top:2px;">{{ r.sub }}</span>
+                </span>
+                <span style="font-family:'JetBrains Mono',monospace; font-size:11px; color:#97938a;">{{ r.action }}</span>
+              </div>
+            </sc-for>
+          </div>
+        </div>
+        <sc-if value="{{ sel.hasCitedBy }}" hint-placeholder-val="{{ false }}">
+          <div>
+            <div style="font-family:'JetBrains Mono',monospace; font-size:10px; letter-spacing:0.2em; text-transform:uppercase; color:#f76b15; margin-bottom:10px;">Cited by</div>
+            <div style="display:flex; flex-direction:column; gap:8px;">
+              <sc-for list="{{ sel.citedBy }}" as="r" hint-placeholder-count="1">
+                <div onClick="{{ r.open }}" style="display:flex; gap:10px; align-items:flex-start; background:#f5f4f0; border:1px solid #e2e0d8; border-radius:6px; padding:10px 12px; cursor:pointer;" style-hover="border-color:#f76b15;">
+                  <span style="font-family:'JetBrains Mono',monospace; font-size:12px; color:{{ r.iconColor }}; margin-top:1px;">{{ r.icon }}</span>
+                  <span style="flex:1; min-width:0;">
+                    <span style="display:block; font-size:12px; font-weight:500; color:#26251f;">{{ r.label }}</span>
+                    <span style="display:block; font-size:11px; color:#97938a; margin-top:2px;">{{ r.sub }}</span>
+                  </span>
+                  <span style="font-family:'JetBrains Mono',monospace; font-size:11px; color:#97938a;">{{ r.action }}</span>
+                </div>
+              </sc-for>
+            </div>
+          </div>
+        </sc-if>
+        <sc-if value="{{ sel.isExp }}" hint-placeholder-val="{{ true }}">
+          <div style="display:flex; align-items:center; gap:8px; font-family:'JetBrains Mono',monospace; font-size:11px; color:#97938a; padding-bottom:8px;">
+            <span>{{ sel.artifacts }} artifacts</span><span>·</span><span>{{ sel.agent }}</span><span>·</span><span>{{ sel.compute }}</span>
+          </div>
+        </sc-if>
+      </div>
+    </div>
+  </sc-if>
+</div>
+</x-dc>
+<script type="text/x-dc" data-dc-script data-props="{&quot;showGrid&quot;: {&quot;editor&quot;: &quot;boolean&quot;, &quot;default&quot;: true, &quot;tsType&quot;: &quot;boolean&quot;, &quot;section&quot;: &quot;Canvas&quot;}}">
+const HOUR = 6, GAP_H = 30, BREAK_W = 90; // px/hour; gaps > 30h compress to 90px
+const ts = (d) => new Date(d).getTime();
+const TONES = { supports: '#3e8a4a', qualifies: '#9c7817', refutes: '#b0442f', running: '#f76b15' };
+const LANES = [
+  { id: 'moe', label: 'MoE routing', y: 0 },
+  { id: 'data', label: 'Data curation', y: 400 },
+  { id: 'distill', label: 'Distillation', y: 800 },
+];
+
+const PAPERS = {
+  'P-switch': { short: 'Switch Transformers', title: 'Switch Transformers', sub: 'Fedus et al. · 2021 · arXiv 2101.03961', detail: 'Scales sparse MoE to trillion parameters with top-1 routing; source of the expert-capacity and load-balancing loss formulation used across this thread.' },
+  'P-stmoe': { short: 'ST-MoE', title: 'ST-MoE', sub: 'Zoph et al. · 2022 · arXiv 2202.08906', detail: 'Introduces router z-loss for training stability; the baseline recipe exp-0412 reproduces.' },
+  'P-ec': { short: 'Expert Choice', title: 'Expert Choice Routing', sub: 'Zhou et al. · 2022 · arXiv 2202.09368', detail: 'Inverts routing — experts pick tokens — guaranteeing perfect load balance. Motivated exp-0429.' },
+  'P-doremi': { short: 'DoReMi', title: 'DoReMi', sub: 'Xie et al. · 2023 · arXiv 2305.10429', detail: 'Learns domain mixture weights with a small proxy model. Recipe adapted in exp-0446.' },
+  'P-minilm': { short: 'MiniLM', title: 'MiniLM', sub: 'Wang et al. · 2020 · arXiv 2002.10957', detail: 'Deep self-attention distillation. Starting point for the distillation thread.' },
+};
+const CLAIMS = {
+  'C-088': { short: 'z-loss stability', title: 'Z-loss stabilizes router logits at scale', sub: 'from ST-MoE · confirmed by exp-0412', detail: 'Adding z-loss (1e-3) removed the logit blow-ups seen past 400M params; confirmed in-house at 1B.' },
+  'C-102': { short: 'top-2 fade', title: 'Top-2 routing gains fade past 8 experts', sub: 'from exp-0429 · adversarial review passed', detail: 'Gain over top-1 shrinks from +0.8% (8 experts) to +0.1% (32 experts) at matched FLOPs.' },
+  'C-117': { short: 'eval leakage', title: 'Synthetic rewrites inflate eval leakage', sub: 'external review · flagged in exp-0481', detail: 'Rewrite pipeline leaked paraphrased eval items into pretraining data; +1.4% of the observed gain attributed to leakage.' },
+  'C-131': { short: 'sparse law', title: 'Sparse scaling follows dense laws with an expert-count exponent', sub: 'from exp-0473 · 14 artifacts', detail: 'Loss curves across 125M–3B collapse onto the dense law after adding an E^-0.28 term.' },
+};
+
+const SBX = {
+  'sbx-h1': { short: 'sbx-h1', title: 'sbx-h1 · 8×H100', sub: 'shared sandbox · MoE thread', detail: 'Primary 8×H100 training node. Snapshots retained 30 days; checkpoints promoted to the artifact store on gate pass.' },
+  'sbx-h2': { short: 'sbx-h2', title: 'sbx-h2 · 8×H100', sub: 'shared sandbox · overflow', detail: 'Second 8×H100 node, attached for the scaling sweep and kept for long-context runs.' },
+  'sbx-a1': { short: 'sbx-a1', title: 'sbx-a1 · 4×A100', sub: 'shared sandbox · data thread', detail: '4×A100 node used for data-mixture proxies and 1B transfer runs.' },
+  'sbx-c1': { short: 'sbx-c1', title: 'sbx-c1 · CPU-highmem', sub: 'sandbox · preprocessing', detail: 'High-memory CPU node for corpus filtering and tokenization jobs.' },
+  'sbx-d1': { short: 'sbx-d1', title: 'sbx-d1 · 2×H100', sub: 'shared sandbox · distillation', detail: '2×H100 node sized for dense-student distillation runs.' },
+};
+
+const EXPS = [
+  { id: 'exp-0412', plan: "Reproduce the ST-MoE z-loss recipe at 1B; match reported stability and eval.", compute: '6h × 8×H100', sbx: ['sbx-h1'], lane: 'moe', dy: 0, date: '2026-07-02T09:00', dur: '6h', status: 'supports', title: 'Router z-loss baseline', review: 'Recipe reproduces cleanly; z-loss is load-bearing at 1B. Safe baseline for the thread.', metrics: [{ value: '+0.4%', label: 'eval vs dense' }, { value: '0 blow-ups', label: 'router stability' }], refs: [['paper', 'P-stmoe'], ['claim', 'C-088']], gates: [['adversarial review', 'passed 3/3', 'supports'], ['forced reflection', 'no drift', 'supports']], artifacts: 6, agent: 'claude-code' },
+  { id: 'exp-0429', plan: "Compare expert-choice vs token-choice routing at matched FLOPs, 8–32 experts.", compute: '18h × 8×H100', sbx: ['sbx-h1'], lane: 'moe', dy: 185, date: '2026-07-03T14:00', dur: '18h', status: 'qualifies', title: 'Expert-choice routing', review: 'Expert-choice wins only at low expert counts; gain fades by 32. Qualified for sweep design.', metrics: [{ value: '+0.8% → +0.1%', label: 'gain, 8 → 32 experts' }], refs: [['exp', 'exp-0412'], ['paper', 'P-ec']], gates: [['adversarial review', 'passed 2/3', 'qualifies'], ['forced reflection', 'no drift', 'supports']], artifacts: 9, agent: 'codex' },
+  { id: 'exp-0441', plan: "Head-to-head top-2 vs top-1 at 1B; decide the sweep default.", compute: '9h × 8×H100', sbx: ['sbx-h1'], lane: 'moe', dy: 0, date: '2026-07-09T10:00', dur: '9h', status: 'supports', title: 'Top-2 vs top-1 at 1B', review: 'Top-2 holds +1.1% at 1B with negligible latency cost. Adopt as sweep default.', metrics: [{ value: '+1.1%', label: 'eval vs baseline' }], refs: [['exp', 'exp-0429'], ['claim', 'C-102']], gates: [['adversarial review', 'passed 3/3', 'supports'], ['forced reflection', 'no drift', 'supports']], artifacts: 8, agent: 'claude-code' },
+  { id: 'exp-0473', plan: "Fit scaling laws across 125M–3B, 8–64 experts; test an expert-count exponent.", compute: '36h × 16×H100', sbx: ['sbx-h1','sbx-h2'], lane: 'moe', dy: 185, date: '2026-07-10T08:00', dur: '36h', status: 'supports', title: 'Sparse-MoE scaling sweep', review: 'Loss curves collapse onto dense law with E^-0.28 term. Headline result; one reviewer wants a 7B check.', metrics: [{ value: '+2.3%', label: 'eval, best config' }, { value: 'E^-0.28', label: 'expert exponent' }], refs: [['exp', 'exp-0441'], ['paper', 'P-switch'], ['claim', 'C-131']], gates: [['adversarial review', 'passed 2/3', 'qualifies'], ['forced reflection', 'no drift', 'supports']], artifacts: 14, agent: 'claude-code' },
+  { id: 'exp-0512', compute: '8×H100', sbx: ['sbx-h2'], lane: 'moe', dy: 0, date: '2026-07-17T11:00', dur: 'running', status: 'running', title: 'Routing under long context', plan: 'Sweep routing entropy at 8k–128k context; watch for expert collapse past 32k.', review: null, metrics: [{ value: '3 / 7', label: 'runs complete' }], refs: [['exp', 'exp-0473']], gates: [['adversarial review', 'pending', 'running']], artifacts: 4, agent: 'gemini-cli' },
+  { id: 'exp-0418', plan: "Ablate perplexity-filter aggressiveness; measure the diversity cost.", compute: '4h × CPU', sbx: ['sbx-c1'], lane: 'data', dy: 0, date: '2026-07-02T13:00', dur: '4h', status: 'qualifies', title: 'Perplexity-filter ablation', review: 'Aggressive filtering costs diversity; −0.2% at a 90% cut. Keep the cut below 70%.', metrics: [{ value: '-0.2%', label: 'eval at 90% cut' }], refs: [['paper', 'P-doremi']], gates: [['adversarial review', 'passed 2/3', 'qualifies']], artifacts: 5, agent: 'cursor' },
+  { id: 'exp-0446', plan: "Learn domain mixture weights with a 125M proxy; test transfer to 1B.", compute: '12h × 4×A100', sbx: ['sbx-a1'], lane: 'data', dy: 185, date: '2026-07-04T09:00', dur: '12h', status: 'supports', title: 'Domain reweighting (DoReMi)', review: 'Proxy-learned weights transfer to 1B; +0.9% over uniform. Adopt the mixture.', metrics: [{ value: '+0.9%', label: 'eval vs uniform mix' }], refs: [['exp', 'exp-0418'], ['paper', 'P-doremi']], gates: [['adversarial review', 'passed 3/3', 'supports'], ['forced reflection', 'no drift', 'supports']], artifacts: 11, agent: 'codex' },
+  { id: 'exp-0481', plan: "Rewrite 20% of the corpus with an LLM; measure the pretraining gain.", compute: '20h × 4×A100', sbx: ['sbx-a1'], lane: 'data', dy: 0, date: '2026-07-10T15:00', dur: '20h', status: 'refutes', title: 'Synthetic rewrite pretrain mix', review: 'Gain was mostly leakage — rewrites paraphrased eval items. Result retracted.', metrics: [{ value: '+1.4%', label: 'attributed to leakage' }], refs: [['exp', 'exp-0446'], ['claim', 'C-117']], gates: [['adversarial review', 'failed 1/3', 'refutes'], ['forced reflection', 'drift found', 'refutes']], artifacts: 7, agent: 'claude-code' },
+  { id: 'exp-0520', compute: '4×A100', sbx: ['sbx-a1'], lane: 'data', dy: 185, date: '2026-07-17T09:00', dur: 'running', status: 'running', title: 'Curriculum by difficulty', plan: 'Order pretraining data easy→hard using router confidence; 4 runs, difficulty-ramp ablation.', review: null, metrics: [{ value: '1 / 4', label: 'runs complete' }], refs: [['exp', 'exp-0481'], ['exp', 'exp-0473']], gates: [['adversarial review', 'pending', 'running']], artifacts: 2, agent: 'claude-code' },
+  { id: 'exp-0455', plan: "Distill a dense student from the sparse MoE teacher via logits.", compute: '8h × 2×H100', sbx: ['sbx-d1'], lane: 'distill', dy: 0, date: '2026-07-03T10:00', dur: '8h', status: 'qualifies', title: 'Logit distill from MoE teacher', review: 'Sparse-teacher gap persists at −0.5%; logits alone don\u2019t carry the routing signal.', metrics: [{ value: '-0.5%', label: 'vs dense teacher' }], refs: [['exp', 'exp-0441'], ['paper', 'P-minilm']], gates: [['adversarial review', 'passed 2/3', 'qualifies']], artifacts: 6, agent: 'opencode' },
+  { id: 'exp-0498', plan: "Add teacher routing traces as auxiliary distillation targets.", compute: '16h × 2×H100', sbx: ['sbx-d1'], lane: 'distill', dy: 0, date: '2026-07-11T09:00', dur: '16h', status: 'supports', title: 'Distill with routing traces', review: 'Routing traces as aux targets close the gap; +1.7% over logit-only distill.', metrics: [{ value: '+1.7%', label: 'vs logit-only distill' }], refs: [['exp', 'exp-0455'], ['exp', 'exp-0473'], ['claim', 'C-131']], gates: [['adversarial review', 'passed 3/3', 'supports'], ['forced reflection', 'no drift', 'supports']], artifacts: 10, agent: 'claude-code' },
+];
+
+// Gap-compressed time axis: piecewise-linear anchors over sorted start times.
+const LAYOUT = (() => {
+  const times = [...new Set(EXPS.map((e) => ts(e.date)))].sort((a, b) => a - b);
+  const anchors = [{ t: times[0], x: 0 }];
+  const gaps = [];
+  for (let i = 1; i < times.length; i++) {
+    const dtH = (times[i] - times[i - 1]) / 3600000;
+    const prev = anchors[anchors.length - 1];
+    if (dtH > GAP_H) gaps.push({ x: prev.x + BREAK_W / 2, label: Math.round(dtH / 24) + 'd idle' });
+    anchors.push({ t: times[i], x: prev.x + (dtH > GAP_H ? BREAK_W : dtH * HOUR) });
+  }
+  const xFor = (t) => {
+    if (t <= anchors[0].t) return anchors[0].x;
+    for (let i = 1; i < anchors.length; i++) {
+      if (t <= anchors[i].t) {
+        const a = anchors[i - 1], b = anchors[i];
+        return a.x + ((t - a.t) / (b.t - a.t)) * (b.x - a.x);
+      }
+    }
+    const la = anchors[anchors.length - 1];
+    return la.x + ((t - la.t) / 3600000) * HOUR; // extrapolate past the last event
+  };
+  const byDay = {};
+  for (const e of EXPS) {
+    const day = e.date.slice(0, 10);
+    if (!(day in byDay) || ts(e.date) < byDay[day]) byDay[day] = ts(e.date);
+  }
+  let lastEnd = -Infinity;
+  const ticks = Object.entries(byDay).sort((a, b) => a[1] - b[1]).map(([day, t]) => {
+    const x = Math.round(xFor(t)) - 24;
+    const wide = x - lastEnd > 110;
+    const label = new Date(day + 'T12:00').toLocaleDateString('en-US', wide ? { weekday: 'short', month: 'short', day: 'numeric' } : { month: 'short', day: 'numeric' });
+    lastEnd = x + label.length * 7.5;
+    return { x, label };
+  });
+  return { xFor, ticks, gaps };
+})();
+
+const CARD_W = 284, CARD_H = 122, ROW_H = 200, NODE_H = 160; // card + satellite row
+
+// Programmatic layout: x from time, y = first free row (no horizontal overlap). No hand-set lanes.
+const POS = (() => {
+  const pos = {}, rows = [];
+  const all = EXPS.map((e) => ({ e, x: Math.round(LAYOUT.xFor(ts(e.date))) })).sort((a, b) => a.x - b.x);
+  for (const { e, x } of all) {
+    let row = rows.findIndex((end) => x > end + 28);
+    if (row === -1) { row = rows.length; rows.push(0); }
+    rows[row] = x + CARD_W;
+    pos[e.id] = { x, y: row * ROW_H };
+  }
+  return pos;
+})();
+
+class Component extends DCLogic {
+  state = { s: 0.9, tx: 300, ty: 220, sel: null, hover: null, panning: false };
+  static NOW = ts('2026-07-17T21:00');
+  // Nothing may sit right of the now line: clamp it past the rightmost card edge.
+  static nowX() {
+    const rightMost = Math.max(...Object.values(POS).map((p) => p.x)) + CARD_W;
+    return Math.round(Math.max(LAYOUT.xFor(Component.NOW), rightMost + 48));
+  }
+  canvasEl = null;
+
+  componentDidMount() {
+    this._wheel = (e) => {
+      e.preventDefault();
+      const { s, tx, ty } = this.state;
+      const ns = Math.min(2.5, Math.max(0.25, s * Math.exp(-e.deltaY * 0.0012)));
+      this.setState({ s: ns, tx: e.clientX - (e.clientX - tx) * (ns / s), ty: e.clientY - (e.clientY - ty) * (ns / s) });
+    };
+    if (this.canvasEl) this.canvasEl.addEventListener('wheel', this._wheel, { passive: false });
+    this.fitAll();
+  }
+  componentWillUnmount() {
+    if (this.canvasEl) this.canvasEl.removeEventListener('wheel', this._wheel);
+    cancelAnimationFrame(this._anim);
+  }
+
+  nodePos(e) { return POS[e.id]; }
+
+  // Outgoing (op) + incoming (opIn) reference edges for an experiment.
+  edgesFor(id, op, opIn, compact) {
+    // React-flow-style handles: citing (future) node's LEFT-center → cited (past) node's RIGHT-center.
+    const w = compact ? 300 : CARD_W, cy = compact ? 22 : CARD_H / 2;
+    const mk = (a, b, o, dash) => {
+      const pa = this.nodePos(a), pb = this.nodePos(b);
+      const x1 = pa.x, y1 = pa.y + cy, x2 = pb.x + w, y2 = pb.y + cy;
+      const k = Math.max(40, Math.abs(x1 - x2) / 2);
+      return { x1, y1, x2, y2, op: o, dotOp: o + 0.1, dash, d: `M ${x1} ${y1} C ${x1 - k} ${y1}, ${x2 + k} ${y2}, ${x2} ${y2}` };
+    };
+    const e = EXPS.find((x) => x.id === id);
+    const out = e.refs.filter(([k]) => k === 'exp').map(([, t]) => mk(e, EXPS.find((x) => x.id === t), op, 'none'));
+    const inc = EXPS.filter((x) => x.refs.some(([k, key]) => k === 'exp' && key === id)).map((x) => mk(x, e, opIn, '6 5'));
+    return [...out, ...inc];
+  }
+
+  fitAll = () => {
+    const vw = window.innerWidth, vh = window.innerHeight;
+    const xs = EXPS.map((e) => this.nodePos(e).x), ys = EXPS.map((e) => this.nodePos(e).y);
+    const minX = Math.min(...xs) - 280, maxX = Math.max(...xs) + CARD_W + 60;
+    const minY = Math.min(...ys) - 130, maxY = Math.max(...ys) + 260;
+    const s = Math.min(1.15, (vw - 80) / (maxX - minX), (vh - 150) / (maxY - minY));
+    this.animateTo(s, (vw - (minX + maxX) * s) / 2, (vh + 60 - (minY + maxY) * s) / 2);
+  };
+
+  animateTo(s1, tx1, ty1) {
+    cancelAnimationFrame(this._anim);
+    const { s: s0, tx: tx0, ty: ty0 } = this.state;
+    const t0 = performance.now(), dur = 550;
+    const step = (t) => {
+      const p = Math.min(1, (t - t0) / dur), e = 1 - Math.pow(1 - p, 3);
+      this.setState({ s: s0 + (s1 - s0) * e, tx: tx0 + (tx1 - tx0) * e, ty: ty0 + (ty1 - ty0) * e });
+      if (p < 1) this._anim = requestAnimationFrame(step);
+    };
+    this._anim = requestAnimationFrame(step);
+  }
+
+  transportTo(id) {
+    const e = EXPS.find((x) => x.id === id);
+    if (!e) return;
+    const { x, y } = this.nodePos(e);
+    const s = Math.max(this.state.s, 0.95);
+    const vw = window.innerWidth - 380, vh = window.innerHeight;
+    this.setState({ sel: { type: 'exp', id } });
+    this.animateTo(s, vw / 2 - (x + CARD_W / 2) * s, vh / 2 - (y + CARD_H / 2) * s);
+  }
+
+  panStart = (e) => {
+    if (e.button !== 0) return;
+    this._drag = { x: e.clientX, y: e.clientY, tx: this.state.tx, ty: this.state.ty, moved: false };
+    this.setState({ panning: true });
+  };
+  panMove = (e) => {
+    if (!this._drag) return;
+    const dx = e.clientX - this._drag.x, dy = e.clientY - this._drag.y;
+    if (Math.abs(dx) + Math.abs(dy) > 4) this._drag.moved = true;
+    if (this._drag.moved) this.setState({ tx: this._drag.tx + dx, ty: this._drag.ty + dy });
+  };
+  panEnd = () => {
+    this._suppressClick = this._drag && this._drag.moved;
+    this._drag = null;
+    this.setState({ panning: false });
+  };
+  guarded(fn) {
+    return (ev) => {
+      ev.stopPropagation();
+      if (this._suppressClick) { this._suppressClick = false; return; }
+      fn(ev);
+    };
+  }
+
+  renderVals() {
+    const { s, tx, ty, sel, hover, panning } = this.state;
+    const ICON = { paper: '¶', claim: '✦', sbx: '▣' }, ICOLOR = { paper: '#3e8a4a', claim: '#9c7817', sbx: '#a5a196' };
+    const nodes = EXPS.map((e) => {
+      const { x, y } = this.nodePos(e);
+      const satRefs = [...e.refs.filter(([k]) => k !== 'exp'), ...(e.sbx || []).map((k) => ['sbx', k])];
+      let sx = x + 6;
+      const sats = satRefs.map(([k, key]) => {
+        const src = k === 'paper' ? PAPERS[key] : k === 'claim' ? CLAIMS[key] : SBX[key];
+        const st = {
+          x: sx, y: y + CARD_H + 10, icon: ICON[k], iconColor: ICOLOR[k], label: src.short,
+          color: k === 'sbx' ? '#97938a' : '#7a766c',
+          border: sel && sel.type === k && sel.id === key ? ICOLOR[k] : '#e2e0d8',
+          open: this.guarded(() => this.setState({ sel: { type: k, id: key } })),
+        };
+        sx += src.short.length * 6.2 + 34;
+        return st;
+      });
+      const isSel = sel && sel.type === 'exp' && sel.id === e.id;
+      return {
+        x, y, title: e.title, status: e.status,
+        when: (() => { const fT = (t) => new Date(t).toLocaleDateString('en-US', { month: 'short', day: 'numeric' }) + ' ' + new Date(t).toTimeString().slice(0, 5); const h = parseInt(e.dur) || 0; return fT(ts(e.date)) + (h ? ' → ' + fT(ts(e.date) + h * 3600000) : ' → …'); })(),
+        dur: e.compute || e.dur,
+        tone: TONES[e.status], dotAnim: e.status === 'running' ? 'pulse-dot 1.4s ease infinite' : 'none',
+        ringColor: isSel ? '#f76b15' : '#e2e0d8',
+        tldrKind: e.review ? 'review' : 'plan', tldr: e.review || e.plan, sats,
+        select: this.guarded(() => this.setState({ sel: { type: 'exp', id: e.id } })),
+        hover: () => this.setState({ hover: e.id }),
+        unhover: () => { if (this.state.hover === e.id) this.setState({ hover: null }); },
+      };
+    });
+    const compact = s < 0.5;
+    let edges = [];
+    if (sel && sel.type === 'exp') edges = this.edgesFor(sel.id, 0.5, 0.22, compact);
+    if (hover && !(sel && sel.type === 'exp' && sel.id === hover)) edges = [...edges, ...this.edgesFor(hover, 0.25, 0.12, compact)];
+    let selVal = null;
+    if (sel && sel.type === 'exp') {
+      const e = EXPS.find((x) => x.id === sel.id);
+      const citedBy = EXPS.filter((x) => x.refs.some(([k, key]) => k === 'exp' && key === e.id))
+        .map((x) => ({ icon: '⧉', iconColor: '#f76b15', label: x.id, sub: x.title, action: 'go →', open: this.guarded(() => this.transportTo(x.id)) }));
+      selVal = {
+        citedBy, hasCitedBy: citedBy.length > 0,
+        isExp: true, id: e.id, status: e.status, tone: TONES[e.status], title: e.title,
+        body: e.review || e.plan, metrics: e.metrics,
+        gates: e.gates.map(([label, result, t]) => ({ label, result, tone: TONES[t] })),
+        refsHeading: 'References', artifacts: e.artifacts, agent: e.agent, compute: e.compute + ' · ' + (e.sbx || []).join(' '),
+        refs: e.refs.map(([k, key]) => {
+          if (k === 'exp') {
+            const t = EXPS.find((x) => x.id === key);
+            return { icon: '⧉', iconColor: '#f76b15', label: key, sub: t.title, action: 'go →', open: this.guarded(() => this.transportTo(key)) };
+          }
+          const src = k === 'paper' ? PAPERS[key] : CLAIMS[key];
+          return { icon: ICON[k], iconColor: ICOLOR[k], label: src.title, sub: src.sub, action: 'view →', open: this.guarded(() => this.setState({ sel: { type: k, id: key } })) };
+        }),
+      };
+    } else if (sel) {
+      const src = sel.type === 'paper' ? PAPERS[sel.id] : sel.type === 'claim' ? CLAIMS[sel.id] : SBX[sel.id];
+      const refBy = EXPS.filter((e) => sel.type === 'sbx' ? (e.sbx || []).includes(sel.id) : e.refs.some(([k, key]) => k === sel.type && key === sel.id));
+      selVal = {
+        isExp: false, id: sel.type === 'paper' ? (src.sub.match(/arXiv [\d.]+/) || ['paper'])[0] : sel.id, status: sel.type === 'sbx' ? 'sandbox' : sel.type, tone: sel.type === 'sbx' ? '#7a766c' : ICOLOR[sel.type],
+        title: src.title, body: src.detail + ' — ' + src.sub, refsHeading: 'Referenced by',
+        refs: refBy.map((e) => ({ icon: '⧉', iconColor: '#f76b15', label: e.id, sub: e.title, action: 'go →', open: this.guarded(() => this.transportTo(e.id)) })),
+      };
+    }
+    return {
+      camera: `translate(${tx}px, ${ty}px) scale(${s})`,
+      cursor: panning ? 'grabbing' : 'grab',
+      nodes, edges, sel: selVal,
+      compact, fullMode: !compact,
+      nowX: Component.nowX(),
+      nowSx: Math.round(tx + Component.nowX() * s),
+      axisTicks: (() => {
+        const out = [];
+        let lastEnd = -Infinity;
+        for (const t of LAYOUT.ticks) {
+          const sx = tx + (t.x + 24) * s;
+          if (sx - lastEnd < 84) continue;
+          out.push({ sx: Math.round(sx), label: t.label });
+          lastEnd = sx + t.label.length * 4;
+        }
+        return out;
+      })(),
+      showGrid: this.props.showGrid ?? true,
+      canvasRef: (el) => { this.canvasEl = el; },
+      panStart: this.panStart, panMove: this.panMove, panEnd: this.panEnd,
+      zoomIn: () => this.setState({ s: Math.min(2.5, s * 1.25) }),
+      zoomOut: () => this.setState({ s: Math.max(0.25, s / 1.25) }),
+      fitAll: this.fitAll,
+      closePanel: () => this.setState({ sel: null }),
+    };
+  }
+}
+</script>
+</body>
+</html>
