@@ -1,11 +1,61 @@
-"""Machine client config and secret-file helpers shared by launchers."""
+"""Machine client config and secret-file helpers shared by launchers.
+
+Env-var names resolve dual-spelled here exactly as in ``backend.env``:
+``MERV_X`` primary, ``RESEARCH_PLUGIN_X`` legacy fallback (non-empty wins;
+empty counts as unset). The logic is duplicated tiny rather than imported —
+this package must stay stdlib-only with no backend imports (the zero-install
+stdio proxy ships it), and the proxy may only ever write warnings to stderr
+because stdout carries the JSON-RPC stream.
+"""
 
 from __future__ import annotations
 
 import json
 import os
+import sys
 from collections.abc import Mapping
 from pathlib import Path
+
+
+ENV_PREFIX = "MERV_"
+LEGACY_ENV_PREFIX = "RESEARCH_PLUGIN_"
+_warned_legacy_names: set[str] = set()
+
+
+def env_name_pair(name: str) -> tuple[str, str]:
+    """The (primary, legacy) spellings of a config var, given either one."""
+    if name.startswith(ENV_PREFIX):
+        return name, LEGACY_ENV_PREFIX + name[len(ENV_PREFIX):]
+    if name.startswith(LEGACY_ENV_PREFIX):
+        return ENV_PREFIX + name[len(LEGACY_ENV_PREFIX):], name
+    return name, name
+
+
+def dual_env_value(
+    name: str, env: Mapping[str, str] | None = None
+) -> str | None:
+    """Dual-read a config var: a non-empty stripped value or None.
+
+    When the legacy spelling is the effective source from the real process
+    environment, one stderr deprecation line per variable per process names
+    the new spelling. stderr only: the proxy's stdout is the MCP stream.
+    """
+    primary, legacy = env_name_pair(name)
+    source = env if env is not None else os.environ
+    value = (source.get(primary) or "").strip()
+    if value:
+        return value
+    legacy_value = (source.get(legacy) or "").strip() if legacy != primary else ""
+    if legacy_value:
+        if env is None and primary not in _warned_legacy_names:
+            _warned_legacy_names.add(primary)
+            print(
+                f"[merv] {legacy} is deprecated; set {primary} instead "
+                "(the legacy value was used)",
+                file=sys.stderr,
+            )
+        return legacy_value
+    return None
 
 
 CLIENT_CONFIG_ENV_VAR = "RESEARCH_PLUGIN_CLIENT_CONFIG"
