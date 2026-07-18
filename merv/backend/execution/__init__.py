@@ -75,6 +75,10 @@ def _build_named_backend(
         from .backends.hyperstack import build_hyperstack_sandbox_backend
 
         return build_hyperstack_sandbox_backend(repo_root=repo_root)
+    if name == "digitalocean":
+        from .backends.digitalocean import build_digitalocean_sandbox_backend
+
+        return build_digitalocean_sandbox_backend(repo_root=repo_root)
     raise BackendUnavailableError(f"unknown execution backend: {name}")
 
 
