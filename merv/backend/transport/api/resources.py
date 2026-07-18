@@ -49,7 +49,7 @@ def build_router(ctx: ApiRouteContext) -> APIRouter:
     @api_router.get("/api/projects/{project_id}/resources/{resource_id}/content")
     def resource_content(project_id: str, resource_id: str, version: str | None = None) -> dict[str, Any]:
         # `version` pins the exact submitted bytes of one resource version
-        # (faithful historical rendering for reflection-wave synthesis
+        # (faithful historical rendering for reflection-wave
         # artifacts).
         # Omitted → unchanged behavior (latest gated bytes / live file).
         return api_for_project(project_id).resource_content(

@@ -184,12 +184,12 @@ class ExperimentService:
         if message:
             raise WorkflowError(message)
 
-    def create_from_synthesis(
+    def create_from_reflection(
         self,
         *,
         conn,
         project_id: str,
-        synthesis_id: str,
+        reflection_id: str,
         name: str,
         intent: str,
         claim_ids: list[str],
@@ -224,7 +224,7 @@ class ExperimentService:
             payload={
                 "name": name,
                 "intent": intent,
-                "source_synthesis_id": synthesis_id,
+                "source_reflection_id": reflection_id,
                 "proposal_key": proposal_key.strip(),
                 "parallelism": parallelism.strip(),
             },

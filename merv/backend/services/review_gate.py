@@ -3,7 +3,7 @@
 Enforcement (experiment/reflection transitions), gate checklists, and
 workflow guidance all read this one predicate, so the require_verified_reviews
 policy cannot drift between surfaces. Kept out of reviews.py so the
-experiment/synthesis services can import it without a module cycle.
+experiment/reflection services can import it without a module cycle.
 """
 
 from __future__ import annotations

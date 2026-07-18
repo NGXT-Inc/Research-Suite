@@ -60,8 +60,8 @@ GRAPH_REF_TYPES: tuple[GraphRefType, ...] = (
     ),
     GraphRefType(
         prefix="syn_",
-        entity_type="synthesis",
-        id_key="synthesis_id",
+        entity_type="reflection",
+        id_key="reflection_id",
         query=(
             "SELECT id, title, status, published_at FROM reflections"
             " WHERE id = ? AND project_id = ?"

@@ -80,8 +80,8 @@ class ProjectOverviewService:
                 publish_event = conn.execute(
                     """
                     SELECT id FROM events
-                    WHERE project_id = ? AND type = 'synthesis.transitioned'
-                      AND target_type = 'synthesis' AND target_id = ?
+                    WHERE project_id = ? AND type = 'reflection.transitioned'
+                      AND target_type = 'reflection' AND target_id = ?
                     ORDER BY id DESC
                     LIMIT 1
                     """,
@@ -133,7 +133,7 @@ class ProjectOverviewService:
             str(event.get("target_id"))
             for event in claim_events
             if event.get("target_id")
-            and self._event_payload(event).get("source_synthesis_id")
+            and self._event_payload(event).get("source_reflection_id")
             != (latest or {}).get("id")
         ]
         seen_claim_ids: set[str] = set()
@@ -146,13 +146,13 @@ class ProjectOverviewService:
         project_reflection = None
         if latest is not None:
             graph = self._resource_link_for_role(
-                synthesis=latest,
+                reflection=latest,
                 roles=PROJECT_GRAPH_ROLES,
                 label="Current project graph",
                 canonical_role="project_graph",
             )
             reflection_doc = self._resource_link_for_role(
-                synthesis=latest,
+                reflection=latest,
                 roles=("reflection_doc", "synthesis_doc"),
                 label="Latest reflection doc",
                 canonical_role="reflection_doc",
@@ -228,15 +228,15 @@ class ProjectOverviewService:
     def _resource_link_for_role(
         self,
         *,
-        synthesis: dict[str, Any],
+        reflection: dict[str, Any],
         roles: tuple[str, ...],
         label: str,
         canonical_role: str,
     ) -> dict[str, Any] | None:
-        attempt = synthesis.get("attempt_index")
+        attempt = reflection.get("attempt_index")
         candidates = [
             res
-            for res in synthesis.get("resources", [])
+            for res in reflection.get("resources", [])
             if res.get("association_role") in roles
             and res.get("association_attempt_index") == attempt
         ]

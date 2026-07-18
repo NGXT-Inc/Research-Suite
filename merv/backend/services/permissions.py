@@ -20,11 +20,6 @@ from ..utils import PermissionDeniedError, ValidationError
 class PermissionService:
     """Small policy layer, intentionally separate from workflow and persistence."""
 
-    def storage_resource_target_type(self, *, target_type: str) -> str:
-        if target_type == "reflection":
-            return "synthesis"
-        return target_type
-
     def validate_review_role(self, *, role: str) -> None:
         if role not in REVIEW_ROLES:
             raise ValidationError(f"unknown review role: {role}")

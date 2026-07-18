@@ -1072,7 +1072,7 @@ class ResearchPluginHttpApiTest(unittest.TestCase):
         self.assertIsNone(payload["graph"])
         self.assertTrue(any("not valid JSON" in p for p in payload["problems"]))
 
-    def test_synthesis_endpoints_and_project_graph(self) -> None:
+    def test_reflection_endpoints_and_project_graph(self) -> None:
         project = self.request("POST", "/api/projects", {"name": "Reflect"})
         pid = project["id"]
 
@@ -1100,8 +1100,8 @@ class ResearchPluginHttpApiTest(unittest.TestCase):
         syn_id = syn["id"]
 
         listing = self.request("GET", f"/api/projects/{pid}/reflections")
-        self.assertEqual(len(listing["syntheses"]), 1)
-        self.assertEqual(listing["open_synthesis"]["id"], syn_id)
+        self.assertEqual(len(listing["reflections"]), 1)
+        self.assertEqual(listing["open_reflection"]["id"], syn_id)
         self.assertIn("signal", listing)
 
         # No graph yet: the project-graph endpoint degrades, not errors.
@@ -1109,7 +1109,7 @@ class ResearchPluginHttpApiTest(unittest.TestCase):
         self.assertFalse(empty["available"])
 
         for lens in ("amplify", "avoid", "entropy", "rigor", "cost"):
-            path = self.repo / f"syntheses/{syn_id}/reflections/{lens}.md"
+            path = self.repo / f"reflections/{syn_id}/reflections/{lens}.md"
             path.parent.mkdir(parents=True, exist_ok=True)
             path.write_text(f"{lens} findings\n")
             res = self.request(
@@ -1133,7 +1133,7 @@ class ResearchPluginHttpApiTest(unittest.TestCase):
             '{"version": 1, "title": "Project logic", "nodes": ['
             '{"id": "a", "kind": "lesson", "label": "Lesson", "refs": ["' + syn_id + '"]},'
             '{"id": "b", "kind": "open", "label": "Open question", '
-            '"refs": ["syntheses/' + syn_id + '/reflections/avoid.md"]}],'
+            '"refs": ["reflections/' + syn_id + '/reflections/avoid.md"]}],'
             ' "edges": [{"from": "a", "to": "b"}]}'
         )
         (self.repo / "project" / "figures").mkdir()
@@ -1141,8 +1141,8 @@ class ResearchPluginHttpApiTest(unittest.TestCase):
             b"\x89PNG\r\n\x1a\nfake"
         )
         (self.repo / "project/reflection.md").write_text(
-            "# Synthesis\n\n"
-            "## Summary\nHTTP synthesis test wave.\n\n"
+            "# Reflection\n\n"
+            "## Summary\nHTTP reflection test wave.\n\n"
             "![project graph](figures/project_graph.png)\n\n"
             "## Critical reading\nThe test wave adds one claim and two planned experiments.\n\n"
             "## Decision / future directions\nCreate both HTTP experiments in parallel.\n"
@@ -1155,9 +1155,9 @@ class ResearchPluginHttpApiTest(unittest.TestCase):
                         {
                             "op": "create",
                             "key": "claim_http_wave",
-                            "statement": "HTTP synthesis wave claim.",
+                            "statement": "HTTP reflection wave claim.",
                             "confidence": "medium",
-                            "rationale": "The HTTP synthesis test needs a materializable claim.",
+                            "rationale": "The HTTP reflection test needs a materializable claim.",
                         }
                     ],
                     "decision": {
@@ -1212,14 +1212,14 @@ class ResearchPluginHttpApiTest(unittest.TestCase):
         # The open wave's graph renders while still under review.
         payload = self.request("GET", f"/api/projects/{pid}/reflections/current/graph")
         self.assertTrue(payload["available"])
-        self.assertEqual(payload["synthesis"]["id"], syn_id)
-        self.assertEqual(payload["synthesis"]["status"], "synthesis_review")
+        self.assertEqual(payload["reflection"]["id"], syn_id)
+        self.assertEqual(payload["reflection"]["status"], "reflection_review")
         self.assertEqual(payload["problems"], [])
         refs = payload["ref_index"]
-        self.assertEqual(refs[syn_id]["type"], "synthesis")
+        self.assertEqual(refs[syn_id]["type"], "reflection")
         self.assertTrue(refs[syn_id]["resolved"])
         self.assertEqual(refs[syn_id]["title"], "Wave 1")
-        reflection_ref = refs[f"syntheses/{syn_id}/reflections/avoid.md"]
+        reflection_ref = refs[f"reflections/{syn_id}/reflections/avoid.md"]
         self.assertEqual(reflection_ref["type"], "resource")
 
         # Review over the HTTP review endpoints (target-polymorphic).
@@ -1259,9 +1259,9 @@ class ResearchPluginHttpApiTest(unittest.TestCase):
         # Published wave still serves the living graph as "current".
         payload = self.request("GET", f"/api/projects/{pid}/reflections/current/graph")
         self.assertTrue(payload["available"])
-        self.assertEqual(payload["synthesis"]["status"], "published")
+        self.assertEqual(payload["reflection"]["status"], "published")
         listing = self.request("GET", f"/api/projects/{pid}/reflections")
-        self.assertIsNone(listing["open_synthesis"])
+        self.assertIsNone(listing["open_reflection"])
         self.assertEqual(listing["latest_published"]["id"], syn_id)
         self.assertEqual(listing["current"]["id"], syn_id)
 
@@ -1309,7 +1309,7 @@ class ResearchPluginHttpApiTest(unittest.TestCase):
         # The per-wave graph renders the wave's pinned bytes.
         payload = self.request("GET", f"/api/projects/{pid}/reflections/{syn_id}/graph")
         self.assertTrue(payload["available"])
-        self.assertEqual(payload["synthesis"]["id"], syn_id)
+        self.assertEqual(payload["reflection"]["id"], syn_id)
         self.assertEqual(payload["graph"]["nodes"][0]["id"], "a")
         self.assertEqual(payload["problems"], [])
 
@@ -1343,10 +1343,10 @@ class ResearchPluginHttpApiTest(unittest.TestCase):
         self.assertEqual(bad.status_code, 404)
 
         # The literal current/graph route still resolves (not captured by the
-        # {synthesis_id}/graph param route).
+        # {reflection_id}/graph param route).
         current = self.request("GET", f"/api/projects/{pid}/reflections/current/graph")
         self.assertTrue(current["available"])
-        self.assertEqual(current["synthesis"]["id"], syn_id)
+        self.assertEqual(current["reflection"]["id"], syn_id)
 
     def test_no_version_content_serves_current_version_not_oldest_pin(self) -> None:
         # A living file (project/reflection.md) pinned by two reflection waves is

@@ -8,12 +8,12 @@ from typing import Any, Protocol
 class ReflectionClaimWriter(Protocol):
     """Claim writes triggered by a reviewed reflection change spec."""
 
-    def create_from_synthesis(
+    def create_from_reflection(
         self,
         *,
         conn: Any,
         project_id: str,
-        synthesis_id: str,
+        reflection_id: str,
         statement: str,
         scope: str,
         status: str,
@@ -22,12 +22,12 @@ class ReflectionClaimWriter(Protocol):
     ) -> str:
         ...
 
-    def update_from_synthesis(
+    def update_from_reflection(
         self,
         *,
         conn: Any,
         project_id: str,
-        synthesis_id: str,
+        reflection_id: str,
         claim_id: str,
         statement: str | None = None,
         scope: str | None = None,
@@ -41,12 +41,12 @@ class ReflectionClaimWriter(Protocol):
 class ReflectionExperimentWriter(Protocol):
     """Experiment writes triggered by a reviewed reflection change spec."""
 
-    def create_from_synthesis(
+    def create_from_reflection(
         self,
         *,
         conn: Any,
         project_id: str,
-        synthesis_id: str,
+        reflection_id: str,
         name: str,
         intent: str,
         claim_ids: list[str],
@@ -55,6 +55,3 @@ class ReflectionExperimentWriter(Protocol):
     ) -> str:
         ...
 
-
-SynthesisClaimWriter = ReflectionClaimWriter
-SynthesisExperimentWriter = ReflectionExperimentWriter

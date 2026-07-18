@@ -4,10 +4,6 @@ from __future__ import annotations
 
 from typing import Any
 
-from ..domain.reflection_projection import (
-    external_reflection_status,
-    external_reflection_transition,
-)
 from ..domain.vocabulary import EXPERIMENT_ACTIVE_PROCESS_STATUSES
 
 
@@ -76,7 +72,7 @@ def slim_status_and_next(full: dict[str, Any]) -> dict[str, Any]:
         result["resource_refresh"] = full["resource_refresh"]
     # Project-level reflection orientation: an open reflection wave's state +
     # guidance, or the soft staleness nudge. Already slim (the workflow layer
-    # builds it via slim_synthesis); absent when there is nothing to say.
+    # builds it via slim_reflection); absent when there is nothing to say.
     if full.get("project_reflection"):
         result["project_reflection"] = full["project_reflection"]
     return result
@@ -109,7 +105,7 @@ def _slim_experiment(exp: dict[str, Any]) -> dict[str, Any]:
     }
 
 
-def slim_synthesis(syn: dict[str, Any]) -> dict[str, Any]:
+def slim_reflection(syn: dict[str, Any]) -> dict[str, Any]:
     """Agent-facing projection of a reflection wave for orientation calls.
 
     Drops the corpus snapshot, full resource payloads, and review
@@ -120,7 +116,7 @@ def slim_synthesis(syn: dict[str, Any]) -> dict[str, Any]:
     return {
         "id": syn.get("id"),
         "title": syn.get("title"),
-        "status": external_reflection_status(syn.get("status")),
+        "status": syn.get("status"),
         "attempt_index": syn.get("attempt_index"),
         "revision_context": syn.get("revision_context"),
         "roster": [
@@ -146,10 +142,7 @@ def slim_synthesis(syn: dict[str, Any]) -> dict[str, Any]:
             }
             for review in syn.get("reviews", [])
         ],
-        "allowed_transitions": [
-            external_reflection_transition(item)
-            for item in syn.get("allowed_transitions", [])
-        ],
+        "allowed_transitions": syn.get("allowed_transitions", []),
     }
 
 

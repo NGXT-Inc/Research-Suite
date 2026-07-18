@@ -7,7 +7,7 @@ REVIEW_GATE_EXEMPT_ROLES = frozenset({"human", "automated_check"})
 REVIEW_GATE_ROLES: dict[tuple[str, str], str] = {
     ("experiment", "design_review"): "design_reviewer",
     ("experiment", "experiment_review"): "experiment_reviewer",
-    ("synthesis", "synthesis_review"): "reflection_reviewer",
+    ("reflection", "reflection_review"): "reflection_reviewer",
 }
 
 

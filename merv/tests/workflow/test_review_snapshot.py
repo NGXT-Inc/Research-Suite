@@ -38,10 +38,10 @@ class ReviewSnapshotIdTest(unittest.TestCase):
                  "association_attempt_index": 0},
             ],
         }
-        snap = review_snapshot_id(target_type="synthesis", target=target)
+        snap = review_snapshot_id(target_type="reflection", target=target)
         self.assertEqual(
             snap,
-            "synthesis|syn_1|synthesizing|0|a:v1:doc:0,b:v1:doc:0",
+            "reflection|syn_1|synthesizing|0|a:v1:doc:0,b:v1:doc:0",
         )
 
     def test_association_version_id_wins_over_version_token(self) -> None:

@@ -33,21 +33,21 @@ def build_router(ctx: ApiRouteContext) -> APIRouter:
         # per-experiment graph endpoint. UI-only read, no agent tool.
         return api_for_project(project_id).project_logic_graph(project_id=project_id)
 
-    @api_router.get("/api/projects/{project_id}/reflections/{synthesis_id}/graph")
-    def reflection_graph(project_id: str, synthesis_id: str) -> dict[str, Any]:
+    @api_router.get("/api/projects/{project_id}/reflections/{reflection_id}/graph")
+    def reflection_graph(project_id: str, reflection_id: str) -> dict[str, Any]:
         # One wave's logic graph, rendered from the bytes that wave pinned, so
         # a past wave shows faithfully even after later waves overwrite the
         # living file. Same payload shape as /reflections/current/graph (minus
         # signal). Registered after the literal current/graph route so
-        # "current" is not captured as a synthesis_id. UI-only read.
+        # "current" is not captured as a reflection_id. UI-only read.
         return api_for_project(project_id).reflection_graph(
-            project_id=project_id, synthesis_id=synthesis_id
+            project_id=project_id, reflection_id=reflection_id
         )
 
-    @api_router.get("/api/projects/{project_id}/reflections/{synthesis_id}")
-    def get_reflection(project_id: str, synthesis_id: str) -> dict[str, Any]:
+    @api_router.get("/api/projects/{project_id}/reflections/{reflection_id}")
+    def get_reflection(project_id: str, reflection_id: str) -> dict[str, Any]:
         return api_for_project(project_id).reflection_detail(
-            project_id=project_id, synthesis_id=synthesis_id
+            project_id=project_id, reflection_id=reflection_id
         )
 
 

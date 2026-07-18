@@ -374,7 +374,7 @@ class ServiceLayoutTest(unittest.TestCase):
         )
         self.assertEqual(
             _class_method_names(resource_record_path, "ResourceAssociationPolicy"),
-            {"validate_resource_association", "storage_resource_target_type"},
+            {"validate_resource_association"},
         )
         from backend.ports.resource_records import ResourceObservation, ResourceObserver
 
@@ -397,14 +397,14 @@ class ServiceLayoutTest(unittest.TestCase):
             get_type_hints(ResourceObserver.observe_file)["return"],
             ResourceObservation,
         )
-        synthesis_writer_path = PORTS_ROOT / "reflection_writers.py"
+        reflection_writer_path = PORTS_ROOT / "reflection_writers.py"
         self.assertEqual(
-            _class_method_names(synthesis_writer_path, "ReflectionClaimWriter"),
-            {"create_from_synthesis", "update_from_synthesis"},
+            _class_method_names(reflection_writer_path, "ReflectionClaimWriter"),
+            {"create_from_reflection", "update_from_reflection"},
         )
         self.assertEqual(
-            _class_method_names(synthesis_writer_path, "ReflectionExperimentWriter"),
-            {"create_from_synthesis"},
+            _class_method_names(reflection_writer_path, "ReflectionExperimentWriter"),
+            {"create_from_reflection"},
         )
         from backend.ports.reflection_writers import (
             ReflectionClaimWriter,
@@ -569,7 +569,7 @@ class ServiceLayoutTest(unittest.TestCase):
             "send_back_to_running",
             "target_snapshot_id",
         }
-        synthesis_calls = {
+        reflection_calls = {
             "get_state",
             "send_back_to_reflecting",
             "send_back_to_synthesizing",
@@ -583,9 +583,9 @@ class ServiceLayoutTest(unittest.TestCase):
         )
         self.assertEqual(
             _strict_self_collaborator_call_names(
-                source, "reflections", synthesis_calls
+                source, "reflections", reflection_calls
             ),
-            synthesis_calls,
+            reflection_calls,
         )
 
     def test_feed_service_does_not_read_local_image_paths(self) -> None:
@@ -613,16 +613,10 @@ class ServiceLayoutTest(unittest.TestCase):
                 self.assertIn("domain.experiment_names", imports)
                 self.assertNotIn("experiment_names", imports)
 
-    def test_reflection_projection_is_domain_leaf_module(self) -> None:
-        self.assertEqual(
-            _import_module_names(DOMAIN_ROOT / "reflection_projection.py"),
-            {"typing"},
-        )
-        for name in ("reflection_tools.py", "workflow_views.py"):
-            with self.subTest(module=name):
-                imports = _import_module_names(SERVICES / name)
-                self.assertIn("domain.reflection_projection", imports)
-                self.assertNotIn("reflection_projection", imports)
+    def test_reflection_tool_adapter_wraps_the_wave_service(self) -> None:
+        # The synthesis->reflection projection layer is gone (external names
+        # ARE the internal names); the tool adapter forwards to the service.
+        self.assertFalse((DOMAIN_ROOT / "reflection_projection.py").exists())
         reflection_imports = _import_segments(SERVICES / "reflection_tools.py")
         self.assertIn("reflections", reflection_imports)
         self.assertNotIn("reflection_waves", reflection_imports)
@@ -1199,14 +1193,14 @@ class ServiceLayoutTest(unittest.TestCase):
             with self.subTest(module=name):
                 self.assertEqual(_import_module_names(DOMAIN_ROOT / name), imports)
 
-    def test_synthesis_service_uses_experiment_name_leaf(self) -> None:
+    def test_reflection_service_uses_experiment_name_leaf(self) -> None:
         self.assertNotIn("experiments", _import_segments(SERVICES / "reflections.py"))
         source = _source("reflections.py")
         self.assertIn("experiment_writer: ReflectionExperimentWriter", source)
         self.assertNotIn("INSERT INTO experiments", source)
         self.assertNotIn("experiment_claims", source)
 
-    def test_synthesis_service_uses_claim_vocabulary(self) -> None:
+    def test_reflection_service_uses_claim_vocabulary(self) -> None:
         self.assertNotIn("claims", _import_segments(SERVICES / "reflections.py"))
         source = _source("reflections.py")
         self.assertIn("reflection_writers", _import_segments(SERVICES / "reflections.py"))
@@ -1214,7 +1208,7 @@ class ServiceLayoutTest(unittest.TestCase):
         self.assertNotIn("INSERT INTO claims", source)
         self.assertNotIn("UPDATE claims", source)
 
-    def test_synthesis_service_does_not_write_projects(self) -> None:
+    def test_reflection_service_does_not_write_projects(self) -> None:
         source = _source("reflections.py")
         self.assertNotIn("UPDATE projects", source)
         self.assertNotIn("project.stopped", source)

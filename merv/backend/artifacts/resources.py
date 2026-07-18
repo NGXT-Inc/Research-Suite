@@ -30,7 +30,6 @@ from .pinned import pinned_text_for_version as load_pinned_text_for_version
 from .roles import (
     GATED_ROLE_BYTE_CAPS,
     SYSTEM_CREATED_BY,
-    external_reflection_target_type,
     metric_result_capture_cap,
 )
 
@@ -251,9 +250,6 @@ class ResourceService:
         checks them against the pinned version hash before storing blobs.
         """
         self.permissions.validate_resource_association(target_type=target_type, role=role)
-        storage_target_type = self.permissions.storage_resource_target_type(
-            target_type=target_type
-        )
         with self.store.transaction() as conn:
             project_id = self.store.require_project_id(conn=conn, project_id=project_id)
             resource = conn.execute("SELECT * FROM resources WHERE id = ? AND deleted = 0", (resource_id,)).fetchone()
@@ -281,8 +277,7 @@ class ResourceService:
                 project_id=project_id,
                 resource_id=resource_id,
                 version_id=version_id,
-                storage_target_type=storage_target_type,
-                public_target_type=target_type,
+                target_type=target_type,
                 target_id=target_id,
                 role=role,
             )
@@ -297,9 +292,6 @@ class ResourceService:
         project_id: str | None = None,
     ) -> dict[str, Any]:
         self.permissions.validate_resource_association(target_type=target_type, role=role)
-        storage_target_type = self.permissions.storage_resource_target_type(
-            target_type=target_type
-        )
         with self.store.transaction() as conn:
             project_id = self.store.require_project_id(conn=conn, project_id=project_id)
             resource = conn.execute(
@@ -311,20 +303,20 @@ class ResourceService:
                 raise NotFoundError(f"resource not found in project {project_id}: {resource_id}")
             target_project_id = self._ensure_target_exists(
                 conn=conn,
-                target_type=storage_target_type,
+                target_type=target_type,
                 target_id=target_id,
             )
             if target_project_id is not None and target_project_id != project_id:
                 raise NotFoundError(f"{target_type} not found in project {project_id}: {target_id}")
             attempt_index = self._association_attempt_index(
                 conn=conn,
-                target_type=storage_target_type,
+                target_type=target_type,
                 target_id=target_id,
             )
             return {
                 "ok": True,
                 "resource": self._hydrate_resource(row=resource, conn=conn),
-                "storage_target_type": storage_target_type,
+                "target_type": target_type,
                 "attempt_index": attempt_index,
             }
 
@@ -655,10 +647,7 @@ class ResourceService:
             """,
             (data["id"],),
         ).fetchall()
-        associations = rows_to_dicts(rows=assoc_rows)
-        for assoc in associations:
-            assoc["target_type"] = external_reflection_target_type(assoc.get("target_type"))
-        data["associations"] = associations
+        data["associations"] = rows_to_dicts(rows=assoc_rows)
         if data.get("current_version_id"):
             row = conn.execute("SELECT * FROM resource_versions WHERE id = ?", (data["current_version_id"],)).fetchone()
             data["current_version"] = self._hydrate_version(row=row, conn=conn) if row else None
@@ -966,8 +955,7 @@ class ResourceService:
                 project_id=project_id,
                 resource_id=resource_id,
                 version_id=str(version["id"]),
-                storage_target_type=target_type,
-                public_target_type=target_type,
+                target_type=target_type,
                 target_id=target_id,
                 role=role,
             )
@@ -1016,21 +1004,20 @@ class ResourceService:
         project_id: str,
         resource_id: str,
         version_id: str,
-        storage_target_type: str,
-        public_target_type: str,
+        target_type: str,
         target_id: str,
         role: str,
     ) -> dict[str, Any]:
         target_project_id = self._ensure_target_exists(
             conn=conn,
-            target_type=storage_target_type,
+            target_type=target_type,
             target_id=target_id,
         )
         if target_project_id is not None and target_project_id != project_id:
-            raise NotFoundError(f"{public_target_type} not found in project {project_id}: {target_id}")
+            raise NotFoundError(f"{target_type} not found in project {project_id}: {target_id}")
         attempt_index = self._association_attempt_index(
             conn=conn,
-            target_type=storage_target_type,
+            target_type=target_type,
             target_id=target_id,
         )
         assoc_id = new_id(prefix="assoc")
@@ -1046,7 +1033,7 @@ class ResourceService:
                 assoc_id,
                 resource_id,
                 version_id,
-                storage_target_type,
+                target_type,
                 target_id,
                 role,
                 attempt_index,
@@ -1059,7 +1046,7 @@ class ResourceService:
             conn=conn,
             project_id=project_id,
             event_type="resource.associated",
-            target_type=storage_target_type,
+            target_type=target_type,
             target_id=target_id,
             payload={"resource_id": resource_id, "version_id": version_id, "role": role, "attempt_index": attempt_index},
         )
@@ -1148,8 +1135,5 @@ class ResourceService:
             """,
             (data["id"],),
         ).fetchall()
-        associations = rows_to_dicts(rows=assoc_rows)
-        for assoc in associations:
-            assoc["target_type"] = external_reflection_target_type(assoc.get("target_type"))
-        data["associations"] = associations
+        data["associations"] = rows_to_dicts(rows=assoc_rows)
         return data

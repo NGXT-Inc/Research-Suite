@@ -748,9 +748,9 @@ class ResearchHttpApi:
         """All reflection waves plus the staleness/coverage signal for the UI."""
         return self.app.reflection_waves.overview(project_id=project_id)
 
-    def reflection_detail(self, *, project_id: str, synthesis_id: str) -> dict[str, Any]:
+    def reflection_detail(self, *, project_id: str, reflection_id: str) -> dict[str, Any]:
         return self.app.reflection_waves.get_state(
-            synthesis_id=synthesis_id, project_id=project_id
+            reflection_id=reflection_id, project_id=project_id
         )
 
     def project_logic_graph(self, *, project_id: str) -> dict[str, Any]:
@@ -764,30 +764,30 @@ class ResearchHttpApi:
         selection = self.app.reflection_waves.project_logic_graph_selection(project_id=project_id)
         return self._graph_payload_for_reflection(
             project_id=project_id,
-            synthesis=selection.get("synthesis"),
+            reflection=selection.get("reflection"),
             graph_resource=selection.get("graph_resource"),
             extra_base={"signal": selection.get("signal")},
         )
 
-    def reflection_graph(self, *, project_id: str, synthesis_id: str) -> dict[str, Any]:
+    def reflection_graph(self, *, project_id: str, reflection_id: str) -> dict[str, Any]:
         """The logic graph of one specific reflection wave, rendered from the
         bytes that wave pinned (role 'project_graph'). Lets the UI show a past
         wave's graph faithfully even though project/logic_graph.json is a
         living file the next wave overwrites. Same payload shape as
         project_logic_graph
         (minus the project-wide staleness signal)."""
-        synthesis = self.app.reflection_waves.get_state(
-            synthesis_id=synthesis_id, project_id=project_id
+        reflection = self.app.reflection_waves.get_state(
+            reflection_id=reflection_id, project_id=project_id
         )
         return self._graph_payload_for_reflection(
-            project_id=project_id, synthesis=synthesis
+            project_id=project_id, reflection=reflection
         )
 
     def _graph_payload_for_reflection(
         self,
         *,
         project_id: str,
-        synthesis: dict[str, Any] | None,
+        reflection: dict[str, Any] | None,
         graph_resource: dict[str, Any] | None = None,
         extra_base: dict[str, Any] | None = None,
     ) -> dict[str, Any]:
@@ -798,16 +798,16 @@ class ResearchHttpApi:
         project-current endpoint adds the staleness `signal`)."""
         base: dict[str, Any] = {"max_nodes": MAX_GRAPH_NODES, **(extra_base or {})}
         chosen = graph_resource or (
-            self._reflection_graph_resource(synthesis=synthesis) if synthesis else None
+            self._reflection_graph_resource(reflection=reflection) if reflection else None
         )
-        if synthesis is None or chosen is None:
-            return {**base, "available": False, "synthesis": None, "graph": None, "problems": []}
-        base["synthesis"] = {
-            "id": synthesis.get("id"),
-            "title": synthesis.get("title"),
-            "status": synthesis.get("status"),
-            "attempt_index": synthesis.get("attempt_index"),
-            "published_at": synthesis.get("published_at"),
+        if reflection is None or chosen is None:
+            return {**base, "available": False, "reflection": None, "graph": None, "problems": []}
+        base["reflection"] = {
+            "id": reflection.get("id"),
+            "title": reflection.get("title"),
+            "status": reflection.get("status"),
+            "attempt_index": reflection.get("attempt_index"),
+            "published_at": reflection.get("published_at"),
         }
         text = self._association_pinned_text(chosen)
         if text is None:
@@ -829,7 +829,7 @@ class ResearchHttpApi:
         self, *, base: dict[str, Any], chosen: dict[str, Any], text: str, project_id: str
     ) -> dict[str, Any]:
         """Parse + lint + resolve-refs the available-graph tail shared by the
-        experiment and synthesis graph endpoints (byte-identical payload)."""
+        experiment and reflection graph endpoints (byte-identical payload)."""
         graph: dict[str, Any] | None = None
         try:
             parsed = json.loads(text)
@@ -858,15 +858,15 @@ class ResearchHttpApi:
         )
 
     def _reflection_graph_resource(
-        self, *, synthesis: dict[str, Any] | None
+        self, *, reflection: dict[str, Any] | None
     ) -> dict[str, Any] | None:
         """The reflection's graph association — current attempt preferred, with
         the prior-attempt fallback the experiment endpoint also uses."""
-        if synthesis is None:
+        if reflection is None:
             return None
         return preferred_associated_resource(
-            resources=synthesis.get("resources", []),
-            attempt=synthesis.get("attempt_index"),
+            resources=reflection.get("resources", []),
+            attempt=reflection.get("attempt_index"),
             roles=PROJECT_GRAPH_ROLES,
         )
 

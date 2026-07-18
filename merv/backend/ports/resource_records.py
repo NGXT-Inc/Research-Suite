@@ -38,6 +38,3 @@ class ResourceAssociationPolicy(Protocol):
 
     def validate_resource_association(self, *, target_type: str, role: str) -> None:
         ...
-
-    def storage_resource_target_type(self, *, target_type: str) -> str:
-        ...

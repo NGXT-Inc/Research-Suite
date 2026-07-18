@@ -31,7 +31,7 @@ REVISED_PROJECT_GRAPH = (
 )
 
 VALID_REFLECTION_DOC = (
-    "# Synthesis\n\n"
+    "# Reflection\n\n"
     "## Summary\n"
     "The wave reconciles the lens reflections into the current project state.\n\n"
     "## Critical reading\n"
@@ -98,7 +98,7 @@ def full_roster() -> list[dict[str, str]]:
 ALL_LENS_IDS = ("amplify", "avoid", "entropy", "rigor", "cost")
 
 
-class SynthesisGateTest(unittest.TestCase):
+class ReflectionGateTest(unittest.TestCase):
     def setUp(self) -> None:
         self.tmp = tempfile.TemporaryDirectory()
         self.repo = Path(self.tmp.name)
@@ -106,7 +106,7 @@ class SynthesisGateTest(unittest.TestCase):
             repo_root=self.repo,
             db_path=self.repo / ".research_plugin" / "state.sqlite",
         )
-        self.project_id = self.call("project", action="create", name="Synthesis Gate Test")["id"]
+        self.project_id = self.call("project", action="create", name="Reflection Gate Test")["id"]
 
     def tearDown(self) -> None:
         self.tmp.cleanup()
@@ -138,7 +138,7 @@ class SynthesisGateTest(unittest.TestCase):
     def _submit_reflection(self, *, syn_id: str, lens_id: str) -> None:
         self._associate_file(
             syn_id=syn_id,
-            path=f"syntheses/{syn_id}/reflections/{lens_id}.md",
+            path=f"reflections/{syn_id}/reflections/{lens_id}.md",
             role="reflection_lens_doc",
             body=f"# {lens_id}\nFindings through the {lens_id} lens.\n",
         )
@@ -164,7 +164,7 @@ class SynthesisGateTest(unittest.TestCase):
         )
         return syn_id
 
-    def _associate_synthesis_artifacts(
+    def _associate_reflection_artifacts(
         self,
         *,
         syn_id: str,
@@ -185,9 +185,9 @@ class SynthesisGateTest(unittest.TestCase):
             body=change_spec,
         )
 
-    def _drive_to_synthesis_review(self) -> str:
+    def _drive_to_reflection_review(self) -> str:
         syn_id = self._drive_to_synthesizing()
-        self._associate_synthesis_artifacts(syn_id=syn_id)
+        self._associate_reflection_artifacts(syn_id=syn_id)
         self.call(
             "reflection.transition",
             project_id=self.project_id,
@@ -196,7 +196,7 @@ class SynthesisGateTest(unittest.TestCase):
         )
         return syn_id
 
-    def _open_review_session(self, *, syn_id: str, caller: str = "synthesis-reviewer") -> str:
+    def _open_review_session(self, *, syn_id: str, caller: str = "reflection-reviewer") -> str:
         req = self.call(
             "review.request",
             project_id=self.project_id,
@@ -213,7 +213,7 @@ class SynthesisGateTest(unittest.TestCase):
         return session["review_session_id"]
 
     def _drive_to_published(self) -> str:
-        syn_id = self._drive_to_synthesis_review()
+        syn_id = self._drive_to_reflection_review()
         session_id = self._open_review_session(syn_id=syn_id)
         self.call(
             "review.submit",
@@ -327,9 +327,9 @@ class SynthesisGateTest(unittest.TestCase):
         self._create_wave(title="Third")
 
     def _state_id_of_open_wave(self) -> str:
-        syntheses = self.call("reflection.list", project_id=self.project_id)["reflections"]
+        reflections = self.call("reflection.list", project_id=self.project_id)["reflections"]
         open_waves = [
-            syn for syn in syntheses if syn["status"] not in {"published", "abandoned"}
+            syn for syn in reflections if syn["status"] not in {"published", "abandoned"}
         ]
         self.assertEqual(len(open_waves), 1)
         return open_waves[0]["id"]
@@ -373,7 +373,7 @@ class SynthesisGateTest(unittest.TestCase):
         # role 'reflection_lens_doc' but the filename stem matches no lens ⇒ not coverage.
         self._associate_file(
             syn_id=syn_id,
-            path=f"syntheses/{syn_id}/reflections/notes.md",
+            path=f"reflections/{syn_id}/reflections/notes.md",
             role="reflection_lens_doc",
             body="loose notes\n",
         )
@@ -395,7 +395,7 @@ class SynthesisGateTest(unittest.TestCase):
             if lens_id == "rigor":
                 self._associate_file(
                     syn_id=syn_id,
-                    path=f"syntheses/{syn_id}/reflections/rigor.md",
+                    path=f"reflections/{syn_id}/reflections/rigor.md",
                     role="reflection_lens_doc",
                     body="   \n",
                 )
@@ -446,13 +446,13 @@ class SynthesisGateTest(unittest.TestCase):
         with self.assertRaises(ValidationError) as ctx:
             self._associate_file(
                 syn_id=syn_id,
-                path=f"syntheses/{syn_id}/reflections/amplify.md",
+                path=f"reflections/{syn_id}/reflections/amplify.md",
                 role="reflection",
                 body="# amplify\nLegacy role output.\n",
             )
         self.assertIn("legacy resource role 'reflection'", str(ctx.exception))
 
-    # ---- synthesis artifacts gate ----
+    # ---- reflection artifacts gate ----
 
     def test_submit_reflection_artifacts_requires_graph_doc_then_change_spec(self) -> None:
         syn_id = self._drive_to_synthesizing()
@@ -560,7 +560,7 @@ class SynthesisGateTest(unittest.TestCase):
         with self.assertRaises(ValidationError) as ctx:
             self._associate_file(
                 syn_id=syn_id,
-                path="project/synthesis.md",
+                path="project/reflection.md",
                 role="synthesis_doc",
                 body=VALID_REFLECTION_DOC,
             )
@@ -627,7 +627,7 @@ class SynthesisGateTest(unittest.TestCase):
     def test_reflection_doc_requires_critical_reading_section(self) -> None:
         syn_id = self._drive_to_synthesizing()
         doc = (
-            "# Synthesis\n\n"
+            "# Reflection\n\n"
             "## Summary\nShort summary.\n\n"
             "## Decision / future directions\nCreate the approved wave.\n"
         )
@@ -652,7 +652,7 @@ class SynthesisGateTest(unittest.TestCase):
     def test_verbose_reflection_doc_is_rejected(self) -> None:
         syn_id = self._drive_to_synthesizing()
         verbose_doc = (
-            "# Synthesis\n\n"
+            "# Reflection\n\n"
             "## Summary\n"
             "Short summary.\n\n"
             "## Critical reading\n"
@@ -675,7 +675,7 @@ class SynthesisGateTest(unittest.TestCase):
     def test_reflection_doc_requires_submitted_relative_images(self) -> None:
         syn_id = self._drive_to_synthesizing()
         doc = (
-            "# Synthesis\n\n"
+            "# Reflection\n\n"
             "## Summary\nShort summary.\n\n"
             "![project graph](figures/project_graph.png)\n\n"
             "## Critical reading\nThe visual is needed for this reading.\n\n"
@@ -694,7 +694,7 @@ class SynthesisGateTest(unittest.TestCase):
         # bytes without the figures the markdown links; the gate must block.
         syn_id = self._drive_to_synthesizing()
         doc = (
-            "# Synthesis\n\n"
+            "# Reflection\n\n"
             "## Summary\nShort summary.\n\n"
             "![project graph](figures/project_graph.png)\n\n"
             "## Critical reading\nThe visual is needed for this reading.\n\n"
@@ -740,7 +740,7 @@ class SynthesisGateTest(unittest.TestCase):
             b"\x89PNG\r\n\x1a\nfake"
         )
         doc = (
-            "# Synthesis\n\n"
+            "# Reflection\n\n"
             "## Summary\nShort summary.\n\n"
             "![project graph](figures/project_graph.png)\n\n"
             "## Critical reading\nThe visual is submitted with the reflection doc.\n\n"
@@ -795,7 +795,7 @@ class SynthesisGateTest(unittest.TestCase):
     def test_change_spec_cannot_exceed_active_experiment_cap(self) -> None:
         self._create_active_experiments(ACTIVE_EXPERIMENT_CAP - 1)
         syn_id = self._drive_to_synthesizing()
-        self._associate_synthesis_artifacts(syn_id=syn_id)
+        self._associate_reflection_artifacts(syn_id=syn_id)
         with self.assertRaises(WorkflowError) as ctx:
             self.call(
                 "reflection.transition",
@@ -821,7 +821,7 @@ class SynthesisGateTest(unittest.TestCase):
                     "claim_id": existing["id"],
                     "status": "supported",
                     "confidence": "high",
-                    "rationale": "The published synthesis reconciles the evidence.",
+                    "rationale": "The published reflection reconciles the evidence.",
                 },
                 {
                     "op": "create",
@@ -852,7 +852,7 @@ class SynthesisGateTest(unittest.TestCase):
             },
         }
         syn_id = self._drive_to_synthesizing()
-        self._associate_synthesis_artifacts(syn_id=syn_id, change_spec=json.dumps(outcome))
+        self._associate_reflection_artifacts(syn_id=syn_id, change_spec=json.dumps(outcome))
         self.call(
             "reflection.transition",
             project_id=self.project_id,
@@ -945,7 +945,7 @@ class SynthesisGateTest(unittest.TestCase):
 
     def test_publish_defensively_rechecks_active_experiment_cap(self) -> None:
         self._create_active_experiments(ACTIVE_EXPERIMENT_CAP - 2)
-        syn_id = self._drive_to_synthesis_review()
+        syn_id = self._drive_to_reflection_review()
         session_id = self._open_review_session(syn_id=syn_id)
         self.call(
             "review.submit",
@@ -1010,7 +1010,7 @@ class SynthesisGateTest(unittest.TestCase):
             },
         }
         syn_id = self._drive_to_synthesizing()
-        self._associate_synthesis_artifacts(syn_id=syn_id, change_spec=json.dumps(outcome))
+        self._associate_reflection_artifacts(syn_id=syn_id, change_spec=json.dumps(outcome))
         self.call(
             "reflection.transition",
             project_id=self.project_id,
@@ -1036,8 +1036,8 @@ class SynthesisGateTest(unittest.TestCase):
         self.assertEqual(claim["status"], "active")
         self.assertEqual(claim["confidence"], "high")
 
-    def test_rejected_synthesis_does_not_materialize_change_spec(self) -> None:
-        syn_id = self._drive_to_synthesis_review()
+    def test_rejected_reflection_does_not_materialize_change_spec(self) -> None:
+        syn_id = self._drive_to_reflection_review()
         session_id = self._open_review_session(syn_id=syn_id)
         self.call(
             "review.submit",
@@ -1062,7 +1062,7 @@ class SynthesisGateTest(unittest.TestCase):
             },
         }
         syn_id = self._drive_to_synthesizing()
-        self._associate_synthesis_artifacts(syn_id=syn_id, change_spec=json.dumps(outcome))
+        self._associate_reflection_artifacts(syn_id=syn_id, change_spec=json.dumps(outcome))
         with self.assertRaises(WorkflowError) as ctx:
             self.call(
                 "reflection.transition",
@@ -1076,7 +1076,7 @@ class SynthesisGateTest(unittest.TestCase):
         spec = json.loads(VALID_CHANGE_SPEC)
         del spec["decision"]["experiments"][1]["parallelism"]
         syn_id = self._drive_to_synthesizing()
-        self._associate_synthesis_artifacts(syn_id=syn_id, change_spec=json.dumps(spec))
+        self._associate_reflection_artifacts(syn_id=syn_id, change_spec=json.dumps(spec))
         with self.assertRaises(WorkflowError) as ctx:
             self.call(
                 "reflection.transition",
@@ -1092,7 +1092,7 @@ class SynthesisGateTest(unittest.TestCase):
         spec = json.loads(VALID_CHANGE_SPEC)
         spec["decision"]["experiments"] = []
         syn_id = self._drive_to_synthesizing()
-        self._associate_synthesis_artifacts(syn_id=syn_id, change_spec=json.dumps(spec))
+        self._associate_reflection_artifacts(syn_id=syn_id, change_spec=json.dumps(spec))
         with self.assertRaises(WorkflowError) as ctx:
             self.call(
                 "reflection.transition",
@@ -1104,8 +1104,8 @@ class SynthesisGateTest(unittest.TestCase):
 
     # ---- review gate + routing ----
 
-    def test_publish_requires_a_passing_synthesis_review(self) -> None:
-        syn_id = self._drive_to_synthesis_review()
+    def test_publish_requires_a_passing_reflection_review(self) -> None:
+        syn_id = self._drive_to_reflection_review()
         with self.assertRaises(WorkflowError):
             self.call(
                 "reflection.transition",
@@ -1131,7 +1131,7 @@ class SynthesisGateTest(unittest.TestCase):
         self.assertTrue(out["published_graph_version_id"])
 
     def test_gate_checklist_tracks_reflection_review(self) -> None:
-        syn_id = self._drive_to_synthesis_review()
+        syn_id = self._drive_to_reflection_review()
 
         checklist = self._state(syn_id)["gate_checklist"]
         self.assertEqual(checklist["status"], "reflection_review")
@@ -1173,7 +1173,7 @@ class SynthesisGateTest(unittest.TestCase):
         self.assertEqual(checklist["items"][0]["status"], "passed")
         self.assertEqual(checklist["items"][0]["action"], "publish_reflection")
 
-    def test_review_request_role_must_match_the_synthesis_gate(self) -> None:
+    def test_review_request_role_must_match_the_reflection_gate(self) -> None:
         syn_id = self._create_wave()
         with self.assertRaises(PermissionDeniedError):
             self.call(
@@ -1192,7 +1192,7 @@ class SynthesisGateTest(unittest.TestCase):
             reflection_id=syn_id,
             transition="submit_reflections",
         )
-        self._associate_synthesis_artifacts(syn_id=syn_id)
+        self._associate_reflection_artifacts(syn_id=syn_id)
         self.call(
             "reflection.transition",
             project_id=self.project_id,
@@ -1209,8 +1209,8 @@ class SynthesisGateTest(unittest.TestCase):
             )
         self.assertIn("reflection_reviewer", str(ctx.exception))
 
-    def test_synthesis_rejection_requires_explicit_return_to(self) -> None:
-        syn_id = self._drive_to_synthesis_review()
+    def test_reflection_rejection_requires_explicit_return_to(self) -> None:
+        syn_id = self._drive_to_reflection_review()
         session_id = self._open_review_session(syn_id=syn_id)
         with self.assertRaises(ValidationError) as ctx:
             self.call(
@@ -1222,7 +1222,7 @@ class SynthesisGateTest(unittest.TestCase):
             )
         self.assertIn("reflecting", str(ctx.exception))
         self.assertIn("synthesizing", str(ctx.exception))
-        # Experiment return targets are invalid for a synthesis review.
+        # Experiment return targets are invalid for a reflection review.
         with self.assertRaises(ValidationError):
             self.call(
                 "review.submit",
@@ -1232,8 +1232,8 @@ class SynthesisGateTest(unittest.TestCase):
                 synopsis="A pattern in the dead-ends ledger is missing from the reflection.",
             )
 
-    def test_redo_synthesis_keeps_reflections_and_attempt(self) -> None:
-        syn_id = self._drive_to_synthesis_review()
+    def test_redo_reflection_keeps_reflections_and_attempt(self) -> None:
+        syn_id = self._drive_to_reflection_review()
         session_id = self._open_review_session(syn_id=syn_id)
         self.call(
             "review.submit",
@@ -1259,7 +1259,7 @@ class SynthesisGateTest(unittest.TestCase):
         self.assertEqual(out["status"], "reflection_review")
 
     def test_redo_reflection_bumps_attempt_and_resets_coverage(self) -> None:
-        syn_id = self._drive_to_synthesis_review()
+        syn_id = self._drive_to_reflection_review()
         session_id = self._open_review_session(syn_id=syn_id)
         self.call(
             "review.submit",
@@ -1292,8 +1292,8 @@ class SynthesisGateTest(unittest.TestCase):
         )
         self.assertEqual(out["status"], "synthesizing")
 
-    def test_producer_session_cannot_review_its_own_synthesis(self) -> None:
-        syn_id = self._drive_to_synthesis_review()
+    def test_producer_session_cannot_review_its_own_reflection(self) -> None:
+        syn_id = self._drive_to_reflection_review()
         req = self.call(
             "review.request",
             project_id=self.project_id,
@@ -1310,8 +1310,8 @@ class SynthesisGateTest(unittest.TestCase):
                 caller_session_id="orchestrator",
             )
 
-    def test_review_capability_pins_the_synthesis_snapshot(self) -> None:
-        syn_id = self._drive_to_synthesis_review()
+    def test_review_capability_pins_the_reflection_snapshot(self) -> None:
+        syn_id = self._drive_to_reflection_review()
         req = self.call(
             "review.request",
             project_id=self.project_id,
@@ -1413,7 +1413,7 @@ class ReflectionSignalTest(unittest.TestCase):
         )
         syn_id = syn["id"]
         for lens_id in ALL_LENS_IDS:
-            path = self.repo / f"syntheses/{syn_id}/reflections/{lens_id}.md"
+            path = self.repo / f"reflections/{syn_id}/reflections/{lens_id}.md"
             path.parent.mkdir(parents=True, exist_ok=True)
             path.write_text(f"{lens_id} findings\n")
             self.call(
@@ -1508,7 +1508,7 @@ class ReflectionSignalTest(unittest.TestCase):
         self.assertEqual(
             corpus2["previous_lens_reflections"],
             {
-                lens_id: f"syntheses/{wave1_id}/reflections/{lens_id}.md"
+                lens_id: f"reflections/{wave1_id}/reflections/{lens_id}.md"
                 for lens_id in ALL_LENS_IDS
             },
         )

@@ -917,6 +917,243 @@ class StoreMigrationTest(unittest.TestCase):
         finally:
             conn.close()
 
+    def test_synthesis_vocabulary_is_unified_to_reflection(self) -> None:
+        # Migration 19: the wave entity is a reflection everywhere. Seed the
+        # full pre-rename vocabulary — synthesis_* relation tables, a wave in
+        # synthesis_review, events with old types/payloads, reviews pinned to
+        # synthesis|... snapshots, and a synthesis-target association — and
+        # assert the complete rewrite. `synthesizing` (the phase) must survive.
+        self._seed_legacy_db()
+        conn = sqlite3.connect(self.db)
+        conn.row_factory = sqlite3.Row
+        try:
+            conn.executescript(
+                """
+                CREATE TABLE reflections (
+                  id TEXT PRIMARY KEY,
+                  project_id TEXT NOT NULL,
+                  title TEXT NOT NULL DEFAULT '',
+                  status TEXT NOT NULL,
+                  attempt_index INTEGER NOT NULL DEFAULT 1,
+                  revision_context TEXT NOT NULL DEFAULT '',
+                  roster_json TEXT NOT NULL DEFAULT '[]',
+                  corpus_json TEXT NOT NULL DEFAULT '{}',
+                  published_at TEXT,
+                  published_graph_version_id TEXT,
+                  created_at TEXT NOT NULL,
+                  updated_at TEXT NOT NULL,
+                  created_seq INTEGER NOT NULL DEFAULT 0
+                );
+                CREATE TABLE synthesis_claim_changes (
+                  synthesis_id TEXT NOT NULL,
+                  claim_id TEXT NOT NULL,
+                  op TEXT NOT NULL,
+                  claim_key TEXT NOT NULL DEFAULT '',
+                  created_at TEXT NOT NULL,
+                  PRIMARY KEY(synthesis_id, claim_id)
+                );
+                CREATE TABLE synthesis_experiments (
+                  synthesis_id TEXT NOT NULL,
+                  experiment_id TEXT NOT NULL,
+                  proposal_key TEXT NOT NULL DEFAULT '',
+                  created_at TEXT NOT NULL,
+                  PRIMARY KEY(synthesis_id, experiment_id)
+                );
+                CREATE TABLE events (
+                  id INTEGER PRIMARY KEY AUTOINCREMENT,
+                  project_id TEXT NOT NULL,
+                  type TEXT NOT NULL,
+                  target_type TEXT NOT NULL DEFAULT '',
+                  target_id TEXT NOT NULL DEFAULT '',
+                  payload_json TEXT NOT NULL DEFAULT '{}',
+                  created_at TEXT NOT NULL
+                );
+                INSERT INTO reflections (id, project_id, status, created_at, updated_at)
+                VALUES ('syn_1', 'proj_old', 'synthesis_review',
+                        '2026-01-01T00:00:00Z', '2026-01-01T01:00:00Z');
+                INSERT INTO synthesis_claim_changes VALUES
+                  ('syn_1', 'claim_1', 'create', 'k1', '2026-01-01T00:00:00Z');
+                INSERT INTO synthesis_experiments VALUES
+                  ('syn_1', 'exp_next', 'p1', '2026-01-01T00:00:00Z');
+                """
+            )
+            events = [
+                ("synthesis.created", "synthesis", "syn_1", '{"title": "wave"}'),
+                (
+                    "synthesis.transitioned",
+                    "synthesis",
+                    "syn_1",
+                    '{"from": "synthesizing", "to": "synthesis_review", '
+                    '"transition": "submit_synthesis"}',
+                ),
+                (
+                    "synthesis.returned_to_synthesizing",
+                    "synthesis",
+                    "syn_1",
+                    '{"revision_context": "reflection_reviewer returned needs_changes"}',
+                ),
+                (
+                    "claim.created",
+                    "claim",
+                    "claim_1",
+                    '{"status": "active", "source_synthesis_id": "syn_1"}',
+                ),
+            ]
+            for event_type, target_type, target_id, payload in events:
+                conn.execute(
+                    """
+                    INSERT INTO events (project_id, type, target_type, target_id,
+                                        payload_json, created_at)
+                    VALUES ('proj_old', ?, ?, ?, ?, '2026-01-01T00:00:00Z')
+                    """,
+                    (event_type, target_type, target_id, payload),
+                )
+            # A passing review pinned to the old snapshot vocabulary. The
+            # resource token deliberately embeds the legacy synthesis_doc role,
+            # which must survive the rewrite byte-identically.
+            snapshot = "synthesis|syn_1|synthesis_review|1|res_1:rver_1:synthesis_doc:1"
+            conn.executescript(
+                f"""
+                CREATE TABLE review_requests (
+                  id TEXT PRIMARY KEY,
+                  project_id TEXT NOT NULL,
+                  target_type TEXT NOT NULL,
+                  target_id TEXT NOT NULL,
+                  role TEXT NOT NULL,
+                  reason TEXT NOT NULL DEFAULT '',
+                  capability_hash TEXT NOT NULL,
+                  status TEXT NOT NULL,
+                  target_snapshot_id TEXT NOT NULL,
+                  producer_session_id TEXT NOT NULL DEFAULT '',
+                  expires_at TEXT NOT NULL,
+                  created_at TEXT NOT NULL,
+                  created_seq INTEGER NOT NULL DEFAULT 0
+                );
+                INSERT INTO review_requests VALUES
+                  ('rr_1', 'proj_old', 'synthesis', 'syn_1', 'reflection_reviewer',
+                   '', 'hash', 'submitted', '{snapshot}', 'main',
+                   '2099-01-01T00:00:00Z', '2026-01-01T00:00:00Z', 1);
+                CREATE TABLE reviews (
+                  id TEXT PRIMARY KEY,
+                  project_id TEXT NOT NULL,
+                  request_id TEXT NOT NULL,
+                  session_id TEXT NOT NULL,
+                  target_snapshot_id TEXT NOT NULL,
+                  target_type TEXT NOT NULL,
+                  target_id TEXT NOT NULL,
+                  role TEXT NOT NULL,
+                  verdict TEXT NOT NULL,
+                  return_to TEXT NOT NULL DEFAULT '',
+                  notes TEXT NOT NULL DEFAULT '',
+                  synopsis TEXT NOT NULL DEFAULT '',
+                  findings_json TEXT NOT NULL DEFAULT '[]',
+                  evidence_json TEXT NOT NULL DEFAULT '{{}}',
+                  created_at TEXT NOT NULL,
+                  created_seq INTEGER NOT NULL DEFAULT 0
+                );
+                INSERT INTO reviews VALUES
+                  ('rev_1', 'proj_old', 'rr_1', 'rvs_1', '{snapshot}', 'synthesis',
+                   'syn_1', 'reflection_reviewer', 'pass', '', '', 'ok', '[]', '{{}}',
+                   '2026-01-01T00:00:00Z', 1);
+                CREATE TABLE resource_associations (
+                  id TEXT PRIMARY KEY,
+                  resource_id TEXT NOT NULL,
+                  version_id TEXT,
+                  target_type TEXT NOT NULL,
+                  target_id TEXT NOT NULL,
+                  role TEXT NOT NULL,
+                  attempt_index INTEGER NOT NULL DEFAULT 0,
+                  created_at TEXT NOT NULL,
+                  created_seq INTEGER NOT NULL DEFAULT 0
+                );
+                INSERT INTO resource_associations VALUES
+                  ('assoc_1', 'res_1', 'rver_1', 'synthesis', 'syn_1',
+                   'synthesis_doc', 1, '2026-01-01T00:00:00Z', 1);
+                """
+            )
+            conn.commit()
+        finally:
+            conn.close()
+
+        StateStore(db_path=self.db)  # converge, then re-boot for idempotence
+        store = StateStore(db_path=self.db)
+        conn = store.connect()
+        try:
+            tables = {
+                str(row["name"])
+                for row in conn.execute(
+                    "SELECT name FROM sqlite_master WHERE type = 'table'"
+                ).fetchall()
+            }
+            self.assertIn("reflection_claim_changes", tables)
+            self.assertIn("reflection_experiments", tables)
+            self.assertNotIn("synthesis_claim_changes", tables)
+            self.assertNotIn("synthesis_experiments", tables)
+            claim_change = conn.execute(
+                "SELECT reflection_id, claim_id, op, claim_key FROM reflection_claim_changes"
+            ).fetchone()
+            self.assertEqual(claim_change["reflection_id"], "syn_1")
+            self.assertEqual(claim_change["claim_id"], "claim_1")
+            materialized = conn.execute(
+                "SELECT reflection_id, experiment_id FROM reflection_experiments"
+            ).fetchone()
+            self.assertEqual(materialized["reflection_id"], "syn_1")
+            self.assertEqual(materialized["experiment_id"], "exp_next")
+            wave = conn.execute(
+                "SELECT status FROM reflections WHERE id = 'syn_1'"
+            ).fetchone()
+            self.assertEqual(wave["status"], "reflection_review")
+
+            rows = conn.execute(
+                "SELECT type, target_type, payload_json FROM events ORDER BY id"
+            ).fetchall()
+            by_type = {str(row["type"]): row for row in rows if row["type"] != "project.created"}
+            self.assertEqual(
+                set(by_type),
+                {
+                    "reflection.created",
+                    "reflection.transitioned",
+                    "reflection.returned_to_synthesizing",
+                    "claim.created",
+                },
+            )
+            transitioned = by_type["reflection.transitioned"]
+            self.assertEqual(transitioned["target_type"], "reflection")
+            self.assertEqual(
+                transitioned["payload_json"],
+                '{"from": "synthesizing", "to": "reflection_review", '
+                '"transition": "submit_reflection_artifacts"}',
+            )
+            self.assertEqual(
+                by_type["reflection.returned_to_synthesizing"]["target_type"],
+                "reflection",
+            )
+            self.assertEqual(
+                by_type["claim.created"]["payload_json"],
+                '{"status": "active", "source_reflection_id": "syn_1"}',
+            )
+
+            expected_snapshot = (
+                "reflection|syn_1|reflection_review|1|res_1:rver_1:synthesis_doc:1"
+            )
+            for table in ("reviews", "review_requests"):
+                row = conn.execute(
+                    f"SELECT target_type, target_snapshot_id FROM {table}"
+                ).fetchone()
+                self.assertEqual(row["target_type"], "reflection")
+                self.assertEqual(row["target_snapshot_id"], expected_snapshot)
+            association = conn.execute(
+                "SELECT target_type, role FROM resource_associations WHERE id = 'assoc_1'"
+            ).fetchone()
+            self.assertEqual(association["target_type"], "reflection")
+            self.assertEqual(association["role"], "synthesis_doc")  # legacy role stays
+            migration = conn.execute(
+                "SELECT name FROM schema_migrations WHERE version = 19"
+            ).fetchone()
+            self.assertEqual(migration["name"], "unify_synthesis_to_reflection")
+        finally:
+            conn.close()
+
     def test_legacy_sandboxes_gain_heartbeat_columns(self) -> None:
         self._seed_legacy_db()
         conn = sqlite3.connect(self.db)

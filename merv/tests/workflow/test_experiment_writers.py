@@ -10,7 +10,7 @@ from backend.domain.reflection_policy import REFLECTION_BLOCK_NEW_TERMINAL_THRES
 from backend.utils import WorkflowError
 
 
-class SynthesisExperimentWriterTest(unittest.TestCase):
+class ReflectionExperimentWriterTest(unittest.TestCase):
     def setUp(self) -> None:
         self.tmp = tempfile.TemporaryDirectory()
         self.repo = Path(self.tmp.name)
@@ -28,11 +28,11 @@ class SynthesisExperimentWriterTest(unittest.TestCase):
     def call(self, tool_name: str, **kwargs):
         return self.app.call_tool(tool_name, kwargs)
 
-    def test_synthesis_writer_preserves_payload_and_bypasses_reflection_debt(self) -> None:
+    def test_reflection_writer_preserves_payload_and_bypasses_reflection_debt(self) -> None:
         claim = self.call(
             "claim.create",
             project_id=self.project_id,
-            statement="A synthesis-created wave can test this claim.",
+            statement="A reflection-created wave can test this claim.",
         )
         terminal_experiments = [
             self.call(
@@ -59,11 +59,11 @@ class SynthesisExperimentWriterTest(unittest.TestCase):
             )
 
         with self.app.store.transaction() as conn:
-            experiment_id = self.app.experiments.create_from_synthesis(
+            experiment_id = self.app.experiments.create_from_reflection(
                 conn=conn,
                 project_id=self.project_id,
-                synthesis_id="syn_contract",
-                name="synthesis-wave",
+                reflection_id="syn_contract",
+                name="reflection-wave",
                 intent="Created from an approved reflection change spec.",
                 claim_ids=[claim["id"]],
                 proposal_key="wave_a",
@@ -75,7 +75,7 @@ class SynthesisExperimentWriterTest(unittest.TestCase):
             project_id=self.project_id,
             experiment_id=experiment_id,
         )
-        self.assertEqual(state["name"], "synthesis-wave")
+        self.assertEqual(state["name"], "reflection-wave")
         self.assertEqual(state["status"], "planned")
         self.assertEqual([item["id"] for item in state["tested_claims"]], [claim["id"]])
 
@@ -91,19 +91,19 @@ class SynthesisExperimentWriterTest(unittest.TestCase):
         self.assertEqual(
             created["payload"],
             {
-                "name": "synthesis-wave",
+                "name": "reflection-wave",
                 "intent": "Created from an approved reflection change spec.",
-                "source_synthesis_id": "syn_contract",
+                "source_reflection_id": "syn_contract",
                 "proposal_key": "wave_a",
                 "parallelism": "Independent axis.",
             },
         )
 
-    def test_synthesis_writer_enforces_active_experiment_cap(self) -> None:
+    def test_reflection_writer_enforces_active_experiment_cap(self) -> None:
         claim = self.call(
             "claim.create",
             project_id=self.project_id,
-            statement="A synthesis-created experiment must fit the active cap.",
+            statement="A reflection-created experiment must fit the active cap.",
         )
         for index in range(ACTIVE_EXPERIMENT_CAP):
             self.call(
@@ -115,11 +115,11 @@ class SynthesisExperimentWriterTest(unittest.TestCase):
 
         with self.app.store.transaction() as conn:
             with self.assertRaises(WorkflowError) as ctx:
-                self.app.experiments.create_from_synthesis(
+                self.app.experiments.create_from_reflection(
                     conn=conn,
                     project_id=self.project_id,
-                    synthesis_id="syn_contract",
-                    name="synthesis-over-cap",
+                    reflection_id="syn_contract",
+                    name="reflection-over-cap",
                     intent="Created from an approved reflection change spec.",
                     claim_ids=[claim["id"]],
                     proposal_key="wave_a",

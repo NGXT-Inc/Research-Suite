@@ -11,14 +11,14 @@ from ..utils import NotFoundError, ValidationError
 
 _TABLE_BY_TYPE = {
     "experiment": "experiments",
-    "synthesis": "reflections",
+    "reflection": "reflections",
     "claim": "claims",
     "review": "reviews",
 }
 # Experiments and reflections scope associations to their current attempt, so
 # a review rejection that bumps the attempt naturally invalidates stale
 # associations for either target kind.
-_ATTEMPT_TABLE_BY_TYPE = {"experiment": "experiments", "synthesis": "reflections"}
+_ATTEMPT_TABLE_BY_TYPE = {"experiment": "experiments", "reflection": "reflections"}
 
 
 class AssociationTargets:

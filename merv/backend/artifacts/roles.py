@@ -97,19 +97,3 @@ GATED_ROLE_BYTE_CAPS: dict[str, int] = {
     "reflection": 16_000,
 }
 GATED_ROLES = frozenset(GATED_ROLE_BYTE_CAPS)
-
-
-# Association target-type aliasing: records created before the reflection
-# rename store 'synthesis'; the external contract says 'reflection'.
-_INTERNAL_SYNTHESIS = "synthesis"
-_EXTERNAL_REFLECTION = "reflection"
-
-
-def external_reflection_target_type(target_type: Any) -> Any:
-    """Internal 'synthesis' -> external 'reflection'; pass through all else."""
-    return _EXTERNAL_REFLECTION if target_type == _INTERNAL_SYNTHESIS else target_type
-
-
-def internal_synthesis_target_type(target_type: Any) -> Any:
-    """External 'reflection' -> internal 'synthesis'; pass through all else."""
-    return _INTERNAL_SYNTHESIS if target_type == _EXTERNAL_REFLECTION else target_type

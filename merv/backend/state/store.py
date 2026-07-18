@@ -311,7 +311,7 @@ CREATE TABLE IF NOT EXISTS reflections (
   -- {id, title, charter, core, why_distinct}. JSON list, fixed at create.
   roster_json TEXT NOT NULL DEFAULT '[]',
   -- The corpus snapshot taken at create: terminal experiments (id + attempt +
-  -- status) and claim statuses at that moment. The synthesis review judges the
+  -- status) and claim statuses at that moment. The reflection review judges the
   -- story against this fixed corpus, and staleness is computed against it.
   corpus_json TEXT NOT NULL DEFAULT '{}',
   published_at TEXT,
@@ -325,24 +325,24 @@ CREATE TABLE IF NOT EXISTS reflections (
   FOREIGN KEY(project_id) REFERENCES projects(id)
 );
 
-CREATE TABLE IF NOT EXISTS synthesis_claim_changes (
-  synthesis_id TEXT NOT NULL,
+CREATE TABLE IF NOT EXISTS reflection_claim_changes (
+  reflection_id TEXT NOT NULL,
   claim_id TEXT NOT NULL,
   op TEXT NOT NULL,
   claim_key TEXT NOT NULL DEFAULT '',
   created_at TEXT NOT NULL,
-  PRIMARY KEY(synthesis_id, claim_id),
-  FOREIGN KEY(synthesis_id) REFERENCES reflections(id),
+  PRIMARY KEY(reflection_id, claim_id),
+  FOREIGN KEY(reflection_id) REFERENCES reflections(id),
   FOREIGN KEY(claim_id) REFERENCES claims(id)
 );
 
-CREATE TABLE IF NOT EXISTS synthesis_experiments (
-  synthesis_id TEXT NOT NULL,
+CREATE TABLE IF NOT EXISTS reflection_experiments (
+  reflection_id TEXT NOT NULL,
   experiment_id TEXT NOT NULL,
   proposal_key TEXT NOT NULL DEFAULT '',
   created_at TEXT NOT NULL,
-  PRIMARY KEY(synthesis_id, experiment_id),
-  FOREIGN KEY(synthesis_id) REFERENCES reflections(id),
+  PRIMARY KEY(reflection_id, experiment_id),
+  FOREIGN KEY(reflection_id) REFERENCES reflections(id),
   FOREIGN KEY(experiment_id) REFERENCES experiments(id)
 );
 
@@ -599,6 +599,14 @@ MIGRATIONS: tuple[tuple[int, str, str], ...] = (
     # Multi-provider sandboxes (July 2026): rows record their owning compute
     # provider. Existing rows keep '' = "the configured default backend".
     (18, "add_sandbox_provider_columns", ""),
+    # Synthesis -> reflection unification (July 2026): the wave entity is a
+    # reflection everywhere (only the consolidation PHASE keeps the name
+    # `synthesizing`), and the external names become the internal names — the
+    # projection layer is deleted. Renames the two wave-relation tables (and
+    # their synthesis_id columns), rewrites the persisted status/target_type/
+    # event vocabulary, and rewrites review snapshot ids so passing reviews
+    # keep satisfying their gates.
+    (19, "unify_synthesis_to_reflection", ""),
 )
 
 
@@ -742,6 +750,8 @@ class BaseStateStore:
                 self._ensure_sandbox_last_command_columns(conn=conn)
             elif name == "add_sandbox_provider_columns":
                 self._ensure_sandbox_provider_columns(conn=conn)
+            elif name == "unify_synthesis_to_reflection":
+                self._unify_synthesis_to_reflection(conn=conn)
             else:
                 conn.execute(statement)
             conn.execute(
@@ -807,6 +817,81 @@ class BaseStateStore:
             return
         if self._has_table(conn=conn, table="syntheses"):
             conn.execute("ALTER TABLE syntheses RENAME TO reflections")
+
+    def _rename_synthesis_wave_tables(self, *, conn: Connection) -> None:
+        """Move legacy synthesis_* wave-relation tables to reflection_*.
+
+        Runs BEFORE the SCHEMA create in both stores' _initialize (like
+        _rename_syntheses_to_reflections) so old data is renamed into place
+        rather than stranded beside fresh empty reflection_* tables; guarded
+        and idempotent, so the ledger handler can call it again safely.
+        """
+        for old, new in (
+            ("synthesis_claim_changes", "reflection_claim_changes"),
+            ("synthesis_experiments", "reflection_experiments"),
+        ):
+            if not self._has_table(conn=conn, table=new) and self._has_table(conn=conn, table=old):
+                conn.execute(f"ALTER TABLE {old} RENAME TO {new}")
+            if self._has_table(conn=conn, table=new) and self._has_column(
+                conn=conn, table=new, column="synthesis_id"
+            ):
+                conn.execute(f"ALTER TABLE {new} RENAME COLUMN synthesis_id TO reflection_id")
+
+    def _unify_synthesis_to_reflection(self, *, conn: Connection) -> None:
+        """Retire the synthesis wave vocabulary from persisted state.
+
+        Fresh schemas already carry the reflection_* shapes, so every step is
+        guarded or a naturally idempotent UPDATE. The snapshot-id rewrites are
+        surgical (prefix swap + pipe-delimited status segment) so resource
+        tokens embedding legacy roles like synthesis_doc stay byte-identical —
+        those must keep matching the association rows they pinned.
+        """
+        self._rename_synthesis_wave_tables(conn=conn)
+        conn.execute(
+            "UPDATE reflections SET status = 'reflection_review' WHERE status = 'synthesis_review'"
+        )
+        # Events history: type prefix, target_type, and the known payload
+        # vocabulary (statuses, the transition verb, claim provenance keys).
+        # String-level JSON rewrites are deliberate — the payload shapes are
+        # known and `synthesizing` (the phase, which stays) matches none of
+        # the patterns.
+        conn.execute(
+            "UPDATE events SET type = 'reflection.' || SUBSTR(type, LENGTH('synthesis.') + 1) "
+            "WHERE type LIKE ?",
+            ("synthesis.%",),
+        )
+        conn.execute("UPDATE events SET target_type = 'reflection' WHERE target_type = 'synthesis'")
+        conn.execute(
+            "UPDATE events SET payload_json = REPLACE(REPLACE(REPLACE(payload_json, "
+            "'synthesis_review', 'reflection_review'), "
+            "'submit_synthesis', 'submit_reflection_artifacts'), "
+            "'source_synthesis_id', 'source_reflection_id') "
+            "WHERE payload_json LIKE ?",
+            ("%synthesis%",),
+        )
+        # Reviews and their capabilities: the persisted target_type plus the
+        # byte-compared snapshot ids (`synthesis|<id>|synthesis_review|...`),
+        # so a pass recorded before the rename still satisfies its gate.
+        for table in ("reviews", "review_requests"):
+            conn.execute(
+                f"UPDATE {table} SET target_snapshot_id = "
+                "'reflection' || SUBSTR(target_snapshot_id, LENGTH('synthesis') + 1) "
+                "WHERE target_snapshot_id LIKE ?",
+                ("synthesis|%",),
+            )
+            conn.execute(
+                f"UPDATE {table} SET target_snapshot_id = "
+                "REPLACE(target_snapshot_id, '|synthesis_review|', '|reflection_review|') "
+                "WHERE target_snapshot_id LIKE ?",
+                ("%|synthesis_review|%",),
+            )
+            conn.execute(
+                f"UPDATE {table} SET target_type = 'reflection' WHERE target_type = 'synthesis'"
+            )
+        conn.execute(
+            "UPDATE resource_associations SET target_type = 'reflection' "
+            "WHERE target_type = 'synthesis'"
+        )
 
     def _ensure_sandbox_tenant_id(self, *, conn: Connection) -> None:
         if not self._has_column(conn=conn, table="sandboxes", column="tenant_id"):
@@ -1248,6 +1333,7 @@ class StateStore(BaseStateStore):
         conn = self.connect()
         try:
             self._rename_syntheses_to_reflections(conn=conn)
+            self._rename_synthesis_wave_tables(conn=conn)
             conn.executescript(SCHEMA)  # IF NOT EXISTS — safe to race
             # The column probes and migration ledger below are check-then-act;
             # hold the write lock across them so two processes booting the same

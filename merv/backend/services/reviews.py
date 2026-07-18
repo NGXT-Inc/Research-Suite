@@ -20,8 +20,6 @@ from ..artifacts.pinned import PinnedStore
 from ..artifacts.roles import (
     EXHIBIT_ROLE,
     GATED_ROLES,
-    external_reflection_target_type,
-    internal_synthesis_target_type,
 )
 from ..domain.review_gates import (
     expected_review_gate_role,
@@ -46,8 +44,8 @@ class ReviewService:
     """Owns review gates and capability-scoped reviewer sessions.
 
     Reviews are target-polymorphic: an experiment review pins the experiment's
-    snapshot and routes rejections to planned/running; a synthesis review pins
-    the synthesis wave's snapshot and routes rejections to
+    snapshot and routes rejections to planned/running; a reflection review pins
+    the reflection wave's snapshot and routes rejections to
     reflecting/synthesizing. The capability machinery (plaintext returned once,
     snapshot pinning, and producer-session rejection) is shared. Reviewer skills
     provide the procedural read-only boundary.
@@ -79,16 +77,14 @@ class ReviewService:
         project_id: str | None = None,
     ) -> dict[str, Any]:
         self.permissions.validate_review_role(role=role)
-        external_target_type = target_type
-        target_type = internal_synthesis_target_type(external_target_type)
-        if target_type not in {"experiment", "synthesis"}:
+        if target_type not in {"experiment", "reflection"}:
             raise ValidationError("review targets must be 'experiment' or 'reflection'")
         with self.store.transaction() as conn:
             project_id = self.store.require_project_id(conn=conn, project_id=project_id)
             if target_type == "experiment":
                 target = self.experiments.get_state(experiment_id=target_id, project_id=project_id, conn=conn)
             else:
-                target = self.reflections.get_state(synthesis_id=target_id, project_id=project_id, conn=conn)
+                target = self.reflections.get_state(reflection_id=target_id, project_id=project_id, conn=conn)
             self._validate_role_matches_gate(
                 target_type=target_type, target_status=target["status"], role=role
             )
@@ -164,7 +160,7 @@ class ReviewService:
                 "expires_at": expires_at,
                 "reviewer_handoff": self.reviewer_handoff(
                     role=role,
-                    target_type=external_target_type,
+                    target_type=target_type,
                     target_id=target_id,
                     review_request_id=request_id,
                     reviewer_capability=capability,
@@ -243,7 +239,7 @@ class ReviewService:
             return {
                 "review_session_id": session_id,
                 "role": req["role"],
-                "target_type": external_reflection_target_type(req["target_type"]),
+                "target_type": req["target_type"],
                 "target_id": req["target_id"],
                 "independence": independence,
                 "read_scope": ["claim", "experiment", "reflection", "resource", "review"],
@@ -263,7 +259,7 @@ class ReviewService:
         """The target's current-attempt gated-role artifacts, with content."""
         if self.pinned is None:
             return []
-        table = {"experiment": "experiments", "synthesis": "reflections"}.get(target_type)
+        table = {"experiment": "experiments", "reflection": "reflections"}.get(target_type)
         if table is None:
             return []
         attempt = conn.execute(
@@ -424,24 +420,23 @@ class ReviewService:
                             experiment_id=req["target_id"],
                             revision_context=revision_context,
                         )
-                elif req["target_type"] == "synthesis":
+                elif req["target_type"] == "reflection":
                     if return_to == "reflecting":
                         self.reflections.send_back_to_reflecting(
                             conn=conn,
-                            synthesis_id=req["target_id"],
+                            reflection_id=req["target_id"],
                             revision_context=revision_context,
                         )
                     else:
                         self.reflections.send_back_to_synthesizing(
                             conn=conn,
-                            synthesis_id=req["target_id"],
+                            reflection_id=req["target_id"],
                             revision_context=revision_context,
                         )
             review = conn.execute("SELECT * FROM reviews WHERE id = ?", (review_id,)).fetchone()
             return self._hydrate_review(row=review)
 
     def status(self, *, target_type: str, target_id: str, project_id: str | None = None) -> dict[str, Any]:
-        target_type = internal_synthesis_target_type(target_type)
         conn = self.store.connect()
         try:
             project_id = self.store.require_project_id(conn=conn, project_id=project_id)
@@ -617,8 +612,6 @@ class ReviewService:
 
     def _with_snapshot(self, *, row) -> dict[str, Any]:
         data = row_to_dict(row=row) or {}
-        if "target_type" in data:
-            data["target_type"] = external_reflection_target_type(data["target_type"])
         data["target_snapshot"] = self.snapshot_from_id(snapshot_id=data.get("target_snapshot_id", ""))
         if "status" in data and "expires_at" in data:
             data["recovery"] = self._request_recovery(request=data)
@@ -690,16 +683,14 @@ class ReviewService:
             return self.experiments.target_snapshot_id(
                 conn=conn, experiment_id=target_id
             )
-        if target_type == "synthesis":
+        if target_type == "reflection":
             return self.reflections.target_snapshot_id(
-                conn=conn, synthesis_id=target_id
+                conn=conn, reflection_id=target_id
             )
         return f"{target_type}:{target_id}"
 
     def _hydrate_request(self, *, row) -> dict[str, Any]:
         data = row_to_dict(row=row) or {}
-        if "target_type" in data:
-            data["target_type"] = external_reflection_target_type(data["target_type"])
         data["target_snapshot"] = self.snapshot_from_id(snapshot_id=data.get("target_snapshot_id", ""))
         data["recovery"] = self._request_recovery(request=data)
         return data
@@ -735,8 +726,6 @@ class ReviewService:
 
     def _hydrate_review(self, *, row) -> dict[str, Any]:
         data = row_to_dict(row=row) or {}
-        if "target_type" in data:
-            data["target_type"] = external_reflection_target_type(data["target_type"])
         data["findings"] = json.loads(data.pop("findings_json", "[]"))
         data["evidence"] = json.loads(data.pop("evidence_json", "{}"))
         data["target_snapshot"] = self.snapshot_from_id(snapshot_id=data.get("target_snapshot_id", ""))

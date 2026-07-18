@@ -7,8 +7,8 @@ document, and a belief-state change spec. A reflection reviewer judges all
 three against the corpus. The FSM is deliberately smaller than the experiment
 one — nothing executes, so there is no sandbox lifecycle:
 
-    reflecting ──submit_reflections──▶ synthesizing ──submit_synthesis──▶
-        synthesis_review ──publish──▶ published
+    reflecting ──submit_reflections──▶ synthesizing ──submit_reflection_artifacts──▶
+        reflection_review ──publish──▶ published
 
 Review rejections route back through two distinct targets (mirroring the
 experiment planned/running split): ``return_to='reflecting'`` re-launches the
@@ -97,7 +97,7 @@ REFLECTION_GATE_TABLE: dict[str, ForwardTransition] = {
                 error=(
                     "no reflections are associated yet: fan out one read-only "
                     "subagent per roster lens; each subagent writes its "
-                    "reflection (e.g. syntheses/<syn_id>/reflections/"
+                    "reflection (e.g. reflections/<syn_id>/reflections/"
                     "<lens_id>.md), registers it, and associates it with role "
                     "'reflection_lens_doc' for this reflection wave"
                 ),
@@ -117,8 +117,8 @@ REFLECTION_GATE_TABLE: dict[str, ForwardTransition] = {
         ready_allowed=("reflection.transition",),
     ),
     "synthesizing": ForwardTransition(
-        name="submit_synthesis",
-        to_status="synthesis_review",
+        name="submit_reflection_artifacts",
+        to_status="reflection_review",
         requires_prose=(
             "the updated project logic graph (role 'project_graph', valid JSON "
             "DAG of at most 16 nodes), a concise reflection document (role "
@@ -189,7 +189,7 @@ REFLECTION_GATE_TABLE: dict[str, ForwardTransition] = {
         ),
         ready_allowed=("reflection.transition",),
     ),
-    "synthesis_review": ForwardTransition(
+    "reflection_review": ForwardTransition(
         name="publish",
         to_status="published",
         requires_prose="a passing reflection_reviewer review",

@@ -77,7 +77,7 @@ def reflection_signal_state(
         "claims_changed_since_publish": len(claims_changed),
         "contradicted_flip": contradicted_flip,
         "last_published_at": (published or {}).get("published_at"),
-        "last_published_synthesis_id": (published or {}).get("id"),
+        "last_published_reflection_id": (published or {}).get("id"),
         "open_reflection_id": (open_wave or {}).get("id"),
         "stale": stale,
         "experiment_create_blocked": experiment_create_blocked,
@@ -187,16 +187,14 @@ def reflection_create_block_message(
 def reflection_create_block_reason(*, signal: Mapping[str, Any]) -> str:
     count = signal.get("new_terminal_since_publish", 0)
     threshold = signal.get("block_new_terminal_threshold", 5)
-    open_id = signal.get("open_reflection_id") or signal.get("open_reflection_id")
+    open_id = signal.get("open_reflection_id")
     if open_id:
         return (
             f"{count} experiments have finished since the last published "
             f"reflection (threshold {threshold}); finish and publish open "
             f"reflection wave {open_id} before creating another experiment."
         )
-    if signal.get("last_published_synthesis_id") or signal.get(
-        "last_published_reflection_id"
-    ):
+    if signal.get("last_published_reflection_id"):
         since = "since the last published reflection"
     else:
         since = "and no project reflection has been published yet"
@@ -206,22 +204,12 @@ def reflection_create_block_reason(*, signal: Mapping[str, Any]) -> str:
     )
 
 
-def external_reflection_signal(signal: Mapping[str, Any]) -> dict[str, Any]:
-    output = dict(signal)
-    if "last_published_synthesis_id" in output:
-        output["last_published_reflection_id"] = output.pop(
-            "last_published_synthesis_id"
-        )
-    if "open_reflection_id" in output:
-        output["open_reflection_id"] = output.pop("open_reflection_id")
-    return output
-
 
 def idle_reflection_hint(*, signal: Mapping[str, Any]) -> str:
     """Hint for the idle recommended tier below the staleness threshold."""
     new = signal["new_terminal_since_publish"]
     finished = f"{new} experiment{'s have' if new != 1 else ' has'} finished"
-    if signal["last_published_synthesis_id"]:
+    if signal["last_published_reflection_id"]:
         drift = f"{finished} since the last published reflection"
         if signal["claims_changed_since_publish"]:
             drift += (

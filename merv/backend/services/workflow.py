@@ -9,12 +9,10 @@ from ..artifacts.roles import (
     PROJECT_GRAPH_ROLES,
     REFLECTION_LENS_DOC_ROLE,
     RESOURCE_ROLES,
-    external_reflection_target_type,
 )
 from ..domain.gates import ReviewRequirement, RoleRequirement
 from ..domain.paths import experiment_folder_rel
 from ..domain.reflection_policy import (
-    external_reflection_signal,
     idle_reflection_hint,
     reflection_create_block_reason,
 )
@@ -30,7 +28,7 @@ from ..ports.workflow_readers import (
     ReviewWorkflowReader,
     SandboxWorkflowReader,
 )
-from .workflow_views import slim_status_and_next, slim_synthesis
+from .workflow_views import slim_status_and_next, slim_reflection
 from ..state.store import BaseStateStore, row_to_dict, rows_to_dicts
 
 
@@ -385,12 +383,10 @@ class WorkflowService:
     ) -> dict[str, Any]:
         target_id = target["id"]
         gate = target["status"]
-        if target_type == "synthesis" and gate == "synthesis_review":
-            gate = "reflection_review"
         role, skill, action_name = review.role, review.skill, review.action_name
         transition_tool = (
             "reflection.transition"
-            if target_type == "synthesis"
+            if target_type == "reflection"
             else "experiment.transition"
         )
         gate_state = self.reviews.gate_state(
@@ -476,7 +472,7 @@ class WorkflowService:
         gate = {
             "role": role,
             "skill": skill,
-            "target_type": external_reflection_target_type(target_type),
+            "target_type": target_type,
             "target_id": target_id,
             "status": status,
             "label": labels.get(status, status),
@@ -516,15 +512,15 @@ class WorkflowService:
         open_wave = self.reflections.open_reflection(conn=conn, project_id=project_id)
         if open_wave is not None:
             signal = self.reflections.reflection_signal(project_id=project_id, conn=conn)
-            workflow = self._reflection_workflow_for(conn=conn, synthesis=open_wave)
+            workflow = self._reflection_workflow_for(conn=conn, reflection=open_wave)
             if signal.get("experiment_create_blocked"):
                 workflow = self._with_experiment_create_block(
                     workflow=workflow, signal=signal
                 )
             return {
-                "reflection": slim_synthesis(open_wave),
+                "reflection": slim_reflection(open_wave),
                 "workflow": workflow,
-                "signal": external_reflection_signal(signal),
+                "signal": signal,
             }
         signal = self.reflections.reflection_signal(project_id=project_id, conn=conn)
         has_new_material = (
@@ -536,7 +532,7 @@ class WorkflowService:
         block: dict[str, Any] = {
             "reflection": None,
             "hint": signal["hint"] or idle_reflection_hint(signal=signal),
-            "signal": external_reflection_signal(signal),
+            "signal": signal,
             "experiment_create_blocked": bool(signal.get("experiment_create_blocked")),
         }
         if recommended:
@@ -656,23 +652,23 @@ class WorkflowService:
             "blocked_actions": blocked,
         }
 
-    def _reflection_workflow_for(self, *, conn, synthesis: dict[str, Any]) -> dict[str, Any]:
+    def _reflection_workflow_for(self, *, conn, reflection: dict[str, Any]) -> dict[str, Any]:
         """Guidance for a reflection wave, derived from REFLECTION_GATE_TABLE —
         the same walk as _workflow_for, with the roster-coverage requirement
         reported per missing lens."""
-        status = synthesis["status"]
+        status = reflection["status"]
         forward = REFLECTION_GATE_TABLE.get(status)
         if forward is None:
             return self._next(gate="terminal", action="none", allowed=[])
         if forward.review is not None:
             return self._review_next(
                 conn=conn,
-                target_type="synthesis",
-                target=synthesis,
+                target_type="reflection",
+                target=reflection,
                 review=forward.review,
             )
         if status == "reflecting":
-            coverage = synthesis.get("reflection_coverage", {})
+            coverage = reflection.get("reflection_coverage", {})
             requirement = forward.requirements[0]
             if not coverage.get("complete"):
                 return self._next(
@@ -685,17 +681,17 @@ class WorkflowService:
                         for lens_id in coverage.get("missing", [])
                     ],
                     resource_guidance=self._reflection_resource_guidance(),
-                    revision=synthesis.get("revision_context", ""),
+                    revision=reflection.get("revision_context", ""),
                 )
             return self._next(
                 gate=forward.ready_gate,
                 action=forward.ready_action,
                 allowed=list(forward.ready_allowed),
-                revision=synthesis.get("revision_context", ""),
+                revision=reflection.get("revision_context", ""),
             )
         roles = {
             res.get("association_role")
-            for res in synthesis.get("current_attempt_resources", [])
+            for res in reflection.get("current_attempt_resources", [])
             if not res.get("missing")
         }
         for requirement in forward.requirements:
@@ -711,16 +707,16 @@ class WorkflowService:
                 action=requirement.action,
                 allowed=list(requirement.allowed),
                 missing=[requirement.missing],
-                resource_guidance=self._synthesis_resource_guidance(
+                resource_guidance=self._synthesizing_resource_guidance(
                     key=requirement.guidance_key
                 ),
-                revision=synthesis.get("revision_context", ""),
+                revision=reflection.get("revision_context", ""),
             )
         return self._next(
             gate=forward.ready_gate,
             action=forward.ready_action,
             allowed=list(forward.ready_allowed),
-            revision=synthesis.get("revision_context", ""),
+            revision=reflection.get("revision_context", ""),
         )
 
     def _reflection_resource_guidance(self) -> dict[str, Any]:
@@ -732,13 +728,13 @@ class WorkflowService:
                 "reads the project through its lens only (tell it which other "
                 "lenses are running so it stays in its lane), writes its "
                 "reflection to a file named <lens_id>.md (e.g. "
-                "syntheses/<syn_id>/reflections/<lens_id>.md), registers it, and "
+                "reflections/<syn_id>/reflections/<lens_id>.md), registers it, and "
                 "associates it with role 'reflection_lens_doc' for this "
                 "reflection wave. See the project-reflection skill for the lens briefs."
             ),
         }
 
-    def _synthesis_resource_guidance(self, *, key: str) -> dict[str, Any] | None:
+    def _synthesizing_resource_guidance(self, *, key: str) -> dict[str, Any] | None:
         if key == "project_graph":
             return {
                 "target_type": "reflection",

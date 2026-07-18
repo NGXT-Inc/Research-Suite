@@ -57,14 +57,14 @@ class ReviewReturnPolicyTest(unittest.TestCase):
     def test_reflection_reviewer_must_choose_return_target(self) -> None:
         with self.assertRaisesRegex(ValueError, "project-reflection-review"):
             resolve_review_return(
-                target_type="synthesis",
+                target_type="reflection",
                 role="reflection_reviewer",
                 verdict="needs_changes",
                 return_to="",
             )
         self.assertEqual(
             resolve_review_return(
-                target_type="synthesis",
+                target_type="reflection",
                 role="reflection_reviewer",
                 verdict="needs_changes",
                 return_to="reflecting",
@@ -79,8 +79,8 @@ class ReviewReturnPolicyTest(unittest.TestCase):
                 ("experiment", "*"),
                 ("experiment", "experiment_reviewer"),
                 ("experiment", "design_reviewer"),
-                ("synthesis", "*"),
-                ("synthesis", "reflection_reviewer"),
+                ("reflection", "*"),
+                ("reflection", "reflection_reviewer"),
             },
         )
 

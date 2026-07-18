@@ -59,12 +59,12 @@ REVIEW_RETURN_RULES: dict[tuple[str, str], ReviewReturnRule] = {
         invalid_message=EXPERIMENT_RETURN_TO_ERROR,
         forbidden=(("running", DESIGN_REVIEW_RUNNING_ERROR),),
     ),
-    ("synthesis", "*"): ReviewReturnRule(
+    ("reflection", "*"): ReviewReturnRule(
         allowed=("", "reflecting", "synthesizing"),
         default="synthesizing",
         invalid_message=REFLECTION_RETURN_TO_ERROR,
     ),
-    ("synthesis", "reflection_reviewer"): ReviewReturnRule(
+    ("reflection", "reflection_reviewer"): ReviewReturnRule(
         allowed=("", "reflecting", "synthesizing"),
         default="synthesizing",
         invalid_message=REFLECTION_RETURN_TO_ERROR,
@@ -116,7 +116,7 @@ def revision_context_for_review_return(
             "Sent back to running: the approved plan stands; fix execution "
             "and/or the conclusion, then retain/associate results and resubmit"
         )
-    if target_type == "synthesis":
+    if target_type == "reflection":
         if return_to == "reflecting":
             pieces.append(
                 "Sent back to reflecting: re-launch the reflection fan-out — "
@@ -133,7 +133,7 @@ def revision_context_for_review_return(
         pieces.append(notes)
     if finding_text:
         pieces.append(f"Findings: {finding_text}")
-    if target_type == "synthesis":
+    if target_type == "reflection":
         pieces.append(
             "Consider revising the project graph, reflection doc, and/or "
             "change spec where this review changes the project's story; "

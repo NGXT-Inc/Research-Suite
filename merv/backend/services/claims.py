@@ -64,7 +64,7 @@ class ClaimService:
         # statement/scope are deliberately not updatable here: the statement is
         # the claim's identity — experiments and reviews reference the claim id
         # assuming stable meaning. Text revisions go through the reviewed
-        # reflection change spec (update_from_synthesis), or the claim is
+        # reflection change spec (update_from_reflection), or the claim is
         # abandoned and a corrected one created.
         if status is None and confidence is None:
             raise ValidationError("nothing to update: provide status and/or confidence")
@@ -111,12 +111,12 @@ class ClaimService:
             updated = conn.execute("SELECT * FROM claims WHERE id = ?", (claim_id,)).fetchone()
             return row_to_dict(row=updated) or {}
 
-    def create_from_synthesis(
+    def create_from_reflection(
         self,
         *,
         conn,
         project_id: str,
-        synthesis_id: str,
+        reflection_id: str,
         statement: str,
         scope: str,
         status: str,
@@ -151,18 +151,18 @@ class ClaimService:
                 "scope": scope.strip(),
                 "status": status,
                 "confidence": confidence,
-                "source_synthesis_id": synthesis_id,
+                "source_reflection_id": reflection_id,
                 "rationale": rationale.strip(),
             },
         )
         return claim_id
 
-    def update_from_synthesis(
+    def update_from_reflection(
         self,
         *,
         conn,
         project_id: str,
-        synthesis_id: str,
+        reflection_id: str,
         claim_id: str,
         statement: str | None = None,
         scope: str | None = None,
@@ -199,7 +199,7 @@ class ClaimService:
                 "scope": next_scope,
                 "status": next_status,
                 "confidence": next_confidence,
-                "source_synthesis_id": synthesis_id,
+                "source_reflection_id": reflection_id,
                 "rationale": rationale.strip(),
             },
         )

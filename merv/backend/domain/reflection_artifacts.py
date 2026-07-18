@@ -160,18 +160,18 @@ def reflection_requirement_roles(*, role: str) -> tuple[str, ...]:
 
 
 def current_reflection_requirement_resource(
-    *, synthesis: dict[str, Any], role: str
+    *, reflection: dict[str, Any], role: str
 ) -> dict[str, Any] | None:
     return preferred_associated_resource(
-        resources=synthesis.get("current_attempt_resources") or [],
-        attempt=synthesis.get("attempt_index"),
+        resources=reflection.get("current_attempt_resources") or [],
+        attempt=reflection.get("attempt_index"),
         roles=reflection_requirement_roles(role=role),
     )
 
 
-def reflection_coverage_for(*, synthesis: dict[str, Any]) -> dict[str, Any]:
+def reflection_coverage_for(*, reflection: dict[str, Any]) -> dict[str, Any]:
     stems: dict[str, dict[str, Any]] = {}
-    for res in synthesis.get("current_attempt_resources", []):
+    for res in reflection.get("current_attempt_resources", []):
         if (
             res.get("association_role") not in REFLECTION_LENS_DOC_ROLES
             or res.get("missing")
@@ -190,7 +190,7 @@ def reflection_coverage_for(*, synthesis: dict[str, Any]) -> dict[str, Any]:
         )
     lenses = []
     missing = []
-    for lens in synthesis.get("roster", []):
+    for lens in reflection.get("roster", []):
         lens_id = str(lens.get("id") or "")
         entry = stems.get(lens_id)
         lenses.append(
@@ -208,14 +208,14 @@ def reflection_coverage_for(*, synthesis: dict[str, Any]) -> dict[str, Any]:
 
 
 def reflection_lens_checklist_items(
-    *, synthesis: dict[str, Any]
+    *, reflection: dict[str, Any]
 ) -> list[dict[str, Any]]:
     coverage_by_lens = {
         str(row.get("lens_id") or ""): row
-        for row in (synthesis.get("reflection_coverage") or {}).get("lenses", [])
+        for row in (reflection.get("reflection_coverage") or {}).get("lenses", [])
     }
     items: list[dict[str, Any]] = []
-    for lens in synthesis.get("roster", []):
+    for lens in reflection.get("roster", []):
         lens_id = str(lens.get("id") or "")
         coverage = coverage_by_lens.get(lens_id) or {}
         covered = bool(coverage.get("covered"))

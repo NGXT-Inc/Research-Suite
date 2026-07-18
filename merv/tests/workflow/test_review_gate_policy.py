@@ -19,7 +19,7 @@ def _review_roles_from_gate_tables() -> dict[tuple[str, str], str]:
             rows[("experiment", status)] = forward.review.role
     for status, forward in REFLECTION_GATE_TABLE.items():
         if forward.review is not None:
-            rows[("synthesis", status)] = forward.review.role
+            rows[("reflection", status)] = forward.review.role
     return rows
 
 
@@ -30,7 +30,7 @@ class ReviewGatePolicyTest(unittest.TestCase):
             {
                 ("experiment", "design_review"): "design_reviewer",
                 ("experiment", "experiment_review"): "experiment_reviewer",
-                ("synthesis", "synthesis_review"): "reflection_reviewer",
+                ("reflection", "reflection_review"): "reflection_reviewer",
             },
         )
 

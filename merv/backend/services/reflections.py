@@ -103,7 +103,7 @@ class ReflectionService:
                     "starting a new one — the project graph is one living "
                     "artifact and only one wave may edit it at a time"
                 )
-            synthesis_id = new_id(prefix="syn")
+            reflection_id = new_id(prefix="syn")
             now = now_iso()
             corpus = self._corpus_snapshot(conn=conn, project_id=project_id)
             conn.execute(
@@ -114,7 +114,7 @@ class ReflectionService:
                 VALUES (?, ?, ?, 'reflecting', 1, '', ?, ?, ?, ?, ?)
                 """,
                 (
-                    synthesis_id,
+                    reflection_id,
                     project_id,
                     title.strip(),
                     json.dumps(roster, sort_keys=True),
@@ -127,16 +127,16 @@ class ReflectionService:
             self.store.record_event(
                 conn=conn,
                 project_id=project_id,
-                event_type="synthesis.created",
-                target_type="synthesis",
-                target_id=synthesis_id,
+                event_type="reflection.created",
+                target_type="reflection",
+                target_id=reflection_id,
                 payload={
                     "title": title.strip(),
                     "lenses": [lens["id"] for lens in roster],
                     "corpus_terminal_experiments": len(corpus["terminal_experiments"]),
                 },
             )
-            return self.get_state(synthesis_id=synthesis_id, conn=conn)
+            return self.get_state(reflection_id=reflection_id, conn=conn)
 
     def _corpus_snapshot(self, *, conn, project_id: str) -> dict[str, Any]:
         terminal = ", ".join(f"'{s}'" for s in sorted(EXPERIMENT_TERMINAL_STATUSES))
@@ -187,7 +187,7 @@ class ReflectionService:
     # ---- read ----
 
     def get_state(
-        self, *, synthesis_id: str, project_id: str | None = None, conn=None
+        self, *, reflection_id: str, project_id: str | None = None, conn=None
     ) -> dict[str, Any]:
         owns_conn = conn is None
         if conn is None:
@@ -196,14 +196,14 @@ class ReflectionService:
             if owns_conn:
                 project_id = self.store.require_project_id(conn=conn, project_id=project_id)
             row = conn.execute(
-                "SELECT * FROM reflections WHERE id = ?", (synthesis_id,)
+                "SELECT * FROM reflections WHERE id = ?", (reflection_id,)
             ).fetchone()
             if row is None:
-                raise NotFoundError(f"synthesis not found: {synthesis_id}")
+                raise NotFoundError(f"reflection not found: {reflection_id}")
             data = row_to_dict(row=row) or {}
             if project_id is not None and data["project_id"] != project_id:
                 raise NotFoundError(
-                    f"synthesis not found in project {project_id}: {synthesis_id}"
+                    f"reflection not found in project {project_id}: {reflection_id}"
                 )
             data["roster"] = json.loads(str(data.pop("roster_json", "[]")))
             data["corpus"] = json.loads(str(data.pop("corpus_json", "{}")))
@@ -213,10 +213,10 @@ class ReflectionService:
                        a.version_id AS association_version_id, a.created_seq AS association_rowid
                 FROM resources r
                 JOIN resource_associations a ON a.resource_id = r.id
-                WHERE a.target_type = 'synthesis' AND a.target_id = ?
+                WHERE a.target_type = 'reflection' AND a.target_id = ?
                 ORDER BY a.attempt_index, a.role, r.path
                 """,
-                (synthesis_id,),
+                (reflection_id,),
             ).fetchall()
             data["resources"] = rows_to_dicts(rows=resource_rows)
             data["current_attempt_resources"] = [
@@ -226,26 +226,26 @@ class ReflectionService:
             ]
             claim_rows = conn.execute(
                 """
-                SELECT sc.synthesis_id, sc.claim_id, sc.op, sc.claim_key,
+                SELECT sc.reflection_id, sc.claim_id, sc.op, sc.claim_key,
                        sc.created_at, c.statement, c.status, c.confidence
-                FROM synthesis_claim_changes sc
+                FROM reflection_claim_changes sc
                 JOIN claims c ON c.id = sc.claim_id
-                WHERE sc.synthesis_id = ?
+                WHERE sc.reflection_id = ?
                 ORDER BY sc.created_at, sc.claim_id
                 """,
-                (synthesis_id,),
+                (reflection_id,),
             ).fetchall()
             data["materialized_claims"] = rows_to_dicts(rows=claim_rows)
             experiment_rows = conn.execute(
                 """
-                SELECT se.synthesis_id, se.experiment_id, se.proposal_key,
+                SELECT se.reflection_id, se.experiment_id, se.proposal_key,
                        se.created_at, e.name, e.intent, e.status
-                FROM synthesis_experiments se
+                FROM reflection_experiments se
                 JOIN experiments e ON e.id = se.experiment_id
-                WHERE se.synthesis_id = ?
+                WHERE se.reflection_id = ?
                 ORDER BY se.created_at, se.experiment_id
                 """,
-                (synthesis_id,),
+                (reflection_id,),
             ).fetchall()
             data["materialized_experiments"] = rows_to_dicts(rows=experiment_rows)
             if data.get("status") == "published" and data["materialized_experiments"]:
@@ -255,21 +255,21 @@ class ReflectionService:
             review_rows = conn.execute(
                 """
                 SELECT * FROM reviews
-                WHERE target_type = 'synthesis' AND target_id = ?
+                WHERE target_type = 'reflection' AND target_id = ?
                 ORDER BY created_seq DESC
                 """,
-                (synthesis_id,),
+                (reflection_id,),
             ).fetchall()
             reviews = rows_to_dicts(rows=review_rows)
             for review in reviews:
                 review["findings"] = json.loads(review.pop("findings_json", "[]"))
                 review["evidence"] = json.loads(review.pop("evidence_json", "{}"))
             data["reviews"] = reviews
-            data["reflection_coverage"] = self._reflection_coverage(synthesis=data)
+            data["reflection_coverage"] = self._reflection_coverage(reflection=data)
             data["project_graph_diff"] = self._project_graph_diff(
-                conn=conn, synthesis=data
+                conn=conn, reflection=data
             )
-            data["gate_checklist"] = self._gate_checklist(conn=conn, synthesis=data)
+            data["gate_checklist"] = self._gate_checklist(conn=conn, reflection=data)
             data["allowed_transitions"] = allowed_reflection_transitions_for(
                 str(data.get("status", ""))
             )
@@ -288,8 +288,8 @@ class ReflectionService:
                 (project_id,),
             ).fetchall()
             return {
-                "syntheses": [
-                    self.get_state(synthesis_id=row["id"], conn=conn) for row in rows
+                "reflections": [
+                    self.get_state(reflection_id=row["id"], conn=conn) for row in rows
                 ]
             }
         finally:
@@ -304,16 +304,16 @@ class ReflectionService:
                 "SELECT id FROM reflections WHERE project_id = ? ORDER BY created_at, id",
                 (project_id,),
             ).fetchall()
-            syntheses = [
-                self.get_state(synthesis_id=row["id"], conn=conn) for row in rows
+            reflections = [
+                self.get_state(reflection_id=row["id"], conn=conn) for row in rows
             ]
             signal = self.reflection_signal(project_id=project_id, conn=conn)
             open_wave = self.open_reflection(conn=conn, project_id=project_id)
             published = self.latest_published(conn=conn, project_id=project_id)
             return {
-                "syntheses": syntheses,
+                "reflections": reflections,
                 "current": open_wave or published,
-                "open_synthesis": open_wave,
+                "open_reflection": open_wave,
                 "latest_published": published,
                 "signal": signal,
             }
@@ -323,7 +323,7 @@ class ReflectionService:
     def project_logic_graph_selection(self, *, project_id: str) -> dict[str, Any]:
         """Select the current project graph wave and reflection signal.
 
-        The UI prefers the open wave's graph while synthesis is in progress,
+        The UI prefers the open wave's graph while the wave is open,
         falling back to the latest published graph when the open wave has not
         submitted one yet. The transport layer owns response shaping; this
         service owns the record reads and selection policy.
@@ -332,17 +332,17 @@ class ReflectionService:
         try:
             project_id = self.store.require_project_id(conn=conn, project_id=project_id)
             signal = self.reflection_signal(project_id=project_id, conn=conn)
-            synthesis = self.open_reflection(conn=conn, project_id=project_id)
-            graph_resource = self._project_graph_resource(synthesis=synthesis)
-            if synthesis is None or graph_resource is None:
+            reflection = self.open_reflection(conn=conn, project_id=project_id)
+            graph_resource = self._project_graph_resource(reflection=reflection)
+            if reflection is None or graph_resource is None:
                 published = self.latest_published(conn=conn, project_id=project_id)
-                published_graph = self._project_graph_resource(synthesis=published)
+                published_graph = self._project_graph_resource(reflection=published)
                 if published is not None and published_graph is not None:
-                    synthesis = published
+                    reflection = published
                     graph_resource = published_graph
             return {
                 "signal": signal,
-                "synthesis": synthesis,
+                "reflection": reflection,
                 "graph_resource": graph_resource,
             }
         finally:
@@ -360,10 +360,7 @@ class ReflectionService:
         ).fetchone()
         if row is None:
             return None
-        return self.get_state(synthesis_id=row["id"], conn=conn)
-
-    def open_synthesis(self, *, conn, project_id: str) -> dict[str, Any] | None:
-        return self.open_reflection(conn=conn, project_id=project_id)
+        return self.get_state(reflection_id=row["id"], conn=conn)
 
     def latest_published(self, *, conn, project_id: str) -> dict[str, Any] | None:
         row = conn.execute(
@@ -376,39 +373,39 @@ class ReflectionService:
         ).fetchone()
         if row is None:
             return None
-        return self.get_state(synthesis_id=row["id"], conn=conn)
+        return self.get_state(reflection_id=row["id"], conn=conn)
 
     @staticmethod
     def _project_graph_resource(
-        *, synthesis: dict[str, Any] | None
+        *, reflection: dict[str, Any] | None
     ) -> dict[str, Any] | None:
-        if synthesis is None:
+        if reflection is None:
             return None
         return preferred_associated_resource(
-            resources=synthesis.get("resources", []),
-            attempt=synthesis.get("attempt_index"),
+            resources=reflection.get("resources", []),
+            attempt=reflection.get("attempt_index"),
             roles=PROJECT_GRAPH_ROLES,
         )
 
-    def _project_graph_diff(self, *, conn, synthesis: dict[str, Any]) -> dict[str, Any]:
-        current_resource = self._project_graph_resource(synthesis=synthesis)
+    def _project_graph_diff(self, *, conn, reflection: dict[str, Any]) -> dict[str, Any]:
+        current_resource = self._project_graph_resource(reflection=reflection)
         current_version_id = str(
             (
-                synthesis.get("published_graph_version_id")
-                if synthesis.get("status") == "published"
+                reflection.get("published_graph_version_id")
+                if reflection.get("status") == "published"
                 else None
             )
             or (current_resource or {}).get("association_version_id")
             or ""
         )
-        base = self._previous_published_graph_ref(conn=conn, synthesis=synthesis)
+        base = self._previous_published_graph_ref(conn=conn, reflection=reflection)
         result: dict[str, Any] = {
             "available": False,
             "reason": "",
             "summary": "",
             "base_reflection_id": base.get("reflection_id") if base else None,
             "base_graph_version_id": base.get("graph_version_id") if base else None,
-            "current_reflection_id": synthesis.get("id"),
+            "current_reflection_id": reflection.get("id"),
             "current_graph_version_id": current_version_id or None,
             "problems": [],
         }
@@ -460,11 +457,11 @@ class ReflectionService:
         return result
 
     def _previous_published_graph_ref(
-        self, *, conn, synthesis: dict[str, Any]
+        self, *, conn, reflection: dict[str, Any]
     ) -> dict[str, Any] | None:
-        project_id = str(synthesis.get("project_id") or "")
-        status = str(synthesis.get("status") or "")
-        current_id = str(synthesis.get("id") or "")
+        project_id = str(reflection.get("project_id") or "")
+        status = str(reflection.get("status") or "")
+        current_id = str(reflection.get("id") or "")
         params: tuple[Any, ...]
         if status == "published":
             query = """
@@ -475,7 +472,7 @@ class ReflectionService:
                 ORDER BY published_at DESC, created_seq DESC
                 LIMIT 1
                 """
-            params = (project_id, current_id, int(synthesis.get("created_seq") or 0))
+            params = (project_id, current_id, int(reflection.get("created_seq") or 0))
         else:
             query = """
                 SELECT id, published_graph_version_id
@@ -513,24 +510,24 @@ class ReflectionService:
         data = json.loads(text)
         return data, []
 
-    def _reflection_coverage(self, *, synthesis: dict[str, Any]) -> dict[str, Any]:
+    def _reflection_coverage(self, *, reflection: dict[str, Any]) -> dict[str, Any]:
         """Which roster lenses have a current-attempt reflection associated.
 
         A reflection covers lens L when its file is named ``<L>.md`` (any
         directory) — the dumb, predictable convention each fan-out subagent is
         told to follow.
         """
-        return reflection_coverage_for(synthesis=synthesis)
+        return reflection_coverage_for(reflection=reflection)
 
-    def _gate_checklist(self, *, conn, synthesis: dict[str, Any]) -> dict[str, Any]:
+    def _gate_checklist(self, *, conn, reflection: dict[str, Any]) -> dict[str, Any]:
         """Current reflection-wave gate as machine-readable checklist data.
 
         This is the reflection counterpart of experiment state gate_checklist:
-        it derives from the declarative synthesis gate table, reports exactly
+        it derives from the declarative reflection gate table, reports exactly
         which lens/artifact/review items are missing or invalid, and uses the
         same pinned-byte validators that transitions use.
         """
-        status = str(synthesis.get("status") or "")
+        status = str(reflection.get("status") or "")
         forward = REFLECTION_GATE_TABLE.get(status)
         if forward is None:
             return {
@@ -542,12 +539,12 @@ class ReflectionService:
             }
 
         if status == "reflecting":
-            items = reflection_lens_checklist_items(synthesis=synthesis)
+            items = reflection_lens_checklist_items(reflection=reflection)
         else:
             items = []
             for requirement in forward.requirements:
                 resource = current_reflection_requirement_resource(
-                    synthesis=synthesis, role=requirement.role
+                    reflection=reflection, role=requirement.role
                 )
                 present = resource is not None
                 problems: list[str] = []
@@ -555,7 +552,7 @@ class ReflectionService:
                 if present and requirement.validator:
                     try:
                         self._run_validator(
-                            conn=conn, synthesis=synthesis, name=requirement.validator
+                            conn=conn, reflection=reflection, name=requirement.validator
                         )
                     except WorkflowError as exc:
                         problems = [str(exc)]
@@ -586,19 +583,19 @@ class ReflectionService:
 
         if forward.review is not None:
             review = forward.review
-            snapshot_id = review_snapshot_id(target_type="synthesis", target=synthesis)
+            snapshot_id = review_snapshot_id(target_type="reflection", target=reflection)
             gate_state = review_gate_state(
                 conn=conn,
-                project_id=str(synthesis["project_id"]),
-                target_type="synthesis",
-                target_id=str(synthesis["id"]),
+                project_id=str(reflection["project_id"]),
+                target_type="reflection",
+                target_id=str(reflection["id"]),
                 role=review.role,
                 snapshot_id=snapshot_id,
             )
             passed = gate_state["satisfied"]
             request = self._latest_review_request(
                 conn=conn,
-                synthesis_id=str(synthesis["id"]),
+                reflection_id=str(reflection["id"]),
                 role=review.role,
                 target_snapshot_id=snapshot_id,
             )
@@ -639,7 +636,7 @@ class ReflectionService:
         self,
         *,
         conn,
-        synthesis_id: str,
+        reflection_id: str,
         role: str,
         target_snapshot_id: str,
     ) -> dict[str, Any] | None:
@@ -647,12 +644,12 @@ class ReflectionService:
             """
             SELECT id, status, expires_at
             FROM review_requests
-            WHERE target_type = 'synthesis' AND target_id = ? AND role = ?
+            WHERE target_type = 'reflection' AND target_id = ? AND role = ?
               AND target_snapshot_id = ?
             ORDER BY created_seq DESC
             LIMIT 1
             """,
-            (synthesis_id, role, target_snapshot_id),
+            (reflection_id, role, target_snapshot_id),
         ).fetchone()
         return row_to_dict(row=row)
 
@@ -668,22 +665,22 @@ class ReflectionService:
     def transition(
         self,
         *,
-        synthesis_id: str,
+        reflection_id: str,
         transition: str,
         project_id: str | None = None,
     ) -> dict[str, Any]:
         with self.store.transaction() as conn:
             project_id = self.store.require_project_id(conn=conn, project_id=project_id)
-            synthesis = self.get_state(
-                synthesis_id=synthesis_id, project_id=project_id, conn=conn
+            reflection = self.get_state(
+                reflection_id=reflection_id, project_id=project_id, conn=conn
             )
-            status = synthesis["status"]
+            status = reflection["status"]
             next_status = self._next_status(
-                conn=conn, synthesis=synthesis, transition=transition
+                conn=conn, reflection=reflection, transition=transition
             )
             now = now_iso()
             if transition == "publish":
-                self._materialize_change_spec(conn=conn, synthesis=synthesis)
+                self._materialize_change_spec(conn=conn, reflection=reflection)
                 conn.execute(
                     """
                     UPDATE reflections
@@ -694,28 +691,28 @@ class ReflectionService:
                     (
                         next_status,
                         now,
-                        self._current_graph_version_id(conn=conn, synthesis=synthesis),
+                        self._current_graph_version_id(conn=conn, reflection=reflection),
                         now,
-                        synthesis_id,
+                        reflection_id,
                     ),
                 )
             else:
                 conn.execute(
                     "UPDATE reflections SET status = ?, updated_at = ? WHERE id = ?",
-                    (next_status, now, synthesis_id),
+                    (next_status, now, reflection_id),
                 )
             self.store.record_event(
                 conn=conn,
-                project_id=synthesis["project_id"],
-                event_type="synthesis.transitioned",
-                target_type="synthesis",
-                target_id=synthesis_id,
+                project_id=reflection["project_id"],
+                event_type="reflection.transitioned",
+                target_type="reflection",
+                target_id=reflection_id,
                 payload={"from": status, "to": next_status, "transition": transition},
             )
-            return self.get_state(synthesis_id=synthesis_id, conn=conn)
+            return self.get_state(reflection_id=reflection_id, conn=conn)
 
-    def _next_status(self, *, conn, synthesis: dict[str, Any], transition: str) -> str:
-        status = str(synthesis["status"])
+    def _next_status(self, *, conn, reflection: dict[str, Any], transition: str) -> str:
+        status = str(reflection["status"])
         forward = REFLECTION_GATE_TABLE.get(status)
         requirement_states: list[RequirementState] = []
         review_state: ReviewState | None = None
@@ -723,12 +720,12 @@ class ReflectionService:
             for requirement in forward.requirements:
                 validation_error = ""
                 present = self._has_resource_role(
-                    conn=conn, synthesis_id=synthesis["id"], role=requirement.role
+                    conn=conn, reflection_id=reflection["id"], role=requirement.role
                 )
                 if present and requirement.validator:
                     try:
                         self._run_validator(
-                            conn=conn, synthesis=synthesis, name=requirement.validator
+                            conn=conn, reflection=reflection, name=requirement.validator
                         )
                     except WorkflowError as exc:
                         validation_error = str(exc)
@@ -742,7 +739,7 @@ class ReflectionService:
                 )
             if forward.review is not None:
                 gate_state = self._review_gate_state(
-                    conn=conn, synthesis_id=synthesis["id"], role=forward.review.role
+                    conn=conn, reflection_id=reflection["id"], role=forward.review.role
                 )
                 review_state = ReviewState(
                     satisfied=bool(gate_state["satisfied"]),
@@ -761,37 +758,37 @@ class ReflectionService:
             allowed_transitions=allowed_reflection_transitions_for(status),
         )
 
-    def _has_resource_role(self, *, conn, synthesis_id: str, role: str) -> bool:
+    def _has_resource_role(self, *, conn, reflection_id: str, role: str) -> bool:
         roles = reflection_requirement_roles(role=role)
         placeholders = ",".join("?" * len(roles))
         row = conn.execute(
             f"""
             SELECT 1
             FROM resource_associations
-            WHERE target_type = 'synthesis' AND target_id = ? AND role IN ({placeholders})
+            WHERE target_type = 'reflection' AND target_id = ? AND role IN ({placeholders})
               AND attempt_index = (SELECT attempt_index FROM reflections WHERE id = ?)
             LIMIT 1
             """,
-            (synthesis_id, *roles, synthesis_id),
+            (reflection_id, *roles, reflection_id),
         ).fetchone()
         return row is not None
 
-    def _run_validator(self, *, conn, synthesis: dict[str, Any], name: str) -> None:
+    def _run_validator(self, *, conn, reflection: dict[str, Any], name: str) -> None:
         if name == "roster":
-            self._validate_roster_coverage(conn=conn, synthesis=synthesis)
+            self._validate_roster_coverage(conn=conn, reflection=reflection)
         elif name == "graph":
-            self._validate_project_graph(conn=conn, synthesis=synthesis)
+            self._validate_project_graph(conn=conn, reflection=reflection)
         elif name in {"reflection_doc", "synthesis_doc"}:
-            self._validate_reflection_doc(conn=conn, synthesis=synthesis)
+            self._validate_reflection_doc(conn=conn, reflection=reflection)
         elif name == "change_spec":
-            self._validate_change_spec(conn=conn, synthesis=synthesis)
+            self._validate_change_spec(conn=conn, reflection=reflection)
 
-    def _validate_roster_coverage(self, *, conn, synthesis: dict[str, Any]) -> None:
+    def _validate_roster_coverage(self, *, conn, reflection: dict[str, Any]) -> None:
         """The hard 'all lenses before synthesize' requirement: every declared
         lens needs a current-attempt reflection (file named <lens_id>.md) that
         exists and is non-empty on disk. Which insights each reflection holds
         is the synthesizer's and reviewer's business, not the gate's."""
-        fresh = self.get_state(synthesis_id=synthesis["id"], conn=conn)
+        fresh = self.get_state(reflection_id=reflection["id"], conn=conn)
         coverage = fresh["reflection_coverage"]
         if coverage["missing"]:
             raise WorkflowError(
@@ -815,9 +812,9 @@ class ReflectionService:
                     "empty — write it and re-associate to submit the content"
                 )
 
-    def _validate_project_graph(self, *, conn, synthesis: dict[str, Any]) -> None:
+    def _validate_project_graph(self, *, conn, reflection: dict[str, Any]) -> None:
         row = self._current_role_row_for_roles(
-            conn=conn, synthesis_id=synthesis["id"], roles=PROJECT_GRAPH_ROLES
+            conn=conn, reflection_id=reflection["id"], roles=PROJECT_GRAPH_ROLES
         )
         if row is None:
             raise WorkflowError(
@@ -839,10 +836,10 @@ class ReflectionService:
                 "see skills/research-workflow/graph-template.md."
             )
 
-    def _validate_reflection_doc(self, *, conn, synthesis: dict[str, Any]) -> None:
+    def _validate_reflection_doc(self, *, conn, reflection: dict[str, Any]) -> None:
         row = self._current_role_row_for_roles(
             conn=conn,
-            synthesis_id=synthesis["id"],
+            reflection_id=reflection["id"],
             roles=("reflection_doc", "synthesis_doc"),
         )
         if row is None:
@@ -877,9 +874,9 @@ class ReflectionService:
                 "skills/project-reflection/reflection-artifacts-template.md."
             )
 
-    def _validate_change_spec(self, *, conn, synthesis: dict[str, Any]) -> None:
+    def _validate_change_spec(self, *, conn, reflection: dict[str, Any]) -> None:
         row = self._current_role_row(
-            conn=conn, synthesis_id=synthesis["id"], role="change_spec"
+            conn=conn, reflection_id=reflection["id"], role="change_spec"
         )
         if row is None:
             raise WorkflowError(
@@ -894,14 +891,14 @@ class ReflectionService:
         )
         self._parse_change_spec(
             conn=conn,
-            project_id=str(synthesis["project_id"]),
+            project_id=str(reflection["project_id"]),
             text=text,
             path=str(row["path"]),
         )
 
-    def _current_change_spec(self, *, conn, synthesis: dict[str, Any]) -> dict[str, Any]:
+    def _current_change_spec(self, *, conn, reflection: dict[str, Any]) -> dict[str, Any]:
         row = self._current_role_row(
-            conn=conn, synthesis_id=synthesis["id"], role="change_spec"
+            conn=conn, reflection_id=reflection["id"], role="change_spec"
         )
         if row is None:
             raise WorkflowError(
@@ -916,7 +913,7 @@ class ReflectionService:
         )
         return self._parse_change_spec(
             conn=conn,
-            project_id=str(synthesis["project_id"]),
+            project_id=str(reflection["project_id"]),
             text=text,
             path=str(row["path"]),
         )
@@ -964,26 +961,26 @@ class ReflectionService:
         ).fetchall()
         return [str(row["name"] or row["id"]) for row in rows]
 
-    def _materialize_change_spec(self, *, conn, synthesis: dict[str, Any]) -> None:
+    def _materialize_change_spec(self, *, conn, reflection: dict[str, Any]) -> None:
         """Apply the reviewer-approved belief-state update.
 
         This is called only from the publish transition after the review gate
-        passes. Rejected syntheses never reach this function, so speculative
+        passes. Rejected reflections never reach this function, so speculative
         claim edits or experiment specs do not leak into project state.
         """
-        project_id = str(synthesis["project_id"])
-        synthesis_id = str(synthesis["id"])
-        spec = self._current_change_spec(conn=conn, synthesis=synthesis)
+        project_id = str(reflection["project_id"])
+        reflection_id = str(reflection["id"])
+        spec = self._current_change_spec(conn=conn, reflection=reflection)
         key_to_claim_id = self._materialize_claim_changes(
             conn=conn,
             project_id=project_id,
-            synthesis_id=synthesis_id,
+            reflection_id=reflection_id,
             changes=spec.get("claim_changes") or [],
         )
         self._materialize_experiment_wave(
             conn=conn,
             project_id=project_id,
-            synthesis_id=synthesis_id,
+            reflection_id=reflection_id,
             key_to_claim_id=key_to_claim_id,
             experiments=spec["decision"].get("experiments") or [],
         )
@@ -993,7 +990,7 @@ class ReflectionService:
         *,
         conn,
         project_id: str,
-        synthesis_id: str,
+        reflection_id: str,
         changes: list[dict[str, Any]],
     ) -> dict[str, str]:
         key_to_claim_id: dict[str, str] = {}
@@ -1001,10 +998,10 @@ class ReflectionService:
             op = str(change["op"])
             key = str(change.get("key") or "").strip()
             if op == "create":
-                claim_id = self.claims.create_from_synthesis(
+                claim_id = self.claims.create_from_reflection(
                     conn=conn,
                     project_id=project_id,
-                    synthesis_id=synthesis_id,
+                    reflection_id=reflection_id,
                     statement=str(change.get("statement") or ""),
                     scope=str(change.get("scope") or ""),
                     status=str(change.get("status") or "active"),
@@ -1015,10 +1012,10 @@ class ReflectionService:
                     key_to_claim_id[key] = claim_id
             else:
                 claim_id = str(change["claim_id"]).strip()
-                self.claims.update_from_synthesis(
+                self.claims.update_from_reflection(
                     conn=conn,
                     project_id=project_id,
-                    synthesis_id=synthesis_id,
+                    reflection_id=reflection_id,
                     claim_id=claim_id,
                     statement=(
                         str(change["statement"]) if "statement" in change else None
@@ -1038,11 +1035,11 @@ class ReflectionService:
                 )
             conn.execute(
                 """
-                INSERT INTO synthesis_claim_changes
-                  (synthesis_id, claim_id, op, claim_key, created_at)
+                INSERT INTO reflection_claim_changes
+                  (reflection_id, claim_id, op, claim_key, created_at)
                 VALUES (?, ?, ?, ?, ?)
                 """,
-                (synthesis_id, claim_id, op, key, now_iso()),
+                (reflection_id, claim_id, op, key, now_iso()),
             )
         return key_to_claim_id
 
@@ -1051,7 +1048,7 @@ class ReflectionService:
         *,
         conn,
         project_id: str,
-        synthesis_id: str,
+        reflection_id: str,
         key_to_claim_id: dict[str, str],
         experiments: list[dict[str, Any]],
     ) -> None:
@@ -1073,10 +1070,10 @@ class ReflectionService:
                 for ref in claim_refs(proposal)
             ]
             proposal_key = str(proposal.get("key") or "").strip()
-            experiment_id = self.experiment_writer.create_from_synthesis(
+            experiment_id = self.experiment_writer.create_from_reflection(
                 conn=conn,
                 project_id=project_id,
-                synthesis_id=synthesis_id,
+                reflection_id=reflection_id,
                 name=name,
                 intent=intent,
                 claim_ids=claim_ids,
@@ -1085,30 +1082,30 @@ class ReflectionService:
             )
             conn.execute(
                 """
-                INSERT INTO synthesis_experiments
-                  (synthesis_id, experiment_id, proposal_key, created_at)
+                INSERT INTO reflection_experiments
+                  (reflection_id, experiment_id, proposal_key, created_at)
                 VALUES (?, ?, ?, ?)
                 """,
-                (synthesis_id, experiment_id, proposal_key, now_iso()),
+                (reflection_id, experiment_id, proposal_key, now_iso()),
             )
 
-    def _current_role_row(self, *, conn, synthesis_id: str, role: str):
+    def _current_role_row(self, *, conn, reflection_id: str, role: str):
         return conn.execute(
             """
             SELECT r.path, a.version_id
             FROM resource_associations a
             JOIN resources r ON r.id = a.resource_id
-            WHERE a.target_type = 'synthesis' AND a.target_id = ? AND a.role = ?
+            WHERE a.target_type = 'reflection' AND a.target_id = ? AND a.role = ?
               AND a.attempt_index = (SELECT attempt_index FROM reflections WHERE id = ?)
               AND r.deleted = 0
             ORDER BY a.created_seq DESC
             LIMIT 1
             """,
-            (synthesis_id, role, synthesis_id),
+            (reflection_id, role, reflection_id),
         ).fetchone()
 
     def _current_role_row_for_roles(
-        self, *, conn, synthesis_id: str, roles: tuple[str, ...]
+        self, *, conn, reflection_id: str, roles: tuple[str, ...]
     ):
         placeholders = ",".join("?" * len(roles))
         order_cases = " ".join(
@@ -1119,7 +1116,7 @@ class ReflectionService:
             SELECT r.path, a.role, a.version_id
             FROM resource_associations a
             JOIN resources r ON r.id = a.resource_id
-            WHERE a.target_type = 'synthesis' AND a.target_id = ?
+            WHERE a.target_type = 'reflection' AND a.target_id = ?
               AND a.role IN ({placeholders})
               AND a.attempt_index = (SELECT attempt_index FROM reflections WHERE id = ?)
               AND r.deleted = 0
@@ -1127,12 +1124,12 @@ class ReflectionService:
                      a.created_seq DESC
             LIMIT 1
             """,
-            (synthesis_id, *roles, synthesis_id, *roles),
+            (reflection_id, *roles, reflection_id, *roles),
         ).fetchone()
 
-    def _current_graph_version_id(self, *, conn, synthesis: dict[str, Any]) -> str | None:
+    def _current_graph_version_id(self, *, conn, reflection: dict[str, Any]) -> str | None:
         row = self._current_role_row_for_roles(
-            conn=conn, synthesis_id=synthesis["id"], roles=PROJECT_GRAPH_ROLES
+            conn=conn, reflection_id=reflection["id"], roles=PROJECT_GRAPH_ROLES
         )
         return str(row["version_id"]) if row and row["version_id"] else None
 
@@ -1156,32 +1153,32 @@ class ReflectionService:
             role=role,
         )
 
-    def _review_gate_state(self, *, conn, synthesis_id: str, role: str) -> dict[str, Any]:
+    def _review_gate_state(self, *, conn, reflection_id: str, role: str) -> dict[str, Any]:
         row = conn.execute(
-            "SELECT project_id FROM reflections WHERE id = ?", (synthesis_id,)
+            "SELECT project_id FROM reflections WHERE id = ?", (reflection_id,)
         ).fetchone()
         return review_gate_state(
             conn=conn,
             project_id=str(row["project_id"]) if row else "",
-            target_type="synthesis",
-            target_id=synthesis_id,
+            target_type="reflection",
+            target_id=reflection_id,
             role=role,
-            snapshot_id=self._target_snapshot_id(conn=conn, synthesis_id=synthesis_id),
+            snapshot_id=self._target_snapshot_id(conn=conn, reflection_id=reflection_id),
         )
 
-    def target_snapshot_id(self, *, conn, synthesis_id: str) -> str:
-        return self._target_snapshot_id(conn=conn, synthesis_id=synthesis_id)
+    def target_snapshot_id(self, *, conn, reflection_id: str) -> str:
+        return self._target_snapshot_id(conn=conn, reflection_id=reflection_id)
 
-    def _target_snapshot_id(self, *, conn, synthesis_id: str) -> str:
-        synthesis = self.get_state(synthesis_id=synthesis_id, conn=conn)
-        return review_snapshot_id(target_type="synthesis", target=synthesis)
+    def _target_snapshot_id(self, *, conn, reflection_id: str) -> str:
+        reflection = self.get_state(reflection_id=reflection_id, conn=conn)
+        return review_snapshot_id(target_type="reflection", target=reflection)
 
     # ---- review return routing ----
 
-    def send_back_to_reflecting(self, *, conn, synthesis_id: str, revision_context: str) -> None:
+    def send_back_to_reflecting(self, *, conn, reflection_id: str, revision_context: str) -> None:
         """Rejection back to the fan-out: the attempt bumps, so every roster
         lens must submit a fresh reflection before synthesizing again."""
-        row = self._require_in_review(conn=conn, synthesis_id=synthesis_id)
+        row = self._require_in_review(conn=conn, reflection_id=reflection_id)
         conn.execute(
             """
             UPDATE reflections
@@ -1189,42 +1186,42 @@ class ReflectionService:
                 revision_context = ?, updated_at = ?
             WHERE id = ?
             """,
-            (revision_context, now_iso(), synthesis_id),
+            (revision_context, now_iso(), reflection_id),
         )
         self.store.record_event(
             conn=conn,
             project_id=row["project_id"],
-            event_type="synthesis.returned_to_reflecting",
-            target_type="synthesis",
-            target_id=synthesis_id,
+            event_type="reflection.returned_to_reflecting",
+            target_type="reflection",
+            target_id=reflection_id,
             payload={"revision_context": revision_context},
         )
 
-    def send_back_to_synthesizing(self, *, conn, synthesis_id: str, revision_context: str) -> None:
+    def send_back_to_synthesizing(self, *, conn, reflection_id: str, revision_context: str) -> None:
         """Rejection back to reflection-artifact revision only: the reflections stand, so the
         attempt is NOT bumped — the orchestrator revises the project graph
         reflection document, and/or change spec and resubmits."""
-        row = self._require_in_review(conn=conn, synthesis_id=synthesis_id)
+        row = self._require_in_review(conn=conn, reflection_id=reflection_id)
         conn.execute(
             "UPDATE reflections SET status = 'synthesizing', revision_context = ?, updated_at = ? WHERE id = ?",
-            (revision_context, now_iso(), synthesis_id),
+            (revision_context, now_iso(), reflection_id),
         )
         self.store.record_event(
             conn=conn,
             project_id=row["project_id"],
-            event_type="synthesis.returned_to_synthesizing",
-            target_type="synthesis",
-            target_id=synthesis_id,
+            event_type="reflection.returned_to_synthesizing",
+            target_type="reflection",
+            target_id=reflection_id,
             payload={"revision_context": revision_context},
         )
 
-    def _require_in_review(self, *, conn, synthesis_id: str):
+    def _require_in_review(self, *, conn, reflection_id: str):
         row = conn.execute(
-            "SELECT * FROM reflections WHERE id = ?", (synthesis_id,)
+            "SELECT * FROM reflections WHERE id = ?", (reflection_id,)
         ).fetchone()
         if row is None:
-            raise NotFoundError(f"synthesis not found: {synthesis_id}")
-        if row["status"] != "synthesis_review":
+            raise NotFoundError(f"reflection not found: {reflection_id}")
+        if row["status"] != "reflection_review":
             raise WorkflowError(
                 f"reflection wave is {row['status']!r}; only a wave under "
                 "reflection review can be sent back"
