@@ -136,7 +136,10 @@ class BrainCompositionLayoutTest(unittest.TestCase):
         legacy = self.root / ".research_plugin"
         legacy.mkdir()
         (legacy / "state.sqlite").write_bytes(b"")  # empty file = empty sqlite db
-        self._build()
+        # Legacy DIRECTORY state must never trigger the env deprecation
+        # warning — only legacy env-var *input* does.
+        with self.assertNoLogs("backend.env", level="WARNING"):
+            self._build()
         # The legacy store was opened (migrations populate it) and no
         # de-nested twin ever appears: identical behavior to pre-v0.0014.
         self.assertGreater((legacy / "state.sqlite").stat().st_size, 0)
