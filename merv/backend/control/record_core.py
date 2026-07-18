@@ -35,7 +35,6 @@ class RecordCore:
     graph_refs: GraphRefResolver
     reflection_waves: ReflectionService
     reflection_tools: ReflectionToolService
-    reflections: ReflectionToolService
     project_overview: ProjectOverviewService
     reviews: ReviewService
     feed: FeedService
@@ -93,7 +92,6 @@ def build_record_core(*, store: BaseStateStore, blobs: BlobStore) -> RecordCore:
         graph_refs=graph_refs,
         reflection_waves=reflection_waves,
         reflection_tools=reflection_tools,
-        reflections=reflection_tools,
         project_overview=project_overview,
         reviews=reviews,
         feed=feed,

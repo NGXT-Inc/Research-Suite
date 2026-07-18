@@ -71,7 +71,6 @@ class ControlApp:
         self.graph_refs = self.record_core.graph_refs
         self.reflection_waves = self.record_core.reflection_waves
         self.reflection_tools = self.record_core.reflection_tools
-        self.reflections = self.reflection_tools
         self.project_overview = self.record_core.project_overview
         self.reviews = self.record_core.reviews
         self.feed = self.record_core.feed
@@ -112,7 +111,7 @@ class ControlApp:
                 project_overview=self.project_overview,
                 claims=self.claims,
                 experiments=self.experiments,
-                reflections=self.reflections,
+                reflection_tools=self.reflection_tools,
                 resources=self.resources,
                 storage=self.storage,
                 reviews=self.reviews,

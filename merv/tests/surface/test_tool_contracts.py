@@ -62,7 +62,7 @@ def _handler_targets() -> dict[str, _HandlerTarget]:
         "project_overview": target,
         "claims": target,
         "experiments": target,
-        "reflections": target,
+        "reflection_tools": target,
         "resources": target,
         "storage": target,
         "reviews": target,
