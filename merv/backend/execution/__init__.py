@@ -71,6 +71,10 @@ def _build_named_backend(
         from .backends.lambda_labs import build_lambda_labs_sandbox_backend
 
         return build_lambda_labs_sandbox_backend(repo_root=repo_root)
+    if name == "hyperstack":
+        from .backends.hyperstack import build_hyperstack_sandbox_backend
+
+        return build_hyperstack_sandbox_backend(repo_root=repo_root)
     raise BackendUnavailableError(f"unknown execution backend: {name}")
 
 

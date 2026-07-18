@@ -137,6 +137,69 @@ RP_SSHD
 {sshd_apply_command}
 """
 
+def build_standard_user_data(
+    *,
+    public_key: str,
+    experiment_id: str,
+    workdir: str,
+    sessions_dir: str,
+    sandbox_data_dir: str,
+    management_public_key: str = "",
+    apt_packages: tuple[str, ...] = (),
+    python_packages: tuple[str, ...] = (),
+) -> str:
+    """Full two-phase user_data script for stock-Ubuntu VM providers.
+
+    Phase 1 (bootstrap core) makes the VM reachable and recorded fast; phase 2
+    installs the heavy toolchain the agents expect. Mirrors the Lambda Labs
+    script; providers whose images pre-bundle ML tooling lose nothing — every
+    phase-2 step is idempotent and tolerant of already-installed packages.
+    """
+    apt = " ".join(shlex.quote(pkg) for pkg in apt_packages)
+    python = " ".join(shlex.quote(pkg) for pkg in python_packages)
+    # mlflow gets --ignore-installed for images that ship Debian-owned Python
+    # packages without RECORD files (pip cannot uninstall those).
+    mlflow_package = shlex.quote("mlflow==2.18.0")
+    bootstrap_core = build_bootstrap_core(
+        public_key=public_key,
+        experiment_id=experiment_id,
+        workdir=workdir,
+        sessions_dir=sessions_dir,
+        sandbox_data_dir=sandbox_data_dir,
+        management_public_key=management_public_key,
+    )
+    return f"""#!/usr/bin/env bash
+set -euxo pipefail
+export DEBIAN_FRONTEND=noninteractive
+
+{bootstrap_core}
+# === Phase 2: heavy toolchain install (the VM is already usable by here) ===
+apt-get update
+apt-get install -y --no-install-recommends {apt}
+ln -sf /usr/bin/fdfind /usr/local/bin/fd || true
+python3 -m pip install --break-system-packages --upgrade pip uv || python3 -m pip install --user --upgrade pip uv || true
+if [ -x /root/.local/bin/uv ]; then
+  install -m 0755 /root/.local/bin/uv /usr/local/bin/uv
+fi
+if ! command -v uv >/dev/null 2>&1; then
+  curl -LsSf https://astral.sh/uv/install.sh | sh || true
+  if [ -x /root/.local/bin/uv ]; then
+    install -m 0755 /root/.local/bin/uv /usr/local/bin/uv
+  fi
+fi
+install_with_uv_or_pip() {{
+  if command -v uv >/dev/null 2>&1; then
+    uv pip install --system "$@" || python3 -m pip install --break-system-packages "$@"
+  else
+    python3 -m pip install --break-system-packages "$@"
+  fi
+}}
+python3 -c 'import mlflow' >/dev/null 2>&1 || python3 -m pip install --break-system-packages --ignore-installed {mlflow_package} || echo "[rp] mlflow install failed" >> /opt/rp/bootstrap.log
+install_with_uv_or_pip torch torchvision torchaudio || true
+install_with_uv_or_pip {python} || true
+"""
+
+
 def build_runtime_env(
     *,
     experiment_id: str,
