@@ -2,7 +2,9 @@
 
 The service layer consumes the neutral ``MgmtKeyStore`` port; this module is
 the local filesystem implementation used by local-mode composition. Keys live
-under ``.research_plugin/mgmt_keys/<sandbox_uid>/`` in local mode. A cloud
+under ``mgmt_keys/<sandbox_uid>/`` in the local brain state root (de-nested
+``~/.merv/brain`` fresh; a legacy nested ``.research_plugin/`` layout keeps
+its paths — see ``composition/brain_dirs``). A cloud
 control plane can provide a different implementation behind the same port
 (see ``managed_mgmt_keys``). Custody adapters are sandbox machinery, so they
 live in the sandbox module beside the backend port's other collaborators.

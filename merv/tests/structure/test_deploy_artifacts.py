@@ -50,6 +50,7 @@ class DeployArtifactsTest(unittest.TestCase):
         # reference compose key-init job needs ssh-keygen.
         self.assertIn("openssh-client", text)
         # The hosted control entrypoint now runs without a checkout/staging dir.
+        self.assertNotIn("MERV_REPO_ROOT", text)
         self.assertNotIn("RESEARCH_PLUGIN_REPO_ROOT", text)
 
     def test_control_entrypoint_exists_in_pyproject(self) -> None:
@@ -74,15 +75,21 @@ class DeployArtifactsTest(unittest.TestCase):
         for service in ("control:", "postgres:", "minio:", "mgmtkey:"):
             self.assertIn(service, text)
         # Control points at the Postgres dialect and the blob bucket (§3.4).
-        self.assertIn("RESEARCH_PLUGIN_DB_URL", text)
+        self.assertIn("MERV_DB_URL", text)
         self.assertIn("postgresql://", text)
-        self.assertIn("RESEARCH_PLUGIN_BLOB_BUCKET", text)
-        self.assertIn("RESEARCH_PLUGIN_MGMT_KEY_PATH", text)
-        self.assertIn("RESEARCH_PLUGIN_REQUIRE_AGENT_MLFLOW", text)
-        self.assertIn("RESEARCH_PLUGIN_REQUIRE_SANDBOX_BACKEND", text)
-        self.assertIn("RESEARCH_PLUGIN_EXECUTION_BACKEND", text)
-        self.assertIn("RESEARCH_PLUGIN_PROVIDER_ENV_FILE", text)
-        self.assertIn("${RESEARCH_PLUGIN_STORAGE_ENDPOINT_URL:-http://minio:9000}", text)
+        self.assertIn("MERV_BLOB_BUCKET", text)
+        self.assertIn("MERV_MGMT_KEY_PATH", text)
+        self.assertIn("MERV_REQUIRE_AGENT_MLFLOW", text)
+        self.assertIn("MERV_REQUIRE_SANDBOX_BACKEND", text)
+        self.assertIn("MERV_EXECUTION_BACKEND", text)
+        self.assertIn("MERV_PROVIDER_ENV_FILE", text)
+        # Host-side substitutions dual-read: a host exporting only the legacy
+        # spelling keeps its value at compose-interpolation level.
+        self.assertIn(
+            "${MERV_STORAGE_ENDPOINT_URL:-"
+            "${RESEARCH_PLUGIN_STORAGE_ENDPOINT_URL:-http://minio:9000}}",
+            text,
+        )
         self.assertIn("${AWS_ENDPOINT_URL_S3:-http://minio:9000}", text)
         self.assertIn("ssh-keygen", text)
         self.assertIn("mgmtkey:/run/secrets/research_plugin_mgmt_key:ro", text)
@@ -93,9 +100,11 @@ class DeployArtifactsTest(unittest.TestCase):
     def test_compose_does_not_override_provider_env_file_with_empty_secrets(self) -> None:
         text = (DEPLOY / "docker-compose.yml").read_text(encoding="utf-8")
         for var in (
+            "MERV_LAMBDA_API_KEY:",
             "RESEARCH_PLUGIN_LAMBDA_API_KEY:",
             "LAMBDA_LABS_API_KEY:",
             "LAMBDA_API_KEY:",
+            "MERV_THUNDER_API_KEY:",
             "RESEARCH_PLUGIN_THUNDER_API_KEY:",
             "THUNDER_COMPUTE_API_KEY:",
             "MODAL_TOKEN_ID:",
@@ -109,18 +118,18 @@ class DeployArtifactsTest(unittest.TestCase):
     def test_env_example_documents_control_matrix(self) -> None:
         text = (DEPLOY / ".env.example").read_text(encoding="utf-8")
         for var in (
-            "RESEARCH_PLUGIN_MODE",
-            "RESEARCH_PLUGIN_DB_URL",
-            "RESEARCH_PLUGIN_BLOB_BUCKET",
-            "RESEARCH_PLUGIN_MGMT_KEY_PATH",
-            "RESEARCH_PLUGIN_MGMT_PUBLIC_KEY",
-            "RESEARCH_PLUGIN_ALLOWED_ORIGINS",
-            "RESEARCH_PLUGIN_MLFLOW_TRACKING_URI",
-            "RESEARCH_PLUGIN_REQUIRE_AGENT_MLFLOW",
-            "RESEARCH_PLUGIN_EXECUTION_BACKEND",
-            "RESEARCH_PLUGIN_REQUIRE_SANDBOX_BACKEND",
-            "RESEARCH_PLUGIN_PROVIDER_ENV_FILE",
-            "RESEARCH_PLUGIN_LAMBDA_API_KEY",
+            "MERV_MODE",
+            "MERV_DB_URL",
+            "MERV_BLOB_BUCKET",
+            "MERV_MGMT_KEY_PATH",
+            "MERV_MGMT_PUBLIC_KEY",
+            "MERV_ALLOWED_ORIGINS",
+            "MERV_MLFLOW_TRACKING_URI",
+            "MERV_REQUIRE_AGENT_MLFLOW",
+            "MERV_EXECUTION_BACKEND",
+            "MERV_REQUIRE_SANDBOX_BACKEND",
+            "MERV_PROVIDER_ENV_FILE",
+            "MERV_LAMBDA_API_KEY",
             "AWS_ENDPOINT_URL_S3",
         ):
             self.assertIn(var, text)

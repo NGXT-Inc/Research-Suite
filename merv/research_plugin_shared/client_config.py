@@ -1,32 +1,90 @@
-"""Machine client config and secret-file helpers shared by launchers."""
+"""Machine client config and secret-file helpers shared by launchers.
+
+Env-var names resolve dual-spelled here exactly as in ``backend.env``:
+``MERV_X`` primary, ``RESEARCH_PLUGIN_X`` legacy fallback (non-empty wins;
+empty counts as unset). The logic is duplicated tiny rather than imported —
+this package must stay stdlib-only with no backend imports (the zero-install
+stdio proxy ships it), and the proxy may only ever write warnings to stderr
+because stdout carries the JSON-RPC stream.
+"""
 
 from __future__ import annotations
 
 import json
 import os
+import sys
 from collections.abc import Mapping
 from pathlib import Path
 
+from .machine_dirs import resolve_machine_state_dir
 
-CLIENT_CONFIG_ENV_VAR = "RESEARCH_PLUGIN_CLIENT_CONFIG"
-CONTROL_URL_ENV_VAR = "RESEARCH_PLUGIN_CONTROL_URL"
+
+ENV_PREFIX = "MERV_"
+LEGACY_ENV_PREFIX = "RESEARCH_PLUGIN_"
+_warned_legacy_names: set[str] = set()
+
+
+def env_name_pair(name: str) -> tuple[str, str]:
+    """The (primary, legacy) spellings of a config var, given either one."""
+    if name.startswith(ENV_PREFIX):
+        return name, LEGACY_ENV_PREFIX + name[len(ENV_PREFIX):]
+    if name.startswith(LEGACY_ENV_PREFIX):
+        return ENV_PREFIX + name[len(LEGACY_ENV_PREFIX):], name
+    return name, name
+
+
+def dual_env_value(
+    name: str, env: Mapping[str, str] | None = None
+) -> str | None:
+    """Dual-read a config var: a non-empty stripped value or None.
+
+    When the legacy spelling is the effective source from the real process
+    environment, one stderr deprecation line per variable per process names
+    the new spelling. stderr only: the proxy's stdout is the MCP stream.
+    """
+    primary, legacy = env_name_pair(name)
+    source = env if env is not None else os.environ
+    value = (source.get(primary) or "").strip()
+    if value:
+        return value
+    legacy_value = (source.get(legacy) or "").strip() if legacy != primary else ""
+    if legacy_value:
+        if env is None and primary not in _warned_legacy_names:
+            _warned_legacy_names.add(primary)
+            print(
+                f"[merv] {legacy} is deprecated; set {primary} instead "
+                "(the legacy value was used)",
+                file=sys.stderr,
+            )
+        return legacy_value
+    return None
+
+
+CLIENT_CONFIG_ENV_VAR = "MERV_CLIENT_CONFIG"
+CONTROL_URL_ENV_VAR = "MERV_CONTROL_URL"
 # RapidReview API key (rr_sk_...) for the hosted brain; env beats the
 # client.json "api_key" field, mirroring the control_url chain.
-API_KEY_ENV_VAR = "RESEARCH_PLUGIN_API_KEY"
-DAEMON_STATE_DIR_ENV_VAR = "RESEARCH_PLUGIN_DAEMON_STATE_DIR"
+API_KEY_ENV_VAR = "MERV_API_KEY"
+DAEMON_STATE_DIR_ENV_VAR = "MERV_DAEMON_STATE_DIR"
 # Brain URL defaults: unconfigured machines dial the hosted brain; local
 # deployments opt in via `merv-client configure` or the env var.
 HOSTED_CONTROL_URL = "https://experiments.rapidreview.io"
 LOCAL_BRAIN_URL = "http://127.0.0.1:8787"
-DEFAULT_CLIENT_CONFIG_PATH = Path.home() / ".research_plugin" / "client.json"
-DEFAULT_DAEMON_SECRET_PATH = Path.home() / ".research_plugin" / "daemon_secret"
 DAEMON_SECRET_FILE_NAME = "daemon_secret"
 
 
+def default_client_config_path() -> Path:
+    """Default machine config path; resolved per call (see machine_dirs)."""
+    return resolve_machine_state_dir() / "client.json"
+
+
+def default_daemon_secret_path() -> Path:
+    return resolve_machine_state_dir() / DAEMON_SECRET_FILE_NAME
+
+
 def resolve_client_config_path(env: Mapping[str, str] | None = None) -> Path:
-    source = env if env is not None else os.environ
-    raw = (source.get(CLIENT_CONFIG_ENV_VAR) or "").strip()
-    return Path(raw).expanduser() if raw else DEFAULT_CLIENT_CONFIG_PATH
+    raw = dual_env_value(CLIENT_CONFIG_ENV_VAR, env)
+    return Path(raw).expanduser() if raw else default_client_config_path()
 
 
 def read_client_config(env: Mapping[str, str] | None = None) -> dict[str, str]:

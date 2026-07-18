@@ -46,7 +46,7 @@ class MountedMgmtKeyStore:
         except OSError as exc:
             raise ValidationError(
                 "configured management private key needs either "
-                "RESEARCH_PLUGIN_MGMT_PUBLIC_KEY or an adjacent .pub file",
+                "MERV_MGMT_PUBLIC_KEY or an adjacent .pub file",
                 details={"public_key_path": str(public_path)},
             ) from exc
 

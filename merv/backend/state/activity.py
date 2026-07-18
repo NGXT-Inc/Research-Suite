@@ -15,7 +15,7 @@ from research_plugin_shared.project_dirs import (
     resolve_project_state_dir,
 )
 
-from ..env import env_bool
+from ..env import env_bool, env_value
 from ..utils import now_iso
 
 
@@ -68,7 +68,7 @@ class ActivityLogger:
             if mirror_stderr is None
             else mirror_stderr
         )
-        configured = os.environ.get("RESEARCH_PLUGIN_ACTIVITY_LOG_PATH")
+        configured = env_value("MERV_ACTIVITY_LOG_PATH")
         explicit = log_path if log_path is not None else (Path(configured) if configured else None)
         if explicit is not None and not explicit.is_absolute():
             explicit = repo_root / explicit

@@ -7,7 +7,7 @@ Drives the REAL Lambda Cloud API end-to-end through ResearchPluginApp:
   4. release/terminate (guaranteed teardown)
 
 Run from merv/ with the Lambda key available:
-  RESEARCH_PLUGIN_LAMBDA_ENV_FILE=$PWD/.env .venv/bin/python scripts/_live_lambda_smoke.py
+  MERV_LAMBDA_ENV_FILE=$PWD/.env .venv/bin/python scripts/_live_lambda_smoke.py
 """
 
 from __future__ import annotations
@@ -23,8 +23,8 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
 # Test-only: point the remote workspace at /home/ubuntu (exists at boot).
-os.environ.setdefault("RESEARCH_PLUGIN_LAMBDA_WORKDIR", "/home/ubuntu/rp_synced")
-os.environ.setdefault("RESEARCH_PLUGIN_LAMBDA_DATA_DIR", "/home/ubuntu/rp_unsynced")
+os.environ.setdefault("MERV_LAMBDA_WORKDIR", "/home/ubuntu/rp_synced")
+os.environ.setdefault("MERV_LAMBDA_DATA_DIR", "/home/ubuntu/rp_unsynced")
 
 from backend.app import ResearchPluginApp
 from backend.execution.backends.lambda_labs.config import load_lambda_env_file

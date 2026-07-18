@@ -10,6 +10,8 @@ import sqlite3
 from datetime import datetime, timezone
 from pathlib import Path
 
+from research_plugin_shared.machine_dirs import resolve_machine_state_dir
+
 
 _SCHEMA = """
 CREATE TABLE IF NOT EXISTS project_links (
@@ -29,7 +31,7 @@ def default_project_links_path(
         return Path(raw).expanduser() / "project_links.sqlite"
     if config_path is not None:
         return Path(config_path).expanduser().parent / "project_links.sqlite"
-    return Path.home() / ".research_plugin" / "project_links.sqlite"
+    return resolve_machine_state_dir() / "project_links.sqlite"
 
 
 class ProjectLinks:

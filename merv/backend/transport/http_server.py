@@ -16,7 +16,7 @@ from typing import Any
 import uvicorn
 
 from ..config import Mode, resolve_mode
-from ..env import env_bool
+from ..env import env_bool, env_value
 from .http_api import create_fastapi_app
 
 
@@ -95,8 +95,9 @@ def _serve_control(*, host: str, port: int) -> int:
     """Run the hosted brain preset.
 
     Hosted/no-repo-root control requires durable DB, durable blob store, and a
-    mounted management key. It has no end-user authentication and is a private
-    operator surface.
+    mounted management key. End-user auth is Supabase-backed and optional:
+    booting without it logs an "OPEN" warning, and MERV_REQUIRE_AUTH=1 makes
+    that a startup failure (the hosted deployment requires it).
     """
     from ..composition import build_control_server
 
@@ -118,7 +119,7 @@ def _serve_control(*, host: str, port: int) -> int:
     return 0
 
 
-def _serve_local(*, host: str, port: int, state_dir: Path) -> int:
+def _serve_local(*, host: str, port: int, state_dir: Path | None) -> int:
     """Run the localhost brain preset."""
     from ..composition import build_local_server
 
@@ -144,35 +145,35 @@ def control_main() -> int:
     """Launch the hosted brain.
 
     The console-script entry for the ``control`` extra and the deploy Dockerfile:
-    forces control mode (RESEARCH_PLUGIN_MODE=control) so the image entrypoint
+    forces control mode (MERV_MODE=control) so the image entrypoint
     never accidentally binds the local preset. The expiry reaper runs, but the
     broader cleanup sweeps are only built; a managed cron or sidecar must POST
-    ``/api/admin/cleanup``. This surface has no end-user authentication and must
-    be deployed behind a trusted network boundary.
+    ``/api/admin/cleanup``. End-user auth is optional Supabase verification
+    (off = "OPEN" warning; MERV_REQUIRE_AUTH=1 = fail-fast, as production
+    runs it); deploy behind TLS and a trusted network boundary either way.
     """
-    os.environ["RESEARCH_PLUGIN_MODE"] = "control"
+    os.environ["MERV_MODE"] = "control"
     return main()
 
 
 def main() -> int:
     parser = argparse.ArgumentParser()
-    parser.add_argument("--host", default=os.environ.get("RESEARCH_PLUGIN_HTTP_HOST", "127.0.0.1"))
-    parser.add_argument("--port", type=int, default=int(os.environ.get("RESEARCH_PLUGIN_HTTP_PORT", "8787")))
+    parser.add_argument("--host", default=env_value("MERV_HTTP_HOST") or "127.0.0.1")
+    parser.add_argument("--port", type=int, default=int(env_value("MERV_HTTP_PORT") or "8787"))
     parser.add_argument(
         "--registry-store",
-        default=os.environ.get(
-            "RESEARCH_PLUGIN_REGISTRY_STORE",
-            str(Path.home() / ".research_plugin" / "registry.sqlite"),
-        ),
+        default=env_value("MERV_REGISTRY_STORE"),
         help=(
             "Compatibility path whose parent selects the local brain state "
-            "root; research records live under the sibling brain/ directory."
+            "root (research records live under the sibling brain/ directory). "
+            "Unset lets the composition resolve ~/.merv/brain, or the legacy "
+            "~/.research_plugin/brain when that state already exists."
         ),
     )
     parser.add_argument(
         "--activity-stderr",
         action="store_true",
-        default=env_bool("RESEARCH_PLUGIN_ACTIVITY_STDERR", default=False),
+        default=env_bool("MERV_ACTIVITY_STDERR", default=False),
         help=(
             "Legacy compatibility flag. The unified brain exposes bounded "
             "diagnostics over HTTP and does not mirror them to stderr."
@@ -185,11 +186,15 @@ def main() -> int:
         return _serve_control(host=args.host, port=args.port)
 
     if args.activity_stderr:
-        os.environ["RESEARCH_PLUGIN_ACTIVITY_STDERR"] = "1"
+        os.environ["MERV_ACTIVITY_STDERR"] = "1"
     return _serve_local(
         host=args.host,
         port=args.port,
-        state_dir=Path(args.registry_store).expanduser().resolve().parent / "brain",
+        state_dir=(
+            Path(args.registry_store).expanduser().resolve().parent / "brain"
+            if args.registry_store
+            else None
+        ),
     )
 
 

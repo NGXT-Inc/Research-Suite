@@ -29,7 +29,7 @@ USER MACHINE
 ```
 
 The proxy always dials one brain URL, resolved as the
-`RESEARCH_PLUGIN_CONTROL_URL` env var > machine config from
+`MERV_CONTROL_URL` env var > machine config from
 `merv-client configure` > the hosted default. Local deployments
 configure `http://127.0.0.1:8787`. There is no marker discovery and no thin
 local upstream path.
@@ -98,15 +98,18 @@ brain-side operational credentials.
 
 | Deployment | Brain URL | State/blob defaults | Auth/CORS | Proxy role |
 |---|---|---|---|---|
-| Hosted (default) | `https://experiments.rapidreview.io` | durable DB + submitted-byte blob store; optional heavy-object store | private operator surface; no end-user auth | same thick data plane |
-| Local | `http://127.0.0.1:8787` | SQLite + local-dir blobs | no auth; foreign browser origins rejected | same thick data plane |
+| Hosted (default) | `https://experiments.rapidreview.io` | durable DB + submitted-byte blob store; optional heavy-object store | Supabase-backed end-user auth (required in production via `MERV_REQUIRE_AUTH=1`) | same thick data plane |
+| Local | `http://127.0.0.1:8787` | SQLite + local-dir blobs | auth off by default; foreign browser origins rejected | same thick data plane |
 
-`RESEARCH_PLUGIN_MODE` names the preset used to start the brain. It does not
+`MERV_MODE` names the preset used to start the brain. It does not
 create a second composition path.
 
-CORS and the client-version floor are not authentication. Until an end-user
-authentication layer exists, hosted control must remain behind trusted network
-and operator access controls.
+End-user authentication is Supabase-backed and optional: unset locally (an
+unauthenticated hosted boot logs an "OPEN" warning), enforced on the hosted
+deployment where `MERV_REQUIRE_AUTH=1` turns missing auth config into a
+startup failure (see [`AUTH.md`](AUTH.md)). CORS and the client-version floor
+are still not authentication, and hosted control stays behind TLS and
+operator access controls regardless.
 
 ## Related
 

@@ -168,10 +168,10 @@ One `ObjectStore` port; one production implementation:
   checksum guarantees described above; it never re-downloads multi-gigabyte
   objects to recompute their checksum.
 
-Storage is optional and disabled when `RESEARCH_PLUGIN_STORAGE_PROVIDER` is
+Storage is optional and disabled when `MERV_STORAGE_PROVIDER` is
 unset; disabled backends do not advertise `storage.*` tools. The required S3
-settings are `RESEARCH_PLUGIN_STORAGE_PROVIDER=s3` and
-`RESEARCH_PLUGIN_STORAGE_BUCKET`. Endpoint and region are provider-dependent.
+settings are `MERV_STORAGE_PROVIDER=s3` and
+`MERV_STORAGE_BUCKET`. Endpoint and region are provider-dependent.
 Credentials may come from the storage-specific variables, the standard `AWS_*`
 variables, or boto's normal credential chain. Local non-cloud deployments can
 run MinIO and set an endpoint URL. Users bring their own S3-like storage by

@@ -7,6 +7,7 @@ from dataclasses import dataclass
 from pathlib import Path
 from urllib.parse import urlsplit
 
+from ....env import env_value
 from ....sandbox.sandbox_backend import BackendValidationError
 from ...sync_dirs import DEFAULT_DATA_DIR, DEFAULT_REMOTE_ROOT, SESSIONS_DIRNAME
 
@@ -28,20 +29,17 @@ class ThunderCloudConfig:
     def from_env(cls) -> "ThunderCloudConfig":
         load_thunder_env_file()
         api_key = (
-            os.environ.get("RESEARCH_PLUGIN_THUNDER_API_KEY")
-            or os.environ.get("THUNDER_COMPUTE_API_KEY")
-            or os.environ.get("TNR_API_TOKEN")
+            env_value("MERV_THUNDER_API_KEY")
+            or env_value("THUNDER_COMPUTE_API_KEY")
+            or env_value("TNR_API_TOKEN")
             or ""
-        ).strip()
+        )
         if not api_key:
             raise BackendValidationError(
                 "Thunder Compute API key is required; set "
-                "RESEARCH_PLUGIN_THUNDER_API_KEY, THUNDER_COMPUTE_API_KEY, or TNR_API_TOKEN"
+                "MERV_THUNDER_API_KEY, THUNDER_COMPUTE_API_KEY, or TNR_API_TOKEN"
             )
-        base_url = (
-            os.environ.get("RESEARCH_PLUGIN_THUNDER_API_BASE")
-            or DEFAULT_BASE_URL
-        ).strip()
+        base_url = env_value("MERV_THUNDER_API_BASE") or DEFAULT_BASE_URL
         parsed = urlsplit(base_url)
         if parsed.scheme != "https":
             localhost = parsed.scheme == "http" and parsed.hostname in {
@@ -51,11 +49,11 @@ class ThunderCloudConfig:
             }
             if not localhost:
                 raise BackendValidationError(
-                    "RESEARCH_PLUGIN_THUNDER_API_BASE must be an HTTPS URL "
+                    "MERV_THUNDER_API_BASE must be an HTTPS URL "
                     "(http is only allowed for localhost tests)"
                 )
         if not parsed.netloc:
-            raise BackendValidationError("RESEARCH_PLUGIN_THUNDER_API_BASE must include a host")
+            raise BackendValidationError("MERV_THUNDER_API_BASE must include a host")
         return cls(api_key=api_key, base_url=base_url.rstrip("/"))
 
 
@@ -74,44 +72,34 @@ class ThunderSandboxConfig:
     def from_env(cls) -> "ThunderSandboxConfig":
         cloud = ThunderCloudConfig.from_env()
         remote_root = _absolute_posix_path(
-            os.environ.get("RESEARCH_PLUGIN_THUNDER_WORKDIR", DEFAULT_REMOTE_ROOT),
-            field="RESEARCH_PLUGIN_THUNDER_WORKDIR",
+            env_value("MERV_THUNDER_WORKDIR") or DEFAULT_REMOTE_ROOT,
+            field="MERV_THUNDER_WORKDIR",
         )
         sandbox_data_dir = _absolute_posix_path(
-            os.environ.get("RESEARCH_PLUGIN_THUNDER_DATA_DIR", DEFAULT_SANDBOX_DATA_DIR),
-            field="RESEARCH_PLUGIN_THUNDER_DATA_DIR",
+            env_value("MERV_THUNDER_DATA_DIR") or DEFAULT_SANDBOX_DATA_DIR,
+            field="MERV_THUNDER_DATA_DIR",
         )
         _validate_data_dir(
             sandbox_data_dir,
             remote_root=remote_root,
-            field="RESEARCH_PLUGIN_THUNDER_DATA_DIR",
+            field="MERV_THUNDER_DATA_DIR",
         )
         return cls(
             cloud=cloud,
-            instance_type_name=os.environ.get(
-                "RESEARCH_PLUGIN_THUNDER_INSTANCE_TYPE", ""
-            ).strip(),
-            template=os.environ.get(
-                "RESEARCH_PLUGIN_THUNDER_TEMPLATE", DEFAULT_TEMPLATE
-            ).strip() or DEFAULT_TEMPLATE,
-            ssh_user=os.environ.get(
-                "RESEARCH_PLUGIN_THUNDER_SSH_USER", DEFAULT_SSH_USER
-            ).strip() or DEFAULT_SSH_USER,
+            instance_type_name=env_value("MERV_THUNDER_INSTANCE_TYPE") or "",
+            template=env_value("MERV_THUNDER_TEMPLATE") or DEFAULT_TEMPLATE,
+            ssh_user=env_value("MERV_THUNDER_SSH_USER") or DEFAULT_SSH_USER,
             remote_root=remote_root,
             sandbox_data_dir=sandbox_data_dir,
             poll_timeout_seconds=_positive_int(
-                os.environ.get(
-                    "RESEARCH_PLUGIN_THUNDER_POLL_TIMEOUT",
-                    DEFAULT_INSTANCE_POLL_TIMEOUT_SECONDS,
-                ),
-                field="RESEARCH_PLUGIN_THUNDER_POLL_TIMEOUT",
+                env_value("MERV_THUNDER_POLL_TIMEOUT")
+                or DEFAULT_INSTANCE_POLL_TIMEOUT_SECONDS,
+                field="MERV_THUNDER_POLL_TIMEOUT",
             ),
             poll_interval_seconds=_positive_float(
-                os.environ.get(
-                    "RESEARCH_PLUGIN_THUNDER_POLL_INTERVAL",
-                    DEFAULT_INSTANCE_POLL_INTERVAL_SECONDS,
-                ),
-                field="RESEARCH_PLUGIN_THUNDER_POLL_INTERVAL",
+                env_value("MERV_THUNDER_POLL_INTERVAL")
+                or DEFAULT_INSTANCE_POLL_INTERVAL_SECONDS,
+                field="MERV_THUNDER_POLL_INTERVAL",
             ),
         )
 
@@ -119,12 +107,12 @@ class ThunderSandboxConfig:
 def load_thunder_env_file() -> None:
     """Load Thunder settings from an explicit env file or local checkout .env."""
 
-    configured = os.environ.get("RESEARCH_PLUGIN_THUNDER_ENV_FILE")
+    configured = env_value("MERV_THUNDER_ENV_FILE")
     if configured:
         path = Path(configured).expanduser()
         if not path.exists():
-            raise BackendValidationError(f"RESEARCH_PLUGIN_THUNDER_ENV_FILE does not exist: {path}")
-    elif (os.environ.get("RESEARCH_PLUGIN_MODE") or "").strip().lower() == "control":
+            raise BackendValidationError(f"MERV_THUNDER_ENV_FILE does not exist: {path}")
+    elif (env_value("MERV_MODE") or "").lower() == "control":
         return
     else:
         path = Path(__file__).resolve().parents[4] / ".env"

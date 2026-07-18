@@ -1,6 +1,6 @@
 """Brain composition roots.
 
-There is one app composition: ``ControlApp``. ``RESEARCH_PLUGIN_MODE`` selects
+There is one app composition: ``ControlApp``. ``MERV_MODE`` selects
 deployment defaults only: localhost SQLite/dir blobs/local management keys, or
 hosted durable stores/mounted management keys.
 """

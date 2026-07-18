@@ -44,11 +44,11 @@ python3 -m venv .venv
 For safe local development without cloud provisioning:
 
 ```bash
-export RESEARCH_PLUGIN_EXECUTION_BACKEND=fake
+export MERV_EXECUTION_BACKEND=fake
 ```
 
 For a real backend, leave the default `lambda_labs` selection or set
-`RESEARCH_PLUGIN_EXECUTION_BACKEND` to `thunder_compute` or `modal`, then provide
+`MERV_EXECUTION_BACKEND` to `thunder_compute` or `modal`, then provide
 the corresponding credentials to the brain process. Caller SSH private keys
 remain on the client/proxy side.
 
@@ -85,7 +85,7 @@ Machine configuration is the normal local-development path:
   --control-url http://127.0.0.1:8787
 ```
 
-The proxy resolves its URL from `RESEARCH_PLUGIN_CONTROL_URL`, then this machine
+The proxy resolves its URL from `MERV_CONTROL_URL`, then this machine
 configuration, then the hosted default. Use the environment variable only for a
 one-off override.
 
@@ -148,9 +148,11 @@ brain restarts. They are not repo-local JSONL or SQLite files.
 ## State placement
 
 - The local brain stores SQLite state and submitted blobs under its configured
-  brain state root (by default derived from `~/.research_plugin/brain`).
+  brain state root: `~/.merv/brain` on fresh machines, or the legacy
+  `~/.research_plugin/brain` layout forever when that state already exists.
 - The proxy stores checkout-to-project links in the machine configuration
-  directory, normally `~/.research_plugin/project_links.sqlite`.
+  directory: `~/.merv/project_links.sqlite` fresh, or the legacy
+  `~/.research_plugin/` location when that dir exists.
 - The research checkout stores experiment folders and retained evidence only;
   it does not contain the brain database.
 

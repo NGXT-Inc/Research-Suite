@@ -7,13 +7,14 @@ URL and performs repo-local file work itself.
 from __future__ import annotations
 
 import argparse
-import os
 import sys
 from pathlib import Path
 
 from research_plugin_shared.client_config import (
     API_KEY_ENV_VAR,
     CLIENT_CONFIG_ENV_VAR,
+    CONTROL_URL_ENV_VAR,
+    dual_env_value,
     read_client_config,
     resolve_client_config_path,
 )
@@ -29,12 +30,12 @@ def main() -> int:
     )
     parser.add_argument(
         "--repo",
-        default=os.environ.get("RESEARCH_PLUGIN_REPO_ROOT", "."),
+        default=dual_env_value("MERV_REPO_ROOT") or ".",
         help="Research repo used for proxy-local file work and project linking.",
     )
     parser.add_argument(
         "--control-url",
-        default=os.environ.get("RESEARCH_PLUGIN_CONTROL_URL"),
+        default=dual_env_value(CONTROL_URL_ENV_VAR),
         help=f"Brain/control-plane URL. Defaults to the hosted brain ({DEFAULT_CONTROL_URL}).",
     )
     args = parser.parse_args()
@@ -60,7 +61,7 @@ def main() -> int:
     # RapidReview API key for the hosted brain: env beats machine config,
     # mirroring the control_url chain. Absent against a loopback brain.
     api_key = (
-        os.environ.get(API_KEY_ENV_VAR, "") or client_config.get("api_key", "")
+        dual_env_value(API_KEY_ENV_VAR) or client_config.get("api_key", "")
     ).strip()
     if _is_loopback_url(control_url):
         sys.stderr.write(
@@ -71,7 +72,7 @@ def main() -> int:
         sys.stderr.write(
             f"[merv] using hosted brain {DEFAULT_CONTROL_URL} "
             "(default; override with `merv-client configure "
-            "--control-url ...` or RESEARCH_PLUGIN_CONTROL_URL).\n"
+            "--control-url ...` or MERV_CONTROL_URL).\n"
         )
 
     config = ProxyConfig(

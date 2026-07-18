@@ -17,8 +17,8 @@ PLUGIN_DIR="$(cd "$BIN_DIR/.." >/dev/null 2>&1 && pwd)"
 # Python resolution. The MCP proxy is stdlib-only (urllib + json + os + sys +
 # pathlib + typing — no third-party imports), so any Python with stdlib works.
 # Prefer venvs for consistency, fall through to system `python3` cleanly.
-if [[ -n "${RESEARCH_PLUGIN_PYTHON:-}" ]]; then
-  PYTHON_BIN="$RESEARCH_PLUGIN_PYTHON"
+if [[ -n "${MERV_PYTHON:-${RESEARCH_PLUGIN_PYTHON:-}}" ]]; then
+  PYTHON_BIN="${MERV_PYTHON:-$RESEARCH_PLUGIN_PYTHON}"
 elif [[ -n "${CLAUDE_PLUGIN_DATA:-}" && -x "$CLAUDE_PLUGIN_DATA/.venv/bin/python" ]]; then
   PYTHON_BIN="$CLAUDE_PLUGIN_DATA/.venv/bin/python"
 elif [[ -x "$PLUGIN_DIR/.venv/bin/python" ]]; then
@@ -29,23 +29,27 @@ fi
 
 export PYTHONPATH="$PLUGIN_DIR${PYTHONPATH:+:$PYTHONPATH}"
 
-if [ -z "${RESEARCH_PLUGIN_REPO_ROOT:-}" ]; then
-  export RESEARCH_PLUGIN_REPO_ROOT="$PWD"
+# MERV_REPO_ROOT is the primary spelling; RESEARCH_PLUGIN_REPO_ROOT keeps
+# working as the legacy fallback. The resolved value is exported under the
+# primary name for the Python entrypoint (which itself dual-reads).
+MERV_REPO_ROOT="${MERV_REPO_ROOT:-${RESEARCH_PLUGIN_REPO_ROOT:-}}"
+if [ -z "$MERV_REPO_ROOT" ]; then
+  export MERV_REPO_ROOT="$PWD"
 else
-  GIVEN_REPO_ROOT="$RESEARCH_PLUGIN_REPO_ROOT"
-  case "$RESEARCH_PLUGIN_REPO_ROOT" in
+  GIVEN_REPO_ROOT="$MERV_REPO_ROOT"
+  case "$MERV_REPO_ROOT" in
     /*) ;;
-    *) RESEARCH_PLUGIN_REPO_ROOT="$(cd "$RESEARCH_PLUGIN_REPO_ROOT" >/dev/null 2>&1 && pwd)" || true ;;
+    *) MERV_REPO_ROOT="$(cd "$MERV_REPO_ROOT" >/dev/null 2>&1 && pwd)" || true ;;
   esac
   # Fail loudly rather than silently falling back to the spawn cwd — an
   # unresolvable value usually means the client left a variable like
   # ${workspaceFolder} unexpanded, and every repo-local operation would
   # otherwise target the wrong directory.
-  if [ -z "$RESEARCH_PLUGIN_REPO_ROOT" ] || [ ! -d "$RESEARCH_PLUGIN_REPO_ROOT" ]; then
-    echo "[merv] RESEARCH_PLUGIN_REPO_ROOT='$GIVEN_REPO_ROOT' does not resolve to a directory (unexpanded \${workspaceFolder}?)" >&2
+  if [ -z "$MERV_REPO_ROOT" ] || [ ! -d "$MERV_REPO_ROOT" ]; then
+    echo "[merv] MERV_REPO_ROOT='$GIVEN_REPO_ROOT' does not resolve to a directory (unexpanded \${workspaceFolder}?)" >&2
     exit 1
   fi
-  export RESEARCH_PLUGIN_REPO_ROOT
+  export MERV_REPO_ROOT
 fi
 
 # No backend state-path export: the stdio proxy never opens the project state DB.

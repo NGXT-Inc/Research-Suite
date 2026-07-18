@@ -7,7 +7,7 @@ from dataclasses import dataclass
 from pathlib import Path, PurePosixPath
 from typing import Any, Mapping
 
-from ....env import env_int
+from ....env import env_int, env_raw, env_value
 from ....sandbox.sandbox_backend import BackendValidationError
 from ...sync_dirs import DEFAULT_DATA_DIR, DEFAULT_REMOTE_ROOT, SESSIONS_DIRNAME
 
@@ -15,12 +15,12 @@ from ...sync_dirs import DEFAULT_DATA_DIR, DEFAULT_REMOTE_ROOT, SESSIONS_DIRNAME
 def _env_discovery_disabled() -> bool:
     """True in control mode, where implicit user-machine .env discovery is off.
 
-    Reads RESEARCH_PLUGIN_MODE directly (no backend.config import) to keep the
+    Reads MERV_MODE directly (no backend.config import) to keep the
     execution backends loosely coupled from the composition layer. Local mode
     keeps checkout-adjacent .env discovery for development; control resolves
     credentials from the process environment or secret store only.
     """
-    return (os.environ.get("RESEARCH_PLUGIN_MODE") or "").strip().lower() == "control"
+    return (env_value("MERV_MODE") or "").lower() == "control"
 
 
 VALID_GPUS: frozenset[str] = frozenset({"T4", "L4", "A10G", "L40S", "A100", "A100-80GB", "H100", "B200"})
@@ -80,41 +80,41 @@ class ModalConfig:
     def from_env(cls) -> "ModalConfig":
         load_modal_env_file()
         return cls(
-            app_name=_env_str("RESEARCH_PLUGIN_MODAL_APP", DEFAULT_APP_NAME),
+            app_name=_env_str("MERV_MODAL_APP", DEFAULT_APP_NAME),
             retention_seconds=_positive_env_int(
-                "RESEARCH_PLUGIN_MODAL_RETENTION_SECONDS", DEFAULT_RETENTION_SECONDS
+                "MERV_MODAL_RETENTION_SECONDS", DEFAULT_RETENTION_SECONDS
             ),
             sandbox_timeout=_positive_env_int(
-                "RESEARCH_PLUGIN_MODAL_SANDBOX_TIMEOUT", DEFAULT_SANDBOX_TIMEOUT
+                "MERV_MODAL_SANDBOX_TIMEOUT", DEFAULT_SANDBOX_TIMEOUT
             ),
             job_timeout=_positive_env_int(
-                "RESEARCH_PLUGIN_MODAL_JOB_TIMEOUT", DEFAULT_JOB_TIMEOUT
+                "MERV_MODAL_JOB_TIMEOUT", DEFAULT_JOB_TIMEOUT
             ),
             idle_timeout=_non_negative_env_int(
-                "RESEARCH_PLUGIN_MODAL_IDLE_TIMEOUT", DEFAULT_IDLE_TIMEOUT
+                "MERV_MODAL_IDLE_TIMEOUT", DEFAULT_IDLE_TIMEOUT
             ),
             remote_root=_absolute_posix_path(
-                _env_str("RESEARCH_PLUGIN_MODAL_WORKDIR", DEFAULT_REMOTE_ROOT),
-                field="RESEARCH_PLUGIN_MODAL_WORKDIR",
+                _env_str("MERV_MODAL_WORKDIR", DEFAULT_REMOTE_ROOT),
+                field="MERV_MODAL_WORKDIR",
             ),
             sandbox_data_dir=_absolute_posix_path(
-                _env_str("RESEARCH_PLUGIN_MODAL_DATA_DIR", DEFAULT_SANDBOX_DATA_DIR),
-                field="RESEARCH_PLUGIN_MODAL_DATA_DIR",
+                _env_str("MERV_MODAL_DATA_DIR", DEFAULT_SANDBOX_DATA_DIR),
+                field="MERV_MODAL_DATA_DIR",
             ),
             runner_dir=_absolute_posix_path(
-                _env_str("RESEARCH_PLUGIN_MODAL_RUNNER_DIR", DEFAULT_RUNNER_DIR),
-                field="RESEARCH_PLUGIN_MODAL_RUNNER_DIR",
+                _env_str("MERV_MODAL_RUNNER_DIR", DEFAULT_RUNNER_DIR),
+                field="MERV_MODAL_RUNNER_DIR",
             ),
             timeout_buffer_seconds=_positive_env_int(
-                "RESEARCH_PLUGIN_MODAL_TIMEOUT_BUFFER_SECONDS",
+                "MERV_MODAL_TIMEOUT_BUFFER_SECONDS",
                 DEFAULT_TIMEOUT_BUFFER_SECONDS,
             ),
             volume_name_prefix=_env_str(
-                "RESEARCH_PLUGIN_MODAL_VOLUME_PREFIX",
+                "MERV_MODAL_VOLUME_PREFIX",
                 DEFAULT_VOLUME_NAME_PREFIX,
             ),
             volume_version=_positive_env_int(
-                "RESEARCH_PLUGIN_MODAL_VOLUME_VERSION",
+                "MERV_MODAL_VOLUME_VERSION",
                 DEFAULT_VOLUME_VERSION,
             ),
         ).validated()
@@ -127,13 +127,13 @@ class ModalConfig:
         data = self.sandbox_data_dir.rstrip("/")
         if data == root:
             raise BackendValidationError(
-                "RESEARCH_PLUGIN_MODAL_DATA_DIR must not equal RESEARCH_PLUGIN_MODAL_WORKDIR"
+                "MERV_MODAL_DATA_DIR must not equal MERV_MODAL_WORKDIR"
             )
         if _is_under_path(data, root):
             first = data[len(root) + 1 :].split("/", 1)[0]
             if first.startswith("exp_") or first == SESSIONS_DIRNAME:
                 raise BackendValidationError(
-                    "RESEARCH_PLUGIN_MODAL_DATA_DIR must not collide with "
+                    "MERV_MODAL_DATA_DIR must not collide with "
                     f"per-experiment folders or {SESSIONS_DIRNAME} under the remote root"
                 )
         return self
@@ -196,7 +196,7 @@ def load_modal_env_file() -> None:
     """Load Modal credentials from an env file without importing dotenv.
 
     Resolution order:
-      1. ``RESEARCH_PLUGIN_MODAL_ENV_FILE`` when set (must exist).
+      1. ``MERV_MODAL_ENV_FILE`` when set (must exist).
       2. A ``.env`` at the merv package root (source-checkout default).
 
     Values already present in the environment always win over file values, so an
@@ -205,16 +205,16 @@ def load_modal_env_file() -> None:
     Control mode (cloud plan Phase 9, §3.4): user-machine ``.env`` discovery is
     DISABLED — the control plane's provider credentials come from the process
     env / a secret store only, never a checkout's ``.env``. An explicitly
-    configured ``RESEARCH_PLUGIN_MODAL_ENV_FILE`` is still honored (that IS the
+    configured ``MERV_MODAL_ENV_FILE`` is still honored (that IS the
     secret-store seam: point it at a mounted secret file), but the implicit
     package-root ``.env`` fallback is gated off in control mode.
     """
 
-    configured = os.environ.get("RESEARCH_PLUGIN_MODAL_ENV_FILE")
+    configured = env_value("MERV_MODAL_ENV_FILE")
     if configured:
         path = Path(configured).expanduser()
         if not path.exists():
-            raise BackendValidationError(f"RESEARCH_PLUGIN_MODAL_ENV_FILE does not exist: {path}")
+            raise BackendValidationError(f"MERV_MODAL_ENV_FILE does not exist: {path}")
     elif _env_discovery_disabled():
         return  # control mode: no implicit .env discovery
     else:
@@ -267,7 +267,8 @@ def parse_modal_hints(
 
 
 def _env_str(name: str, default: str) -> str:
-    value = os.environ.get(name, default).strip()
+    raw = env_raw(name)
+    value = default.strip() if raw is None else raw
     if not value:
         raise BackendValidationError(f"{name} must not be empty")
     return value
@@ -288,8 +289,8 @@ def _non_negative_env_int(name: str, default: int) -> int:
 
 
 def _modal_env_int(*, name: str, default: int) -> int:
-    raw = os.environ.get(name)
-    if raw is not None and not str(raw).strip():
+    raw = env_raw(name)
+    if raw == "":
         raise BackendValidationError(f"{name} must be an integer")
     try:
         parsed = env_int(name, default)

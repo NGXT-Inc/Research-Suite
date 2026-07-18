@@ -10,6 +10,7 @@ import os
 from pathlib import Path
 from typing import Any, Callable
 
+from ..env import env_value
 from ..sandbox.sandbox_backend import (
     SANDBOX_STATES,
     BackendCapabilities,
@@ -38,10 +39,11 @@ def build_sandbox_backend(
     """Select and construct the configured sandbox backend.
 
     Backend name comes from (in order): `name=` arg,
-    `RESEARCH_PLUGIN_EXECUTION_BACKEND` env, or "lambda_labs" by default.
+    `MERV_EXECUTION_BACKEND` env (legacy `RESEARCH_PLUGIN_EXECUTION_BACKEND`),
+    or "lambda_labs" by default.
     """
     selected = (
-        name or os.environ.get("RESEARCH_PLUGIN_EXECUTION_BACKEND") or "lambda_labs"
+        name or env_value("MERV_EXECUTION_BACKEND") or "lambda_labs"
     ).strip().lower()
     if selected == "fake":
         from .backends.fake import FakeSandboxBackend

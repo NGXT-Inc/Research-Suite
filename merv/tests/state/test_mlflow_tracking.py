@@ -341,7 +341,7 @@ class MlflowTrackingServiceTest(unittest.TestCase):
         self.assertFalse(run["created"])
         self.assertTrue(run["configured"])
         self.assertFalse(run["control_configured"])
-        self.assertIn("RESEARCH_PLUGIN_MLFLOW_SERVER_URI", run["note"])
+        self.assertIn("MERV_MLFLOW_SERVER_URI", run["note"])
 
     def test_finalize_run_updates_status_and_reads_back_terminal_state(self) -> None:
         service = CentralMlflowService(

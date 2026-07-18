@@ -21,7 +21,7 @@ content:
 Shared invariants across all clients:
 
 - The launcher [bin/merv-mcp](../bin/merv-mcp) resolves
-  the project from `RESEARCH_PLUGIN_REPO_ROOT`, defaulting to `$PWD`. Clients
+  the project from `MERV_REPO_ROOT`, defaulting to `$PWD`. Clients
   that do not spawn stdio servers in the project directory (Cursor) must set
   the env var explicitly; the others rely on cwd.
 - The proxy needs no pip installs: it runs on bare `python3` (3.11+). The
@@ -39,7 +39,7 @@ Shared invariants across all clients:
   them. OpenCode needs `mode`/`permission` frontmatter, so it has its own thin
   agent wrappers in `clients/opencode/agents/` that load the matching review
   skill.
-- The MCP proxy resolves its brain URL as: `RESEARCH_PLUGIN_CONTROL_URL` env
+- The MCP proxy resolves its brain URL as: `MERV_CONTROL_URL` env
   var > machine config written by `merv-client configure` >
   the hosted brain `https://experiments.rapidreview.io`. Out of the box every
   client therefore dials the hosted brain and runs no local brain. For a local
@@ -126,7 +126,7 @@ Three Cursor-specific notes:
 
 1. **Project root.** Cursor does not spawn stdio MCP servers in the workspace
    directory, so [mcp.json](../mcp.json) passes
-   `"RESEARCH_PLUGIN_REPO_ROOT": "${workspaceFolder}"` — never rely on cwd.
+   `"MERV_REPO_ROOT": "${workspaceFolder}"` — never rely on cwd.
    (If a client ever passes the variable through unexpanded, the launcher now
    fails loudly instead of silently binding to the spawn cwd.)
 2. **Launcher path.** Cursor requires stdio commands to be on PATH or a full
@@ -145,15 +145,15 @@ Three Cursor-specific notes:
       "type": "stdio",
       "command": "/absolute/path/to/merv/bin/merv-mcp",
       "env": {
-        "RESEARCH_PLUGIN_REPO_ROOT": "${workspaceFolder}",
-        "RESEARCH_PLUGIN_CONTROL_URL": ""
+        "MERV_REPO_ROOT": "${workspaceFolder}",
+        "MERV_CONTROL_URL": ""
       }
     }
   }
 }
 ```
 
-(Leave `RESEARCH_PLUGIN_CONTROL_URL` empty so the machine config from
+(Leave `MERV_CONTROL_URL` empty so the machine config from
 `merv-client configure` wins, falling back to the hosted brain.
 Set it explicitly only to force one workspace onto a different brain, e.g.
 `http://127.0.0.1:8787` for a local deployment.)

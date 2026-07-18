@@ -4,7 +4,7 @@
       "command": "${CLAUDE_PLUGIN_ROOT}/bin/merv-mcp",
       "args": [],
       "env": {
-        "RESEARCH_PLUGIN_CONTROL_URL": ""
+        "MERV_CONTROL_URL": ""
       }
     }
   }

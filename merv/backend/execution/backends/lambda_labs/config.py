@@ -6,13 +6,14 @@ import os
 from dataclasses import dataclass
 from pathlib import Path
 
+from ....env import env_value
 from ....sandbox.sandbox_backend import BackendValidationError
 from ...sync_dirs import DEFAULT_DATA_DIR, DEFAULT_REMOTE_ROOT, SESSIONS_DIRNAME
 
 
 def _env_discovery_disabled() -> bool:
     """True in control mode, where user-machine .env discovery is off (§3.4)."""
-    return (os.environ.get("RESEARCH_PLUGIN_MODE") or "").strip().lower() == "control"
+    return (env_value("MERV_MODE") or "").lower() == "control"
 
 
 DEFAULT_BASE_URL = "https://cloud.lambda.ai/api/v1"
@@ -31,22 +32,19 @@ class LambdaCloudConfig:
     def from_env(cls) -> "LambdaCloudConfig":
         load_lambda_env_file()
         api_key = (
-            os.environ.get("RESEARCH_PLUGIN_LAMBDA_API_KEY")
-            or os.environ.get("LAMBDA_LABS_API_KEY")
-            or os.environ.get("LAMBDA_API_KEY")
+            env_value("MERV_LAMBDA_API_KEY")
+            or env_value("LAMBDA_LABS_API_KEY")
+            or env_value("LAMBDA_API_KEY")
             or ""
-        ).strip()
+        )
         if not api_key:
             raise BackendValidationError(
-                "Lambda Cloud API key is required; set RESEARCH_PLUGIN_LAMBDA_API_KEY, "
+                "Lambda Cloud API key is required; set MERV_LAMBDA_API_KEY, "
                 "LAMBDA_LABS_API_KEY, or LAMBDA_API_KEY"
             )
-        base_url = (
-            os.environ.get("RESEARCH_PLUGIN_LAMBDA_API_BASE")
-            or DEFAULT_BASE_URL
-        ).strip()
+        base_url = env_value("MERV_LAMBDA_API_BASE") or DEFAULT_BASE_URL
         if not base_url.startswith(("http://", "https://")):
-            raise BackendValidationError("RESEARCH_PLUGIN_LAMBDA_API_BASE must be an HTTP URL")
+            raise BackendValidationError("MERV_LAMBDA_API_BASE must be an HTTP URL")
         return cls(api_key=api_key, base_url=base_url.rstrip("/"))
 
 
@@ -71,45 +69,40 @@ class LambdaSandboxConfig:
     def from_env(cls) -> "LambdaSandboxConfig":
         cloud = LambdaCloudConfig.from_env()
         region_name = _first_env(
-            "RESEARCH_PLUGIN_LAMBDA_REGION",
+            "MERV_LAMBDA_REGION",
             "LAMBDA_LABS_REGION",
             "LAMBDA_REGION",
         )
         instance_type_name = _first_env(
-            "RESEARCH_PLUGIN_LAMBDA_INSTANCE_TYPE",
+            "MERV_LAMBDA_INSTANCE_TYPE",
             "LAMBDA_LABS_INSTANCE_TYPE",
             "LAMBDA_INSTANCE_TYPE",
         )
         remote_root = _absolute_posix_path(
-            os.environ.get("RESEARCH_PLUGIN_LAMBDA_WORKDIR", DEFAULT_REMOTE_ROOT),
-            field="RESEARCH_PLUGIN_LAMBDA_WORKDIR",
+            env_value("MERV_LAMBDA_WORKDIR") or DEFAULT_REMOTE_ROOT,
+            field="MERV_LAMBDA_WORKDIR",
         )
         sandbox_data_dir = _absolute_posix_path(
-            os.environ.get("RESEARCH_PLUGIN_LAMBDA_DATA_DIR", DEFAULT_SANDBOX_DATA_DIR),
-            field="RESEARCH_PLUGIN_LAMBDA_DATA_DIR",
+            env_value("MERV_LAMBDA_DATA_DIR") or DEFAULT_SANDBOX_DATA_DIR,
+            field="MERV_LAMBDA_DATA_DIR",
         )
-        _validate_data_dir(sandbox_data_dir, remote_root=remote_root, field="RESEARCH_PLUGIN_LAMBDA_DATA_DIR")
+        _validate_data_dir(sandbox_data_dir, remote_root=remote_root, field="MERV_LAMBDA_DATA_DIR")
         return cls(
             cloud=cloud,
             region_name=region_name,
             instance_type_name=instance_type_name,
-            ssh_user=os.environ.get("RESEARCH_PLUGIN_LAMBDA_SSH_USER", DEFAULT_SSH_USER).strip()
-            or DEFAULT_SSH_USER,
+            ssh_user=env_value("MERV_LAMBDA_SSH_USER") or DEFAULT_SSH_USER,
             remote_root=remote_root,
             sandbox_data_dir=sandbox_data_dir,
             poll_timeout_seconds=_positive_int(
-                os.environ.get(
-                    "RESEARCH_PLUGIN_LAMBDA_POLL_TIMEOUT",
-                    DEFAULT_INSTANCE_POLL_TIMEOUT_SECONDS,
-                ),
-                field="RESEARCH_PLUGIN_LAMBDA_POLL_TIMEOUT",
+                env_value("MERV_LAMBDA_POLL_TIMEOUT")
+                or DEFAULT_INSTANCE_POLL_TIMEOUT_SECONDS,
+                field="MERV_LAMBDA_POLL_TIMEOUT",
             ),
             poll_interval_seconds=_positive_float(
-                os.environ.get(
-                    "RESEARCH_PLUGIN_LAMBDA_POLL_INTERVAL",
-                    DEFAULT_INSTANCE_POLL_INTERVAL_SECONDS,
-                ),
-                field="RESEARCH_PLUGIN_LAMBDA_POLL_INTERVAL",
+                env_value("MERV_LAMBDA_POLL_INTERVAL")
+                or DEFAULT_INSTANCE_POLL_INTERVAL_SECONDS,
+                field="MERV_LAMBDA_POLL_INTERVAL",
             ),
         )
 
@@ -119,15 +112,15 @@ def load_lambda_env_file() -> None:
 
     Only an EXPLICITLY configured env file is ever read (no implicit package-root
     ``.env`` fallback), so this is already the secret-store seam: in control mode
-    point ``RESEARCH_PLUGIN_LAMBDA_ENV_FILE`` at a mounted secret. Control mode
+    point ``MERV_LAMBDA_ENV_FILE`` at a mounted secret. Control mode
     additionally refuses to fall through to the Modal env-file alias so a user
-    machine's ``RESEARCH_PLUGIN_MODAL_ENV_FILE`` can't smuggle creds into the
+    machine's ``MERV_MODAL_ENV_FILE`` can't smuggle creds into the
     cloud — the control plane reads its own env / secret store only.
     """
 
-    configured = os.environ.get("RESEARCH_PLUGIN_LAMBDA_ENV_FILE")
+    configured = env_value("MERV_LAMBDA_ENV_FILE")
     if not configured and not _env_discovery_disabled():
-        configured = os.environ.get("RESEARCH_PLUGIN_MODAL_ENV_FILE")
+        configured = env_value("MERV_MODAL_ENV_FILE")
     if not configured:
         return
     path = Path(configured).expanduser()
@@ -146,7 +139,7 @@ def load_lambda_env_file() -> None:
 
 def _first_env(*names: str) -> str:
     for name in names:
-        value = os.environ.get(name, "").strip()
+        value = env_value(name)
         if value:
             return value
     return ""

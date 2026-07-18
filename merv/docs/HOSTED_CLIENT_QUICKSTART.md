@@ -35,11 +35,12 @@ printf '\n'
 unset MERV_API_KEY
 ```
 
-This writes the key to `~/.research_plugin/client.json` with `0600` file
-permissions. The file is local to the OS user, not encrypted, and must never be
+This writes the key to the machine client config (`~/.merv/client.json`
+fresh; the legacy `~/.research_plugin/client.json` when that dir exists) with
+`0600` file permissions. The file is local to the OS user, not encrypted, and must never be
 committed or shared. It authenticates every Merv checkout on this machine; the
 folder-to-project links described below remain per checkout. An exported
-`RESEARCH_PLUGIN_API_KEY` overrides the stored key.
+`MERV_API_KEY` overrides the stored key.
 
 Open a new agent session after changing credentials so the MCP process reloads
 them. Browser-session authentication remains available with `"$CLI" login`,
@@ -61,8 +62,8 @@ the local link. A folder already linked to a different project requires
 `overwrite: true` before it can be relinked.
 
 Repeat this for each checkout. The folder-to-project database and machine
-configuration live under `~/.research_plugin/` by default, never in the
-research repo. The proxy sends only the selected project id to the brain; the
+configuration live under `~/.merv/` by default (an existing legacy
+`~/.research_plugin/` keeps winning), never in the research repo. The proxy sends only the selected project id to the brain; the
 checkout path stays local.
 
 An unconfigured proxy uses the hosted brain. To point this machine at another
@@ -74,7 +75,7 @@ brain, write the machine config:
 ```
 
 Use `http://127.0.0.1:8787` only when a localhost brain is running there. An
-explicit `RESEARCH_PLUGIN_CONTROL_URL` in an MCP configuration overrides the
+explicit `MERV_CONTROL_URL` in an MCP configuration overrides the
 machine setting; shipped manifests leave it empty so machine configuration can
 take effect.
 

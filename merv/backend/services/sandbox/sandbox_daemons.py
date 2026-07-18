@@ -7,13 +7,12 @@ provisioner's stale-provision reaper (wedged pre-running rows).
 
 from __future__ import annotations
 
-import os
 import threading
 from datetime import UTC, datetime
 from typing import Any, Callable
 
 from ...sandbox.sandbox_backend import SandboxBackend
-from ...env import env_bool, env_float
+from ...env import env_bool, env_float, env_raw
 from ...ports.sandbox_lifecycle import ProvisionReaper
 from .sandbox_lifecycle import SandboxLifecycle
 from .sandbox_registry import SandboxRegistry
@@ -131,8 +130,8 @@ class SandboxDaemons:
                 pass
 
     def _idle_reap_threshold(self) -> float:
-        raw = os.environ.get("RESEARCH_PLUGIN_SANDBOX_IDLE_SECONDS")
-        if raw is not None and raw.strip() == "":
+        raw = env_raw("MERV_SANDBOX_IDLE_SECONDS")
+        if raw == "":
             return 0.0
         threshold = env_float(
             "RESEARCH_PLUGIN_SANDBOX_IDLE_SECONDS",

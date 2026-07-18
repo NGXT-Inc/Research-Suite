@@ -6,11 +6,11 @@ Exercises the real registry end-to-end against Modal:
   reuse-if-alive -> get -> release -> recreate.
 
 Requires MODAL_TOKEN_ID / MODAL_TOKEN_SECRET (directly or via
-RESEARCH_PLUGIN_MODAL_ENV_FILE). Creates real, billable resources; always
+MERV_MODAL_ENV_FILE). Creates real, billable resources; always
 releases them in a finally block.
 
 Usage:
-  RESEARCH_PLUGIN_MODAL_ENV_FILE=/path/.env \
+  MERV_MODAL_ENV_FILE=/path/.env \
     .venv/bin/python scripts/smoke_modal_sandbox.py [--full-image] [--gpu A100] [--keep]
 
 By default uses a slim image (debian_slim + openssh) so the run is fast and

@@ -415,13 +415,11 @@ class ControlAppTest(unittest.TestCase):
             )
             self.assertEqual(
                 state_factory.call_args.kwargs["db_path"],
-                control_mode.CONTROL_COMPAT_REPO_ROOT
-                / ".research_plugin"
-                / "state.sqlite",
+                control_mode.CONTROL_COMPAT_REPO_ROOT / "state.sqlite",
             )
             self.assertEqual(
                 blob_factory.call_args.kwargs["default_root"],
-                control_mode.CONTROL_COMPAT_REPO_ROOT / ".research_plugin" / "blobs",
+                control_mode.CONTROL_COMPAT_REPO_ROOT / "blobs",
             )
 
     def test_control_server_reads_allowed_origins_from_env(self) -> None:

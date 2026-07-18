@@ -749,7 +749,7 @@ class ResearchPluginHttpApiTest(unittest.TestCase):
         self.assertFalse(ctx["mlflow"]["configured"])
         self.assertNotIn("MLFLOW_TRACKING_URI", ctx["mlflow"]["env"])
         self.assertIn("agents cannot log or browse", ctx["guidance"])
-        self.assertIn("RESEARCH_PLUGIN_MLFLOW_TRACKING_URI", ctx["guidance"])
+        self.assertIn("MERV_MLFLOW_TRACKING_URI", ctx["guidance"])
 
     def test_home_exposes_active_experiments_and_processes(self) -> None:
         project = self.request("POST", "/api/projects", {"name": "Active Work Project"})

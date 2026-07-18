@@ -18,8 +18,8 @@ PLUGIN_DIR="$(cd "$BIN_DIR/.." >/dev/null 2>&1 && pwd)"
 # (fastapi, modal, pydantic, httpx, uvicorn), so we fail loud if no venv is
 # found instead of silently falling through to a system python that may not
 # have them. The user has to set this up once per machine.
-if [[ -n "${RESEARCH_PLUGIN_PYTHON:-}" ]]; then
-  PYTHON_BIN="$RESEARCH_PLUGIN_PYTHON"
+if [[ -n "${MERV_PYTHON:-${RESEARCH_PLUGIN_PYTHON:-}}" ]]; then
+  PYTHON_BIN="${MERV_PYTHON:-$RESEARCH_PLUGIN_PYTHON}"
 elif [[ -n "${CLAUDE_PLUGIN_DATA:-}" && -x "$CLAUDE_PLUGIN_DATA/.venv/bin/python" ]]; then
   PYTHON_BIN="$CLAUDE_PLUGIN_DATA/.venv/bin/python"
 elif [[ -x "$PLUGIN_DIR/.venv/bin/python" ]]; then
@@ -29,7 +29,7 @@ else
 merv-http: no Python interpreter with the backend dependencies found.
 
 Looked for, in order:
-  \$RESEARCH_PLUGIN_PYTHON              (unset)
+  \$MERV_PYTHON                         (unset; legacy \$RESEARCH_PLUGIN_PYTHON)
   \$CLAUDE_PLUGIN_DATA/.venv/bin/python (per-user data dir)
   $PLUGIN_DIR/.venv/bin/python          (in-tree dev venv)
 
@@ -37,7 +37,7 @@ One-time setup:
   python3 -m venv "$PLUGIN_DIR/.venv"
   "$PLUGIN_DIR/.venv/bin/pip" install -r "$PLUGIN_DIR/requirements.txt"
 
-Or point at any other venv with: export RESEARCH_PLUGIN_PYTHON=/path/to/python
+Or point at any other venv with: export MERV_PYTHON=/path/to/python
 EOF
   exit 1
 fi
@@ -53,18 +53,18 @@ export PYTHONPATH="$PLUGIN_DIR${PYTHONPATH:+:$PYTHONPATH}"
 #   4. ${HOME}/.research_plugin/.env               (legacy location)
 #   5. $PLUGIN_DIR/.env                            (dev-only; gitignored)
 # If none exist, providers may fall back to their native auth.
-if [[ -z "${RESEARCH_PLUGIN_LAMBDA_ENV_FILE:-}" \
-  && -z "${RESEARCH_PLUGIN_MODAL_ENV_FILE:-}" \
-  && -z "${RESEARCH_PLUGIN_THUNDER_ENV_FILE:-}" ]]; then
+if [[ -z "${MERV_LAMBDA_ENV_FILE:-${RESEARCH_PLUGIN_LAMBDA_ENV_FILE:-}}" \
+  && -z "${MERV_MODAL_ENV_FILE:-${RESEARCH_PLUGIN_MODAL_ENV_FILE:-}}" \
+  && -z "${MERV_THUNDER_ENV_FILE:-${RESEARCH_PLUGIN_THUNDER_ENV_FILE:-}}" ]]; then
   for candidate in \
     "${CLAUDE_PLUGIN_DATA:-/__unset__}/.env" \
     "${XDG_CONFIG_HOME:-${HOME}/.config}/merv/.env" \
     "${HOME}/.research_plugin/.env" \
     "$PLUGIN_DIR/.env"; do
     if [[ -f "$candidate" ]]; then
-      export RESEARCH_PLUGIN_LAMBDA_ENV_FILE="$candidate"
-      export RESEARCH_PLUGIN_MODAL_ENV_FILE="$candidate"
-      export RESEARCH_PLUGIN_THUNDER_ENV_FILE="$candidate"
+      export MERV_LAMBDA_ENV_FILE="$candidate"
+      export MERV_MODAL_ENV_FILE="$candidate"
+      export MERV_THUNDER_ENV_FILE="$candidate"
       break
     fi
   done

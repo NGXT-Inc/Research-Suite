@@ -699,7 +699,12 @@ class ServiceLayoutTest(unittest.TestCase):
                 )
 
     def test_env_coercion_is_single_sourced(self) -> None:
-        self.assertEqual(_import_module_names(BACKEND_ROOT / "env.py"), {"collections.abc", "os"})
+        # logging is allowed for the one-per-process legacy-env deprecation
+        # warning; the kernel resolver must otherwise stay dependency-free.
+        self.assertEqual(
+            _import_module_names(BACKEND_ROOT / "env.py"),
+            {"collections.abc", "logging", "os"},
+        )
         for path in sorted(BACKEND_ROOT.rglob("*.py")):
             if path.name == "env.py":
                 continue

@@ -36,7 +36,7 @@ from research_plugin_shared.client_config import HOSTED_CONTROL_URL, LOCAL_BRAIN
 
 from . import __version__
 from .local_data_plane import LocalDataPlane, LocalDataPlaneError
-from .project_links import ProjectLinks
+from .project_links import ProjectLinks, default_project_links_path
 
 
 DEFAULT_TIMEOUT_SECONDS = 60.0
@@ -159,7 +159,7 @@ def _brain_not_running_message(*, control_url: str | None) -> str:
         + (f" at {control_url}" if control_url else "")
         + ". Start it with:\n"
         "    merv-http\n"
-        "If it is on another port, set RESEARCH_PLUGIN_CONTROL_URL "
+        "If it is on another port, set MERV_CONTROL_URL "
         "to the brain URL."
     )
 
@@ -608,9 +608,7 @@ class HttpProxyMcpServer:
 
     def _links(self) -> ProjectLinks:
         if self._project_links is None:
-            db_path = self.config.project_links_path or (
-                Path.home() / ".research_plugin" / "project_links.sqlite"
-            )
+            db_path = self.config.project_links_path or default_project_links_path()
             self._project_links = ProjectLinks(db_path=db_path)
         return self._project_links
 
@@ -647,7 +645,7 @@ class HttpProxyMcpServer:
         url = (self.config.control_url or "").strip().rstrip("/")
         if not url:
             raise _UpstreamError(
-                "control_url is required; set RESEARCH_PLUGIN_CONTROL_URL to "
+                "control_url is required; set MERV_CONTROL_URL to "
                 f"the hosted brain ({HOSTED_CONTROL_URL}) or to "
                 f"{LOCAL_BRAIN_URL} for a local brain",
                 error_code="cloud_unreachable",

@@ -8,7 +8,6 @@ at startup.
 
 from __future__ import annotations
 
-import os
 from collections.abc import Mapping
 from enum import Enum
 from pathlib import Path
@@ -23,45 +22,46 @@ from research_plugin_shared.client_config import (
     resolve_client_config_path,
 )
 
+from .env import env_value
 from .utils import ValidationError
 
 if TYPE_CHECKING:  # the store import stays lazy at runtime (see build_state_store)
     from .state import BaseStateStore
 
 
-MODE_ENV_VAR = "RESEARCH_PLUGIN_MODE"
+MODE_ENV_VAR = "MERV_MODE"
 
 # Record-store selection. Absent means the SQLite default used by the local
 # preset. A postgres:// or postgresql:// URL selects the hosted Postgres dialect.
-DB_URL_ENV_VAR = "RESEARCH_PLUGIN_DB_URL"
+DB_URL_ENV_VAR = "MERV_DB_URL"
 
 # Split-transport config. The MCP proxy sends local data-plane submissions to
 # CONTROL_URL. The brain never dials a user machine. The blob bucket/dir
 # selects the BlobStore impl per mode.
-BLOB_DIR_ENV_VAR = "RESEARCH_PLUGIN_BLOB_DIR"
-BLOB_BUCKET_ENV_VAR = "RESEARCH_PLUGIN_BLOB_BUCKET"
-STORAGE_PROVIDER_ENV_VAR = "RESEARCH_PLUGIN_STORAGE_PROVIDER"
-STORAGE_BUCKET_ENV_VAR = "RESEARCH_PLUGIN_STORAGE_BUCKET"
-STORAGE_ENDPOINT_URL_ENV_VAR = "RESEARCH_PLUGIN_STORAGE_ENDPOINT_URL"
-STORAGE_REGION_ENV_VAR = "RESEARCH_PLUGIN_STORAGE_REGION"
-STORAGE_ACCESS_KEY_ID_ENV_VAR = "RESEARCH_PLUGIN_STORAGE_ACCESS_KEY_ID"
-STORAGE_SECRET_ACCESS_KEY_ENV_VAR = "RESEARCH_PLUGIN_STORAGE_SECRET_ACCESS_KEY"
-MGMT_KEY_PATH_ENV_VAR = "RESEARCH_PLUGIN_MGMT_KEY_PATH"
-MGMT_PUBLIC_KEY_ENV_VAR = "RESEARCH_PLUGIN_MGMT_PUBLIC_KEY"
-ALLOWED_ORIGINS_ENV_VAR = "RESEARCH_PLUGIN_ALLOWED_ORIGINS"
-CONTROL_RESTRICT_CORS_ENV_VAR = "RESEARCH_PLUGIN_CONTROL_RESTRICT_CORS"
+BLOB_DIR_ENV_VAR = "MERV_BLOB_DIR"
+BLOB_BUCKET_ENV_VAR = "MERV_BLOB_BUCKET"
+STORAGE_PROVIDER_ENV_VAR = "MERV_STORAGE_PROVIDER"
+STORAGE_BUCKET_ENV_VAR = "MERV_STORAGE_BUCKET"
+STORAGE_ENDPOINT_URL_ENV_VAR = "MERV_STORAGE_ENDPOINT_URL"
+STORAGE_REGION_ENV_VAR = "MERV_STORAGE_REGION"
+STORAGE_ACCESS_KEY_ID_ENV_VAR = "MERV_STORAGE_ACCESS_KEY_ID"
+STORAGE_SECRET_ACCESS_KEY_ENV_VAR = "MERV_STORAGE_SECRET_ACCESS_KEY"
+MGMT_KEY_PATH_ENV_VAR = "MERV_MGMT_KEY_PATH"
+MGMT_PUBLIC_KEY_ENV_VAR = "MERV_MGMT_PUBLIC_KEY"
+ALLOWED_ORIGINS_ENV_VAR = "MERV_ALLOWED_ORIGINS"
+CONTROL_RESTRICT_CORS_ENV_VAR = "MERV_CONTROL_RESTRICT_CORS"
 # Where the device-flow sign-in page lives. Unlike a CORS origin this may
 # carry a path (e.g. https://rapidreview.io/merv) for path-mounted UIs.
-UI_BASE_URL_ENV_VAR = "RESEARCH_PLUGIN_UI_BASE_URL"
+UI_BASE_URL_ENV_VAR = "MERV_UI_BASE_URL"
 # MLflow-extension env config (MLFLOW_MODE/TRACKING_URI/SERVER_URI/DASHBOARD)
 # lives in backend/mlflow/config.py — the extension owns its own knobs.
 # The enforcement knob below is composition policy, so it stays here.
-REQUIRE_AGENT_MLFLOW_ENV_VAR = "RESEARCH_PLUGIN_REQUIRE_AGENT_MLFLOW"
-REQUIRE_SANDBOX_BACKEND_ENV_VAR = "RESEARCH_PLUGIN_REQUIRE_SANDBOX_BACKEND"
+REQUIRE_AGENT_MLFLOW_ENV_VAR = "MERV_REQUIRE_AGENT_MLFLOW"
+REQUIRE_SANDBOX_BACKEND_ENV_VAR = "MERV_REQUIRE_SANDBOX_BACKEND"
 # Supabase auth knobs (SUPABASE_URL/JWT_SECRET/...) live in services/auth.py —
 # the extension owns them; this composition knob makes control mode fail fast
 # when they are missing instead of booting an open surface.
-REQUIRE_AUTH_ENV_VAR = "RESEARCH_PLUGIN_REQUIRE_AUTH"
+REQUIRE_AUTH_ENV_VAR = "MERV_REQUIRE_AUTH"
 
 _POSTGRES_URL_PREFIXES = ("postgres://", "postgresql://")
 
@@ -80,13 +80,12 @@ def resolve_mode(env: Mapping[str, str] | None = None) -> Mode:
     topology. Mode-specific fail-fast validation lives in the composition
     roots, not here, so this stays a pure parse.
     """
-    source = env if env is not None else os.environ
-    raw = (source.get(MODE_ENV_VAR) or "").strip().lower() or Mode.LOCAL.value
+    raw = (env_value(MODE_ENV_VAR, env=env) or Mode.LOCAL.value).lower()
     try:
         return Mode(raw)
     except ValueError as exc:
         raise ValidationError(
-            f"unknown RESEARCH_PLUGIN_MODE: {raw!r} "
+            f"unknown {MODE_ENV_VAR}: {raw!r} "
             "(expected 'local' or 'control')",
             details={"mode": raw},
         ) from exc
@@ -94,8 +93,7 @@ def resolve_mode(env: Mapping[str, str] | None = None) -> Mode:
 
 def resolve_db_url(env: Mapping[str, str] | None = None) -> str | None:
     """The configured record-store URL, or None for the SQLite path default."""
-    source = env if env is not None else os.environ
-    return (source.get(DB_URL_ENV_VAR) or "").strip() or None
+    return env_value(DB_URL_ENV_VAR, env=env)
 
 
 def resolve_daemon_state_dir(env: Mapping[str, str] | None = None) -> Path:
@@ -104,8 +102,7 @@ def resolve_daemon_state_dir(env: Mapping[str, str] | None = None) -> Path:
     This is not a research repo. The name is retained because existing client
     configs store repo→project links under ``daemon_state_dir``.
     """
-    source = env if env is not None else os.environ
-    raw = (source.get(DAEMON_STATE_DIR_ENV_VAR) or "").strip()
+    raw = env_value(DAEMON_STATE_DIR_ENV_VAR, env=env) or ""
     if raw:
         return Path(raw).expanduser()
     config = read_client_config(env)
@@ -117,21 +114,18 @@ def resolve_daemon_state_dir(env: Mapping[str, str] | None = None) -> Path:
 
 def resolve_control_url(env: Mapping[str, str] | None = None) -> str | None:
     """The configured brain URL (hosted or localhost), or None."""
-    source = env if env is not None else os.environ
-    raw = (source.get(CONTROL_URL_ENV_VAR) or "").strip()
+    raw = env_value(CONTROL_URL_ENV_VAR, env=env) or ""
     if not raw:
         raw = read_client_config(env).get("control_url", "")
     return raw.rstrip("/") or None
 
 
 def resolve_blob_dir(env: Mapping[str, str] | None = None) -> str | None:
-    source = env if env is not None else os.environ
-    return (source.get(BLOB_DIR_ENV_VAR) or "").strip() or None
+    return env_value(BLOB_DIR_ENV_VAR, env=env)
 
 
 def resolve_blob_bucket(env: Mapping[str, str] | None = None) -> str | None:
-    source = env if env is not None else os.environ
-    return (source.get(BLOB_BUCKET_ENV_VAR) or "").strip() or None
+    return env_value(BLOB_BUCKET_ENV_VAR, env=env)
 
 
 def storage_feature_enabled(env: Mapping[str, str] | None = None) -> bool:
@@ -139,8 +133,7 @@ def storage_feature_enabled(env: Mapping[str, str] | None = None) -> bool:
 
 
 def resolve_storage_provider(env: Mapping[str, str] | None = None) -> str | None:
-    source = env if env is not None else os.environ
-    raw = (source.get(STORAGE_PROVIDER_ENV_VAR) or "").strip().lower()
+    raw = (env_value(STORAGE_PROVIDER_ENV_VAR, env=env) or "").lower()
     if not raw:
         return None
     if raw != "s3":
@@ -153,54 +146,42 @@ def resolve_storage_provider(env: Mapping[str, str] | None = None) -> str | None
 
 
 def resolve_storage_bucket(env: Mapping[str, str] | None = None) -> str | None:
-    source = env if env is not None else os.environ
-    return (source.get(STORAGE_BUCKET_ENV_VAR) or "").strip() or None
+    return env_value(STORAGE_BUCKET_ENV_VAR, env=env)
 
 
 def resolve_storage_endpoint_url(env: Mapping[str, str] | None = None) -> str | None:
-    source = env if env is not None else os.environ
-    return (source.get(STORAGE_ENDPOINT_URL_ENV_VAR) or "").strip() or None
+    return env_value(STORAGE_ENDPOINT_URL_ENV_VAR, env=env)
 
 
 def resolve_storage_region(env: Mapping[str, str] | None = None) -> str | None:
-    source = env if env is not None else os.environ
-    return (source.get(STORAGE_REGION_ENV_VAR) or "").strip() or None
+    return env_value(STORAGE_REGION_ENV_VAR, env=env)
 
 
 def resolve_storage_access_key_id(env: Mapping[str, str] | None = None) -> str | None:
-    source = env if env is not None else os.environ
-    return (
-        (source.get(STORAGE_ACCESS_KEY_ID_ENV_VAR) or "").strip()
-        or (source.get("AWS_ACCESS_KEY_ID") or "").strip()
-        or None
+    return env_value(STORAGE_ACCESS_KEY_ID_ENV_VAR, env=env) or env_value(
+        "AWS_ACCESS_KEY_ID", env=env
     )
 
 
 def resolve_storage_secret_access_key(
     env: Mapping[str, str] | None = None,
 ) -> str | None:
-    source = env if env is not None else os.environ
-    return (
-        (source.get(STORAGE_SECRET_ACCESS_KEY_ENV_VAR) or "").strip()
-        or (source.get("AWS_SECRET_ACCESS_KEY") or "").strip()
-        or None
+    return env_value(STORAGE_SECRET_ACCESS_KEY_ENV_VAR, env=env) or env_value(
+        "AWS_SECRET_ACCESS_KEY", env=env
     )
 
 
 def resolve_mgmt_key_path(env: Mapping[str, str] | None = None) -> str | None:
-    source = env if env is not None else os.environ
-    return (source.get(MGMT_KEY_PATH_ENV_VAR) or "").strip() or None
+    return env_value(MGMT_KEY_PATH_ENV_VAR, env=env)
 
 
 def resolve_mgmt_public_key(env: Mapping[str, str] | None = None) -> str | None:
-    source = env if env is not None else os.environ
-    return (source.get(MGMT_PUBLIC_KEY_ENV_VAR) or "").strip() or None
+    return env_value(MGMT_PUBLIC_KEY_ENV_VAR, env=env)
 
 
 def resolve_allowed_origins(env: Mapping[str, str] | None = None) -> list[str]:
     """Hosted-control CORS allowlist from a comma-separated env var."""
-    source = env if env is not None else os.environ
-    raw = (source.get(ALLOWED_ORIGINS_ENV_VAR) or "").strip()
+    raw = env_value(ALLOWED_ORIGINS_ENV_VAR, env=env) or ""
     if not raw:
         return []
     origins: list[str] = []
@@ -229,8 +210,7 @@ def resolve_allowed_origins(env: Mapping[str, str] | None = None) -> list[str]:
 
 def resolve_ui_base_url(env: Mapping[str, str] | None = None) -> str:
     """Hosted UI base for the sign-in handoff, or "" when unset."""
-    source = env if env is not None else os.environ
-    raw = (source.get(UI_BASE_URL_ENV_VAR) or "").strip().rstrip("/")
+    raw = (env_value(UI_BASE_URL_ENV_VAR, env=env) or "").rstrip("/")
     if not raw:
         return ""
     parsed = urlsplit(raw)

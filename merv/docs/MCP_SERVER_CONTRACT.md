@@ -244,7 +244,7 @@ user. The agent client constructs and runs SSH commands. `sandbox.pull_outputs`
 requires a caller-supplied `key_path` when pulling retained files.
 
 The sandbox workdir is machine-owned, independent of experiment attachment, and
-defaults under `/workspace`; provider-specific `RESEARCH_PLUGIN_*_WORKDIR`
+defaults under `/workspace`; provider-specific `MERV_*_WORKDIR`
 settings can change the root. Files are not synchronized automatically. Pull
 compact outputs into the local experiment folder before resource registration,
 and use durable object storage for heavy files.

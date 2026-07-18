@@ -8,7 +8,7 @@
 #   docker compose -f deploy/docker-compose.yml up --build
 #
 # Then point an MCP proxy at http://localhost:8787
-# (RESEARCH_PLUGIN_CONTROL_URL).
+# (MERV_CONTROL_URL).
 
 services:
   postgres:
@@ -91,7 +91,7 @@ services:
       AWS_SECRET_ACCESS_KEY: rpminio_dev_password
       AWS_DEFAULT_REGION: us-east-1
       AWS_ENDPOINT_URL_S3: http://minio:9000
-      MLFLOW_STATIC_PREFIX: ${RESEARCH_PLUGIN_MLFLOW_STATIC_PREFIX:-}
+      MLFLOW_STATIC_PREFIX: ${MERV_MLFLOW_STATIC_PREFIX:-${RESEARCH_PLUGIN_MLFLOW_STATIC_PREFIX:-}}
     entrypoint:
       - /bin/sh
       - -c
@@ -129,7 +129,7 @@ services:
     # gives `environment` precedence over `env_file`, which would silently
     # erase valid secrets supplied by a production override.
     env_file:
-      - ${RESEARCH_PLUGIN_PROVIDER_ENV_FILE:-/dev/null}
+      - ${MERV_PROVIDER_ENV_FILE:-${RESEARCH_PLUGIN_PROVIDER_ENV_FILE:-/dev/null}}
     depends_on:
       postgres:
         condition: service_healthy
@@ -140,46 +140,46 @@ services:
       mlflow:
         condition: service_started
     environment:
-      RESEARCH_PLUGIN_MODE: control
-      RESEARCH_PLUGIN_HTTP_HOST: 0.0.0.0
-      RESEARCH_PLUGIN_HTTP_PORT: 8787
+      MERV_MODE: control
+      MERV_HTTP_HOST: 0.0.0.0
+      MERV_HTTP_PORT: 8787
       # Browser origins allowed by CORS: the hosted UI (Vercel) + the control
-      # plane's own host + local dev. Override with RESEARCH_PLUGIN_ALLOWED_ORIGINS
+      # plane's own host + local dev. Override with MERV_ALLOWED_ORIGINS
       # in the environment if a deployment needs a different set.
-      RESEARCH_PLUGIN_ALLOWED_ORIGINS: ${RESEARCH_PLUGIN_ALLOWED_ORIGINS:-https://experiments.rapidreview.io,https://research-suite-chi.vercel.app,http://localhost:5173,http://127.0.0.1:5173,http://localhost:3000,http://127.0.0.1:3000}
+      MERV_ALLOWED_ORIGINS: ${MERV_ALLOWED_ORIGINS:-${RESEARCH_PLUGIN_ALLOWED_ORIGINS:-https://experiments.rapidreview.io,https://research-suite-chi.vercel.app,http://localhost:5173,http://127.0.0.1:5173,http://localhost:3000,http://127.0.0.1:3000}}
       # UI base for the merv-client login handoff; may carry a path (/merv).
-      RESEARCH_PLUGIN_UI_BASE_URL: ${RESEARCH_PLUGIN_UI_BASE_URL:-}
+      MERV_UI_BASE_URL: ${MERV_UI_BASE_URL:-${RESEARCH_PLUGIN_UI_BASE_URL:-}}
       # Record store: the Postgres dialect.
-      RESEARCH_PLUGIN_DB_URL: postgresql://rp:rp_dev_password@postgres:5432/research_plugin
+      MERV_DB_URL: postgresql://rp:rp_dev_password@postgres:5432/research_plugin
       # Submitted-byte blob store: the S3-shape bucket on MinIO. boto3
       # reads these standard AWS env vars; the endpoint URL points it at MinIO.
-      RESEARCH_PLUGIN_BLOB_BUCKET: merv-blobs
+      MERV_BLOB_BUCKET: merv-blobs
       # Heavy-file storage: optional feature, enabled here through the same
       # S3-compatible path used for R2/S3 production deployments.
-      RESEARCH_PLUGIN_STORAGE_PROVIDER: s3
-      RESEARCH_PLUGIN_STORAGE_BUCKET: merv-storage
-      RESEARCH_PLUGIN_STORAGE_ENDPOINT_URL: ${RESEARCH_PLUGIN_STORAGE_ENDPOINT_URL:-http://minio:9000}
-      RESEARCH_PLUGIN_STORAGE_REGION: ${RESEARCH_PLUGIN_STORAGE_REGION:-us-east-1}
+      MERV_STORAGE_PROVIDER: s3
+      MERV_STORAGE_BUCKET: merv-storage
+      MERV_STORAGE_ENDPOINT_URL: ${MERV_STORAGE_ENDPOINT_URL:-${RESEARCH_PLUGIN_STORAGE_ENDPOINT_URL:-http://minio:9000}}
+      MERV_STORAGE_REGION: ${MERV_STORAGE_REGION:-${RESEARCH_PLUGIN_STORAGE_REGION:-us-east-1}}
       # Centralized MLflow: tracking/dashboard URLs are reported to agents.
       # Override the tracking URI to the public HTTPS host for remote sandboxes.
-      RESEARCH_PLUGIN_MLFLOW_MODE: external
-      RESEARCH_PLUGIN_MLFLOW_TRACKING_URI: ${RESEARCH_PLUGIN_MLFLOW_TRACKING_URI:-}
-      RESEARCH_PLUGIN_MLFLOW_SERVER_URI: ${RESEARCH_PLUGIN_MLFLOW_SERVER_URI:-http://mlflow:5000}
-      RESEARCH_PLUGIN_MLFLOW_DASHBOARD_URL: ${RESEARCH_PLUGIN_MLFLOW_DASHBOARD_URL:-}
+      MERV_MLFLOW_MODE: external
+      MERV_MLFLOW_TRACKING_URI: ${MERV_MLFLOW_TRACKING_URI:-${RESEARCH_PLUGIN_MLFLOW_TRACKING_URI:-}}
+      MERV_MLFLOW_SERVER_URI: ${MERV_MLFLOW_SERVER_URI:-${RESEARCH_PLUGIN_MLFLOW_SERVER_URI:-http://mlflow:5000}}
+      MERV_MLFLOW_DASHBOARD_URL: ${MERV_MLFLOW_DASHBOARD_URL:-${RESEARCH_PLUGIN_MLFLOW_DASHBOARD_URL:-}}
       # Hosted deployments can opt into fail-fast startup if the control plane
       # would otherwise give agents no run-reachable MLFLOW_TRACKING_URI.
-      RESEARCH_PLUGIN_REQUIRE_AGENT_MLFLOW: ${RESEARCH_PLUGIN_REQUIRE_AGENT_MLFLOW:-0}
+      MERV_REQUIRE_AGENT_MLFLOW: ${MERV_REQUIRE_AGENT_MLFLOW:-${RESEARCH_PLUGIN_REQUIRE_AGENT_MLFLOW:-0}}
       # Dev-only mounted management key from the mgmtkey one-shot above.
-      RESEARCH_PLUGIN_MGMT_KEY_PATH: /run/secrets/research_plugin_mgmt_key/key
+      MERV_MGMT_KEY_PATH: /run/secrets/research_plugin_mgmt_key/key
       AWS_ACCESS_KEY_ID: rpminio
       AWS_SECRET_ACCESS_KEY: rpminio_dev_password
       AWS_DEFAULT_REGION: us-east-1
       AWS_ENDPOINT_URL_S3: ${AWS_ENDPOINT_URL_S3:-http://minio:9000}
-      # Provider creds come from RESEARCH_PLUGIN_PROVIDER_ENV_FILE or an
+      # Provider creds come from MERV_PROVIDER_ENV_FILE or an
       # override service's env_file ONLY in control mode (.env discovery is
       # disabled). Leave the file unset for a record-only dev stack.
-      RESEARCH_PLUGIN_EXECUTION_BACKEND: ${RESEARCH_PLUGIN_EXECUTION_BACKEND:-lambda_labs}
-      RESEARCH_PLUGIN_REQUIRE_SANDBOX_BACKEND: ${RESEARCH_PLUGIN_REQUIRE_SANDBOX_BACKEND:-0}
+      MERV_EXECUTION_BACKEND: ${MERV_EXECUTION_BACKEND:-${RESEARCH_PLUGIN_EXECUTION_BACKEND:-lambda_labs}}
+      MERV_REQUIRE_SANDBOX_BACKEND: ${MERV_REQUIRE_SANDBOX_BACKEND:-${RESEARCH_PLUGIN_REQUIRE_SANDBOX_BACKEND:-0}}
     ports:
       - "8787:8787"
     volumes:

@@ -37,7 +37,7 @@ Done. Register the MCP server in your research repo's opencode.json
       "command": ["$PLUGIN_DIR/bin/merv-mcp"],
       "enabled": true,
       "environment": {
-        "RESEARCH_PLUGIN_CONTROL_URL": ""
+        "MERV_CONTROL_URL": ""
       }
     }
   }

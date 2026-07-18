@@ -151,7 +151,7 @@ class ModalConfigEnvParsingTest(unittest.TestCase):
         ):
             with self.assertRaisesRegex(
                 BackendValidationError,
-                "RESEARCH_PLUGIN_MODAL_JOB_TIMEOUT must be an integer",
+                "MERV_MODAL_JOB_TIMEOUT must be an integer",
             ):
                 ModalConfig.from_env()
 

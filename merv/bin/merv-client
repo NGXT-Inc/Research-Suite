@@ -15,8 +15,8 @@ done
 BIN_DIR="$(cd -P "$(dirname "$SOURCE")" >/dev/null 2>&1 && pwd)"
 PLUGIN_DIR="$(cd "$BIN_DIR/.." >/dev/null 2>&1 && pwd)"
 
-if [[ -n "${RESEARCH_PLUGIN_PYTHON:-}" ]]; then
-  PYTHON_BIN="$RESEARCH_PLUGIN_PYTHON"
+if [[ -n "${MERV_PYTHON:-${RESEARCH_PLUGIN_PYTHON:-}}" ]]; then
+  PYTHON_BIN="${MERV_PYTHON:-$RESEARCH_PLUGIN_PYTHON}"
 elif [[ -n "${CLAUDE_PLUGIN_DATA:-}" && -x "$CLAUDE_PLUGIN_DATA/.venv/bin/python" ]]; then
   PYTHON_BIN="$CLAUDE_PLUGIN_DATA/.venv/bin/python"
 elif [[ -x "$PLUGIN_DIR/.venv/bin/python" ]]; then

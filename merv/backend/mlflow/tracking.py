@@ -198,8 +198,8 @@ class CentralMlflowService:
     ) -> dict[str, object]:
         """Best-effort control-plane creation of the initial MLflow run.
 
-        The backend uses ``RESEARCH_PLUGIN_MLFLOW_SERVER_URI`` for this write.
-        Agents still need ``RESEARCH_PLUGIN_MLFLOW_TRACKING_URI`` to resume the
+        The backend uses ``MERV_MLFLOW_SERVER_URI`` for this write.
+        Agents still need ``MERV_MLFLOW_TRACKING_URI`` to resume the
         returned run id from their execution location, so both endpoints are
         required before the plugin creates a run.
         """
@@ -217,7 +217,7 @@ class CentralMlflowService:
             return result
         if not self._control_uri:
             result["note"] = (
-                "MLflow run creation requires RESEARCH_PLUGIN_MLFLOW_SERVER_URI "
+                "MLflow run creation requires MERV_MLFLOW_SERVER_URI "
                 "so the control plane can create the run before handing its id "
                 "to the agent."
             )
@@ -324,7 +324,7 @@ class CentralMlflowService:
                 "applied": False,
                 "note": (
                     "MLflow run status update requires "
-                    "RESEARCH_PLUGIN_MLFLOW_SERVER_URI; readback only."
+                    "MERV_MLFLOW_SERVER_URI; readback only."
                 ),
             }
 
@@ -516,7 +516,7 @@ class CentralMlflowService:
         if read_configured and not tracking_configured and not result.get("note"):
             result["note"] = (
                 "Backend MLflow reads are configured, but agents cannot log or "
-                "browse with MLflow APIs until RESEARCH_PLUGIN_MLFLOW_TRACKING_URI "
+                "browse with MLflow APIs until MERV_MLFLOW_TRACKING_URI "
                 "is set to a run-reachable URL."
             )
         if self.server_uri and self.server_uri != self.tracking_uri:
@@ -640,13 +640,13 @@ class CentralMlflowService:
         if self.server_uri:
             return (
                 "Backend MLflow reads are configured through "
-                "RESEARCH_PLUGIN_MLFLOW_SERVER_URI, but agents cannot log or "
-                "browse with MLflow APIs until RESEARCH_PLUGIN_MLFLOW_TRACKING_URI "
+                "MERV_MLFLOW_SERVER_URI, but agents cannot log or "
+                "browse with MLflow APIs until MERV_MLFLOW_TRACKING_URI "
                 "is set to a URL reachable from the run location."
             )
         return (
             self.note
-            or "Centralized MLflow is not configured; set RESEARCH_PLUGIN_MLFLOW_TRACKING_URI."
+            or "Centralized MLflow is not configured; set MERV_MLFLOW_TRACKING_URI."
         )
 
 

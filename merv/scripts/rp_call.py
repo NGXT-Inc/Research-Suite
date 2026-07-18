@@ -9,19 +9,21 @@ stand-in for a client-launched stdio server. Usage:
     rp_call.py schema <tool>              # full input schema for one tool
     rp_call.py call <tool> '<json-args>'  # tools/call, prints the result JSON
 
-Env: RESEARCH_PLUGIN_REPO_ROOT picks the project working dir (defaults to CWD).
-RESEARCH_PLUGIN_CONTROL_URL overrides the machine brain URL stored in
-~/.research_plugin/client.json; an unconfigured machine uses the hosted brain.
+Env: MERV_REPO_ROOT picks the project working dir (defaults to CWD).
+MERV_CONTROL_URL overrides the machine brain URL stored in
+the machine client config (~/.merv/client.json, or the legacy
+~/.research_plugin/client.json when that dir exists); an unconfigured machine
+uses the hosted brain.
 """
 from __future__ import annotations
 
 import json
-import os
 import sys
 from pathlib import Path
 
 from research_plugin_shared.client_config import (
     CLIENT_CONFIG_ENV_VAR,
+    dual_env_value,
     read_client_config,
     resolve_client_config_path,
 )
@@ -30,11 +32,11 @@ from mcp_server.proxy import DEFAULT_CONTROL_URL, HttpProxyMcpServer, ProxyConfi
 
 
 def _build_server() -> HttpProxyMcpServer:
-    repo_root = Path(os.environ.get("RESEARCH_PLUGIN_REPO_ROOT", ".")).resolve()
+    repo_root = Path(dual_env_value("MERV_REPO_ROOT") or ".").resolve()
     cfg_path = resolve_client_config_path()
     cc = read_client_config({CLIENT_CONFIG_ENV_VAR: str(cfg_path)})
     control_url = (
-        os.environ.get("RESEARCH_PLUGIN_CONTROL_URL") or cc.get("control_url", "")
+        dual_env_value("MERV_CONTROL_URL") or cc.get("control_url", "")
     ).rstrip("/") or DEFAULT_CONTROL_URL
     cfg = ProxyConfig(
         repo_root=repo_root,

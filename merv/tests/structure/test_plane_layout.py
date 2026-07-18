@@ -850,10 +850,14 @@ class ProxyStdlibOnlyTest(unittest.TestCase):
         plugin_root = BACKEND_ROOT.parent
         mcp_root = plugin_root / "mcp_server"
         shared_root = plugin_root / "research_plugin_shared"
-        own = {p.stem for p in mcp_root.glob("*.py")} | {
-            "mcp_server",
-            "research_plugin_shared",
-        }
+        own = (
+            {p.stem for p in mcp_root.glob("*.py")}
+            | {p.stem for p in shared_root.glob("*.py")}
+            | {
+                "mcp_server",
+                "research_plugin_shared",
+            }
+        )
         allowed = set(sys.stdlib_module_names) | own | {"__future__"}
         for path in sorted([*mcp_root.glob("*.py"), *shared_root.glob("*.py")]):
             with self.subTest(module=path.name):

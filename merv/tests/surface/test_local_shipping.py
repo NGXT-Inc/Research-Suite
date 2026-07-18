@@ -47,9 +47,17 @@ class LocalShippingTest(unittest.TestCase):
 
     def _clean_env(self) -> dict[str, str]:
         env = os.environ.copy()
-        env.pop("RESEARCH_PLUGIN_REPO_ROOT", None)
-        env.pop("RESEARCH_PLUGIN_CONTROL_URL", None)
-        env.pop("RESEARCH_PLUGIN_DAEMON_SECRET_FILE", None)
+        for name in (
+            "MERV_REPO_ROOT",
+            "RESEARCH_PLUGIN_REPO_ROOT",
+            "MERV_CONTROL_URL",
+            "RESEARCH_PLUGIN_CONTROL_URL",
+            "MERV_CLIENT_CONFIG",
+            "RESEARCH_PLUGIN_DAEMON_SECRET_FILE",
+        ):
+            env.pop(name, None)
+        # Deliberately the LEGACY spellings: this suite doubles as the
+        # end-to-end proof that RESEARCH_PLUGIN_* input still works.
         env["RESEARCH_PLUGIN_CLIENT_CONFIG"] = str(self.root / "isolated-client.json")
         env["RESEARCH_PLUGIN_PYTHON"] = sys.executable
         return env
@@ -172,7 +180,10 @@ class LocalShippingTest(unittest.TestCase):
         )
 
         self.assertEqual(completed["status"], "complete")
-        self.assertTrue((self.root / "brain" / ".research_plugin" / "state.sqlite").exists())
+        # Fresh brain roots are de-nested: state.sqlite sits directly in the
+        # staging dir (legacy nested layouts keep their paths — brain_dirs).
+        self.assertTrue((self.root / "brain" / "state.sqlite").exists())
+        self.assertFalse((self.root / "brain" / ".research_plugin").exists())
         self.assertTrue((self.root / "project_links.sqlite").exists())
         for state_dir in PROJECT_STATE_DIR_NAMES:
             self.assertFalse((self.install_dir / state_dir).exists())
@@ -245,7 +256,7 @@ class LocalShippingTest(unittest.TestCase):
         # Shipped manifests must not pin a brain URL: an empty value keeps the
         # machine config from `merv-client configure` in charge,
         # with the hosted brain as the built-in fallback.
-        self.assertEqual(env["RESEARCH_PLUGIN_CONTROL_URL"], "")
+        self.assertEqual(env["MERV_CONTROL_URL"], "")
 
     def test_http_launcher_rejects_explicit_repo(self) -> None:
         proc = subprocess.run(

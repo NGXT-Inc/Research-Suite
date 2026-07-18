@@ -177,7 +177,7 @@ def _target(**overrides: Any) -> dict[str, Any]:
         "project_overview": _Unused(),
         "claims": _Unused(),
         "experiments": _Unused(),
-        "reflections": _Unused(),
+        "reflection_tools": _Unused(),
         "resources": _Unused(),
         "storage": None,
         "reviews": _Unused(),

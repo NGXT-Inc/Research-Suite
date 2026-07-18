@@ -17,6 +17,7 @@ from typing import Any
 
 from research_plugin_shared.client_config import (
     CLIENT_CONFIG_ENV_VAR,
+    CONTROL_URL_ENV_VAR,
     DAEMON_STATE_DIR_ENV_VAR,
     HOSTED_CONTROL_URL,
     LOCAL_BRAIN_URL,
@@ -46,7 +47,10 @@ def _parser() -> argparse.ArgumentParser:
     )
     parser.add_argument(
         "--config",
-        help="Machine client config path (default: ~/.research_plugin/client.json).",
+        help=(
+            "Machine client config path (default: ~/.merv/client.json, or the "
+            "legacy ~/.research_plugin/client.json when that dir exists)."
+        ),
     )
     sub = parser.add_subparsers(dest="command", required=True)
 
@@ -279,8 +283,8 @@ def _cmd_mcp_env(args: argparse.Namespace) -> int:
     config = _ensure_default_config(config_path)
     repo = _repo(args.repo)
     env = {
-        "RESEARCH_PLUGIN_REPO_ROOT": str(repo),
-        "RESEARCH_PLUGIN_CONTROL_URL": config["control_url"],
+        "MERV_REPO_ROOT": str(repo),
+        CONTROL_URL_ENV_VAR: config["control_url"],
         DAEMON_STATE_DIR_ENV_VAR: config["daemon_state_dir"],
         CLIENT_CONFIG_ENV_VAR: str(config_path),
     }

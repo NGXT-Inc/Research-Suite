@@ -70,7 +70,7 @@ def start_server(
     activity_stderr: bool,
 ) -> subprocess.Popen:
     env = os.environ.copy()
-    env["RESEARCH_PLUGIN_REGISTRY_STORE"] = str(registry_store_path)
+    env["MERV_REGISTRY_STORE"] = str(registry_store_path)
     env.setdefault("PYTHONDONTWRITEBYTECODE", "1")
     # PYTHONPATH and python interpreter are set by bin/merv-http.
     launcher = plugin_root / "bin" / "merv-http"
@@ -105,11 +105,12 @@ def main() -> int:
     parser.add_argument("--port", type=int, default=8787)
     parser.add_argument(
         "--registry-store",
-        default=os.environ.get(
-            "RESEARCH_PLUGIN_REGISTRY_STORE",
-            str(Path.home() / ".research_plugin" / "registry.sqlite"),
+        default=os.environ.get("MERV_REGISTRY_STORE")
+        or os.environ.get("RESEARCH_PLUGIN_REGISTRY_STORE"),
+        help=(
+            "Global registry DB for shared multi-project mode; unset resolves "
+            "next to the brain staging root (~/.merv, legacy-aware)."
         ),
-        help="Global registry DB for shared multi-project mode.",
     )
     parser.add_argument(
         "--activity-stderr",
@@ -123,7 +124,17 @@ def main() -> int:
     args = parser.parse_args()
 
     plugin_root = Path(__file__).resolve().parents[1]
-    registry_store_path = Path(args.registry_store).expanduser().resolve()
+    if args.registry_store:
+        registry_store_path = Path(args.registry_store).expanduser().resolve()
+    else:
+        # Match the brain's own resolution: <staging-parent>/registry.sqlite
+        # so the child's `<registry>.parent / "brain"` lands on the same root.
+        sys.path.insert(0, str(plugin_root))
+        from backend.composition.brain_dirs import resolve_local_brain_staging
+
+        registry_store_path = (
+            resolve_local_brain_staging().parent / "registry.sqlite"
+        ).expanduser().resolve()
     watch_root = plugin_root / "backend"
 
     print(f"Watching {watch_root}")

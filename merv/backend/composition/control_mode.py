@@ -35,9 +35,10 @@ from ..config import (
     resolve_mgmt_public_key,
     resolve_ui_base_url,
 )
+from .brain_dirs import resolve_brain_state_root, resolve_local_brain_staging
 from ..control.control_app import ControlApp
 from ..control.control_runtime import ControlTaskChannel
-from ..env import env_bool
+from ..env import env_bool, env_value
 from ..execution import build_sandbox_backend
 from ..transport.http_api import create_fastapi_app
 from ..transport.http_policy import HttpSurfacePolicy
@@ -56,7 +57,7 @@ from ..utils import ValidationError
 
 
 CONTROL_COMPAT_REPO_ROOT = Path("/var/empty/merv-control")
-LOCAL_BRAIN_STATE_DIR_ENV_VAR = "RESEARCH_PLUGIN_LOCAL_STATE_DIR"
+LOCAL_BRAIN_STATE_DIR_ENV_VAR = "MERV_LOCAL_STATE_DIR"
 LOGGER = logging.getLogger(__name__)
 _UNSET = object()
 
@@ -113,15 +114,18 @@ def build_control_app(
     staging = _control_repo_root(
         repo_root=repo_root, env=env, local_deployment=local_deployment
     )
-    db_path = staging / ".research_plugin" / "state.sqlite"
+    # De-nested for fresh roots; a legacy nested `.research_plugin/` layout
+    # keeps every path verbatim forever (see brain_dirs).
+    state_root = resolve_brain_state_root(staging)
+    db_path = state_root / "state.sqlite"
     store = store if store is not None else build_state_store(db_path=db_path, env=env)
     blobs = (
         blobs
         if blobs is not None
-        else build_blob_store(default_root=staging / ".research_plugin" / "blobs", env=env)
+        else build_blob_store(default_root=state_root / "blobs", env=env)
     )
     if storage is _UNSET:
-        objects = build_object_store(default_root=staging / ".research_plugin", env=env)
+        objects = build_object_store(default_root=state_root, env=env)
         storage = StorageLedgerService(store=store, objects=objects) if objects else None
     task_channel = task_channel if task_channel is not None else ControlTaskChannel()
     if execution_backend is None:
@@ -292,11 +296,10 @@ def _local_brain_root(
 ) -> Path:
     if state_dir is not None:
         return state_dir.expanduser().resolve()
-    source = env if env is not None else None
-    raw = ((source or {}).get(LOCAL_BRAIN_STATE_DIR_ENV_VAR) or "").strip()
+    raw = env_value(LOCAL_BRAIN_STATE_DIR_ENV_VAR, env=env)
     if raw:
         return Path(raw).expanduser().resolve()
-    return Path.home().joinpath(".research_plugin", "brain").expanduser().resolve()
+    return resolve_local_brain_staging().expanduser().resolve()
 
 
 def _control_http_surface(
@@ -321,12 +324,12 @@ def _build_mgmt_key_store(
     local_root: Path | None = None,
 ):
     if local_root is not None:
-        return LocalMgmtKeyStore(root=local_root / ".research_plugin" / "mgmt_keys")
+        return LocalMgmtKeyStore(root=resolve_brain_state_root(local_root) / "mgmt_keys")
     key_path = resolve_mgmt_key_path(env)
     public_key = resolve_mgmt_public_key(env)
     if not key_path:
         raise ValidationError(
-            "RESEARCH_PLUGIN_MGMT_KEY_PATH is required in control mode; "
+            f"{MGMT_KEY_PATH_ENV_VAR} is required in control mode; "
             "mount an externally managed management key"
         )
     return MountedMgmtKeyStore(

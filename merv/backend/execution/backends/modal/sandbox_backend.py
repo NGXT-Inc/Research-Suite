@@ -21,6 +21,7 @@ import threading
 from pathlib import Path, PurePosixPath
 from typing import Any, Callable, Mapping
 
+from backend.env import env_value
 from backend.execution.bootstrap_tools import (
     BASELINE_APT_PACKAGES,
     ML_PYTHON_PACKAGES,
@@ -564,7 +565,7 @@ class ModalSandboxBackend(SandboxBackendBase):
             secrets.append(modal.Secret.from_local_environ(keys))
         # MLflow credential pair for the authenticated hosted /mlflow route;
         # the brain env holds only the namespaced key, so map it explicitly.
-        agent_key = os.environ.get("RESEARCH_PLUGIN_MLFLOW_AGENT_KEY", "")
+        agent_key = env_value("MERV_MLFLOW_AGENT_KEY") or ""
         if agent_key:
             secrets.append(
                 modal.Secret.from_dict(
