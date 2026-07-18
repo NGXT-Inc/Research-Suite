@@ -87,6 +87,10 @@ def _build_named_backend(
         from .backends.voltage_park import build_voltage_park_sandbox_backend
 
         return build_voltage_park_sandbox_backend(repo_root=repo_root)
+    if name == "tensordock":
+        from .backends.tensordock import build_tensordock_sandbox_backend
+
+        return build_tensordock_sandbox_backend(repo_root=repo_root)
     raise BackendUnavailableError(f"unknown execution backend: {name}")
 
 
