@@ -102,7 +102,7 @@ class VmSshSandboxBackend(SandboxBackendBase):
         ssh_user: str = "",  # noqa: ARG002 — the management channel uses its own principal, not the row data-plane ssh_user
         key_path: str = "",
     ) -> list[dict[str, Any]] | None:
-        """List rp_run receipts under workdir/.runs over the management channel.
+        """List merv_run receipts under workdir/.runs over the management channel.
 
         Same principal and never-raises contract as sample_metrics: [] means
         the box answered with no runs, None means the box did not answer.
@@ -135,7 +135,7 @@ class VmSshSandboxBackend(SandboxBackendBase):
     ) -> bool:
         """Deliver provider credentials post-boot over the management channel.
 
-        Writes ``/opt/rp/secrets.env`` (sourced by rec.sh) as ``export NAME=...``
+        Writes ``/opt/merv/secrets.env`` (sourced by rec.sh) as ``export NAME=...``
         lines over SSH stdin, replacing the cleartext-in-user_data embed (plan
         Phase 9, risk 16). Best-effort: returns False on any failure and never
         raises — provisioning must not fail because a token write was flaky.

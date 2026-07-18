@@ -210,7 +210,7 @@ class BootstrapContentTest(unittest.TestCase):
             public_key=self.USER_KEY,
             experiment_id="exp1",
             workdir="/workspace/exp1",
-            sessions_dir="/workspace/.research_plugin_sessions/exp1",
+            sessions_dir="/workspace/.merv_sessions/exp1",
             sandbox_data_dir="/workspace/data",
             management_public_key=management_public_key,
         )
@@ -234,20 +234,20 @@ class BootstrapContentTest(unittest.TestCase):
         # END of the main sshd_config — a Match opened in sshd_config.d would
         # swallow the distro directives after the Include point.
         self.assertIn(f"Match User {MGMT_SSH_USER}", user_data)
-        self.assertIn("ForceCommand /opt/rp/mgmt_exec.sh", user_data)
-        self.assertIn("cat >> /etc/ssh/sshd_config <<'RP_SSHD_MATCH'", user_data)
-        self.assertIn("ForceCommand /opt/rp/rec.sh", user_data)
+        self.assertIn("ForceCommand /opt/merv/mgmt_exec.sh", user_data)
+        self.assertIn("cat >> /etc/ssh/sshd_config <<'MERV_SSHD_MATCH'", user_data)
+        self.assertIn("ForceCommand /opt/merv/rec.sh", user_data)
         # The Match block lands before the sshd restart, so the exemption is
         # live the moment the daemon reads anything.
         self.assertLess(
-            user_data.index("RP_SSHD_MATCH"), user_data.index("systemctl restart ssh")
+            user_data.index("MERV_SSHD_MATCH"), user_data.index("systemctl restart ssh")
         )
 
     def test_lambda_user_data_without_mgmt_key_keeps_legacy_shape(self) -> None:
         user_data = self._user_data()
         self.assertNotIn(MGMT_SSH_USER, user_data)
         self.assertNotIn("Match User", user_data)
-        self.assertIn("ForceCommand /opt/rp/rec.sh", user_data)
+        self.assertIn("ForceCommand /opt/merv/rec.sh", user_data)
 
     def test_user_data_never_embeds_private_key_material(self) -> None:
         user_data = self._user_data(management_public_key=self.MGMT_KEY)

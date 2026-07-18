@@ -419,8 +419,8 @@ CREATE TABLE IF NOT EXISTS sandbox_attachments (
   FOREIGN KEY(sandbox_uid) REFERENCES sandboxes(sandbox_uid)
 );
 
--- rp_run receipts observed on the box (July 2026). The sandbox filesystem is
--- the registry — .runs/<label>/ sentinel files written by the rp_run wrapper —
+-- merv_run receipts observed on the box (July 2026). The sandbox filesystem is
+-- the registry — .runs/<label>/ sentinel files written by the merv_run wrapper —
 -- and this table is the brain's reconciled mirror of it, so run status
 -- outlives both the agent session and the sandbox. finished_event_emitted
 -- makes the run.finished event exactly-once across daemon restarts (flag and

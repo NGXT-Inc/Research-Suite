@@ -58,7 +58,7 @@ def _folder_contract_note(
             "through the storage tools. "
         )
     return (
-        f"The sandbox {folder_label} is {remote_dir} ($RP_EXPERIMENT_DIR). "
+        f"The sandbox {folder_label} is {remote_dir} ($MERV_EXPERIMENT_DIR). "
         "Work in it over SSH — scripts, results, report.md, graph.json. "
         "This sandbox is an EPHEMERAL SSH window: nothing is copied for you, and "
         "when it is released or reaped the VM and everything on it is destroyed. "
@@ -227,13 +227,13 @@ def merge_agent_view(
         if attached_to_experiment:
             output_note = (
                 "Save selected plot images or compact result tables under "
-                "$RP_EXPERIMENT_DIR (e.g. figures/*.png, results/*.json/csv) "
+                "$MERV_EXPERIMENT_DIR (e.g. figures/*.png, results/*.json/csv) "
                 "so sandbox.pull_outputs can bring them off and report.md can "
                 "reference them. "
             )
         else:
             output_note = (
-                "Save selected outputs under $RP_EXPERIMENT_DIR so "
+                "Save selected outputs under $MERV_EXPERIMENT_DIR so "
                 "sandbox.pull_outputs can bring them off before release. "
             )
         if command:
@@ -254,7 +254,7 @@ def merge_agent_view(
         view["hint"] = (
             connection_note
             + "Commands should work inside the sandbox work folder. Use "
-            "`rp_run <label> -- <command>` for long jobs, then inspect "
+            "`merv_run <label> -- <command>` for long jobs, then inspect "
             "sandbox.runs rather than assuming a dropped SSH connection stopped "
             "the job. "
             + _folder_contract_note(

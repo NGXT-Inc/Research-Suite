@@ -80,7 +80,7 @@ rp_drain() {
   fi
 }
 command -v tmux >/dev/null 2>&1 || rp_exec_attached
-RUNS_DIR="${RP_SANDBOX_DATA_DIR:-/workspace/data}/.rp_runs"
+RUNS_DIR="${RP_SANDBOX_DATA_DIR:-/workspace/data}/.merv_runs"
 RUN_ID="rp_$(date +%s)_$$"
 RUN_DIR="$RUNS_DIR/$RUN_ID"
 mkdir -p "$RUN_DIR" 2>/dev/null || rp_exec_attached
@@ -99,7 +99,7 @@ export -p > "$RUN_DIR/env" 2>/dev/null || : > "$RUN_DIR/env"
 } > "$RUN_DIR/run.sh"
 chmod +x "$RUN_DIR/run.sh" 2>/dev/null || true
 tmux new-session -d -s "$RUN_ID" "bash '$RUN_DIR/run.sh'" 2>/dev/null || rp_exec_attached
-printf '[rp] %s under tmux supervisor: survives SSH disconnect; if this call times out the command is STILL RUNNING - check the transcript before re-running.\n' "$RUN_ID" >&2
+printf '[merv] %s under tmux supervisor: survives SSH disconnect; if this call times out the command is STILL RUNNING - check the transcript before re-running.\n' "$RUN_ID" >&2
 RP_OFFSET=0
 while :; do
   rp_drain
@@ -113,7 +113,7 @@ while :; do
       exit "$(cat "$RUN_DIR/exit_code")"
     fi
     rp_drain
-    printf '[rp] %s: tmux session ended without an exit code (killed or OOM?)\n' "$RUN_ID" >&2
+    printf '[merv] %s: tmux session ended without an exit code (killed or OOM?)\n' "$RUN_ID" >&2
     { printf '[%s] (exit %d)\n' "$(ts)" 137 >> "$LOG"; } 2>/dev/null || true
     exit 137
   fi

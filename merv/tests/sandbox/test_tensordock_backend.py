@@ -158,7 +158,7 @@ class TensorDockAcquireTest(unittest.TestCase):
         self.assertEqual(created["ssh_key"], "ssh-ed25519 AAAA user")
         cloud_init = created["cloud_init"]
         self.assertIn("#!/usr/bin/env bash", cloud_init["write_files"][0]["content"])
-        self.assertEqual(cloud_init["runcmd"], ["bash /opt/rp/bootstrap.sh"])
+        self.assertEqual(cloud_init["runcmd"], ["bash /opt/merv/bootstrap.sh"])
 
     def test_acquire_rejects_malformed_instance_type(self) -> None:
         backend = _backend(FakeTensorDockClient())

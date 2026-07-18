@@ -7,29 +7,31 @@ import shlex
 from typing import Mapping
 
 from .bootstrap_tools import REC_EXEC_CORE
-from .run_receipts import RP_RUN_SCRIPT, rp_run_install_lines
+from .run_receipts import MERV_RUN_SCRIPT, merv_run_install_lines
 
 
-SESSIONS_DIR_NAME = ".research_plugin_sessions"
+SESSIONS_DIR_NAME = ".merv_sessions"
 TRANSCRIPT_FILENAME = "transcript.log"
-MGMT_SSH_USER = "rpmgmt"
+MGMT_SSH_USER = "mervmgmt"
 
 
 REC_SCRIPT = r"""#!/usr/bin/env bash
-[ -f /opt/rp/env ] && . /opt/rp/env
+[ -f /opt/merv/env ] && . /opt/merv/env
 # Credentials (HF_TOKEN, etc.) are NOT baked into user_data (plan Phase 9,
-# risk 16). They are written post-boot to /opt/rp/secrets.env over the
+# risk 16). They are written post-boot to /opt/merv/secrets.env over the
 # management channel and sourced here, so the cleartext token never lives in
 # the provider's user_data blob or its on-disk copy.
-[ -f /opt/rp/secrets.env ] && . /opt/rp/secrets.env
+[ -f /opt/merv/secrets.env ] && . /opt/merv/secrets.env
 RP_EXPERIMENT_ID="${RP_EXPERIMENT_ID:-unknown}"
 RP_WORKDIR="${RP_WORKDIR:-/workspace/$RP_EXPERIMENT_ID}"
-RP_EXPERIMENT_DIR="${RP_EXPERIMENT_DIR:-$RP_WORKDIR}"
+MERV_EXPERIMENT_DIR="${MERV_EXPERIMENT_DIR:-$RP_WORKDIR}"
+# RP_EXPERIMENT_DIR: deprecated one-version twin of MERV_EXPERIMENT_DIR; remove next release.
+RP_EXPERIMENT_DIR="$MERV_EXPERIMENT_DIR"
 RP_SANDBOX_DATA_DIR="${RP_SANDBOX_DATA_DIR:-/workspace/data}"
 RP_DATASET_DIR="${RP_DATASET_DIR:-$RP_SANDBOX_DATA_DIR}"
-RP_SESSION_DIR="${RP_SESSION_DIR:-/workspace/.research_plugin_sessions/$RP_EXPERIMENT_ID}"
-export RP_WORKDIR RP_EXPERIMENT_DIR RP_EXPERIMENT_ID RP_SANDBOX_DATA_DIR RP_DATASET_DIR RP_SESSION_DIR
-mkdir -p "$RP_EXPERIMENT_DIR" "$RP_SANDBOX_DATA_DIR" "$RP_EXPERIMENT_DIR/artifacts_to_keep" "$RP_SESSION_DIR" 2>/dev/null || true
+RP_SESSION_DIR="${RP_SESSION_DIR:-/workspace/.merv_sessions/$RP_EXPERIMENT_ID}"
+export RP_WORKDIR MERV_EXPERIMENT_DIR RP_EXPERIMENT_DIR RP_EXPERIMENT_ID RP_SANDBOX_DATA_DIR RP_DATASET_DIR RP_SESSION_DIR
+mkdir -p "$MERV_EXPERIMENT_DIR" "$RP_SANDBOX_DATA_DIR" "$MERV_EXPERIMENT_DIR/artifacts_to_keep" "$RP_SESSION_DIR" 2>/dev/null || true
 LOG_DIR="$RP_SESSION_DIR"
 LOG="$LOG_DIR/transcript.log"
 mkdir -p "$LOG_DIR" 2>/dev/null || true
@@ -41,23 +43,20 @@ if [ -n "${SSH_ORIGINAL_COMMAND:-}" ]; then
     rsync\ --server*|*"sftp-server"*|internal-sftp*|scp\ -*)
       exec bash -lc "$SSH_ORIGINAL_COMMAND"
       ;;
-    rp-transcript-read:*)
-      exec bash -c "${SSH_ORIGINAL_COMMAND#rp-transcript-read:}"
-      ;;
   esac
   { printf '\n[%s] $ %s\n' "$(ts)" "$SSH_ORIGINAL_COMMAND" >> "$LOG"; } 2>/dev/null || true
-  cd "$RP_EXPERIMENT_DIR" 2>/dev/null || true
+  cd "$MERV_EXPERIMENT_DIR" 2>/dev/null || true
 """ + REC_EXEC_CORE + r"""
 else
   { printf '\n[%s] (interactive shell)\n' "$(ts)" >> "$LOG"; } 2>/dev/null || true
-  cd "$RP_EXPERIMENT_DIR" 2>/dev/null || true
+  cd "$MERV_EXPERIMENT_DIR" 2>/dev/null || true
   exec bash -l
 fi
 """
 
 
 MGMT_EXEC_SCRIPT = r"""#!/usr/bin/env bash
-# research_plugin management channel (generated; plan Phase 5).
+# merv management channel (generated; plan Phase 5).
 exec bash -lc "${SSH_ORIGINAL_COMMAND:-bash -l}"
 """
 
@@ -76,7 +75,7 @@ def build_bootstrap_core(
     """Phase 1 VM bootstrap: workspace, SSH keys, and rec.sh."""
     public_key_b64 = base64.b64encode(public_key.encode("utf-8")).decode("ascii")
     rec_script_b64 = base64.b64encode(REC_SCRIPT.encode("utf-8")).decode("ascii")
-    rp_run_b64 = base64.b64encode(RP_RUN_SCRIPT.encode("utf-8")).decode("ascii")
+    merv_run_b64 = base64.b64encode(MERV_RUN_SCRIPT.encode("utf-8")).decode("ascii")
     env_lines = build_runtime_env(
         experiment_id=experiment_id,
         workdir=workdir,
@@ -99,16 +98,16 @@ chmod 700 /home/{MGMT_SSH_USER}/.ssh
 chmod 600 /home/{MGMT_SSH_USER}/.ssh/authorized_keys
 printf '{MGMT_SSH_USER} ALL=(ALL) NOPASSWD:ALL\\n' > /etc/sudoers.d/{MGMT_SSH_USER}
 chmod 440 /etc/sudoers.d/{MGMT_SSH_USER}
-printf '%s' {shlex.quote(mgmt_exec_b64)} | base64 -d > /opt/rp/mgmt_exec.sh
-chmod +x /opt/rp/mgmt_exec.sh
-cat >> /etc/ssh/sshd_config <<'RP_SSHD_MATCH'
+printf '%s' {shlex.quote(mgmt_exec_b64)} | base64 -d > /opt/merv/mgmt_exec.sh
+chmod +x /opt/merv/mgmt_exec.sh
+cat >> /etc/ssh/sshd_config <<'MERV_SSHD_MATCH'
 
 Match User {MGMT_SSH_USER}
-    ForceCommand /opt/rp/mgmt_exec.sh
-RP_SSHD_MATCH
+    ForceCommand /opt/merv/mgmt_exec.sh
+MERV_SSHD_MATCH
 """
     return f"""# === Phase 1: make the VM reachable + writable FAST, before the slow installs ===
-mkdir -p /opt/rp /root/.ssh /etc/ssh/sshd_config.d {shlex.quote(workdir)} {shlex.quote(sandbox_data_dir)} {shlex.quote(workdir)}/artifacts_to_keep {shlex.quote(sessions_dir)}
+mkdir -p /opt/merv /root/.ssh /etc/ssh/sshd_config.d {shlex.quote(workdir)} {shlex.quote(sandbox_data_dir)} {shlex.quote(workdir)}/artifacts_to_keep {shlex.quote(sessions_dir)}
 printf '%s' {shlex.quote(public_key_b64)} | base64 -d > /root/.ssh/authorized_keys
 chmod 700 /root/.ssh
 chmod 600 /root/.ssh/authorized_keys
@@ -120,20 +119,20 @@ if id ubuntu >/dev/null 2>&1; then
   chmod 700 /home/ubuntu/.ssh
   chmod 600 /home/ubuntu/.ssh/authorized_keys
 fi
-cat > /opt/rp/env <<'RP_ENV'
+cat > /opt/merv/env <<'MERV_ENV'
 {env_lines}
-RP_ENV
-printf '%s' {shlex.quote(rec_script_b64)} | base64 -d > /opt/rp/rec.sh
-chmod +x /opt/rp/rec.sh
-{rp_run_install_lines(script_b64=rp_run_b64)}{mgmt_block}cat > /etc/ssh/sshd_config.d/99-research-plugin.conf <<'RP_SSHD'
+MERV_ENV
+printf '%s' {shlex.quote(rec_script_b64)} | base64 -d > /opt/merv/rec.sh
+chmod +x /opt/merv/rec.sh
+{merv_run_install_lines(script_b64=merv_run_b64)}{mgmt_block}cat > /etc/ssh/sshd_config.d/99-merv.conf <<'MERV_SSHD'
 PermitRootLogin prohibit-password
 PubkeyAuthentication yes
 PasswordAuthentication no
 AuthorizedKeysFile .ssh/authorized_keys
-ForceCommand /opt/rp/rec.sh
+ForceCommand /opt/merv/rec.sh
 PrintMotd no
 AcceptEnv LANG LC_*
-RP_SSHD
+MERV_SSHD
 {sshd_apply_command}
 """
 
@@ -194,7 +193,7 @@ install_with_uv_or_pip() {{
     python3 -m pip install --break-system-packages "$@"
   fi
 }}
-python3 -c 'import mlflow' >/dev/null 2>&1 || python3 -m pip install --break-system-packages --ignore-installed {mlflow_package} || echo "[rp] mlflow install failed" >> /opt/rp/bootstrap.log
+python3 -c 'import mlflow' >/dev/null 2>&1 || python3 -m pip install --break-system-packages --ignore-installed {mlflow_package} || echo "[merv] mlflow install failed" >> /opt/merv/bootstrap.log
 install_with_uv_or_pip torch torchvision torchaudio || true
 install_with_uv_or_pip {python} || true
 """
@@ -207,10 +206,12 @@ def build_runtime_env(
     sessions_dir: str,
     sandbox_data_dir: str,
 ) -> str:
-    """Render /opt/rp/env for the experiment currently attached to the box."""
+    """Render /opt/merv/env for the experiment currently attached to the box."""
     return "\n".join(
         [
             f"RP_WORKDIR={shlex.quote(workdir)}",
+            f"MERV_EXPERIMENT_DIR={shlex.quote(workdir)}",
+            # Deprecated one-version twin of MERV_EXPERIMENT_DIR; remove next release.
             f"RP_EXPERIMENT_DIR={shlex.quote(workdir)}",
             f"RP_EXPERIMENT_ID={shlex.quote(experiment_id)}",
             f"RP_SANDBOX_DATA_DIR={shlex.quote(sandbox_data_dir)}",

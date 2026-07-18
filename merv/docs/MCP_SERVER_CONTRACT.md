@@ -258,7 +258,7 @@ Provider behavior is capability-shaped:
 
 Provisioning is best-effort synchronous. `sandbox.request` may return
 `provisioning`; poll with `sandbox.get`, never repeated request calls. Long work
-uses `rp_run`; `sandbox.runs` reports durable run receipts. Transcript and run
+uses `merv_run`; `sandbox.runs` reports durable run receipts. Transcript and run
 lookups are sandbox-scoped even when addressed through an experiment.
 
 `sandbox.release` is a two-step destructive operation: the first call returns a

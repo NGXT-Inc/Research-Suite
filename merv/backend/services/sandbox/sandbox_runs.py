@@ -1,6 +1,6 @@
-"""Brain-side mirror of rp_run receipts: reconcile, persist, notify.
+"""Brain-side mirror of merv_run receipts: reconcile, persist, notify.
 
-The sandbox filesystem is the registry (rp_run writes .runs/<label>/ sentinel
+The sandbox filesystem is the registry (merv_run writes .runs/<label>/ sentinel
 files); this ledger pulls that state over the management channel the brain
 already holds and keeps the `sandbox_runs` table as its durable mirror, so a
 run's outcome survives the agent session AND the sandbox. run.finished is
@@ -285,8 +285,8 @@ def run_records_view(
         out["lost"] = lost
     if not runs:
         out["hint"] = (
-            "No rp_run receipts. Launch anything long with "
-            "`rp_run <label> -- <command>` on the sandbox: it survives SSH "
+            "No merv_run receipts. Launch anything long with "
+            "`merv_run <label> -- <command>` on the sandbox: it survives SSH "
             "disconnects and reports its exit code here."
         )
     return out

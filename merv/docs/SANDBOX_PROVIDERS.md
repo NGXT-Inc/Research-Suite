@@ -22,7 +22,7 @@ row). Terminate a provider's sandboxes before dropping it from the list.
 
 All VM providers share the same bootstrap: cloud-init authorizes the caller's
 public key and the control plane's management key, installs the `rec.sh`
-transcript wrapper + `rp_run`, and then installs the heavy ML toolchain in a
+transcript wrapper + `merv_run`, and then installs the heavy ML toolchain in a
 second phase. Secrets (HF_TOKEN) are pushed post-boot over the management SSH
 channel, never embedded in provider user_data.
 

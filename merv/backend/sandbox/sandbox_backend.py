@@ -204,7 +204,7 @@ class SandboxBackend(Protocol):
         ssh_user: str = "",
         key_path: str = "",
     ) -> list[dict[str, Any]] | None:
-        """Optionally list rp_run receipts under workdir/.runs.
+        """Optionally list merv_run receipts under workdir/.runs.
 
         Returns parsed run records ([] when no runs exist); None means
         unsupported or unreachable — "no news", never "no runs".

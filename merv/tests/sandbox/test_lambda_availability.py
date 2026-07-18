@@ -13,7 +13,6 @@ from backend.execution import build_sandbox_backend
 from backend.execution.backends.lambda_labs.catalog import summarize_instance_types
 from backend.execution.backends.lambda_labs.config import LambdaCloudConfig
 from backend.execution.backends.lambda_labs.sandbox_backend import (
-    TRANSCRIPT_READ_PREFIX,
     LambdaLabsSandboxBackend,
     build_user_data,
     _sandbox_name,
@@ -224,11 +223,11 @@ class LambdaAvailabilityTest(unittest.TestCase):
         self.assertIn("ripgrep", user_data)
         self.assertIn("fd-find", user_data)
         self.assertIn("jq", user_data)
-        self.assertIn("RP_EXPERIMENT_DIR=/workspace/exp1", user_data)
+        self.assertIn("MERV_EXPERIMENT_DIR=/workspace/exp1", user_data)
         self.assertIn("RP_SANDBOX_DATA_DIR=/workspace/data", user_data)
         self.assertIn("artifacts_to_keep", user_data)
         self.assertIn("chown -R ubuntu:ubuntu", user_data)
-        self.assertIn("ForceCommand /opt/rp/rec.sh", user_data)
+        self.assertIn("ForceCommand /opt/merv/rec.sh", user_data)
         # Observability deps install individually, only when missing, and with
         # --ignore-installed: the image ships Debian-owned packages without
         # RECORD files (e.g. Werkzeug) that pip cannot uninstall, so a normal
@@ -280,14 +279,14 @@ class LambdaAvailabilityTest(unittest.TestCase):
             public_key="ssh-ed25519 AAAA test",
             experiment_id="exp1",
             workdir="/workspace/exp1",
-            sessions_dir="/workspace/.research_plugin_sessions/exp1",
+            sessions_dir="/workspace/.merv_sessions/exp1",
             sandbox_data_dir="/workspace/data",
         )
 
         self.assertIn("RP_WORKDIR=/workspace/exp1", user_data)
-        self.assertIn("RP_EXPERIMENT_DIR=/workspace/exp1", user_data)
+        self.assertIn("MERV_EXPERIMENT_DIR=/workspace/exp1", user_data)
         self.assertIn("RP_SANDBOX_DATA_DIR=/workspace/data", user_data)
-        self.assertIn("RP_SESSION_DIR=/workspace/.research_plugin_sessions/exp1", user_data)
+        self.assertIn("RP_SESSION_DIR=/workspace/.merv_sessions/exp1", user_data)
         self.assertNotIn("MLFLOW_TRACKING_URI", user_data)
         self.assertNotIn("MLFLOW_EXPERIMENT_NAME", user_data)
         self.assertNotIn("export MLFLOW_TRACKING_URI", REC_SCRIPT)
@@ -481,9 +480,9 @@ class LambdaTranscriptTest(unittest.TestCase):
         # sentinel — the Match block exemption replaces the rec.sh bypass.
         self.assertEqual(command[-2], f"{MGMT_SSH_USER}@198.51.100.2")
         remote = command[-1]
-        self.assertFalse(remote.startswith(TRANSCRIPT_READ_PREFIX))
+        self.assertNotIn("transcript-read", remote)
         self.assertIn(
-            "/workspace/synced/.research_plugin_sessions/exp1/transcript.log", remote
+            "/workspace/synced/.merv_sessions/exp1/transcript.log", remote
         )
         self.assertIn(f"tail -c {TRANSCRIPT_TAIL_DEFAULT}", remote)
         # The command also reports the transcript's true size so the terminal
@@ -532,15 +531,14 @@ class LambdaTranscriptTest(unittest.TestCase):
         self.assertIn("exit 255", str(ctx.exception))
         self.assertIn("refused", str(ctx.exception))
 
-    def test_rec_script_runs_transcript_reads_unrecorded(self) -> None:
-        self.assertIn("rp-transcript-read:*)", REC_SCRIPT)
-        self.assertIn(
-            'exec bash -c "${SSH_ORIGINAL_COMMAND#rp-transcript-read:}"', REC_SCRIPT
-        )
-        # The bypass must short-circuit before the recording path appends
-        # start/exit markers and tees output into the log.
+    def test_rec_script_carries_no_legacy_transcript_read_bypass(self) -> None:
+        # Transcript reads go through the Match-exempt management principal;
+        # the pre-mgmt-channel rec.sh prefix bypass must stay deleted.
+        self.assertNotIn("transcript-read", REC_SCRIPT)
+        # The file-transfer bypass (rsync/scp/sftp) is still load-bearing and
+        # must short-circuit before the recording path tees into the log.
         self.assertLess(
-            REC_SCRIPT.index("rp-transcript-read:*"), REC_SCRIPT.index('tee -a "$LOG"')
+            REC_SCRIPT.index("rsync"), REC_SCRIPT.index('tee -a "$LOG"')
         )
 
 
@@ -562,7 +560,7 @@ class LambdaSecretsTest(unittest.TestCase):
                 public_key="ssh-ed25519 AAAA user@host",
                 experiment_id="exp1",
                 workdir="/workspace/exp1",
-                sessions_dir="/workspace/.research_plugin_sessions/exp1",
+                sessions_dir="/workspace/.merv_sessions/exp1",
                 sandbox_data_dir="/workspace/data",
                 tokens={"HF_TOKEN": "hf_supersecret_value"},
             )
@@ -571,7 +569,7 @@ class LambdaSecretsTest(unittest.TestCase):
         self.assertNotIn("export HF_TOKEN=", user_data)
 
     def test_rec_script_sources_post_boot_secrets_file(self) -> None:
-        self.assertIn("/opt/rp/secrets.env", REC_SCRIPT)
+        self.assertIn("/opt/merv/secrets.env", REC_SCRIPT)
 
     def test_write_secrets_delivers_over_mgmt_channel_without_token_in_argv(self) -> None:
         runner = FakeSshRunner(returncode=0)
@@ -596,7 +594,7 @@ class LambdaSecretsTest(unittest.TestCase):
             argv,
         )
         self.assertEqual(runner.inputs, ["export HF_TOKEN=hf_supersecret_value\n"])
-        self.assertIn("/opt/rp/secrets.env", command[-1])
+        self.assertIn("/opt/merv/secrets.env", command[-1])
 
     def test_write_secrets_noop_without_endpoint_or_secrets(self) -> None:
         runner = FakeSshRunner(returncode=0)
@@ -622,12 +620,12 @@ class LambdaSecretsTest(unittest.TestCase):
 
 class LambdaMetricsTest(unittest.TestCase):
     SAMPLE_OUTPUT = (
-        "RPM cpu_cores_used=3.4210\n"
-        "RPM mem_used_bytes=2147483648\n"
-        "RPM net_bytes_total=123456\n"
-        "RPM ssh_established=2\n"
-        "RPM gpu idx=0 util=97 used=20000 total=24576 name=NVIDIA A10\n"
-        "RPM ok=1\n"
+        "MERV cpu_cores_used=3.4210\n"
+        "MERV mem_used_bytes=2147483648\n"
+        "MERV net_bytes_total=123456\n"
+        "MERV ssh_established=2\n"
+        "MERV gpu idx=0 util=97 used=20000 total=24576 name=NVIDIA A10\n"
+        "MERV ok=1\n"
     )
 
     def _backend(self, runner: FakeSshRunner) -> LambdaLabsSandboxBackend:
@@ -675,7 +673,7 @@ class LambdaMetricsTest(unittest.TestCase):
         # principal keeps the ~3s UI poll out of the experiment transcript.
         self.assertEqual(command[-2], f"{MGMT_SSH_USER}@198.51.100.2")
         remote = command[-1]
-        self.assertFalse(remote.startswith(TRANSCRIPT_READ_PREFIX))
+        self.assertNotIn("transcript-read", remote)
         self.assertIn("nvidia-smi", remote)
 
     def test_sample_metrics_without_endpoint_or_key_returns_none(self) -> None:
@@ -783,14 +781,14 @@ class LambdaUserDataOrderingTest(unittest.TestCase):
             public_key="ssh-ed25519 AAAA test",
             experiment_id="exp1",
             workdir="/workspace/exp1",
-            sessions_dir="/workspace/.research_plugin_sessions/exp1",
+            sessions_dir="/workspace/.merv_sessions/exp1",
             sandbox_data_dir="/workspace/data",
         )
         # The experiment dir + SSH/ForceCommand must be set up before the slow
         # apt/torch install, so the registry's first rsync has somewhere to land.
-        self.assertLess(ud.index("mkdir -p /opt/rp"), ud.index("apt-get update"))
+        self.assertLess(ud.index("mkdir -p /opt/merv"), ud.index("apt-get update"))
         self.assertLess(
-            ud.index("ForceCommand /opt/rp/rec.sh"),
+            ud.index("ForceCommand /opt/merv/rec.sh"),
             ud.index("torch torchvision torchaudio"),
         )
 

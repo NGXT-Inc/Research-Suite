@@ -34,7 +34,7 @@ from backend.execution.vm_bootstrap import build_bootstrap_core
 IMAGE = "rp-test-sshd:bookworm"
 EXPERIMENT_ID = "exp_t"
 WORKDIR = "/workspace/exp_t"
-SESSIONS_DIR = "/workspace/.research_plugin_sessions/exp_t"
+SESSIONS_DIR = "/workspace/.merv_sessions/exp_t"
 DATA_DIR = "/workspace/data"
 TRANSCRIPT = f"{SESSIONS_DIR}/transcript.log"
 MARKER = "hello-recorded-marker"
@@ -203,7 +203,7 @@ class VmBootstrapDockerTest(unittest.TestCase):
         deadline = time.monotonic() + timeout
         last = None
         while time.monotonic() < deadline:
-            last = cls._ssh(key=cls.mgmt_key, user="rpmgmt", command="true")
+            last = cls._ssh(key=cls.mgmt_key, user="mervmgmt", command="true")
             if last.returncode == 0:
                 return
             time.sleep(1.0)

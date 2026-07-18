@@ -116,7 +116,7 @@ class SandboxService:
             backend=sandbox_backend,
             mgmt_keys=self.mgmt_keys,
         )
-        # rp_run receipts mirror: reconciled by the daemon sweep and on
+        # merv_run receipts mirror: reconciled by the daemon sweep and on
         # sandbox.runs reads; source of the live-runs nudge line.
         self.runs_ledger = SandboxRunLedger(
             store=store,
@@ -1001,7 +1001,7 @@ class SandboxService:
         sandbox_uid: str | None = None,
         wait_seconds: int = 0,
     ) -> dict[str, Any]:
-        """rp_run receipts for a sandbox or an experiment's sandboxes.
+        """merv_run receipts for a sandbox or an experiment's sandboxes.
 
         Reconciles live boxes on the spot, so the answer is fresh even between
         daemon sweeps, and still answers from the mirror after the box died or

@@ -372,7 +372,7 @@ class ThunderComputeSandboxBackend(VmSshSandboxBackend):
                 host=host,
                 port=port,
                 key_path=key_path,
-                remote_command="test -x /opt/rp/rec.sh && true",
+                remote_command="test -x /opt/merv/rec.sh && true",
             )
             if result.returncode == 0:
                 return
@@ -432,7 +432,7 @@ install_with_uv_or_pip() {{
     python3 -m pip install --break-system-packages "$@"
   fi
 }}
-python3 -c 'import mlflow' >/dev/null 2>&1 || python3 -m pip install --break-system-packages --ignore-installed mlflow==2.18.0 || echo "[rp] mlflow install failed" >> /opt/rp/bootstrap.log
+python3 -c 'import mlflow' >/dev/null 2>&1 || python3 -m pip install --break-system-packages --ignore-installed mlflow==2.18.0 || echo "[merv] mlflow install failed" >> /opt/merv/bootstrap.log
 install_with_uv_or_pip {python_packages} || true
 """
 

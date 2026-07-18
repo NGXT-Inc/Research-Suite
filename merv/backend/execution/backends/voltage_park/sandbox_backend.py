@@ -50,7 +50,7 @@ VOLTAGE_PARK_APT_PACKAGES: tuple[str, ...] = (
     *BASELINE_APT_PACKAGES,
 )
 
-BOOTSTRAP_PATH = "/opt/rp/bootstrap.sh"
+BOOTSTRAP_PATH = "/opt/merv/bootstrap.sh"
 
 
 class VoltageParkSandboxBackend(VmSshSandboxBackend):

@@ -87,7 +87,7 @@ class FakeSandboxBackend(SandboxBackendBase):
         self.fail_immediately = False
         # metrics knob: per-sandbox-id sample dict (None => unavailable).
         self.metrics: dict[str, dict | None] = {}
-        # rp_run receipts knob: per-sandbox-id RAW listing text, exactly as the
+        # merv_run receipts knob: per-sandbox-id RAW listing text, exactly as the
         # on-box listing command would emit it — read_runs parses it with the
         # real wire parser so tests cover the whole observation path.
         self.run_listings: dict[str, str] = {}
@@ -113,7 +113,7 @@ class FakeSandboxBackend(SandboxBackendBase):
         self.by_experiment[name_key] = sandbox_id
         self.endpoints[sandbox_id] = ("sandbox.modal.test", 40000 + self.counter)
         # What a real bootstrap would do with this request: authorize BOTH
-        # keys (user + management, plan Phase 5) and pre-install /opt/rp
+        # keys (user + management, plan Phase 5) and pre-install /opt/merv
         # tooling. The keys come straight from the captured request so a test
         # can assert exactly what reached the VM.
         self.bootstraps[sandbox_id] = {

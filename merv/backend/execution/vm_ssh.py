@@ -112,7 +112,7 @@ def read_runs_via_mgmt_ssh(
     ssh_port: int,
     key_path: str,
 ) -> list[dict[str, Any]] | None:
-    """List rp_run receipts under workdir/.runs over the management channel.
+    """List merv_run receipts under workdir/.runs over the management channel.
 
     [] means "no runs"; None means unreachable/failed ("no news") so the
     observer never mistakes a dead channel for an empty runs dir.
@@ -156,7 +156,7 @@ def write_secrets_via_mgmt_ssh(
         return False
     remote_command = (
         "sudo -n bash -c "
-        + shlex.quote("umask 077; cat > /opt/rp/secrets.env; chmod 600 /opt/rp/secrets.env")
+        + shlex.quote("umask 077; cat > /opt/merv/secrets.env; chmod 600 /opt/merv/secrets.env")
     )
     try:
         result = ssh_runner(

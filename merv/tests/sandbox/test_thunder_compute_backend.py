@@ -298,11 +298,11 @@ class ThunderBackendTest(unittest.TestCase):
         self.assertEqual(bootstrap.calls[0]["command"][-1], "sudo -n bash -s")
         self.assertIn("/keys/mgmt", bootstrap.calls[0]["command"])
         script = bootstrap.calls[0]["script"]
-        self.assertIn("RP_EXPERIMENT_DIR=/workspace/exp1", script)
+        self.assertIn("MERV_EXPERIMENT_DIR=/workspace/exp1", script)
         self.assertNotIn("MLFLOW_TRACKING_URI", script)
         self.assertNotIn("RP_EXECUTION_BACKEND", script)
-        self.assertIn("ForceCommand /opt/rp/rec.sh", script)
-        self.assertNotIn("/opt/rp/parachute.sh", script)
+        self.assertIn("ForceCommand /opt/merv/rec.sh", script)
+        self.assertNotIn("/opt/merv/parachute.sh", script)
         # Bootstrap readiness is checked through the management principal.
         self.assertEqual(ssh.commands[-1][-2], f"{MGMT_SSH_USER}@198.51.100.7")
 
@@ -409,7 +409,7 @@ class ThunderBackendTest(unittest.TestCase):
             argv,
         )
         self.assertEqual(ssh.inputs, ["export HF_TOKEN=hf_secret_value\n"])
-        self.assertIn("/opt/rp/secrets.env", command[-1])
+        self.assertIn("/opt/merv/secrets.env", command[-1])
 
     def test_bootstrap_script_contains_rec_bypass_and_no_plain_tokens(self) -> None:
         script = build_thunder_bootstrap_script(
@@ -417,7 +417,7 @@ class ThunderBackendTest(unittest.TestCase):
             management_public_key="ssh-ed25519 AAAAmgmt test",
             experiment_id="exp1",
             workdir="/workspace/exp1",
-            sessions_dir="/workspace/.research_plugin_sessions/exp1",
+            sessions_dir="/workspace/.merv_sessions/exp1",
             sandbox_data_dir="/workspace/data",
         )
         self.assertIn("rsync\\ --server*", REC_SCRIPT)

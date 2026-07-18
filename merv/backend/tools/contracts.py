@@ -1331,10 +1331,10 @@ TOOL_CONTRACTS: dict[str, ToolContract] = {
     "sandbox.runs": ToolContract(
         input_model=SandboxRunsInput,
         description=(
-            "List rp_run launches for a sandbox or experiment: label, status "
+            "List merv_run launches for a sandbox or experiment: label, status "
             "(running/finished/lost), exit_code, started/finished timestamps, "
             "and log path — one compact call instead of transcript polling. "
-            "Launch long work on the sandbox with `rp_run <label> -- <command>` "
+            "Launch long work on the sandbox with `merv_run <label> -- <command>` "
             "(detaches, survives SSH disconnect, writes an exit_code sentinel); "
             "then either long-poll here with wait_seconds, or end the session "
             "and call this when next attending the experiment. Receipts "

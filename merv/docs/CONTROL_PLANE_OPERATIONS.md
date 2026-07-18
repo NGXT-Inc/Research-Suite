@@ -108,8 +108,8 @@ start as a record-only service and `sandbox.health` reports the provider error.
 
 Provider secret delivery differs by backend. Lambda Labs and Thunder Compute
 deliver `HF_TOKEN` after boot over the management channel into
-`/opt/rp/secrets.env`. Modal supplies it through `modal.Secret` at sandbox
-creation and writes the runtime environment under `/opt/rp/env`. Secret values
+`/opt/merv/secrets.env`. Modal supplies it through `modal.Secret` at sandbox
+creation and writes the runtime environment under `/opt/merv/env`. Secret values
 are never returned through the agent API or written into retained artifacts by
 the plugin.
 

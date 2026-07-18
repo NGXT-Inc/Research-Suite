@@ -163,7 +163,7 @@ class VoltageParkAcquireTest(unittest.TestCase):
         self.assertEqual(write_file["encoding"], "b64")
         decoded = base64.b64decode(write_file["content"]).decode("utf-8")
         self.assertIn("#!/usr/bin/env bash", decoded)
-        self.assertEqual(created["cloud_init"]["runcmd"], ["bash /opt/rp/bootstrap.sh"])
+        self.assertEqual(created["cloud_init"]["runcmd"], ["bash /opt/merv/bootstrap.sh"])
 
     def test_acquire_uses_port_forward_when_internal_22_is_mapped(self) -> None:
         client = FakeVoltageParkClient()

@@ -8,7 +8,7 @@ from ..utils import safe_experiment_dirname
 
 DEFAULT_REMOTE_ROOT = "/workspace"
 DEFAULT_DATA_DIR = "/workspace/data"
-SESSIONS_DIRNAME = ".research_plugin_sessions"
+SESSIONS_DIRNAME = ".merv_sessions"
 ARTIFACTS_TO_KEEP_DIRNAME = "artifacts_to_keep"
 
 

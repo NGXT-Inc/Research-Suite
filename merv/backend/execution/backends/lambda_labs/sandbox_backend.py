@@ -37,8 +37,6 @@ from .client import LambdaCloudClient
 from .config import LambdaSandboxConfig
 
 
-# Legacy rec.sh bypass sentinel; tests assert VM reads no longer send it.
-TRANSCRIPT_READ_PREFIX = "rp-transcript-read:"
 ACTIVE_INSTANCE_STATUSES = frozenset({"active"})
 LIVE_INSTANCE_STATUSES = frozenset({"booting", "active", "unhealthy"})
 
@@ -456,7 +454,7 @@ install_with_uv_or_pip() {{
     python3 -m pip install --break-system-packages "$@"
   fi
 }}
-python3 -c 'import mlflow' >/dev/null 2>&1 || python3 -m pip install --break-system-packages --ignore-installed {mlflow_package} || echo "[rp] mlflow install failed" >> /opt/rp/bootstrap.log
+python3 -c 'import mlflow' >/dev/null 2>&1 || python3 -m pip install --break-system-packages --ignore-installed {mlflow_package} || echo "[merv] mlflow install failed" >> /opt/merv/bootstrap.log
 install_with_uv_or_pip torch torchvision torchaudio || true
 install_with_uv_or_pip {python_packages} || true
 """

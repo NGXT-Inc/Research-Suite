@@ -48,10 +48,10 @@ Shared invariants across all clients:
   `bin/merv-http`. Shipped manifests leave the env var empty on
   purpose — pinning a URL there would shadow the machine config.
 
-## Long runs (rp_run) per client
+## Long runs (merv_run) per client
 
 Long sandbox work is client-neutral in core: launch with
-`rp_run <label> -- <command>` over SSH, then check `sandbox.runs` — either a
+`merv_run <label> -- <command>` over SSH, then check `sandbox.runs` — either a
 `wait_seconds` long-poll inside the session or a plain call when next attending
 the experiment. The long-poll cap is 300s server-side, but most MCP clients cut
 tool calls around ~60s; unless you know your client's tool timeout is higher,
@@ -63,11 +63,11 @@ depends on them:
 - **Claude Code**: instead of blocking on a long-poll, start a background
   shell task that watches the sentinel and let the client's native
   background-task notification fire when it exits:
-  `ssh <host> 'until [ -f $RP_EXPERIMENT_DIR/.runs/<label>/exit_code ]; do sleep 60; done'`
+  `ssh <host> 'until [ -f $MERV_EXPERIMENT_DIR/.runs/<label>/exit_code ]; do sleep 60; done'`
   (run in the background). The turn ends immediately; the notification brings
   the agent back, and one `sandbox.runs` call fetches the receipts.
 - **Other clients** (Codex, Cursor, Gemini CLI, OpenCode): no background-task
-  notification channel — end the turn after launching via rp_run and call
+  notification channel — end the turn after launching via merv_run and call
   `sandbox.runs` when next attending the experiment. Run-oriented sandbox
   responses include compact receipts; `sandbox.runs` is the authoritative
   status/readback call.

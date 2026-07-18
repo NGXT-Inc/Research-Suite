@@ -1,7 +1,7 @@
-"""rp_run launch convention: detached runs with file receipts.
+"""merv_run launch convention: detached runs with file receipts.
 
-The sandbox-side contract is files, not services: `rp_run <label> -- <cmd>`
-detaches the command under ``$RP_EXPERIMENT_DIR/.runs/<label>/`` and the
+The sandbox-side contract is files, not services: `merv_run <label> -- <cmd>`
+detaches the command under ``$MERV_EXPERIMENT_DIR/.runs/<label>/`` and the
 WRAPPER (not the command) writes ``finished_at`` then ``exit_code`` when the
 command exits — so the sentinel survives SSH disconnects, and only box death
 loses it. The brain observes runs by listing that directory over the same
@@ -17,29 +17,29 @@ from typing import Any
 
 
 RUNS_DIR_NAME = ".runs"
-RP_RUN_PATH = "/opt/rp/rp_run"
+MERV_RUN_PATH = "/opt/merv/merv_run"
 
 # Installed on every sandbox next to rec.sh and symlinked onto PATH.
-RP_RUN_SCRIPT = r"""#!/bin/sh
-# rp_run <label> -- <command> [args...]: launch a long command detached, with
-# receipts under $RP_EXPERIMENT_DIR/.runs/<label>/ (meta.json, log.txt, and —
+MERV_RUN_SCRIPT = r"""#!/bin/sh
+# merv_run <label> -- <command> [args...]: launch a long command detached, with
+# receipts under $MERV_EXPERIMENT_DIR/.runs/<label>/ (meta.json, log.txt, and —
 # written by this wrapper when the command exits — finished_at + exit_code).
 # The exit_code file is the completion sentinel: it survives SSH disconnects.
 set -u
-usage() { echo 'usage: rp_run <label> -- <command> [args...]' >&2; exit 2; }
+usage() { echo 'usage: merv_run <label> -- <command> [args...]' >&2; exit 2; }
 [ $# -ge 3 ] || usage
 label=$1; shift
 [ "$1" = '--' ] || usage
 shift
 case $label in
-  *[!A-Za-z0-9._-]*|'') echo "rp_run: label must be non-empty [A-Za-z0-9._-]" >&2; exit 2 ;;
+  *[!A-Za-z0-9._-]*|'') echo "merv_run: label must be non-empty [A-Za-z0-9._-]" >&2; exit 2 ;;
 esac
-runs=${RP_EXPERIMENT_DIR:?rp_run: RP_EXPERIMENT_DIR is not set}/.runs
+runs=${MERV_EXPERIMENT_DIR:?merv_run: MERV_EXPERIMENT_DIR is not set}/.runs
 dir=$runs/$label
 # mkdir without -p is the duplicate-label guard: refuse rather than suffix so
 # labels stay stable for the observer.
 if ! mkdir -p "$runs" || ! mkdir "$dir" 2>/dev/null; then
-  echo "rp_run: run '$label' already exists in $runs — pick a new label" >&2
+  echo "merv_run: run '$label' already exists in $runs — pick a new label" >&2
   exit 2
 fi
 # tr first: a raw newline/CR/tab inside an argument would break the one-line
@@ -55,21 +55,21 @@ echo "$rc" >"$dir/exit_code"'
 # setsid detaches from the SSH session so a disconnect cannot signal the run;
 # hosts without setsid (macOS test runs) still detach via nohup + background.
 if command -v setsid >/dev/null 2>&1; then
-  setsid nohup sh -c "$WATCH" rp_run_watch "$dir" "$@" </dev/null >/dev/null 2>&1 &
+  setsid nohup sh -c "$WATCH" merv_run_watch "$dir" "$@" </dev/null >/dev/null 2>&1 &
 else
-  nohup sh -c "$WATCH" rp_run_watch "$dir" "$@" </dev/null >/dev/null 2>&1 &
+  nohup sh -c "$WATCH" merv_run_watch "$dir" "$@" </dev/null >/dev/null 2>&1 &
 fi
 pid=$!
 printf '{"label":"%s","command":"%s","pid":%d,"started_at":"%s"}\n' \
   "$(esc "$label")" "$(esc "$*")" "$pid" "$(date -u +%Y-%m-%dT%H:%M:%SZ)" >"$dir/meta.json"
-echo "rp_run: started '$label' (pid $pid) — log: $dir/log.txt (sentinel: $dir/exit_code)"
+echo "merv_run: started '$label' (pid $pid) — log: $dir/log.txt (sentinel: $dir/exit_code)"
 """
 
 
 def runs_listing_command(*, experiment_dir: str) -> str:
     """One-shot remote listing of every run's receipts (no log bytes).
 
-    Emits one ``===RP_RUN <label>`` block per run dir with the meta.json body
+    Emits one ``===MERV_RUN <label>`` block per run dir with the meta.json body
     and the sentinel files. A missing .runs dir exits 0 with no output — the
     observer treats that as "no runs" at the cost of one cheap ssh exec.
     """
@@ -77,7 +77,7 @@ def runs_listing_command(*, experiment_dir: str) -> str:
     return (
         f"d={shlex.quote(runs_dir)}; [ -d \"$d\" ] || exit 0; "
         "for r in \"$d\"/*/; do [ -d \"$r\" ] || continue; "
-        "printf '===RP_RUN %s\\n' \"$(basename \"$r\")\"; "
+        "printf '===MERV_RUN %s\\n' \"$(basename \"$r\")\"; "
         "cat \"$r/meta.json\" 2>/dev/null; printf '\\n'; "
         "printf '===EXIT %s\\n' \"$(cat \"$r/exit_code\" 2>/dev/null)\"; "
         "printf '===FIN %s\\n' \"$(cat \"$r/finished_at\" 2>/dev/null)\"; "
@@ -93,7 +93,7 @@ def parse_runs_listing(output: str) -> list[dict[str, Any]]:
     empty fields — the label and the sentinel are the load-bearing facts.
     """
     runs: list[dict[str, Any]] = []
-    for block in output.split("===RP_RUN "):
+    for block in output.split("===MERV_RUN "):
         block = block.strip()
         if not block:
             continue
@@ -129,10 +129,15 @@ def parse_runs_listing(output: str) -> list[dict[str, Any]]:
     return runs
 
 
-def rp_run_install_lines(*, script_b64: str) -> str:
-    """Bootstrap fragment installing rp_run beside rec.sh and onto PATH."""
+def merv_run_install_lines(*, script_b64: str) -> str:
+    """Bootstrap fragment installing merv_run beside rec.sh and onto PATH.
+
+    Also links the legacy ``rp_run`` name as a one-version compat shim for
+    agents still typing the old command; remove next release.
+    """
     return (
-        f"printf '%s' {shlex.quote(script_b64)} | base64 -d > {RP_RUN_PATH}\n"
-        f"chmod +x {RP_RUN_PATH}\n"
-        f"ln -sf {RP_RUN_PATH} /usr/local/bin/rp_run\n"
+        f"printf '%s' {shlex.quote(script_b64)} | base64 -d > {MERV_RUN_PATH}\n"
+        f"chmod +x {MERV_RUN_PATH}\n"
+        f"ln -sf {MERV_RUN_PATH} /usr/local/bin/merv_run\n"
+        f"ln -sf {MERV_RUN_PATH} /usr/local/bin/rp_run\n"
     )

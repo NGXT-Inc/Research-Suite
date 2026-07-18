@@ -46,7 +46,7 @@ class RecScriptHarness(unittest.TestCase):
         root = Path(self.tmp.name)
         self.workdir = root / "exp_t"
         self.data_dir = root / "data"
-        self.sessions = root / ".research_plugin_sessions" / "exp_t"
+        self.sessions = root / ".merv_sessions" / "exp_t"
         self.workdir.mkdir()
         self.data_dir.mkdir()
         self.sessions.mkdir(parents=True)
@@ -65,7 +65,7 @@ class RecScriptHarness(unittest.TestCase):
         env = dict(os.environ)
         env.update(
             RP_WORKDIR=str(self.workdir),
-            RP_EXPERIMENT_DIR=str(self.workdir),
+            MERV_EXPERIMENT_DIR=str(self.workdir),
             RP_SANDBOX_DATA_DIR=str(self.data_dir),
             RP_SESSION_DIR=str(self.sessions),
             RP_EXPERIMENT_ID="exp_t",
@@ -110,7 +110,7 @@ class TmuxSupervisorTest(RecScriptHarness):
     @unittest.skipUnless(HAVE_TMUX, "tmux not installed")
     def test_run_dir_records_cmd_output_exit_code(self) -> None:
         self.run_rec("printf abc")
-        runs = list((self.data_dir / ".rp_runs").iterdir())
+        runs = list((self.data_dir / ".merv_runs").iterdir())
         self.assertEqual(len(runs), 1)
         run_dir = runs[0]
         self.assertEqual((run_dir / "cmd").read_text(), "printf abc")
@@ -141,7 +141,7 @@ class TmuxSupervisorTest(RecScriptHarness):
         # transcript with nobody connected.
         self.wait_for(lambda: self.transcript.exists() and "SURVIVED" in self.transcript.read_text())
         self.wait_for(lambda: "(exit 5)" in self.transcript.read_text())
-        runs = list((self.data_dir / ".rp_runs").iterdir())
+        runs = list((self.data_dir / ".merv_runs").iterdir())
         self.assertEqual((runs[0] / "exit_code").read_text().strip(), "5")
 
     def test_falls_back_attached_when_tmux_broken(self) -> None:
@@ -158,7 +158,7 @@ class TmuxSupervisorTest(RecScriptHarness):
         log = self.transcript.read_text()
         self.assertIn("(exit 3)", log)
         # No run dir: the supervisor path was never entered.
-        self.assertEqual(list((self.data_dir / ".rp_runs").glob("*/exit_code")), [])
+        self.assertEqual(list((self.data_dir / ".merv_runs").glob("*/exit_code")), [])
 
 
 class ModalRecScriptTest(RecScriptHarness):

@@ -100,7 +100,7 @@ Every experiment owns exactly one folder: `experiments/<name>/`
 local directory is missing). Everything the experiment is lives there —
 plan.md, scripts, configs, results, report.md, graph.json. Resource tools only
 see local repo files. A sandbox is just an ephemeral machine you SSH into: fetch
-code and data on the box, write compact outputs under `$RP_EXPERIMENT_DIR`, then
+code and data on the box, write compact outputs under `$MERV_EXPERIMENT_DIR`, then
 pull retained files back with `sandbox.pull_outputs` before registering them.
 Heavy artifacts should go to durable object storage instead of into the repo.
 
@@ -171,7 +171,7 @@ export RP_PROJECT_ID="<from mlflow.context.env>"
 export RP_EXPERIMENT_ID="<from mlflow.context.env>"
 # Optional: present when the plugin created the initial run at start_running.
 export MLFLOW_RUN_ID="<from mlflow.context.env, if present>"
-mkdir -p "$RP_EXPERIMENT_DIR"/results "$RP_EXPERIMENT_DIR"/figures
+mkdir -p "$MERV_EXPERIMENT_DIR"/results "$MERV_EXPERIMENT_DIR"/figures
 ```
 
 For local non-sandbox runs, call `mlflow.context` to get the central tracking
@@ -284,10 +284,10 @@ When `status` is `running`, construct the SSH invocation from the returned
 Some local enrichments may also return `ssh.command`, `ssh.raw_command`, or
 `ssh.key_path` conveniences, but the split proxy does not guarantee them.
 
-**Anything expected to run longer than ~5 minutes goes through `rp_run`** —
+**Anything expected to run longer than ~5 minutes goes through `merv_run`** —
 never babysit a long command over a foreground SSH channel or poll the
 transcript for it. Launch it as
-`ssh ... 'rp_run <label> -- <command>'` (e.g. `rp_run seed0 -- python train.py
+`ssh ... 'merv_run <label> -- <command>'` (e.g. `merv_run seed0 -- python train.py
 --seed 0`): the run detaches, survives disconnects, logs to
 `.runs/<label>/log.txt`, and writes an `exit_code` sentinel when it finishes.
 Then either long-poll `sandbox.runs(wait_seconds=...)` within the session (one
@@ -314,17 +314,17 @@ replaced by a fresh run — always take `MLFLOW_RUN_ID` from the retry response
 rather than reusing an old value.
 
 While the sandbox is live, make experiment-folder edits on the VM under
-`$RP_EXPERIMENT_DIR`. No files are copied automatically. Keep datasets, caches,
+`$MERV_EXPERIMENT_DIR`. No files are copied automatically. Keep datasets, caches,
 temporary checkpoints, and other disposable bulk files under `$RP_DATASET_DIR`.
 Keep durable scripts, configs, notes, compact outputs, report figures/tables,
-and deliberate final artifacts under `$RP_EXPERIMENT_DIR` so you can pull them
+and deliberate final artifacts under `$MERV_EXPERIMENT_DIR` so you can pull them
 off deliberately before release.
 
 Use the centralized MLflow env from `mlflow.context` /
 `experiment.transition(start_running)` inside the SSH command that performs the
 run. Sandbox provisioning does not automatically export MLflow env vars, and
 sandbox responses are not the source of truth for tracking configuration. Save
-compact evidence under `$RP_EXPERIMENT_DIR`.
+compact evidence under `$MERV_EXPERIMENT_DIR`.
 
 Before registering or associating result resources, call `sandbox.pull_outputs`
 for light retained files, passing the caller-owned private `key_path` when

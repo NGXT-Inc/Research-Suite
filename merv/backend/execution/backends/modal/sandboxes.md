@@ -25,7 +25,7 @@ Agent client --stdio--> local MCP proxy --HTTP--> brain / SandboxService
   id.
 
 There is no agent-facing remote job API. Provisioning may run asynchronously
-inside the brain, while long commands use the provider-neutral `rp_run` receipt
+inside the brain, while long commands use the provider-neutral `merv_run` receipt
 convention.
 
 ## Sandbox identity and workspace
@@ -37,7 +37,7 @@ additional machine.
 
 The workdir is sandbox-owned, normally `/workspace/sandbox-<uid-prefix>`, and is
 independent of experiment attachment. The compatibility variables
-`$RP_WORKDIR` and `$RP_EXPERIMENT_DIR` both point there. `$RP_DATASET_DIR` and
+`$RP_WORKDIR` and `$MERV_EXPERIMENT_DIR` both point there. `$RP_DATASET_DIR` and
 `$RP_SANDBOX_DATA_DIR` point to `/workspace/data` for caches, datasets,
 checkpoints, and other ephemeral bulk data.
 
@@ -94,7 +94,7 @@ sandbox-scoped transcript while preserving exit status. `sandbox.terminal`
 supports cursor-based polling and the brain persists a compact `last_command`
 snapshot for temporary read failures.
 
-Use `rp_run <label> -- <command>` for work that must survive an SSH disconnect.
+Use `merv_run <label> -- <command>` for work that must survive an SSH disconnect.
 It writes receipts under the sandbox workdir; the brain mirrors them so
 `sandbox.runs` remains queryable after the machine is gone. Logs and output files
 do not become durable merely because the receipt does.
@@ -114,7 +114,7 @@ Never print it or write it into retained files.
 | `sandbox.get` | Poll or inspect by `sandbox_uid` or experiment attachment. |
 | `sandbox.attach` | Attach a running sandbox to another experiment. |
 | `sandbox.terminal` | Read transcript output and command status. |
-| `sandbox.runs` | Read or long-poll durable `rp_run` receipts. |
+| `sandbox.runs` | Read or long-poll durable `merv_run` receipts. |
 | `sandbox.pull_outputs` | Proxy-local rsync of selected compact files into the checkout. |
 | `sandbox.extend` | Request a bounded lifetime extension when the provider supports it. |
 | `sandbox.release` | Confirm retention, then terminate the machine. |

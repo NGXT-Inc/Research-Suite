@@ -28,8 +28,8 @@ from backend.execution.bootstrap_tools import (
     REC_EXEC_CORE,
 )
 from backend.execution.run_receipts import (
-    RP_RUN_PATH,
-    RP_RUN_SCRIPT,
+    MERV_RUN_PATH,
+    MERV_RUN_SCRIPT,
     parse_runs_listing,
     runs_listing_command,
 )
@@ -67,7 +67,7 @@ from ._sandbox_ops import ensure_remote_dir, exec_checked, maybe_await, read_str
 
 ActivityHook = Callable[[str, dict[str, Any]], None]
 
-SESSIONS_DIR_NAME = ".research_plugin_sessions"
+SESSIONS_DIR_NAME = ".merv_sessions"
 TRANSCRIPT_FILENAME = "transcript.log"
 
 # The usage sampler script + parser live in backend/execution/usage_metrics.py,
@@ -83,9 +83,9 @@ BOOT_SCRIPT = r"""#!/usr/bin/env bash
 set -eu
 RP_EXPERIMENT_ID="${RP_EXPERIMENT_ID:-unknown}"
 RP_WORKDIR="${RP_WORKDIR:-/workspace/$RP_EXPERIMENT_ID}"
-RP_EXPERIMENT_DIR="${RP_EXPERIMENT_DIR:-$RP_WORKDIR}"
+MERV_EXPERIMENT_DIR="${MERV_EXPERIMENT_DIR:-$RP_WORKDIR}"
 RP_SANDBOX_DATA_DIR="${RP_SANDBOX_DATA_DIR:-/workspace/data}"
-mkdir -p "$RP_EXPERIMENT_DIR" "$RP_SANDBOX_DATA_DIR" "$RP_EXPERIMENT_DIR/artifacts_to_keep"
+mkdir -p "$MERV_EXPERIMENT_DIR" "$RP_SANDBOX_DATA_DIR" "$MERV_EXPERIMENT_DIR/artifacts_to_keep"
 mkdir -p /root/.ssh && chmod 700 /root/.ssh
 # Two keys, two duties (plan Phase 5, fixed decision 4): the user key is the
 # data plane's (rsync, sbx dispatcher); the management key is the control
@@ -100,11 +100,13 @@ fi
 chmod 600 /root/.ssh/authorized_keys
 # Persist the session env so the ForceCommand wrapper can read it (sshd does not
 # pass the container environment through to forced commands).
-RP_SESSION_DIR="${RP_SESSION_DIR:-/workspace/.research_plugin_sessions/$RP_EXPERIMENT_ID}"
+RP_SESSION_DIR="${RP_SESSION_DIR:-/workspace/.merv_sessions/$RP_EXPERIMENT_ID}"
 mkdir -p "$RP_SESSION_DIR" 2>/dev/null || true
 {
-  printf 'RP_WORKDIR=%q\n' "$RP_EXPERIMENT_DIR"
-  printf 'RP_EXPERIMENT_DIR=%q\n' "$RP_EXPERIMENT_DIR"
+  printf 'RP_WORKDIR=%q\n' "$MERV_EXPERIMENT_DIR"
+  printf 'MERV_EXPERIMENT_DIR=%q\n' "$MERV_EXPERIMENT_DIR"
+  printf '# RP_EXPERIMENT_DIR: deprecated one-version twin; remove next release.\n'
+  printf 'RP_EXPERIMENT_DIR=%q\n' "$MERV_EXPERIMENT_DIR"
   printf 'RP_EXPERIMENT_ID=%q\n' "$RP_EXPERIMENT_ID"
   printf 'RP_SANDBOX_DATA_DIR=%q\n' "$RP_SANDBOX_DATA_DIR"
   printf 'RP_DATASET_DIR=%q\n' "$RP_SANDBOX_DATA_DIR"
@@ -117,7 +119,7 @@ mkdir -p "$RP_SESSION_DIR" 2>/dev/null || true
     printf 'MLFLOW_TRACKING_USERNAME=%q\n' "${MLFLOW_TRACKING_USERNAME:-rp-agent}"
     printf 'MLFLOW_TRACKING_PASSWORD=%q\n' "$MLFLOW_TRACKING_PASSWORD"
   fi
-} > /opt/rp/env
+} > /opt/merv/env
 mkdir -p /run/sshd
 ssh-keygen -A >/dev/null 2>&1 || true
 cat > /etc/ssh/sshd_config <<'EOF'
@@ -126,7 +128,7 @@ PermitRootLogin prohibit-password
 PubkeyAuthentication yes
 PasswordAuthentication no
 AuthorizedKeysFile /root/.ssh/authorized_keys
-ForceCommand /opt/rp/rec.sh
+ForceCommand /opt/merv/rec.sh
 PrintMotd no
 AcceptEnv LANG LC_*
 PidFile /run/sshd.pid
@@ -139,18 +141,20 @@ exec /usr/sbin/sshd -D -e
 # `ssh host 'cmd'`) to a per-experiment transcript in the sessions dir while
 # still streaming output back to the agent. Exit code is preserved.
 REC_SCRIPT = r"""#!/usr/bin/env bash
-[ -f /opt/rp/env ] && . /opt/rp/env
+[ -f /opt/merv/env ] && . /opt/merv/env
 RP_EXPERIMENT_ID="${RP_EXPERIMENT_ID:-unknown}"
 RP_WORKDIR="${RP_WORKDIR:-/workspace/$RP_EXPERIMENT_ID}"
-RP_EXPERIMENT_DIR="${RP_EXPERIMENT_DIR:-$RP_WORKDIR}"
+MERV_EXPERIMENT_DIR="${MERV_EXPERIMENT_DIR:-$RP_WORKDIR}"
+# RP_EXPERIMENT_DIR: deprecated one-version twin of MERV_EXPERIMENT_DIR; remove next release.
+RP_EXPERIMENT_DIR="$MERV_EXPERIMENT_DIR"
 RP_SANDBOX_DATA_DIR="${RP_SANDBOX_DATA_DIR:-/workspace/data}"
 RP_DATASET_DIR="${RP_DATASET_DIR:-$RP_SANDBOX_DATA_DIR}"
-RP_SESSION_DIR="${RP_SESSION_DIR:-/workspace/.research_plugin_sessions/$RP_EXPERIMENT_ID}"
+RP_SESSION_DIR="${RP_SESSION_DIR:-/workspace/.merv_sessions/$RP_EXPERIMENT_ID}"
 if [ -n "${HF_TOKEN:-}" ] && [ -z "${HUGGING_FACE_HUB_TOKEN:-}" ]; then
   HUGGING_FACE_HUB_TOKEN="$HF_TOKEN"
 fi
-export RP_WORKDIR RP_EXPERIMENT_DIR RP_EXPERIMENT_ID RP_SANDBOX_DATA_DIR RP_DATASET_DIR HF_TOKEN HUGGING_FACE_HUB_TOKEN MLFLOW_TRACKING_USERNAME MLFLOW_TRACKING_PASSWORD RP_SESSION_DIR
-mkdir -p "$RP_EXPERIMENT_DIR" "$RP_SANDBOX_DATA_DIR" "$RP_EXPERIMENT_DIR/artifacts_to_keep" "$RP_SESSION_DIR" 2>/dev/null || true
+export RP_WORKDIR MERV_EXPERIMENT_DIR RP_EXPERIMENT_DIR RP_EXPERIMENT_ID RP_SANDBOX_DATA_DIR RP_DATASET_DIR HF_TOKEN HUGGING_FACE_HUB_TOKEN MLFLOW_TRACKING_USERNAME MLFLOW_TRACKING_PASSWORD RP_SESSION_DIR
+mkdir -p "$MERV_EXPERIMENT_DIR" "$RP_SANDBOX_DATA_DIR" "$MERV_EXPERIMENT_DIR/artifacts_to_keep" "$RP_SESSION_DIR" 2>/dev/null || true
 LOG_DIR="$RP_SESSION_DIR"
 LOG="$LOG_DIR/transcript.log"
 mkdir -p "$LOG_DIR" 2>/dev/null || true
@@ -165,11 +169,11 @@ if [ -n "${SSH_ORIGINAL_COMMAND:-}" ]; then
       ;;
   esac
   { printf '\n[%s] $ %s\n' "$(ts)" "$SSH_ORIGINAL_COMMAND" >> "$LOG"; } 2>/dev/null || true
-  cd "$RP_EXPERIMENT_DIR" 2>/dev/null || true
+  cd "$MERV_EXPERIMENT_DIR" 2>/dev/null || true
 """ + REC_EXEC_CORE + r"""
 else
   { printf '\n[%s] (interactive shell)\n' "$(ts)" >> "$LOG"; } 2>/dev/null || true
-  cd "$RP_EXPERIMENT_DIR" 2>/dev/null || true
+  cd "$MERV_EXPERIMENT_DIR" 2>/dev/null || true
   exec bash -l
 fi
 """
@@ -238,7 +242,7 @@ class ModalSandboxBackend(SandboxBackendBase):
             kwargs["gpu"] = request.gpu
         _call(on_phase, "creating", f"gpu={request.gpu or 'cpu'}")
         try:
-            sandbox = modal.Sandbox.create("bash", "/opt/rp/boot.sh", **kwargs)
+            sandbox = modal.Sandbox.create("bash", "/opt/merv/boot.sh", **kwargs)
         except Exception as exc:  # noqa: BLE001
             raise BackendUnavailableError(f"Modal sandbox create failed: {exc}") from exc
 
@@ -417,7 +421,7 @@ class ModalSandboxBackend(SandboxBackendBase):
         ssh_user: str = "",  # noqa: ARG002
         key_path: str = "",  # noqa: ARG002
     ) -> list[dict[str, Any]] | None:
-        """List rp_run receipts under the workdir's .runs/ via a read-only exec.
+        """List merv_run receipts under the workdir's .runs/ via a read-only exec.
 
         Returns parsed run records ([] when .runs is absent), or None when the
         sandbox is unreachable — the observer treats None as "no news".
@@ -541,7 +545,7 @@ class ModalSandboxBackend(SandboxBackendBase):
             "RP_MANAGEMENT_KEY": management_public_key,
             "RP_EXPERIMENT_ID": experiment_id,
             "RP_WORKDIR": workdir,
-            "RP_EXPERIMENT_DIR": workdir,
+            "MERV_EXPERIMENT_DIR": workdir,
             "RP_SANDBOX_DATA_DIR": sandbox_data_dir,
             "RP_SESSION_DIR": remote_sessions_dir(
                 experiment_id=experiment_id, root=remote_root_of(workdir)
@@ -665,12 +669,14 @@ class ModalSandboxBackend(SandboxBackendBase):
     def _with_ssh(self, image: Any) -> Any:
         """Bake the SSH entrypoint and transcript wrapper into the image."""
         return image.run_commands(
-            "mkdir -p /opt/rp",
-            _write_file_layer(BOOT_SCRIPT, "/opt/rp/boot.sh"),
-            _write_file_layer(REC_SCRIPT, "/opt/rp/rec.sh"),
-            _write_file_layer(RP_RUN_SCRIPT, RP_RUN_PATH),
-            f"chmod +x /opt/rp/boot.sh /opt/rp/rec.sh {RP_RUN_PATH}",
-            f"ln -sf {RP_RUN_PATH} /usr/local/bin/rp_run",
+            "mkdir -p /opt/merv",
+            _write_file_layer(BOOT_SCRIPT, "/opt/merv/boot.sh"),
+            _write_file_layer(REC_SCRIPT, "/opt/merv/rec.sh"),
+            _write_file_layer(MERV_RUN_SCRIPT, MERV_RUN_PATH),
+            f"chmod +x /opt/merv/boot.sh /opt/merv/rec.sh {MERV_RUN_PATH}",
+            f"ln -sf {MERV_RUN_PATH} /usr/local/bin/merv_run",
+            # One-version compat shim for the rp_run -> merv_run rename; remove next release.
+            f"ln -sf {MERV_RUN_PATH} /usr/local/bin/rp_run",
         )
 
     def _modal_module(self) -> Any:

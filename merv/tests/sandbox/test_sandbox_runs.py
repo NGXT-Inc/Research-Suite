@@ -1,4 +1,4 @@
-"""Brain-side rp_run observation: reconciler, events, tool, and nudge.
+"""Brain-side merv_run observation: reconciler, events, tool, and nudge.
 
 Uses the fake backend's raw-listing knob, so every test exercises the real
 wire parser plus the ledger — the same path a Lambda/Modal listing takes.
@@ -31,7 +31,7 @@ def listing(*runs: dict) -> str:
         )
         exit_code = run.get("exit_code")
         blocks.append(
-            f"===RP_RUN {run['label']}\n{meta}\n"
+            f"===MERV_RUN {run['label']}\n{meta}\n"
             f"===EXIT {'' if exit_code is None else exit_code}\n"
             f"===FIN {run.get('finished_at', '')}\n"
         )
@@ -113,7 +113,7 @@ class SandboxRunsTest(unittest.TestCase):
     def test_empty_and_unlaunched_sandbox_answers_with_guidance(self) -> None:
         view = self._runs()
         self.assertEqual(view["runs"], [])
-        self.assertIn("rp_run", view["hint"])
+        self.assertIn("merv_run", view["hint"])
 
     def test_run_finished_event_is_emitted_exactly_once(self) -> None:
         self.fake.run_listings[self.sandbox_id] = listing({"label": "seed0"})

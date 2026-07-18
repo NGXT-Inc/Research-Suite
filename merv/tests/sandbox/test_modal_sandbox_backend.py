@@ -220,7 +220,7 @@ class ModalSandboxBackendTest(unittest.TestCase):
 
         create = FakeSandboxClass.created[-1]
         # boot entrypoint
-        self.assertEqual(create["args"], ("bash", "/opt/rp/boot.sh"))
+        self.assertEqual(create["args"], ("bash", "/opt/merv/boot.sh"))
         kwargs = create["kwargs"]
         self.assertEqual(kwargs["unencrypted_ports"], [22])
         self.assertNotIn("encrypted_ports", kwargs)
@@ -233,9 +233,9 @@ class ModalSandboxBackendTest(unittest.TestCase):
         self.assertEqual(provisioned.volume_name, "")
         self.assertNotIn("secrets", kwargs)
         self.assertEqual(kwargs["workdir"], "/workspace/exp1")
-        self.assertEqual(kwargs["env"]["RP_EXPERIMENT_DIR"], kwargs["workdir"])
+        self.assertEqual(kwargs["env"]["MERV_EXPERIMENT_DIR"], kwargs["workdir"])
         self.assertEqual(
-            kwargs["env"]["RP_SESSION_DIR"], "/workspace/.research_plugin_sessions/exp1"
+            kwargs["env"]["RP_SESSION_DIR"], "/workspace/.merv_sessions/exp1"
         )
         self.assertEqual(kwargs["env"]["RP_SANDBOX_DATA_DIR"], self.backend.config.sandbox_data_dir)
         self.assertEqual(kwargs["env"]["RP_EXPERIMENT_ID"], "exp1")
@@ -398,7 +398,7 @@ class ModalSandboxBackendTest(unittest.TestCase):
     def test_config_rejects_data_dir_colliding_with_experiment_folders(self) -> None:
         # The data dir may live under the remote root (/workspace/data is the
         # default), but never where per-experiment synced folders land.
-        for bad in ("/workspace", "/workspace/exp_cache", "/workspace/.research_plugin_sessions"):
+        for bad in ("/workspace", "/workspace/exp_cache", "/workspace/.merv_sessions"):
             with self.assertRaises(BackendValidationError):
                 ModalConfig(
                     app_name="merv-jobs",
@@ -408,20 +408,20 @@ class ModalSandboxBackendTest(unittest.TestCase):
                     idle_timeout=0,
                     remote_root="/workspace",
                     sandbox_data_dir=bad,
-                    runner_dir="/workspace/.research_plugin_job",
+                    runner_dir="/workspace/.merv_job",
                 ).validated()
 
     def test_sample_metrics_parses_gauges(self) -> None:
         provisioned = self.backend.acquire(request=self._request())
         FakeSandbox.registry[provisioned.sandbox_id].metrics_output = (
-            "RPM cpu_cores_used=1.5000\n"
-            "RPM cpu_cores_limit=2.0000\n"
-            "RPM mem_used_bytes=2147483648\n"
-            "RPM mem_limit_bytes=8589934592\n"
-            "RPM net_bytes_total=98765\n"
-            "RPM ssh_established=0\n"
-            "RPM gpu idx=0 util=42 used=1024 total=40960 name=NVIDIA A100-SXM4-40GB\n"
-            "RPM ok=1\n"
+            "MERV cpu_cores_used=1.5000\n"
+            "MERV cpu_cores_limit=2.0000\n"
+            "MERV mem_used_bytes=2147483648\n"
+            "MERV mem_limit_bytes=8589934592\n"
+            "MERV net_bytes_total=98765\n"
+            "MERV ssh_established=0\n"
+            "MERV gpu idx=0 util=42 used=1024 total=40960 name=NVIDIA A100-SXM4-40GB\n"
+            "MERV ok=1\n"
         )
         metrics = self.backend.sample_metrics(sandbox_id=provisioned.sandbox_id)
         self.assertIsNotNone(metrics)

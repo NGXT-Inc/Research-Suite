@@ -1,7 +1,7 @@
 """Shared live-usage sampler for SSH-accessible compute environments.
 
 Both execution backends run the same read-only probe script and parse the same
-``RPM <key>=<value>`` line protocol:
+``MERV <key>=<value>`` line protocol:
 
   - Modal executes it via control-plane ``sandbox.exec`` (inside a gVisor
     container, where the cgroup files scope to the container).
@@ -21,7 +21,7 @@ from typing import Any
 METRICS_EXEC_TIMEOUT = 15
 
 
-# Emits machine-parseable `RPM <key>=<value>` lines for the usage gauges:
+# Emits machine-parseable `MERV <key>=<value>` lines for the usage gauges:
 # CPU cores in use (a two-point cgroup delta), memory in use (anonymous RSS
 # from /proc/meminfo — the reclaimable page cache a memory-mapped dataset
 # inflates "used" with is deliberately excluded, and under gVisor the
@@ -48,12 +48,12 @@ sleep 0.25
 u2=$(cpu_usage_usec); t2=$(now_ns)
 if [ -n "${u1:-}" ] && [ -n "${u2:-}" ]; then
   awk -v a="$u1" -v b="$u2" -v ta="$t1" -v tb="$t2" \
-    'BEGIN{ d=tb-ta; if(d>0) printf "RPM cpu_cores_used=%.4f\n", ((b-a)*1000.0)/d }'
+    'BEGIN{ d=tb-ta; if(d>0) printf "MERV cpu_cores_used=%.4f\n", ((b-a)*1000.0)/d }'
 fi
 if [ -r /sys/fs/cgroup/cpu.max ]; then
   read -r q p < /sys/fs/cgroup/cpu.max || true
   if [ "${q:-max}" != "max" ] && [ -n "${p:-}" ]; then
-    awk -v q="$q" -v p="$p" 'BEGIN{ if(p>0) printf "RPM cpu_cores_limit=%.4f\n", q/p }'
+    awk -v q="$q" -v p="$p" 'BEGIN{ if(p>0) printf "MERV cpu_cores_limit=%.4f\n", q/p }'
   fi
 fi
 # Memory used. Modal runs sandboxes under gVisor, where the per-container memory
@@ -71,12 +71,12 @@ if [ -r /proc/meminfo ]; then
     /^Buffers:/       {b=$2}
     /^Cached:/        {c=$2}
     /^SReclaimable:/  {s=$2}
-    END { u=t-f-b-c-s; if (u<0) u=0; printf "RPM mem_used_bytes=%.0f\n", u*1024 }
+    END { u=t-f-b-c-s; if (u<0) u=0; printf "MERV mem_used_bytes=%.0f\n", u*1024 }
   ' /proc/meminfo
 fi
 if [ -r /proc/net/dev ]; then
   awk 'NR>2{iface=$1; sub(/:/,"",iface); if(iface!="lo") total+=$2+$10}
-       END{printf "RPM net_bytes_total=%.0f\n", total}' /proc/net/dev
+       END{printf "MERV net_bytes_total=%.0f\n", total}' /proc/net/dev
 fi
 ssh_sessions() {
   if command -v ss >/dev/null 2>&1; then
@@ -88,18 +88,18 @@ ssh_sessions() {
 }
 ssh_established=$(ssh_sessions || true)
 if [ -n "${ssh_established:-}" ]; then
-  printf 'RPM ssh_established=%s\n' "$ssh_established"
+  printf 'MERV ssh_established=%s\n' "$ssh_established"
 fi
 if command -v nvidia-smi >/dev/null 2>&1; then
   nvidia-smi --query-gpu=index,utilization.gpu,memory.used,memory.total,name \
     --format=csv,noheader,nounits 2>/dev/null | \
   while IFS=',' read -r idx util used total name; do
     trim() { echo "$1" | sed 's/^ *//; s/ *$//'; }
-    printf 'RPM gpu idx=%s util=%s used=%s total=%s name=%s\n' \
+    printf 'MERV gpu idx=%s util=%s used=%s total=%s name=%s\n' \
       "$(trim "$idx")" "$(trim "$util")" "$(trim "$used")" "$(trim "$total")" "$(trim "$name")"
   done
 fi
-echo "RPM ok=1"
+echo "MERV ok=1"
 """
 
 
@@ -141,7 +141,7 @@ def _parse_gpu(body: str) -> dict[str, Any] | None:
 
 
 def parse_metrics(output: str) -> dict[str, Any] | None:
-    """Turn `RPM key=value` sampler lines into a structured gauge dict."""
+    """Turn `MERV key=value` sampler lines into a structured gauge dict."""
     cpu_used = cpu_limit = None
     mem_used = mem_limit = None
     net_bytes = ssh_established = None
@@ -149,9 +149,9 @@ def parse_metrics(output: str) -> dict[str, Any] | None:
     saw_ok = False
     for raw_line in output.splitlines():
         line = raw_line.strip()
-        if not line.startswith("RPM "):
+        if not line.startswith("MERV "):
             continue
-        body = line[4:]
+        body = line[5:]
         if body.startswith("cpu_cores_used="):
             cpu_used = _to_float(body.split("=", 1)[1])
         elif body.startswith("cpu_cores_limit="):

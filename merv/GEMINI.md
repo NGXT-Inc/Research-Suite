@@ -68,7 +68,7 @@ management/transcript keys are separate operational credentials. A request may
 return `provisioning`; poll with `sandbox.get` rather than requesting again. The
 response provides SSH facts, and the agent constructs and runs the SSH command.
 
-Use `rp_run <label> -- <command>` for long commands and inspect receipts with
+Use `merv_run <label> -- <command>` for long commands and inspect receipts with
 `sandbox.runs`. Pull compact retained outputs with `sandbox.pull_outputs`
 (supplying the caller's `key_path`) or upload heavy files with storage tools when
 that optional feature is present. `sandbox.extend` is provider-dependent.

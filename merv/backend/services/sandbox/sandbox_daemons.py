@@ -43,7 +43,7 @@ class SandboxDaemons:
         self.backend = backend
         self.provisioner = provisioner
         self.lifecycle = lifecycle
-        # rp_run observation piggybacks the existing sweep cadence: each pass
+        # merv_run observation piggybacks the existing sweep cadence: each pass
         # mirrors .runs receipts for live sandboxes and emits run.finished.
         self.reconcile_runs = reconcile_runs
         # Cost governance (cloud plan Phase 7): the hosted control composition
