@@ -79,6 +79,10 @@ def _build_named_backend(
         from .backends.digitalocean import build_digitalocean_sandbox_backend
 
         return build_digitalocean_sandbox_backend(repo_root=repo_root)
+    if name == "verda":
+        from .backends.verda import build_verda_sandbox_backend
+
+        return build_verda_sandbox_backend(repo_root=repo_root)
     raise BackendUnavailableError(f"unknown execution backend: {name}")
 
 
