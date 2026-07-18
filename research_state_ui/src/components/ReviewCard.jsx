@@ -40,7 +40,7 @@ export default function ReviewCard({ review, bare = false }) {
         </div>
       </div>
       {review.notes && <div className="review-card-notes">{review.notes}</div>}
-      {/* Synthesis (reflection-wave) rejections route back to a stage; experiment
+      {/* Reflection-wave rejections route back to a stage; experiment
           reviews leave this unset, so it renders only when present. */}
       {review.return_to && (verdict === 'needs_changes' || verdict === 'fail') && (
         <div className="review-card-return">

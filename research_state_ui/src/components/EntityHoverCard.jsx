@@ -79,7 +79,7 @@ function ReviewBody({ d }) {
   );
 }
 
-function SynthesisBody({ d }) {
+function ReflectionBody({ d }) {
   return (
     <>
       <Row label="wave">{d.status && <StatusPill value={d.status} />}</Row>
@@ -94,7 +94,7 @@ const BODY = {
   resource: ResourceBody,
   resource_version: ResourceBody,
   review: ReviewBody,
-  synthesis: SynthesisBody,
+  reflection: ReflectionBody,
 };
 
 /**

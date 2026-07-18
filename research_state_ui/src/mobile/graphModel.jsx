@@ -2,10 +2,10 @@ import { Link } from 'react-router-dom';
 import { useProjectStore, projectPath } from '../store/useProjectStore';
 
 /**
- * Shared graph-model helpers — normalize the figure and logic/synthesis graph
+ * Shared graph-model helpers — normalize the figure and logic/reflection graph
  * payloads into the GraphOutline / GraphCanvasOverlay model, and the bottom-
  * sheet detail renderers. Used by the experiment graph section and the project
- * synthesis card.
+ * reflection card.
  */
 
 // figure node status → small visual family (mirrors ExperimentFigure.statusClass).

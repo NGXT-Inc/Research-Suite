@@ -4,7 +4,7 @@ import { useCallback, useRef, useSyncExternalStore } from 'react';
  * Shared, draggable width for the graph node-detail panel.
  *
  * The figure and logic graphs each render their own .fig-body split, and the
- * project-synthesis panel reuses the logic graph — so the width lives in a
+ * project-reflection panel reuses the logic graph — so the width lives in a
  * tiny module-level store (same pattern as useTheme) rather than per-component
  * state. That keeps every panel in lockstep and persists the user's choice
  * across reloads.

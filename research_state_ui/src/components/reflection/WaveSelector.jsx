@@ -18,7 +18,7 @@ function shortDate(iso) {
 export default function WaveSelector({ waves, selectedId, currentId, onSelect }) {
   // Only worth a selector when there is more than one wave to choose between.
   if (!waves || waves.length <= 1) return null;
-  // Newest-first: syntheses arrive ordered by created_at ascending.
+  // Newest-first: reflections arrive ordered by created_at ascending.
   const ordered = [...waves].reverse();
   return (
     <div className="refl-waves" role="tablist" aria-label="Reflection waves">

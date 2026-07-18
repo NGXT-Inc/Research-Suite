@@ -217,15 +217,14 @@ export const api = {
       body: { transition, ...(evidence ? { evidence } : {}) },
     }),
 
-  // Reflections (project reflection waves; the `syntheses` payload keys are
-  // the historical wire shape, kept until a separate body-rename migration).
+  // Reflections (project reflection waves).
   // List + staleness/coverage signal for the Home panel. Each entry is the
   // full wave state (roster, resources, reviews, reflection_coverage), so the
   // panel drives the whole history off this one call.
-  getSyntheses: (pid, signal) =>
+  getReflections: (pid, signal) =>
     request(`/api/projects/${encodeURIComponent(pid)}/reflections`, { signal }),
   // One wave, fully hydrated (deep-link / single-wave refresh).
-  getSynthesis: (pid, synId, signal) =>
+  getReflection: (pid, synId, signal) =>
     request(`/api/projects/${encodeURIComponent(pid)}/reflections/${encodeURIComponent(synId)}`, { signal }),
   // The living project logic graph (same payload shape as the experiment one).
   getProjectLogicGraph: (pid) =>
@@ -233,7 +232,7 @@ export const api = {
   // The logic graph of ONE specific wave, rendered from the bytes that wave
   // pinned — so a past wave shows faithfully even after a later wave overwrote
   // the living file. Same payload shape as getProjectLogicGraph.
-  getSynthesisGraph: (pid, synId) =>
+  getReflectionGraph: (pid, synId) =>
     request(`/api/projects/${encodeURIComponent(pid)}/reflections/${encodeURIComponent(synId)}/graph`),
 
   // Resources

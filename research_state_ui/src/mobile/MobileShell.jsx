@@ -150,7 +150,7 @@ function MoreSheet({ open, onClose, onRefresh }) {
       <div className="msheet-section">Browse</div>
       <SheetLink to={px('/claims')} label="Claims" count={stats.claims ?? home?.claims?.length ?? 0} />
       <SheetLink to={px('/reviews')} label="Reviews" count={stats.open_reviews ?? stats.reviews ?? 0} />
-      <SheetLink to={px('/synthesis')} label="Synthesis" />
+      <SheetLink to={px('/reflection')} label="Reflection" />
       <SheetLink to={px('/resources')} label="Resources" count={stats.resources ?? 0} />
       <SheetLink to={px('/storage')} label="Storage" />
       <SheetLink to={px('/sandboxes')} label="Sandboxes" count={runningSandboxes ? `${runningSandboxes} running` : null} />

@@ -801,7 +801,7 @@ html[data-surface="mobile"] .dbg-seg-btn { min-height: 34px; }
    keeps them for power-user scanning. */
 html[data-surface="mobile"] .dbg-hint { display: none; }
 
-/* A <button> styled as a .mcard (MobileProjects, synthesis) needs the reset. */
+/* A <button> styled as a .mcard (MobileProjects, reflection) needs the reset. */
 html[data-surface="mobile"] button.mcard {
   appearance: none;
   font-family: var(--font-body);
@@ -810,7 +810,7 @@ html[data-surface="mobile"] button.mcard {
 html[data-surface="mobile"] button.mcard:disabled { cursor: default; opacity: 0.85; }
 
 /* =====================================================================
-   PROJECT SYNTHESIS SCREEN (/synthesis) — the reflection wave on a phone.
+   PROJECT REFLECTION SCREEN (/reflection) — the reflection wave on a phone.
    One scrollable column: graph → reflection doc → lens reflections →
    quiet change-spec/review → a muted history strip. Mirrors the desktop
    attention order; tuned for touch, low-noise. (§4.2)

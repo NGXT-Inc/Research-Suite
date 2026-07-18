@@ -24,16 +24,16 @@ const STAGES = [
 const GATE_STATES = new Set(['design_review', 'experiment_review']);
 const TERMINAL = new Set(['complete', 'failed', 'abandoned']);
 
-// The synthesis (project reflection wave) lifecycle, renderable through the
-// same strip: pass stages={SYNTHESIS_STAGES} gateStates={SYNTHESIS_GATES}.
-export const SYNTHESIS_STAGES = [
+// The reflection-wave lifecycle, renderable through the
+// same strip: pass stages={REFLECTION_STAGES} gateStates={REFLECTION_GATES}.
+export const REFLECTION_STAGES = [
   { id: 'reflecting',       label: 'Reflecting' },
   { id: 'synthesizing',     label: 'Synthesizing' },
-  { id: 'synthesis_review', label: 'Synth. review' },
+  { id: 'reflection_review', label: 'Refl. review' },
   { id: 'published',        label: 'Published' },
 ];
-export const SYNTHESIS_GATES = new Set(['synthesis_review']);
-export const SYNTHESIS_TERMINAL = new Set(['published', 'abandoned']);
+export const REFLECTION_GATES = new Set(['reflection_review']);
+export const REFLECTION_TERMINAL = new Set(['published', 'abandoned']);
 
 export default function FSMStrip({
   status, badge = null, expanded = false, onToggle = null, children = null,

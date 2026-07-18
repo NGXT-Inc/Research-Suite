@@ -6,12 +6,12 @@ import ResourceContentView from '../components/ResourceContentView';
 import ReviewCard from '../components/ReviewCard';
 import GraphOutline from './GraphOutline';
 import { normalizeLogic, makeLogicDetail } from './graphModel';
-import { TERMINAL_WAVE, reflectionsByLens, secondaryDocs, resolveReflectionDoc, docVersion } from '../components/synthesis/waveModel';
+import { TERMINAL_WAVE, reflectionsByLens, secondaryDocs, resolveReflectionDoc, docVersion } from '../components/reflection/waveModel';
 
 const GraphCanvasOverlay = lazy(() => import('./GraphCanvasOverlay'));
 
 /**
- * MobileSynthesisScreen — the reflection wave on a phone.
+ * MobileReflectionScreen — the reflection wave on a phone.
  *
  * The desktop attention order, restacked for a single scrollable column:
  *   graph (clean outline, with an opt-in interactive canvas) → the reflection
@@ -19,14 +19,14 @@ const GraphCanvasOverlay = lazy(() => import('./GraphCanvasOverlay'));
  *   review disclosures → a muted "reflection history" strip to pan back to
  *   older waves. A past wave renders FAITHFULLY from the bytes it pinned (the
  *   per-wave /graph endpoint + `?version=` content), not the living files a
- *   later wave overwrote. Reached by tapping the Now-screen synthesis card.
+ *   later wave overwrote. Reached by tapping the Now-screen reflection card.
  */
 
 // Small status → dot color for the history chips.
 const WAVE_DOT = {
   published: 'var(--supports)',
   abandoned: 'var(--faint)',
-  synthesis_review: 'var(--qualifies)',
+  reflection_review: 'var(--qualifies)',
 };
 
 function shortDate(iso) {
@@ -36,7 +36,7 @@ function shortDate(iso) {
   } catch { return ''; }
 }
 
-export default function MobileSynthesisScreen() {
+export default function MobileReflectionScreen() {
   const project = useProjectStore(selectProject);
   const projectId = project?.id;
   const px = useProjectHref();
@@ -46,18 +46,18 @@ export default function MobileSynthesisScreen() {
   const [pinnedId, setPinnedId] = useState(null); // null = follow the live wave
   const [showCanvas, setShowCanvas] = useState(false);
 
-  const fetchSyntheses = useCallback(async () => {
+  const fetchReflections = useCallback(async () => {
     if (!projectId) return;
-    const d = await api.getSyntheses(projectId).catch(() => null);
+    const d = await api.getReflections(projectId).catch(() => null);
     if (d) setData(prev => (JSON.stringify(prev) === JSON.stringify(d) ? prev : d));
   }, [projectId]);
 
-  useEffect(() => { fetchSyntheses(); }, [fetchSyntheses]);
+  useEffect(() => { fetchReflections(); }, [fetchReflections]);
 
-  const waves = data?.syntheses || [];
+  const waves = data?.reflections || [];
   const signal = data?.signal || null;
   const hasAnyWave = waves.length > 0;
-  // syntheses arrive oldest-first; current = open wave else latest published.
+  // reflections arrive oldest-first; current = open wave else latest published.
   const currentId = data?.current?.id || (waves.length ? waves[waves.length - 1].id : null);
   const selectedId = (pinnedId && waves.some(w => w.id === pinnedId)) ? pinnedId : currentId;
   const selectedIndex = waves.findIndex(w => w.id === selectedId);
@@ -70,7 +70,7 @@ export default function MobileSynthesisScreen() {
   // graph never flashes; re-fetch on the live tick while the wave is open.
   const fetchGraph = useCallback(async () => {
     if (!projectId || !selectedId) return;
-    const g = await api.getSynthesisGraph(projectId, selectedId).catch(() => null);
+    const g = await api.getReflectionGraph(projectId, selectedId).catch(() => null);
     if (g) setGraph(g);
   }, [projectId, selectedId]);
 
@@ -83,10 +83,10 @@ export default function MobileSynthesisScreen() {
   useEffect(() => {
     if (!isOpen) return undefined;
     const t = setInterval(() => {
-      if (document.visibilityState === 'visible') { fetchSyntheses(); fetchGraph(); }
+      if (document.visibilityState === 'visible') { fetchReflections(); fetchGraph(); }
     }, 8000);
     return () => clearInterval(t);
-  }, [isOpen, fetchSyntheses, fetchGraph]);
+  }, [isOpen, fetchReflections, fetchGraph]);
 
   const backToCurrent = useCallback(() => setPinnedId(null), []);
 
@@ -108,7 +108,7 @@ export default function MobileSynthesisScreen() {
         <Link to={px('')}>Now</Link>
         {wave && waves.length > 1 && <> · wave {selectedIndex + 1} of {waves.length}</>}
       </div>
-      <h1 className="page-title">Project synthesis</h1>
+      <h1 className="page-title">Project reflection</h1>
     </header>
   );
 
@@ -206,7 +206,7 @@ export default function MobileSynthesisScreen() {
       )}
       {reviews.length > 0 && (
         <section className="section">
-          <MobileDisclosure label="Synthesis review" count={reviews.length}>
+          <MobileDisclosure label="Reflection review" count={reviews.length}>
             {reviews.map(r => <ReviewCard key={r.id} review={r} bare />)}
           </MobileDisclosure>
         </section>

@@ -3,13 +3,13 @@ import { api } from '../api';
 import LogicGraph from './LogicGraph';
 import ReviewCard from './ReviewCard';
 import ResourceContentView from './ResourceContentView';
-import FSMStrip, { SYNTHESIS_STAGES, SYNTHESIS_GATES, SYNTHESIS_TERMINAL } from './FSMStrip';
-import WaveSelector from './synthesis/WaveSelector';
-import LensReflectionCard from './synthesis/LensReflectionCard';
-import { TERMINAL_WAVE, reflectionsByLens, secondaryDocs, resolveReflectionDoc, docVersion } from './synthesis/waveModel';
+import FSMStrip, { REFLECTION_STAGES, REFLECTION_GATES, REFLECTION_TERMINAL } from './FSMStrip';
+import WaveSelector from './reflection/WaveSelector';
+import LensReflectionCard from './reflection/LensReflectionCard';
+import { TERMINAL_WAVE, reflectionsByLens, secondaryDocs, resolveReflectionDoc, docVersion } from './reflection/waveModel';
 
 /**
- * ProjectSynthesisPanel — the reflection wave, on Home.
+ * ProjectReflectionPanel — the reflection wave, on Home.
  *
  * Attention order, top to bottom: the project logic GRAPH (front and center),
  * the REFLECTION document directly under it (role reflection_doc, rendered
@@ -17,7 +17,7 @@ import { TERMINAL_WAVE, reflectionsByLens, secondaryDocs, resolveReflectionDoc, 
  * REFLECTIONS that fed it. The machine
  * change-spec and the review sit below as quiet disclosures, and the wave
  * "version control" (pan back to older waves) is a muted footer that does not
- * compete with the graph and synthesis.
+ * compete with the graph and reflection.
  *
  * The current wave (open, else latest published) shows by default; panning to a
  * past wave renders it FAITHFULLY from the bytes it pinned (the per-wave /graph
@@ -52,16 +52,16 @@ function Collapsible({ label, count, children }) {
   );
 }
 
-export default function ProjectSynthesisPanel({ projectId }) {
+export default function ProjectReflectionPanel({ projectId }) {
   const [data, setData] = useState(null);
   const [pinnedId, setPinnedId] = useState(null); // null = follow the live wave
   const [graphAvailable, setGraphAvailable] = useState(false);
   const [expanded, setExpanded] = useState(false);
   const toggleExpand = useCallback(() => setExpanded(v => !v), []);
 
-  const fetchSyntheses = useCallback(async () => {
+  const fetchReflections = useCallback(async () => {
     try {
-      const payload = await api.getSyntheses(projectId);
+      const payload = await api.getReflections(projectId);
       setData(prev => (JSON.stringify(prev) === JSON.stringify(payload) ? prev : payload));
     } catch {
       // Non-fatal: Home still works without the panel's metadata.
@@ -69,10 +69,10 @@ export default function ProjectSynthesisPanel({ projectId }) {
   }, [projectId]);
 
   useEffect(() => {
-    fetchSyntheses();
-    const t = setInterval(fetchSyntheses, 8000);
+    fetchReflections();
+    const t = setInterval(fetchReflections, 8000);
     return () => clearInterval(t);
-  }, [fetchSyntheses]);
+  }, [fetchReflections]);
 
   // Same fullscreen affordance as the experiment graphs: Escape or the
   // backdrop collapses, page scroll locks while open.
@@ -88,10 +88,10 @@ export default function ProjectSynthesisPanel({ projectId }) {
     };
   }, [expanded]);
 
-  const waves = data?.syntheses || [];
+  const waves = data?.reflections || [];
   const signal = data?.signal || null;
   const hasAnyWave = waves.length > 0;
-  // syntheses arrive oldest-first; current = open wave else latest published.
+  // reflections arrive oldest-first; current = open wave else latest published.
   const currentId = data?.current?.id || (waves.length ? waves[waves.length - 1].id : null);
   // Follow the live wave unless the user pinned a still-present past wave.
   const selectedId = (pinnedId && waves.some(w => w.id === pinnedId)) ? pinnedId : currentId;
@@ -107,7 +107,7 @@ export default function ProjectSynthesisPanel({ projectId }) {
   const backToCurrent = useCallback(() => setPinnedId(null), []);
 
   const graphFetcher = useCallback(
-    () => api.getSynthesisGraph(projectId, selectedId),
+    () => api.getReflectionGraph(projectId, selectedId),
     [projectId, selectedId],
   );
 
@@ -125,10 +125,10 @@ export default function ProjectSynthesisPanel({ projectId }) {
 
   if (!hasAnyWave) {
     return (
-      <section className="section" id="project-synthesis">
-        <div className="section-title">Project synthesis</div>
+      <section className="section" id="project-reflection">
+        <div className="section-title">Project reflection</div>
         <div className="empty-state empty-state--compact">
-          <p>No synthesis yet.</p>
+          <p>No reflection yet.</p>
         </div>
         {signal?.hint && <div className="syn-hint">{signal.hint}</div>}
       </section>
@@ -136,9 +136,9 @@ export default function ProjectSynthesisPanel({ projectId }) {
   }
 
   return (
-    <section className="section" id="project-synthesis">
+    <section className="section" id="project-reflection">
       <div className="cluster--between" style={{ marginBottom: 10 }}>
-        <div className="section-title" style={{ marginBottom: 0 }}>Project synthesis</div>
+        <div className="section-title" style={{ marginBottom: 0 }}>Project reflection</div>
         {wave && (
           <span className="muted" style={{ fontSize: 'var(--text-xs)' }}>
             Wave {selectedIndex + 1} of {waves.length}
@@ -168,7 +168,6 @@ export default function ProjectSynthesisPanel({ projectId }) {
           live={isOpen}
           attemptIndex={wave.attempt_index}
           storyHint={coverageHint}
-          problemsGate="submit_synthesis"
           onAvailability={setGraphAvailable}
           expanded={expanded}
           onToggleExpand={toggleExpand}
@@ -230,7 +229,7 @@ export default function ProjectSynthesisPanel({ projectId }) {
         </Collapsible>
       ))}
       {wave && reviews.length > 0 && (
-        <Collapsible label="Synthesis review" count={reviews.length}>
+        <Collapsible label="Reflection review" count={reviews.length}>
           {reviews.map(r => <ReviewCard key={r.id} review={r} />)}
         </Collapsible>
       )}
@@ -248,10 +247,10 @@ export default function ProjectSynthesisPanel({ projectId }) {
           <div className="refl-versions-meta">
             <FSMStrip
               status={wave.status}
-              stages={SYNTHESIS_STAGES}
-              gateStates={SYNTHESIS_GATES}
-              terminal={SYNTHESIS_TERMINAL}
-              ariaLabel="Synthesis lifecycle"
+              stages={REFLECTION_STAGES}
+              gateStates={REFLECTION_GATES}
+              terminal={REFLECTION_TERMINAL}
+              ariaLabel="Reflection lifecycle"
             />
             <div className="refl-meta">
               {wave.attempt_index > 1 && (

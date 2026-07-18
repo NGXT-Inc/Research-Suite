@@ -144,14 +144,13 @@ export default function LogicGraph({
   projectId, experimentId, experimentStatus, attemptIndex,
   active = true, titleTabs = null, onAvailability = null,
   expanded = false, onToggleExpand = null,
-  // Reuse hooks: the project-level synthesis panel renders the SAME component
+  // Reuse hooks: the project-level reflection panel renders the SAME component
   // against the project graph endpoint. `fetcher` overrides the data source,
   // `live` overrides the keep-polling decision, and the two text props swap
   // the experiment phrasing for project phrasing.
   fetcher = null,
   live = null,
   storyHint = "written by the agent",
-  problemsGate = 'submit_results',
   // The agent's story graphs tend to be wide, flat ribbons (a left→right
   // chain of ranks). fitView fits that to WIDTH, crushing the zoom so node
   // text becomes unreadable while most of the canvas height sits empty. When

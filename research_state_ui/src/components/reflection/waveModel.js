@@ -1,7 +1,7 @@
 /**
  * waveModel — shared reflection-wave role-resolution policy + belief-state
- * logic, consumed by both the desktop ProjectSynthesisPanel and the mobile
- * MobileSynthesisScreen so the two surfaces never drift. Pure helpers, no JSX.
+ * logic, consumed by both the desktop ProjectReflectionPanel and the mobile
+ * MobileReflectionScreen so the two surfaces never drift. Pure helpers, no JSX.
  */
 
 export const TERMINAL_WAVE = new Set(['published', 'abandoned']);
@@ -16,7 +16,7 @@ export const LENS_DOC_ROLES = ['reflection_lens_doc', 'reflection'];
 const PRIMARY_ROLES = new Set(['graph', ...LENS_DOC_ROLES, ...REFLECTION_DOC_ROLES]);
 
 // Nice labels for known secondary doc roles; anything else is humanized so a
-// new backend role never goes unrendered as the synthesis model evolves.
+// new backend role never goes unrendered as the reflection model evolves.
 const DOC_ROLE_META = {
   change_spec: { label: 'Change spec — belief-state update', order: 0 },
   proposals: { label: "What's next — proposals", order: 1 },

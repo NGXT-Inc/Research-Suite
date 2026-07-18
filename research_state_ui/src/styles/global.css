@@ -4287,8 +4287,8 @@ a.clb-card:focus-visible { outline: 2px solid var(--active); outline-offset: -2p
 .exp-figure--expanded .fig-canvas { height: 100%; }
 .exp-figure--expanded .fig-panel { max-height: none; }
 
-/* Project synthesis panel (Home). The living project logic graph plus the
-   reflection-wave lifecycle around it: synthesis FSM strip, per-lens
+/* Project reflection panel (Home). The living project logic graph plus the
+   reflection-wave lifecycle around it: reflection FSM strip, per-lens
    reflection coverage chips, and the soft staleness hint. */
 .syn-wave { margin-bottom: 12px; }
 .syn-lenses {
@@ -4339,7 +4339,7 @@ a.clb-card:focus-visible { outline: 2px solid var(--active); outline-offset: -2p
 }
 .refl-wave-dot--reflecting,
 .refl-wave-dot--synthesizing { background: var(--active); }
-.refl-wave-dot--synthesis_review { background: var(--qualifies); }
+.refl-wave-dot--reflection_review { background: var(--qualifies); }
 .refl-wave-dot--published { background: var(--supports); }
 .refl-wave-dot--abandoned { background: var(--refutes); }
 
@@ -4407,7 +4407,7 @@ a.clb-card:focus-visible { outline: 2px solid var(--active); outline-offset: -2p
   margin-top: 6px; font-size: var(--text-xs); color: var(--qualifies);
 }
 
-/* Reflection-wave layout: graph + synthesis dominate; history recedes. */
+/* Reflection-wave layout: graph + reflection doc dominate; history recedes. */
 .refl-eyebrow {
   font-size: var(--text-xs); text-transform: uppercase; letter-spacing: .07em;
   color: var(--muted); margin: 18px 0 8px;
@@ -4439,7 +4439,7 @@ a.clb-card:focus-visible { outline: 2px solid var(--active); outline-offset: -2p
 }
 .refl-hist-back:hover { text-decoration: underline; }
 
-/* Version control footer — muted, must not pull focus from graph + synthesis. */
+/* Version control footer — muted, must not pull focus from graph + reflection. */
 .refl-versions {
   margin-top: 24px; padding-top: 14px; border-top: 1px solid var(--line);
   opacity: .85;

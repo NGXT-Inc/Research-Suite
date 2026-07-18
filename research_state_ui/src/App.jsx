@@ -18,7 +18,7 @@ import MobileClaimDetail from './mobile/MobileClaimDetail';
 import MobileReviews from './mobile/MobileReviews';
 import MobileProjects from './mobile/MobileProjects';
 import MobileProjectCreateNotice from './mobile/MobileProjectCreateNotice';
-import MobileSynthesisScreen from './mobile/MobileSynthesisScreen';
+import MobileReflectionScreen from './mobile/MobileReflectionScreen';
 import MobileMlflow from './mobile/MobileMlflow';
 import Home from './pages/Home';
 import Feed from './feed/Feed';
@@ -190,7 +190,7 @@ export default function App() {
             <Route path="claims/:claimId" element={<MobileClaimDetail />} />
             <Route path="experiments" element={<ExperimentCardList />} />
             <Route path="experiments/:experimentId" element={<MobileExperimentDetail />} />
-            <Route path="synthesis" element={<MobileSynthesisScreen />} />
+            <Route path="reflection" element={<MobileReflectionScreen />} />
             <Route path="resources" element={<MobileResources />} />
             <Route path="resources/:resourceId" element={<MobileResources />} />
             <Route path="storage" element={<Storage />} />

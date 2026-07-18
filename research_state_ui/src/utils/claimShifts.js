@@ -18,7 +18,7 @@ export function computeClaimShifts(events) {
     const type = ev.event_type || ev.type;
     const p = ev.payload || {};
     if (type === 'claim.created') {
-      // claim.create defaults; synthesis-born claims get corrected by the
+      // claim.create defaults; reflection-born claims get corrected by the
       // update that follows within the same wave.
       last.set(ev.target_id, { status: 'active', confidence: 'medium', statement: p.statement });
       continue;

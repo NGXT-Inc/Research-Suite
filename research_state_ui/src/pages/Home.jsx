@@ -15,7 +15,7 @@ import FSMStrip from '../components/FSMStrip';
 import SandboxTable from '../components/SandboxTable';
 import ComputeSpend from '../components/ComputeSpend';
 import ActiveExperimentPager from '../components/ActiveExperimentPager';
-import ProjectSynthesisPanel from '../components/ProjectSynthesisPanel';
+import ProjectReflectionPanel from '../components/ProjectReflectionPanel';
 import { expName } from '../utils/experiment';
 
 export default function Home() {
@@ -95,7 +95,7 @@ export default function Home() {
         </section>
       )}
 
-      <ProjectSynthesisPanel projectId={project.id} />
+      <ProjectReflectionPanel projectId={project.id} />
 
       <section className="section">
         <div className="section-title">

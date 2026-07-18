@@ -24,7 +24,7 @@ const PREFIX_TYPE = {
   // rver_ is a resource *version* id (it appears as association.version_id), not
   // a review version — it resolves to the resource that owns the version.
   rver: 'resource_version',
-  syn: 'synthesis',
+  syn: 'reflection',
 };
 
 // One geometric glyph per type (monochrome, no emoji) — claim is the hollow
@@ -35,7 +35,7 @@ export const TYPE_GLYPH = {
   resource: '▤',
   resource_version: '▤',
   review: '◈',
-  synthesis: '❖',
+  reflection: '❖',
 };
 
 export const TYPE_LABEL = {
@@ -44,7 +44,7 @@ export const TYPE_LABEL = {
   resource: 'resource',
   resource_version: 'resource version',
   review: 'review',
-  synthesis: 'reflection',
+  reflection: 'reflection',
 };
 
 // Only these types have a project-scoped detail page; the rest render as a
@@ -217,7 +217,7 @@ export function resolveEntity(id, home) {
     };
   }
 
-  // synthesis: never carried in the home snapshot — resolve by fetch.
+  // reflection: never carried in the home snapshot — resolve by fetch.
   return { ...DEAD(id, type), label: 'reflection', needsFetch: true };
 }
 
@@ -256,10 +256,10 @@ export function seedFromRefIndex(refString, entry) {
       detail: { type: 'review', role: entry.role, verdict: entry.verdict },
     };
   }
-  if (t === 'synthesis') {
+  if (t === 'reflection') {
     return {
-      id: refString, type: 'synthesis', label: entry.title || 'reflection', navigable: false,
-      detail: { type: 'synthesis', status: entry.status, decision: entry.decision },
+      id: refString, type: 'reflection', label: entry.title || 'reflection', navigable: false,
+      detail: { type: 'reflection', status: entry.status, decision: entry.decision },
     };
   }
   return null;
@@ -300,9 +300,9 @@ export async function fetchEntity(id, pid) {
         id, type, label: clamp(c.statement, 44) || shortId(id), route: ROUTE.claim(id), navigable: true,
         detail: { type, statement: c.statement || '', status: c.status, confidence: c.confidence, linked: null },
       };
-    } else if (type === 'synthesis') {
-      const s = await api.getSynthesis(pid, id);
-      const w = s?.synthesis || s || {};
+    } else if (type === 'reflection') {
+      const s = await api.getReflection(pid, id);
+      const w = s || {};
       out = {
         id, type, label: 'reflection', navigable: false,
         detail: { type, status: w.status, decision: w.decision },
