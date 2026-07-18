@@ -39,7 +39,9 @@ export function buildTimeScale(startTimesMs) {
     anchors.push({ t: times[i], x: prev.x + spreadFor((times[i] - times[i - 1]) / 3600000) });
   }
   const xFor = (t) => {
-    if (t <= anchors[0].t) return anchors[0].x;
+    // Both tails ramp continuously to at most SPREAD_MAX px, so the world
+    // stays anchored on the experiments no matter how stale the clock is.
+    if (t <= anchors[0].t) return anchors[0].x - SPREAD_MAX * spreadFrac((anchors[0].t - t) / 3600000);
     for (let i = 1; i < anchors.length; i++) {
       if (t <= anchors[i].t) {
         const a = anchors[i - 1];
@@ -48,7 +50,7 @@ export function buildTimeScale(startTimesMs) {
       }
     }
     const la = anchors[anchors.length - 1];
-    return la.x + SPREAD_MAX * spreadFrac((t - la.t) / 3600000); // 0 → SPREAD_MAX, continuous
+    return la.x + SPREAD_MAX * spreadFrac((t - la.t) / 3600000);
   };
   return { anchors, xFor };
 }
@@ -78,29 +80,61 @@ const dayKey = (ms) => {
   return `${d.getFullYear()}-${p2(d.getMonth() + 1)}-${p2(d.getDate())}`;
 };
 
+const DAY_MS = 86400000;
+// Margin days stop where the elastic tails flatten below this per-day step —
+// the calendar fades out instead of piling labels onto a saturated scale.
+const MARGIN_STEP_MIN = 30;
+
 /**
- * One axis tick per distinct start day, at that day's earliest event x − 24.
- * Wide label ("Thu, Jul 2") when there's > 110px of room since the previous
+ * One axis tick per distinct start day, at that day's earliest event x − 24,
+ * plus margin days riding the elastic tails: a few days before the first
+ * experiment, and the days after the last one up to (never past) now. Wide
+ * label ("Thu, Jul 2") when there's > 110px of room since the previous
  * label's end, tight ("Jul 2") otherwise. World coordinates — screen-space
  * culling belongs to the view.
  */
-export function dayTicks(experiments, xFor) {
+export function dayTicks(experiments, xFor, nowMs) {
   const byDay = {};
   for (const e of experiments) {
     if (!Number.isFinite(e.startMs)) continue;
     const day = dayKey(e.startMs);
     if (!(day in byDay) || e.startMs < byDay[day]) byDay[day] = e.startMs;
   }
+  const eventDays = Object.values(byDay).sort((a, b) => a - b);
+  if (eventDays.length === 0) return [];
+
+  // Walk a tail one day at a time until the elastic step collapses.
+  const tail = (fromMs, dir, keep) => {
+    const out = [];
+    let prevX = xFor(fromMs);
+    for (let k = 1; k <= 14; k++) {
+      const t = fromMs + dir * k * DAY_MS;
+      if (!keep(t)) break;
+      const x = xFor(t);
+      if (Math.abs(x - prevX) < MARGIN_STEP_MIN) break;
+      out.push(t);
+      prevX = x;
+    }
+    return out;
+  };
+  const nowDay = Number.isFinite(nowMs) ? dayKey(nowMs) : null;
+  const before = tail(eventDays[0], -1, () => true).reverse();
+  const after = tail(eventDays[eventDays.length - 1], 1, (t) => (
+    nowDay == null || (t < nowMs && dayKey(t) !== nowDay)
+  ));
+
+  const eventSet = new Set(eventDays);
   let lastEnd = -Infinity;
-  return Object.entries(byDay).sort((a, b) => a[1] - b[1]).map(([day, t]) => {
+  return [...before, ...eventDays, ...after].map((t) => {
     const x = Math.round(xFor(t)) - 24;
     const wide = x - lastEnd > 110;
-    const label = new Date(`${day}T12:00`).toLocaleDateString(
+    const label = new Date(`${dayKey(t)}T12:00`).toLocaleDateString(
       'en-US',
       wide ? { weekday: 'short', month: 'short', day: 'numeric' } : { month: 'short', day: 'numeric' },
     );
     lastEnd = x + label.length * 7.5;
-    return { x, label };
+    // m: margin day (no experiment) — the view culls these with lower priority.
+    return { x, label, m: !eventSet.has(t) };
   });
 }
 
@@ -121,7 +155,7 @@ export function nowX(xFor, positions, nowMs) {
 export function computeLayout(cards, nowMs) {
   const scale = buildTimeScale(cards.map((c) => c.startMs));
   const pos = packRows(cards.map((c) => ({ id: c.id, x: Math.round(scale.xFor(c.startMs)) })));
-  const ticks = dayTicks(cards, scale.xFor);
+  const ticks = dayTicks(cards, scale.xFor, nowMs);
   const nx = nowX(scale.xFor, pos, nowMs);
   let minX = Infinity; let maxX = -Infinity; let minY = Infinity; let maxY = -Infinity;
   for (const p of Object.values(pos)) {

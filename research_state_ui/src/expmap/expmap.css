@@ -58,7 +58,7 @@ html[data-theme="dark"] { --xmap-leader: rgba(255, 255, 255, 0.14); }
 .xmap-ic--sbx, .xmap-ic--res { color: var(--faint); }
 
 .xmap-card:focus-visible, .xmap-chip:focus-visible, .xmap-sat:focus-visible,
-.xmap-ref:focus-visible, .xmap-zoom button:focus-visible,
+.xmap-ref:focus-visible,
 .xmap-panel-close:focus-visible, .xmap-panel-id:focus-visible,
 .xmap-ref-ext:focus-visible {
   outline: 2px solid var(--active);
@@ -241,35 +241,6 @@ html[data-theme="dark"] { --xmap-leader: rgba(255, 255, 255, 0.14); }
 }
 .xmap-legend-item { display: flex; align-items: center; gap: 6px; }
 .xmap-legend-word { color: var(--muted); }
-
-/* ── Zoom pill ────────────────────────────────────────────────────────── */
-.xmap-zoom {
-  position: absolute;
-  left: 24px;
-  bottom: 24px;
-  display: flex;
-  flex-direction: column;
-  gap: 1px;
-  background: var(--line);
-  border: 1px solid var(--line);
-  border-radius: 6px;
-  overflow: hidden;
-  z-index: 4;
-}
-.xmap-zoom button {
-  width: 34px;
-  height: 32px;
-  background: var(--bg-elev);
-  color: var(--text);
-  border: none;
-  font-size: 15px;
-  cursor: pointer;
-  font-family: var(--font-mono);
-}
-.xmap-zoom .xmap-zoom-fit { font-size: 10px; color: var(--muted); }
-@media (hover: hover) {
-  .xmap-zoom button:hover { background: var(--bg-soft); }
-}
 
 /* ── Detail panel ─────────────────────────────────────────────────────── */
 .xmap-panel {

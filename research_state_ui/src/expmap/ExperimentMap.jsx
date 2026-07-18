@@ -216,17 +216,29 @@ const edgeTypes = { xmap: XmapEdge };
  */
 function AxisStrip({ ticks, nowX }) {
   const { x: tx, zoom: s } = useViewport();
+  const nowSx = Math.round(tx + nowX * s);
+  // Experiment days place first (mutual 84px culling); margin days only fill
+  // space no real label claimed — a virtual day must never displace a real one.
   const kept = [];
   let lastEnd = -Infinity;
   for (const t of ticks || []) {
+    if (t.m) continue;
     // t.x carries the prototype's -24 world offset for the wide/tight label
     // proximity math; the render position restores it (prototype parity).
     const sxp = tx + (t.x + 24) * s;
     if (sxp - lastEnd < 84) continue;
+    if (Math.abs(sxp - nowSx) < 70) continue; // leave the NOW label its room
     kept.push({ sx: Math.round(sxp), label: t.label });
     lastEnd = sxp + t.label.length * 4;
   }
-  const nowSx = Math.round(tx + nowX * s);
+  for (const t of ticks || []) {
+    if (!t.m) continue;
+    const sxp = tx + (t.x + 24) * s;
+    if (Math.abs(sxp - nowSx) < 70) continue;
+    if (kept.some((k) => Math.abs(sxp - k.sx) < 84)) continue;
+    kept.push({ sx: Math.round(sxp), label: t.label });
+  }
+  kept.sort((a, b) => a.sx - b.sx);
   return (
     <div className="xmap-axis" aria-hidden="true">
       {kept.map((t) => (
@@ -266,12 +278,6 @@ function MapCanvas({ model, wrapRef, size, initialViewport }) {
   const selectObject = useCallback((type, id) => {
     setSel({ type: type === 'res' ? 'sbx' : type, id });
   }, []);
-
-  const fitAll = useCallback((ms = 550) => {
-    const el = wrapRef.current;
-    if (!el || !layout.bounds) return;
-    rf.setViewport(fitViewportFor(layout.bounds, el.clientWidth, el.clientHeight), { duration: motionMs(ms) });
-  }, [layout, rf, wrapRef]);
 
   // Transport: center the card in the viewport minus the panel, then select.
   const transportTo = useCallback((id) => {
@@ -385,11 +391,6 @@ function MapCanvas({ model, wrapRef, size, initialViewport }) {
       </ReactFlow>
       <AxisStrip ticks={layout.ticks} nowX={layout.nowX} />
       <Legend hasAbandoned={cards.some((c) => c.status === 'abandoned')} />
-      <div className="xmap-zoom">
-        <button type="button" onClick={() => rf.zoomIn({ duration: motionMs(200) })} aria-label="Zoom in">+</button>
-        <button type="button" onClick={() => rf.zoomOut({ duration: motionMs(200) })} aria-label="Zoom out">−</button>
-        <button type="button" className="xmap-zoom-fit" onClick={() => fitAll()} aria-label="Fit all">fit</button>
-      </div>
       {sel && (
         <MapPanel
           sel={sel}
