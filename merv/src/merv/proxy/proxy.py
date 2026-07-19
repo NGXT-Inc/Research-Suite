@@ -59,17 +59,6 @@ _STATIC_CATALOG_PATH = Path(__file__).with_name("_tool_catalog.json")
 _STORAGE_PROVIDER_ENV_VAR = "MERV_STORAGE_PROVIDER"
 
 
-def _static_local_tool_catalog() -> list[dict[str, Any]]:
-    tools = json.loads(_STATIC_CATALOG_PATH.read_text(encoding="utf-8"))["tools"]
-    if not _storage_feature_enabled():
-        tools = [
-            tool
-            for tool in tools
-            if not str(tool.get("name", "")).startswith("storage.")
-        ]
-    return tools
-
-
 def _storage_feature_enabled() -> bool:
     """Mirror brain config's dual-spelled, explicit-s3 storage feature gate."""
     raw = (dual_env_value(_STORAGE_PROVIDER_ENV_VAR) or "").lower()
@@ -328,7 +317,7 @@ class HttpProxyMcpServer:
             # path that never injects the linked project_id; the brain's pydantic
             # validation returns the enum error for an unknown action.
             return self._call_cloud_raw(name="project", arguments=arguments)
-        plane = self._plane_for(name=name)
+        plane = self._tool_meta(name=name).plane
         if name in _LOCAL_ENRICHED_CONTROL_TOOLS:
             return self._call_local_enriched_control(name=name, arguments=arguments)
         if plane == "control":
@@ -560,9 +549,6 @@ class HttpProxyMcpServer:
 
     # ---- helpers ---------------------------------------------------------
 
-    def _plane_for(self, *, name: str) -> str:
-        return self._tool_meta(name=name).plane
-
     def _tool_meta(self, *, name: str) -> _ToolMeta:
         if self._tool_cache is None:
             catalog, complete = self._catalog_tools()
@@ -596,7 +582,14 @@ class HttpProxyMcpServer:
     def _local_tool_catalog(self) -> list[dict[str, Any]]:
         # Runtime routing is deterministic and dependency-free; regeneration
         # and parity checks are the only bridge to the brain-owned contracts.
-        return _static_local_tool_catalog()
+        tools = json.loads(_STATIC_CATALOG_PATH.read_text(encoding="utf-8"))["tools"]
+        if not _storage_feature_enabled():
+            tools = [
+                tool
+                for tool in tools
+                if not str(tool.get("name", "")).startswith("storage.")
+            ]
+        return tools
 
     def _local_executor(self) -> LocalDataPlane:
         if self._local_data_plane is None:
