@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from contextlib import closing
 from dataclasses import dataclass
 
 from ...artifacts.pinned import PinnedStore
@@ -108,13 +109,10 @@ def build_experiment_attachment_check(*, store: BaseStateStore):
     """
 
     def check(*, attachment_id: str, project_id: str) -> None:
-        conn = store.connect()
-        try:
+        with closing(store.connect()) as conn:
             row = conn.execute(
                 "SELECT project_id FROM experiments WHERE id = ?", (attachment_id,)
             ).fetchone()
-        finally:
-            conn.close()
         if row is None or row["project_id"] != project_id:
             raise NotFoundError(
                 f"experiment not found in project {project_id}: {attachment_id}"
