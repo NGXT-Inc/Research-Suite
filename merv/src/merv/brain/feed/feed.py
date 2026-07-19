@@ -14,7 +14,7 @@ UI consumes and the soft posting nudge surfaced through ``workflow``.
 
 from __future__ import annotations
 
-from contextlib import closing
+from contextlib import closing, suppress
 import json
 import urllib.parse
 from pathlib import Path
@@ -160,11 +160,9 @@ class FeedService:
             "ALTER TABLE posts ADD COLUMN embed_sha256 TEXT NOT NULL DEFAULT ''",
             "ALTER TABLE posts ADD COLUMN embed_content_type TEXT NOT NULL DEFAULT ''",
         ):
-            try:
+            with suppress(Exception):
                 with self.store.transaction() as conn:
                     conn.execute(statement)
-            except Exception:  # noqa: BLE001
-                pass
 
     # -- identity -----------------------------------------------------------
 
@@ -600,7 +598,8 @@ class FeedService:
         }
         image_url = card.get("image_url") or ""
         if image_url:
-            try:
+            # A missing/unsafe thumbnail just means a text-only preview card.
+            with suppress(UnfurlError):
                 img_bytes, ctype = fetch_preview_image(image_url)
                 normalized = (ctype or "").split(";", 1)[0].strip().lower()
                 # Only re-host raster thumbnails. An external SVG og:image would
@@ -611,9 +610,6 @@ class FeedService:
                         namespace=project_id, data=img_bytes
                     )
                     preview["image_content_type"] = normalized
-            except UnfurlError:
-                # A missing/unsafe thumbnail just means a text-only preview card.
-                pass
         return url, preview
 
     # -- reading ------------------------------------------------------------
