@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from contextlib import closing
 import hashlib
 import json
 import os
@@ -378,8 +379,7 @@ class ResourceService:
         ``current_version`` so large projects can be listed (and change-detected
         via ``version_token``) without re-pulling hundreds of KB per call.
         """
-        conn = self.store.connect()
-        try:
+        with closing(self.store.connect()) as conn:
             project_id = self.store.require_project_id(conn=conn, project_id=project_id)
             where = ["r.project_id = ?", "r.deleted = 0"]
             params: list[Any] = [project_id]
@@ -425,8 +425,6 @@ class ResourceService:
                 "has_more": (int(offset) + returned) < total,
                 "compact": bool(compact),
             }
-        finally:
-            conn.close()
 
     def resolve(
         self,
@@ -482,8 +480,7 @@ class ResourceService:
     def history(
         self, *, resource_id: str, project_id: str | None = None
     ) -> dict[str, Any]:
-        conn = self.store.connect()
-        try:
+        with closing(self.store.connect()) as conn:
             project_id = self.store.require_project_id(conn=conn, project_id=project_id)
             resource = self.resolve(
                 resource_id=resource_id, project_id=project_id, conn=conn
@@ -501,8 +498,6 @@ class ResourceService:
                 "resource": resource,
                 "versions": [self._hydrate_version(row=row, conn=conn) for row in rows],
             }
-        finally:
-            conn.close()
 
     def pinned_text_for_version(
         self, *, version_id: str, what: str, role: str = ""
@@ -517,8 +512,7 @@ class ResourceService:
             raise WorkflowError(
                 f"{what}: no blob store is configured; submitted content is unavailable"
             )
-        conn = self.store.connect()
-        try:
+        with closing(self.store.connect()) as conn:
             return load_pinned_text_for_version(
                 conn=conn,
                 blobs=self.blobs,
@@ -526,21 +520,16 @@ class ResourceService:
                 what=what,
                 role=role,
             )
-        finally:
-            conn.close()
 
     def submitted_text_for_version(self, *, version_id: str | None) -> str | None:
         """Best-effort submitted text for one version, decoded for UI display."""
         if not version_id or self.blobs is None:
             return None
-        conn = self.store.connect()
-        try:
+        with closing(self.store.connect()) as conn:
             row = conn.execute(
                 "SELECT project_id, content_sha256 FROM resource_versions WHERE id = ?",
                 (str(version_id),),
             ).fetchone()
-        finally:
-            conn.close()
         if row is None:
             return None
         try:
@@ -557,8 +546,7 @@ class ResourceService:
         """Best-effort submitted figure bytes for a markdown image link."""
         if not version_id or self.blobs is None:
             return None
-        conn = self.store.connect()
-        try:
+        with closing(self.store.connect()) as conn:
             row = conn.execute(
                 """
                 SELECT v.project_id, f.sha256
@@ -568,8 +556,6 @@ class ResourceService:
                 """,
                 (str(version_id), link_path),
             ).fetchone()
-        finally:
-            conn.close()
         if row is None:
             return None
         try:
@@ -879,8 +865,7 @@ class ResourceService:
         and the parsed JSON payload."""
         if self.blobs is None:
             return []
-        conn = self.store.connect()
-        try:
+        with closing(self.store.connect()) as conn:
             rows = conn.execute(
                 """
                 SELECT r.path, a.version_id, v.content_sha256, v.observed_at, v.project_id
@@ -893,8 +878,6 @@ class ResourceService:
                 """,
                 (target_type, target_id, int(attempt_index)),
             ).fetchall()
-        finally:
-            conn.close()
         sources: list[dict[str, Any]] = []
         for row in rows:
             path = str(row["path"])
