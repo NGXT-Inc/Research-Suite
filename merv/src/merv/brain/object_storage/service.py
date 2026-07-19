@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from contextlib import closing
+from contextlib import closing, suppress
 import mimetypes
 from datetime import datetime
 from pathlib import Path
@@ -261,10 +261,8 @@ class StorageLedgerService:
                 )
             tmp.replace(target)
         finally:
-            try:
+            with suppress(FileNotFoundError):
                 tmp.unlink()
-            except FileNotFoundError:
-                pass
         return {
             "object": obj,
             "path": str(target),
