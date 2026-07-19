@@ -26,3 +26,4 @@ logs/
 /dev_docs/
 
 /outputs/
+merv/src/*.egg-info/
