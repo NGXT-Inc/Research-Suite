@@ -213,18 +213,9 @@ def stderr_detail(result: subprocess.CompletedProcess[str]) -> str:
     return lines[-1] if lines else "no stderr"
 
 
-def run_ssh(command: list[str]) -> subprocess.CompletedProcess[str]:
-    return subprocess.run(
-        command,
-        text=True,
-        encoding="utf-8",
-        errors="replace",
-        capture_output=True,
-        timeout=TRANSCRIPT_READ_TIMEOUT_SECONDS,
-    )
-
-
-def run_ssh_input(command: list[str], stdin: str) -> subprocess.CompletedProcess[str]:
+def _run_ssh_process(
+    command: list[str], *, stdin: str | None = None, timeout: int
+) -> subprocess.CompletedProcess[str]:
     return subprocess.run(
         command,
         input=stdin,
@@ -232,5 +223,13 @@ def run_ssh_input(command: list[str], stdin: str) -> subprocess.CompletedProcess
         encoding="utf-8",
         errors="replace",
         capture_output=True,
-        timeout=TRANSCRIPT_READ_TIMEOUT_SECONDS,
+        timeout=timeout,
     )
+
+
+def run_ssh(command: list[str]) -> subprocess.CompletedProcess[str]:
+    return _run_ssh_process(command, timeout=TRANSCRIPT_READ_TIMEOUT_SECONDS)
+
+
+def run_ssh_input(command: list[str], stdin: str) -> subprocess.CompletedProcess[str]:
+    return _run_ssh_process(command, stdin=stdin, timeout=TRANSCRIPT_READ_TIMEOUT_SECONDS)

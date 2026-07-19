@@ -15,6 +15,7 @@ from ...vm_bootstrap import (
     build_bootstrap_core,
 )
 from ...vm_ssh import (
+    _run_ssh_process,
     ssh_command,
     stderr_detail,
 )
@@ -447,15 +448,7 @@ def _contains_key_comment(instance: Mapping[str, Any], marker: str) -> bool:
 def _run_bootstrap(
     command: list[str], script: str, timeout: int
 ) -> subprocess.CompletedProcess[str]:
-    return subprocess.run(
-        command,
-        input=script,
-        text=True,
-        encoding="utf-8",
-        errors="replace",
-        capture_output=True,
-        timeout=timeout,
-    )
+    return _run_ssh_process(command, stdin=script, timeout=timeout)
 
 
 def build_thunder_compute_sandbox_backend(
