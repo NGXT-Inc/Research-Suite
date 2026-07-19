@@ -175,6 +175,8 @@ def current_reflection_requirement_resource(
 
 
 def reflection_coverage_for(*, reflection: dict[str, Any]) -> dict[str, Any]:
+    # A current-attempt reflection covers lens L when its file is named
+    # `<L>.md` in any directory—the convention given to fan-out subagents.
     stems: dict[str, dict[str, Any]] = {}
     for res in reflection.get("current_attempt_resources", []):
         if res.get("association_role") not in REFLECTION_LENS_DOC_ROLES or res.get(

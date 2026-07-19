@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from contextlib import closing
 import json
 from typing import Any
 
@@ -43,8 +44,7 @@ class ProjectOverviewService:
         }
 
     def _project_at_a_glance(self, *, project_id: str) -> dict[str, Any]:
-        conn = self.store.connect()
-        try:
+        with closing(self.store.connect()) as conn:
             latest = self.reflections.latest_published(conn=conn, project_id=project_id)
             open_wave = self.reflections.open_reflection(
                 conn=conn, project_id=project_id
@@ -118,8 +118,6 @@ class ProjectOverviewService:
                             (project_id, latest.get("published_at")),
                         ).fetchall()
                     )
-        finally:
-            conn.close()
 
         terminal_statuses = set(EXPERIMENT_TERMINAL_STATUSES)
         terminal_experiments = [

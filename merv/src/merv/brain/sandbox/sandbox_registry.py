@@ -10,6 +10,7 @@ mark — can run teardown.
 
 from __future__ import annotations
 
+from contextlib import closing
 import json
 import uuid
 from typing import Any
@@ -72,8 +73,7 @@ class SandboxRegistry:
     # ---------- reads ----------
 
     def load_row(self, *, experiment_id: str) -> dict[str, Any]:
-        conn = self.store.connect()
-        try:
+        with closing(self.store.connect()) as conn:
             sandbox_uid = self._primary_uid(
                 conn=conn, experiment_id=experiment_id
             ) or self._latest_uid(conn=conn, experiment_id=experiment_id)
@@ -85,24 +85,18 @@ class SandboxRegistry:
             if row is None:
                 raise NotFoundError(f"sandbox not found: {experiment_id}")
             return self._row_dict(row=row, conn=conn)
-        finally:
-            conn.close()
 
     def get_by_uid(self, *, sandbox_uid: str) -> dict[str, Any]:
-        conn = self.store.connect()
-        try:
+        with closing(self.store.connect()) as conn:
             row = conn.execute(
                 "SELECT * FROM sandboxes WHERE sandbox_uid = ?", (sandbox_uid,)
             ).fetchone()
             if row is None:
                 raise NotFoundError(f"sandbox not found: {sandbox_uid}")
             return self._row_dict(row=row, conn=conn)
-        finally:
-            conn.close()
 
     def list_by_experiment(self, *, experiment_id: str) -> list[dict[str, Any]]:
-        conn = self.store.connect()
-        try:
+        with closing(self.store.connect()) as conn:
             rows = conn.execute(
                 """
                 SELECT s.*
@@ -114,12 +108,9 @@ class SandboxRegistry:
                 (experiment_id,),
             ).fetchall()
             return [self._row_dict(row=row, conn=conn) for row in rows]
-        finally:
-            conn.close()
 
     def active_experiment_ids(self, *, sandbox_uid: str) -> list[str]:
-        conn = self.store.connect()
-        try:
+        with closing(self.store.connect()) as conn:
             rows = conn.execute(
                 """
                 SELECT experiment_id
@@ -130,18 +121,13 @@ class SandboxRegistry:
                 (sandbox_uid,),
             ).fetchall()
             return [str(row["experiment_id"]) for row in rows]
-        finally:
-            conn.close()
 
     def tenant_for_project(self, *, project_id: str) -> str:
         """The owning tenant of a project (cloud plan Phase 7), 'local' default."""
-        conn = self.store.connect()
-        try:
+        with closing(self.store.connect()) as conn:
             row = conn.execute(
                 "SELECT tenant_id FROM projects WHERE id = ?", (project_id,)
             ).fetchone()
-        finally:
-            conn.close()
         return str(row["tenant_id"]) if row is not None else "local"
 
     def fetch_scoped(
@@ -152,8 +138,7 @@ class SandboxRegistry:
         tenant_id: str | None = None,
         sandbox_uid: str | None = None,
     ) -> dict[str, Any]:
-        conn = self.store.connect()
-        try:
+        with closing(self.store.connect()) as conn:
             if project_id is not None or tenant_id is not None:
                 project_id = self.store.require_project_id(
                     conn=conn, project_id=project_id, tenant_id=tenant_id
@@ -198,12 +183,9 @@ class SandboxRegistry:
                     f"sandbox not found in project {project_id}: {experiment_id}"
                 )
             return self._row_dict(row=row, conn=conn)
-        finally:
-            conn.close()
 
     def exists(self, *, experiment_id: str) -> bool:
-        conn = self.store.connect()
-        try:
+        with closing(self.store.connect()) as conn:
             return (
                 conn.execute(
                     """
@@ -215,30 +197,22 @@ class SandboxRegistry:
                 ).fetchone()
                 is not None
             )
-        finally:
-            conn.close()
 
     def list_rows(self, *, project_id: str | None) -> list[dict[str, Any]]:
-        conn = self.store.connect()
-        try:
+        with closing(self.store.connect()) as conn:
             project_id = self.store.require_project_id(conn=conn, project_id=project_id)
             rows = conn.execute(
                 "SELECT * FROM sandboxes WHERE project_id = ? ORDER BY created_seq DESC",
                 (project_id,),
             ).fetchall()
             return [self._row_dict(row=row, conn=conn) for row in rows]
-        finally:
-            conn.close()
 
     def list_running_rows(self) -> list[dict[str, Any]]:
-        conn = self.store.connect()
-        try:
+        with closing(self.store.connect()) as conn:
             rows = conn.execute(
                 "SELECT * FROM sandboxes WHERE status = 'running' ORDER BY created_seq DESC"
             ).fetchall()
             return [self._row_dict(row=row, conn=conn) for row in rows]
-        finally:
-            conn.close()
 
     def list_rows_by_status(self, *, status: str) -> list[dict[str, Any]]:
         """All sandbox rows (across tenants/projects) in ``status``.
@@ -248,15 +222,12 @@ class SandboxRegistry:
         single project's. Local mode (one project) gets the same rows it always
         did.
         """
-        conn = self.store.connect()
-        try:
+        with closing(self.store.connect()) as conn:
             rows = conn.execute(
                 "SELECT * FROM sandboxes WHERE status = ? ORDER BY created_seq DESC",
                 (status,),
             ).fetchall()
             return [self._row_dict(row=row, conn=conn) for row in rows]
-        finally:
-            conn.close()
 
     def _primary_uid(self, *, conn: Any, experiment_id: str) -> str | None:
         """Most recent running sandbox attached to the experiment."""
@@ -310,8 +281,7 @@ class SandboxRegistry:
         if exclude:
             clause = "AND sandboxes.sandbox_uid != ?"
             params.append(exclude)
-        conn = self.store.connect()
-        try:
+        with closing(self.store.connect()) as conn:
             row = conn.execute(
                 f"""
                 SELECT 1 FROM sandboxes
@@ -324,8 +294,6 @@ class SandboxRegistry:
                 params,
             ).fetchone()
             return row is not None
-        finally:
-            conn.close()
 
     # ---------- writes ----------
 
@@ -835,25 +803,6 @@ class SandboxRegistry:
             (sandbox_uid, experiment_id, attached_at, sandbox_uid, experiment_id),
         )
 
-    def _close_attachment(
-        self,
-        *,
-        conn: Any,
-        sandbox_uid: str,
-        experiment_id: str,
-        detached_at: str,
-    ) -> None:
-        if not sandbox_uid or not experiment_id:
-            return
-        conn.execute(
-            """
-            UPDATE sandbox_attachments
-            SET detached_at = ?
-            WHERE sandbox_uid = ? AND experiment_id = ? AND detached_at IS NULL
-            """,
-            (detached_at, sandbox_uid, experiment_id),
-        )
-
     def _close_all_attachments(
         self, *, conn: Any, sandbox_uid: str, detached_at: str
     ) -> None:
@@ -875,8 +824,7 @@ class SandboxRegistry:
         lives entirely inside the sandbox module's own tables — the attachment
         id stays an opaque label (no research-core joins).
         """
-        conn = self.store.connect()
-        try:
+        with closing(self.store.connect()) as conn:
             tenant = None
             if sandbox_uid:
                 row = conn.execute(
@@ -897,6 +845,4 @@ class SandboxRegistry:
                     (experiment_id,),
                 ).fetchone()
                 tenant = row["tenant_id"] if row is not None else None
-        finally:
-            conn.close()
         return str(tenant) if tenant else "local"

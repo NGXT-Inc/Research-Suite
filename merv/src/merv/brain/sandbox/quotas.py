@@ -9,6 +9,7 @@ unauthenticated HTTP surface normally uses the implicit ``local`` tenant.
 
 from __future__ import annotations
 
+from contextlib import closing
 from dataclasses import dataclass
 from datetime import UTC, datetime, timedelta
 from typing import Any, Iterator
@@ -43,8 +44,7 @@ class QuotaService:
 
     def get_quota(self, *, tenant_id: str) -> TenantQuota | None:
         """The tenant's quota row as a TenantQuota, or None = unlimited."""
-        conn = self.store.connect()
-        try:
+        with closing(self.store.connect()) as conn:
             row = conn.execute(
                 """
                 SELECT max_concurrent_sandboxes, max_time_limit_seconds,
@@ -54,8 +54,6 @@ class QuotaService:
                 """,
                 (tenant_id,),
             ).fetchone()
-        finally:
-            conn.close()
         if row is None:
             return None
         data = row_to_dict(row=row) or {}
@@ -104,8 +102,7 @@ class QuotaService:
         before the first VM ever reaches running. Tenancy is reached through
         the project: sandboxes carry project_id and projects carry tenant_id.
         """
-        conn = self.store.connect()
-        try:
+        with closing(self.store.connect()) as conn:
             row = conn.execute(
                 """
                 SELECT COUNT(*) AS n
@@ -115,8 +112,6 @@ class QuotaService:
                 """,
                 (tenant_id,),
             ).fetchone()
-        finally:
-            conn.close()
         return int(row["n"]) if row is not None else 0
 
     # ---------- spend kill-switch (cloud plan Phase 9, risk 13) ----------
@@ -148,15 +143,12 @@ class QuotaService:
 
     def kill_switch_tripped(self, *, scope: str) -> dict[str, Any] | None:
         """The tripped kill-switch row for ``scope`` (reason + when), or None."""
-        conn = self.store.connect()
-        try:
+        with closing(self.store.connect()) as conn:
             row = conn.execute(
                 "SELECT reason, tripped_at FROM spend_kill_switches "
                 "WHERE scope = ? AND tripped = 1",
                 (scope,),
             ).fetchone()
-        finally:
-            conn.close()
         if row is None:
             return None
         data = row_to_dict(row=row) or {}
@@ -176,15 +168,12 @@ class QuotaService:
         single-accelerator reading. Clock-injectable for tests.
         """
         now_dt = now or datetime.now(tz=UTC)
-        conn = self.store.connect()
-        try:
+        with closing(self.store.connect()) as conn:
             rows = conn.execute(
                 "SELECT price_usd_per_hour, started_at, ended_at "
                 "FROM sandbox_generations WHERE tenant_id = ?",
                 (tenant_id,),
             ).fetchall()
-        finally:
-            conn.close()
         usd = 0.0
         gpu_hours = 0.0
         for row in rows:
@@ -211,16 +200,13 @@ class QuotaService:
         unpriced" instead of passing off a partial total as the whole truth.
         """
         now_dt = now or datetime.now(tz=UTC)
-        conn = self.store.connect()
-        try:
+        with closing(self.store.connect()) as conn:
             rows = conn.execute(
                 "SELECT experiment_id, instance_type, gpu, price_usd_per_hour, "
                 "started_at, ended_at "
                 "FROM sandbox_generations WHERE project_id = ? ORDER BY created_seq",
                 (project_id,),
             ).fetchall()
-        finally:
-            conn.close()
         totals = {"usd": 0.0, "hours": 0.0, "unpriced_hours": 0.0}
         open_generations = 0
         burn_usd_per_hour = 0.0

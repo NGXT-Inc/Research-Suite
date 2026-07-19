@@ -165,35 +165,21 @@ class ToolDispatcher:
                 result=result,
             )
             return result
-        except ResearchPluginError as exc:
-            duration_ms = monotonic_ms() - started
-            self.activity.tool_error(
-                source=activity_source,
-                tool=name,
-                arguments=telemetry_arguments,
-                duration_ms=duration_ms,
-                error=exc.message,
-                error_code=exc.error_code,
-            )
-            self.tool_calls.record(
-                tool=name,
-                source=activity_source,
-                status="error",
-                duration_ms=duration_ms,
-                arguments=telemetry_arguments,
-                error=exc.message,
-                error_code=exc.error_code,
-            )
-            raise
         except Exception as exc:
+            if isinstance(exc, ResearchPluginError):
+                error = exc.message
+                error_code = exc.error_code
+            else:
+                error = str(exc)
+                error_code = "unexpected"
             duration_ms = monotonic_ms() - started
             self.activity.tool_error(
                 source=activity_source,
                 tool=name,
                 arguments=telemetry_arguments,
                 duration_ms=duration_ms,
-                error=str(exc),
-                error_code="unexpected",
+                error=error,
+                error_code=error_code,
             )
             self.tool_calls.record(
                 tool=name,
@@ -201,7 +187,7 @@ class ToolDispatcher:
                 status="error",
                 duration_ms=duration_ms,
                 arguments=telemetry_arguments,
-                error=str(exc),
-                error_code="unexpected",
+                error=error,
+                error_code=error_code,
             )
             raise

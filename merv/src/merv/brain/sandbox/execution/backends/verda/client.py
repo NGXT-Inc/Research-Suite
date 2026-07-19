@@ -6,12 +6,10 @@ caches it until shortly before expiry, and refreshes-and-replays once on 401.
 
 from __future__ import annotations
 
-import json
 import time
 from typing import Any
-from urllib.error import HTTPError, URLError
-from urllib.request import Request, urlopen
 
+from .._http import request_json
 from ....sandbox_backend import BackendUnavailableError
 from .config import VerdaCloudConfig
 
@@ -158,8 +156,6 @@ class VerdaClient:
     def _raw_request(
         self, method: str, path: str, *, body: dict[str, Any] | None, token: str
     ) -> Any:
-        url = f"{self.config.base_url}{path}"
-        data = json.dumps(body).encode("utf-8") if body is not None else None
         headers = {
             "Accept": "application/json",
             "Content-Type": "application/json",
@@ -167,21 +163,12 @@ class VerdaClient:
         }
         if token:
             headers["Authorization"] = f"Bearer {token}"
-        request = Request(url, data=data, method=method, headers=headers)
-        try:
-            with urlopen(request, timeout=self.timeout) as response:  # noqa: S310 - fixed API URL from config
-                payload = response.read().decode("utf-8", errors="replace")
-        except HTTPError as exc:
-            detail = exc.read().decode("utf-8", errors="replace")
-            raise BackendUnavailableError(
-                f"Verda API {method} {path} failed with HTTP {exc.code}: {detail}",
-                status=exc.code,
-            ) from exc
-        except URLError as exc:
-            raise BackendUnavailableError(f"Verda API is unreachable: {exc}") from exc
-        except TimeoutError as exc:
-            raise BackendUnavailableError("Verda API request timed out") from exc
-        try:
-            return json.loads(payload) if payload else {}
-        except json.JSONDecodeError as exc:
-            raise BackendUnavailableError("Verda API returned invalid JSON") from exc
+        return request_json(
+            provider="Verda",
+            method=method,
+            base_url=self.config.base_url,
+            path=path,
+            body=body,
+            headers=headers,
+            timeout=self.timeout,
+        )

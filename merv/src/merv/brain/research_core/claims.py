@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from contextlib import closing
 from typing import Any
 
 from .domain.vocabulary import CLAIM_CONFIDENCES, CLAIM_STATUSES
@@ -206,14 +207,10 @@ class ClaimService:
         return claim_id
 
     def list_claims(self, *, project_id: str | None = None) -> dict[str, Any]:
-        conn = self.store.connect()
-        try:
+        with closing(self.store.connect()) as conn:
             project_id = self.store.require_project_id(conn=conn, project_id=project_id)
             rows = conn.execute(
                 "SELECT * FROM claims WHERE project_id = ? ORDER BY created_at, id",
                 (project_id,),
             ).fetchall()
             return {"claims": rows_to_dicts(rows=rows)}
-        finally:
-            conn.close()
-

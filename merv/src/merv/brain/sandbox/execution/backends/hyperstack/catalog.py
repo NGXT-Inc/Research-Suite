@@ -9,6 +9,8 @@ from __future__ import annotations
 
 from typing import Any
 
+from .._values import _float_or_zero, _int_or_zero, _norm
+
 
 def to_agent_options(
     flavor_groups: list[dict[str, Any]],
@@ -73,21 +75,3 @@ def _gpu_label(gpu_description: str) -> str:
     """Short GPU label, e.g. 'H100' from 'H100-80G-PCIe'."""
     text = gpu_description.strip()
     return text.split("-")[0].strip() if text else ""
-
-
-def _norm(value: Any) -> str:
-    return str(value or "").strip().lower()
-
-
-def _int_or_zero(value: Any) -> int:
-    try:
-        return int(value)
-    except (TypeError, ValueError):
-        return 0
-
-
-def _float_or_zero(value: Any) -> float:
-    try:
-        return float(value)
-    except (TypeError, ValueError):
-        return 0.0

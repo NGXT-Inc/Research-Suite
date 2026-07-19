@@ -2,14 +2,14 @@
 
 from __future__ import annotations
 
-import os
 from dataclasses import dataclass
 from pathlib import Path
 from urllib.parse import urlsplit
 
+from .._config import _absolute_posix_path, _load_env_text, _positive_float, _positive_int, _validate_data_dir
 from .....kernel.env import env_value
 from ....sandbox_backend import BackendValidationError
-from ...sync_dirs import DEFAULT_DATA_DIR, DEFAULT_REMOTE_ROOT, SESSIONS_DIRNAME
+from ...sync_dirs import DEFAULT_DATA_DIR, DEFAULT_REMOTE_ROOT
 
 
 DEFAULT_BASE_URL = "https://api.thundercompute.com:8443/v1"
@@ -118,58 +118,4 @@ def load_thunder_env_file() -> None:
         path = Path(__file__).resolve().parents[7] / ".env"
         if not path.exists():
             return
-    for raw_line in path.read_text().splitlines():
-        line = raw_line.strip()
-        if not line or line.startswith("#") or "=" not in line:
-            continue
-        key, value = line.split("=", 1)
-        key = key.strip()
-        value = value.strip().strip("'\"")
-        if key and key not in os.environ:
-            os.environ[key] = value
-
-
-def _absolute_posix_path(value: str, *, field: str) -> str:
-    value = value.strip()
-    if not value.startswith("/"):
-        raise BackendValidationError(f"{field} must be an absolute POSIX path")
-    return value.rstrip("/") or "/"
-
-
-def _is_under_path(child: str, parent: str) -> bool:
-    child = child.rstrip("/")
-    parent = parent.rstrip("/")
-    return child == parent or child.startswith(parent + "/")
-
-
-def _validate_data_dir(data_dir: str, *, remote_root: str, field: str) -> None:
-    root = remote_root.rstrip("/")
-    if data_dir.rstrip("/") == root:
-        raise BackendValidationError(f"{field} must not equal the remote root {root}")
-    if _is_under_path(data_dir, root):
-        first = data_dir.rstrip("/")[len(root) + 1 :].split("/", 1)[0]
-        if first.startswith("exp_") or first == SESSIONS_DIRNAME:
-            raise BackendValidationError(
-                f"{field} must not collide with per-experiment folders or "
-                f"{SESSIONS_DIRNAME} under the remote root"
-            )
-
-
-def _positive_int(value: object, *, field: str) -> int:
-    try:
-        parsed = int(value)
-    except (TypeError, ValueError) as exc:
-        raise BackendValidationError(f"{field} must be a positive integer") from exc
-    if parsed <= 0:
-        raise BackendValidationError(f"{field} must be a positive integer")
-    return parsed
-
-
-def _positive_float(value: object, *, field: str) -> float:
-    try:
-        parsed = float(value)
-    except (TypeError, ValueError) as exc:
-        raise BackendValidationError(f"{field} must be positive") from exc
-    if parsed <= 0:
-        raise BackendValidationError(f"{field} must be positive")
-    return parsed
+    _load_env_text(path.read_text())

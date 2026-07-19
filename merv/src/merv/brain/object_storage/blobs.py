@@ -22,6 +22,7 @@ import hashlib
 import json
 import os
 import re
+from contextlib import suppress
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Protocol
@@ -185,10 +186,8 @@ class LocalDirBlobStore:
         meta_path = self._meta_path(namespace=namespace, sha256=sha256)
         existed = blob_path.exists()
         for path in (blob_path, meta_path):
-            try:
+            with suppress(FileNotFoundError):
                 path.unlink()
-            except FileNotFoundError:
-                pass
         return existed
 
     def presign_put(
@@ -255,10 +254,8 @@ class LocalDirBlobStore:
         finally:
             # Single use either way: a failed finalize consumes the target.
             for path in (staging, meta_path):
-                try:
+                with suppress(FileNotFoundError):
                     path.unlink()
-                except FileNotFoundError:
-                    pass
         stat = self.stat(namespace=str(meta["namespace"]), sha256=sha)
         assert stat is not None
         return stat

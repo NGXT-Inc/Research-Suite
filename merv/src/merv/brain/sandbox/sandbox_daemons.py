@@ -7,6 +7,7 @@ provisioner's stale-provision reaper (wedged pre-running rows).
 
 from __future__ import annotations
 
+from contextlib import suppress
 import threading
 from datetime import UTC, datetime
 from typing import Any, Callable
@@ -102,32 +103,24 @@ class SandboxDaemons:
         )
         while not self._reaper_stop.wait(interval):
             expiry_enabled = self._reaper_enabled()
-            try:
+            with suppress(Exception):  # the reaper must never die
                 if expiry_enabled:
                     self.lifecycle.reap_expired()
-            except Exception:  # noqa: BLE001 — the reaper must never die
-                pass
-            try:
+            with suppress(Exception):  # the reaper must never die
                 self.reap_idle(threshold_seconds=self._idle_reap_threshold())
-            except Exception:  # noqa: BLE001 — the reaper must never die
-                pass
-            try:
+            with suppress(Exception):  # the reaper must never die
                 if self.reconcile_runs is not None:
                     self.reconcile_runs()
-            except Exception:  # noqa: BLE001 — the reaper must never die
-                pass
             # The reaper handles `running` rows by expires_at; a provision that
             # wedged before reaching `running` (daemon crash mid-provision) has
             # no expires_at, so without this its billing VM would leak until the
             # agent happened to re-poll. In local mode this thread is the only
             # proactive billing backstop (CleanupService runs only in the cloud).
-            try:
+            with suppress(Exception):  # the reaper must never die
                 if expiry_enabled:
                     self.provisioner.reap_stale_provisions(
                         now=datetime.now(tz=UTC), deadline_seconds=stale_deadline
                     )
-            except Exception:  # noqa: BLE001 — the reaper must never die
-                pass
 
     def _idle_reap_threshold(self) -> float:
         raw = env_raw("MERV_SANDBOX_IDLE_SECONDS")

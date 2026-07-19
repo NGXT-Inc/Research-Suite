@@ -10,6 +10,7 @@ transaction, so daemon restarts cannot double-fire.
 
 from __future__ import annotations
 
+from contextlib import closing
 from datetime import UTC, datetime
 from typing import Any
 
@@ -167,8 +168,7 @@ class SandboxRunLedger:
     # ---------- reads ----------
 
     def records_for_sandbox(self, *, sandbox_uid: str) -> list[dict[str, Any]]:
-        conn = self.store.connect()
-        try:
+        with closing(self.store.connect()) as conn:
             rows = conn.execute(
                 """
                 SELECT r.*, s.status AS sandbox_status
@@ -180,8 +180,6 @@ class SandboxRunLedger:
                 (sandbox_uid,),
             ).fetchall()
             return [row_to_dict(row=item) or {} for item in rows]
-        finally:
-            conn.close()
 
     def records_for_experiment(self, *, experiment_id: str) -> list[dict[str, Any]]:
         """Runs across every sandbox ever attached to the experiment.
@@ -189,8 +187,7 @@ class SandboxRunLedger:
         Includes detached and terminated sandboxes on purpose: this is the
         "check back after the session (or the box) ended" read.
         """
-        conn = self.store.connect()
-        try:
+        with closing(self.store.connect()) as conn:
             rows = conn.execute(
                 """
                 SELECT r.*, s.status AS sandbox_status
@@ -205,8 +202,6 @@ class SandboxRunLedger:
                 (experiment_id,),
             ).fetchall()
             return [row_to_dict(row=item) or {} for item in rows]
-        finally:
-            conn.close()
 
     # ---------- views ----------
 

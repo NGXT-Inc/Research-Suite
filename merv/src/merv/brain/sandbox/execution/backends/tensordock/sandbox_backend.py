@@ -10,13 +10,12 @@ the provision-time price quote is the recorded rate, refined by the live
 
 from __future__ import annotations
 
-import os
-import re
-import socket
+from contextlib import suppress
 import time
 from pathlib import Path
 from typing import Any
 
+from .._values import _float_or_zero
 from ...bootstrap_tools import BASELINE_APT_PACKAGES, ML_PYTHON_PACKAGES
 from ...vm_bootstrap import build_standard_user_data
 from ....sandbox_backend import (
@@ -30,7 +29,7 @@ from ....sandbox_backend import (
     SandboxRequest,
 )
 from ...sync_dirs import remote_experiment_dir, remote_root_of, remote_sessions_dir
-from ..vm_ssh_backend import SshInputRunner, SshRunner, VmSshSandboxBackend
+from ..vm_ssh_backend import SshInputRunner, SshRunner, VmSshSandboxBackend, _vm_name as _sandbox_name
 from .catalog import deploy_shape, find_option, parse_instance_type, to_agent_options
 from .client import TensorDockClient
 from .config import TensorDockSandboxConfig
@@ -103,7 +102,7 @@ class TensorDockSandboxBackend(VmSshSandboxBackend):
                 f"(e.g. 1x-h100-sxm5-80gb), got: {instance_type}"
             )
         gpu_count, v0_name = parsed
-        _call(on_phase, "checking_capacity", instance_type)
+        self._notify(on_phase, "checking_capacity", instance_type)
         option = self._resolve_option(
             instance_type=instance_type,
             region=(request.region or "").strip(),
@@ -114,7 +113,7 @@ class TensorDockSandboxBackend(VmSshSandboxBackend):
 
         instance_id = ""
         try:
-            _call(on_phase, "creating", f"{instance_type} in {location_id}")
+            self._notify(on_phase, "creating", f"{instance_type} in {location_id}")
             workdir = request.remote_workdir or remote_experiment_dir(
                 experiment_id=request.experiment_id, root=self.config.remote_root
             )
@@ -144,9 +143,9 @@ class TensorDockSandboxBackend(VmSshSandboxBackend):
                 cloud_init=_bootstrap_cloud_init(bootstrap),
             )
             instance_id = str(instance.get("id") or "")
-            _call(on_created, instance_id, vm_name)
+            self._notify(on_created, instance_id, vm_name)
 
-            _call(on_phase, "connecting", "waiting for running VM and ssh")
+            self._notify(on_phase, "connecting", "waiting for running VM and ssh")
             instance = self._wait_for_running_instance(instance_id=instance_id)
             host, port = _ssh_endpoint(instance)
             if not host:
@@ -176,10 +175,8 @@ class TensorDockSandboxBackend(VmSshSandboxBackend):
             )
         except Exception:
             if instance_id:
-                try:
+                with suppress(Exception):
                     self.client.delete_instance(instance_id)
-                except Exception:  # noqa: BLE001
-                    pass
             raise
 
     def is_alive(self, *, sandbox_id: str) -> bool:
@@ -207,28 +204,8 @@ class TensorDockSandboxBackend(VmSshSandboxBackend):
             return False
         return True
 
-    def sandbox_environment(self) -> dict:
-        available_tokens: list[str] = []
-        if os.environ.get("HF_TOKEN"):
-            available_tokens.append("HF_TOKEN")
-        return {
-            "available_tokens": available_tokens,
-            "notes": (
-                [
-                    "HF_TOKEN is available inside the sandbox for Hugging Face downloads. "
-                    "Do not print or write the token; use it through Hugging Face tooling."
-                ]
-                if available_tokens
-                else []
-            ),
-        }
-
     def health(self) -> dict:
-        try:
-            self.client.list_locations()
-            return {"ok": True, "backend": "tensordock"}
-        except Exception as exc:  # noqa: BLE001
-            return {"ok": False, "backend": "tensordock", "error": str(exc)}
+        return self._probe_health(lambda: self.client.list_locations())
 
     def find_sandbox_id(
         self, *, experiment_id: str, sandbox_uid: str = ""
@@ -258,21 +235,15 @@ class TensorDockSandboxBackend(VmSshSandboxBackend):
         options = to_agent_options(
             self.client.list_locations(), gpu=gpu, region=region, only_available=True
         )
-        regions = sorted({r for option in options for r in option.get("regions", [])})
-        return {
-            "provider": "tensordock",
-            "selection_required": True,
-            "select_with": "instance_type",
-            "reason": (
+        return self._selection_catalog(
+            reason=(
                 "TensorDock composes machines per host; these options are "
                 "synthesized GPU shapes (count x model with default vCPU/RAM/"
                 "100GB storage) at locations that support DEDICATED public IPs. "
                 "Billing is per-second against the prepaid balance."
             ),
-            "regions": regions,
-            "count": len(options),
-            "options": options,
-        }
+            options=options,
+        )
 
     def _resolve_option(
         self, *, instance_type: str, region: str, requested_gpu: str | None
@@ -320,20 +291,6 @@ class TensorDockSandboxBackend(VmSshSandboxBackend):
             f"(last status: {last_status or 'unknown'})"
         )
 
-    def _wait_for_ssh(self, *, host: str, port: int = 22) -> None:
-        deadline = time.monotonic() + self.config.poll_timeout_seconds
-        last_error = ""
-        while time.monotonic() < deadline:
-            try:
-                with socket.create_connection((host, port), timeout=10):
-                    return
-            except OSError as exc:
-                last_error = str(exc)
-                time.sleep(self.config.poll_interval_seconds)
-        raise BackendUnavailableError(
-            f"SSH never became reachable on {host}:{port} ({last_error})"
-        )
-
 
 def _bootstrap_cloud_init(bootstrap: str) -> dict[str, Any]:
     """Wrap the bash bootstrap in TensorDock's structured cloud_init.
@@ -363,23 +320,6 @@ def _ssh_endpoint(instance: dict[str, Any]) -> tuple[str, int]:
             if external:
                 return host, external
     return host, 22
-
-
-def _float_or_zero(value: Any) -> float:
-    try:
-        return float(value)
-    except (TypeError, ValueError):
-        return 0.0
-
-
-def _sandbox_name(experiment_id: str) -> str:
-    safe = re.sub(r"[^a-z0-9]+", "-", experiment_id.lower()).strip("-")
-    return f"rp-{safe or 'exp'}"[:60]
-
-
-def _call(cb: Any, *args: Any) -> None:
-    if cb is not None:
-        cb(*args)
 
 
 def build_tensordock_sandbox_backend(

@@ -13,9 +13,7 @@ forward mapping internal port 22 when the VM detail reports one.
 from __future__ import annotations
 
 import base64
-import os
-import re
-import socket
+from contextlib import suppress
 import time
 from pathlib import Path
 from typing import Any
@@ -33,7 +31,7 @@ from ....sandbox_backend import (
     SandboxRequest,
 )
 from ...sync_dirs import remote_experiment_dir, remote_root_of, remote_sessions_dir
-from ..vm_ssh_backend import SshInputRunner, SshRunner, VmSshSandboxBackend
+from ..vm_ssh_backend import SshInputRunner, SshRunner, VmSshSandboxBackend, _vm_name as _sandbox_name
 from .catalog import find_option, to_agent_options
 from .client import VoltageParkClient
 from .config import VoltageParkSandboxConfig
@@ -100,7 +98,7 @@ class VoltageParkSandboxBackend(VmSshSandboxBackend):
                 "id). Call sandbox.options, or sandbox.request without an "
                 "instance_type, to see live presets, then pick one."
             )
-        _call(on_phase, "checking_capacity", config_id)
+        self._notify(on_phase, "checking_capacity", config_id)
         option = self._resolve_preset(
             config_id=config_id,
             region=(request.region or "").strip(),
@@ -109,7 +107,7 @@ class VoltageParkSandboxBackend(VmSshSandboxBackend):
 
         vm_id = ""
         try:
-            _call(on_phase, "creating", f"preset {config_id}")
+            self._notify(on_phase, "creating", f"preset {config_id}")
             workdir = request.remote_workdir or remote_experiment_dir(
                 experiment_id=request.experiment_id, root=self.config.remote_root
             )
@@ -137,9 +135,9 @@ class VoltageParkSandboxBackend(VmSshSandboxBackend):
                 ],
                 cloud_init=_bootstrap_cloud_init(bootstrap),
             )
-            _call(on_created, vm_id, vm_name)
+            self._notify(on_created, vm_id, vm_name)
 
-            _call(on_phase, "connecting", "waiting for running VM and ssh")
+            self._notify(on_phase, "connecting", "waiting for running VM and ssh")
             vm = self._wait_for_running_vm(vm_id=vm_id)
             host, port = _ssh_endpoint(vm)
             if not host:
@@ -168,10 +166,8 @@ class VoltageParkSandboxBackend(VmSshSandboxBackend):
             )
         except Exception:
             if vm_id:
-                try:
+                with suppress(Exception):
                     self.client.delete_vm(vm_id)
-                except Exception:  # noqa: BLE001
-                    pass
             raise
 
     def is_alive(self, *, sandbox_id: str) -> bool:
@@ -197,28 +193,8 @@ class VoltageParkSandboxBackend(VmSshSandboxBackend):
             return False
         return True
 
-    def sandbox_environment(self) -> dict:
-        available_tokens: list[str] = []
-        if os.environ.get("HF_TOKEN"):
-            available_tokens.append("HF_TOKEN")
-        return {
-            "available_tokens": available_tokens,
-            "notes": (
-                [
-                    "HF_TOKEN is available inside the sandbox for Hugging Face downloads. "
-                    "Do not print or write the token; use it through Hugging Face tooling."
-                ]
-                if available_tokens
-                else []
-            ),
-        }
-
     def health(self) -> dict:
-        try:
-            self.client.list_instant_locations()
-            return {"ok": True, "backend": "voltage_park"}
-        except Exception as exc:  # noqa: BLE001
-            return {"ok": False, "backend": "voltage_park", "error": str(exc)}
+        return self._probe_health(lambda: self.client.list_instant_locations())
 
     def find_sandbox_id(
         self, *, experiment_id: str, sandbox_uid: str = ""
@@ -245,20 +221,14 @@ class VoltageParkSandboxBackend(VmSshSandboxBackend):
             region=region,
             only_available=True,
         )
-        regions = sorted({r for option in options for r in option.get("regions", [])})
-        return {
-            "provider": "voltage_park",
-            "selection_required": True,
-            "select_with": "instance_type",
-            "reason": (
+        return self._selection_catalog(
+            reason=(
                 "Voltage Park sells fixed instant-deploy presets (H100 SXM5 "
                 "machines in 1/2/4/8-GPU shapes); pick one options[].instance_type "
                 "(a preset id)."
             ),
-            "regions": regions,
-            "count": len(options),
-            "options": options,
-        }
+            options=options,
+        )
 
     def _resolve_preset(
         self, *, config_id: str, region: str, requested_gpu: str | None
@@ -310,20 +280,6 @@ class VoltageParkSandboxBackend(VmSshSandboxBackend):
             f"(last status: {last_status or 'unknown'})"
         )
 
-    def _wait_for_ssh(self, *, host: str, port: int = 22) -> None:
-        deadline = time.monotonic() + self.config.poll_timeout_seconds
-        last_error = ""
-        while time.monotonic() < deadline:
-            try:
-                with socket.create_connection((host, port), timeout=10):
-                    return
-            except OSError as exc:
-                last_error = str(exc)
-                time.sleep(self.config.poll_interval_seconds)
-        raise BackendUnavailableError(
-            f"SSH never became reachable on {host}:{port} ({last_error})"
-        )
-
 
 def _bootstrap_cloud_init(bootstrap: str) -> dict[str, Any]:
     """Wrap the bash bootstrap in the instant API's structured cloud-init."""
@@ -360,16 +316,6 @@ def _vm_hourly_rate(vm: dict[str, Any]) -> float:
         return float(pricing.get("total_associated_per_hr") or 0.0)
     except (TypeError, ValueError):
         return 0.0
-
-
-def _sandbox_name(experiment_id: str) -> str:
-    safe = re.sub(r"[^a-z0-9]+", "-", experiment_id.lower()).strip("-")
-    return f"rp-{safe or 'exp'}"[:60]
-
-
-def _call(cb: Any, *args: Any) -> None:
-    if cb is not None:
-        cb(*args)
 
 
 def build_voltage_park_sandbox_backend(

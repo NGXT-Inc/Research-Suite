@@ -15,6 +15,7 @@ reuse-vs-create policy; this layer only knows how to:
 from __future__ import annotations
 
 import base64
+from contextlib import suppress
 import os
 import shlex
 import threading
@@ -38,7 +39,7 @@ from ...usage_metrics import (
     METRICS_SCRIPT,
     parse_metrics,
 )
-from ....sandbox_backend import BackendUnavailableError, BackendValidationError
+from ....sandbox_backend import BackendUnavailableError
 from ...sync_dirs import remote_experiment_dir, remote_root_of, remote_sessions_dir
 from ...transcript_wire import (
     TRANSCRIPT_TAIL_DEFAULT,
@@ -62,7 +63,7 @@ from ....sandbox_backend import (
     TranscriptTail,
 )
 from .config import COMPUTE_TIERS, DEFAULT_GPU, VALID_GPUS, ModalConfig
-from ._sandbox_ops import ensure_remote_dir, exec_checked, maybe_await, read_stream, wait_process
+from ._sandbox_ops import maybe_await, read_stream, wait_process
 
 
 ActivityHook = Callable[[str, dict[str, Any]], None]
@@ -240,7 +241,7 @@ class ModalSandboxBackend(SandboxBackendBase):
             kwargs["secrets"] = secrets
         if request.gpu:
             kwargs["gpu"] = request.gpu
-        _call(on_phase, "creating", f"gpu={request.gpu or 'cpu'}")
+        self._notify(on_phase, "creating", f"gpu={request.gpu or 'cpu'}")
         try:
             sandbox = modal.Sandbox.create("bash", "/opt/merv/boot.sh", **kwargs)
         except Exception as exc:  # noqa: BLE001
@@ -263,14 +264,12 @@ class ModalSandboxBackend(SandboxBackendBase):
             )
             # Hand the id back so the registry persists it before the slow tunnel
             # wait. May raise to cancel.
-            _call(on_created, sandbox_id, name or "")
-            _call(on_phase, "connecting", "waiting for ssh")
+            self._notify(on_created, sandbox_id, name or "")
+            self._notify(on_phase, "connecting", "waiting for ssh")
             host, port = self._ssh_endpoint(sandbox=sandbox)
         except BaseException:
-            try:
+            with suppress(Exception):
                 sandbox.terminate()
-            except Exception:  # noqa: BLE001
-                pass
             raise
         return ProvisionedSandbox(
             sandbox_id=sandbox_id,
@@ -346,17 +345,13 @@ class ModalSandboxBackend(SandboxBackendBase):
         except Exception:  # noqa: BLE001
             return False
         ok = False
-        try:
+        with suppress(Exception):
             sandbox.terminate()
             ok = True
-        except Exception:  # noqa: BLE001
-            pass
-        try:
+        with suppress(Exception):
             detach = getattr(sandbox, "detach", None)
             if callable(detach):
                 detach()
-        except Exception:  # noqa: BLE001
-            pass
         return ok
 
     def read_transcript(
@@ -700,16 +695,8 @@ class ModalSandboxBackend(SandboxBackendBase):
         set_tags = getattr(sandbox, "set_tags", None)
         if not callable(set_tags):
             return
-        try:
+        with suppress(Exception):
             set_tags(dict(tags))
-        except Exception:  # noqa: BLE001
-            pass
-
-
-def _call(cb: Any, *args: Any) -> None:
-    """Invoke a progress callback if present; let it raise (to cancel)."""
-    if cb is not None:
-        cb(*args)
 
 
 def _transcript_rel_path(experiment_id: str) -> str:

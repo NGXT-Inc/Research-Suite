@@ -10,6 +10,7 @@ from __future__ import annotations
 import base64
 import mimetypes
 import uuid
+from contextlib import suppress
 from pathlib import Path
 from typing import Any, Callable, Optional
 
@@ -163,7 +164,9 @@ class LocalDataPlane:
             destination_path=str(args.get("destination_path") or ""),
             overwrite=bool(args.get("overwrite")),
         )
-        result["storage_guidance"] = self._storage_guidance()
+        from merv.shared.storage_guidance import STORAGE_RULE_OF_THUMB
+
+        result["storage_guidance"] = str(STORAGE_RULE_OF_THUMB)
         result["rsync"] = RSYNC_PULL_OUTPUTS_HINT
         # Live-runs nudge rides along from the control sandbox.get lookup, so
         # pulling outputs from a box with a run still going is never silent.
@@ -424,7 +427,7 @@ class LocalDataPlane:
         payload = {
             "project_id": project_id,
             "name": str(arguments.get("name") or "")
-            or self._default_storage_name(path=file_path),
+            or file_path.relative_to(self.repo_root).as_posix(),
             "kind": self._required_arg(arguments, "kind"),
             "sha256": sha256,
             "size_bytes": size_bytes,
@@ -502,10 +505,8 @@ class LocalDataPlane:
                 )
             tmp.replace(target)
         finally:
-            try:
+            with suppress(FileNotFoundError):
                 tmp.unlink()
-            except FileNotFoundError:
-                pass
         return {
             "object": obj,
             "path": str(target),
@@ -558,12 +559,6 @@ class LocalDataPlane:
         _rel, full = resolve_repo_path(repo_root=self.repo_root, path=path)
         return full
 
-    def _default_storage_name(self, *, path: Path) -> str:
-        try:
-            return path.resolve().relative_to(self.repo_root.resolve()).as_posix()
-        except ValueError:
-            return path.name
-
     def _local_experiment_dir(self, *, experiment_id: str, name: str = "") -> Path:
         from .workspace import local_experiment_dir
 
@@ -578,8 +573,3 @@ class LocalDataPlane:
             validate_openssh_public_key(str(payload.get("public_key") or ""))
         except ValueError as exc:
             raise LocalDataPlaneError(str(exc)) from exc
-
-    def _storage_guidance(self) -> str:
-        from merv.shared.storage_guidance import STORAGE_RULE_OF_THUMB
-
-        return str(STORAGE_RULE_OF_THUMB)

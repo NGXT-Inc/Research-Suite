@@ -9,6 +9,7 @@ separate bounded in-memory rings owned by ``ControlApp``.
 
 from __future__ import annotations
 
+from contextlib import closing
 import json
 import sys
 from typing import Any
@@ -86,8 +87,7 @@ class TenantCounters:
         sandbox-hours (closed generations only here, so the number is stable;
         open-generation billing-to-now is the spend accountant's job).
         """
-        conn = self.store.connect()
-        try:
+        with closing(self.store.connect()) as conn:
             tool_calls = conn.execute(
                 """
                 SELECT COUNT(*) AS n
@@ -104,8 +104,6 @@ class TenantCounters:
                 """,
                 (tenant_id,),
             ).fetchall()
-        finally:
-            conn.close()
         sandbox_hours = 0.0
         for row in gens:
             started = parse_iso(row["started_at"] if _has(row, "started_at") else None)

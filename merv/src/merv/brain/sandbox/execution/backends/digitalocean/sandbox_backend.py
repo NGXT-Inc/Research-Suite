@@ -9,9 +9,7 @@ access for the account, and the default image is the AI/ML-ready Ubuntu
 
 from __future__ import annotations
 
-import os
-import re
-import socket
+from contextlib import suppress
 import time
 from pathlib import Path
 from typing import Any
@@ -29,7 +27,7 @@ from ....sandbox_backend import (
     SandboxRequest,
 )
 from ...sync_dirs import remote_experiment_dir, remote_root_of, remote_sessions_dir
-from ..vm_ssh_backend import SshInputRunner, SshRunner, VmSshSandboxBackend
+from ..vm_ssh_backend import SshInputRunner, SshRunner, VmSshSandboxBackend, _vm_name as _sandbox_name
 from .catalog import find_option, to_agent_options
 from .client import DigitalOceanClient
 from .config import DigitalOceanSandboxConfig
@@ -96,7 +94,7 @@ class DigitalOceanSandboxBackend(VmSshSandboxBackend):
                 "Call sandbox.options, or sandbox.request without an instance_type, "
                 "to see the available GPU sizes, then pick one."
             )
-        _call(on_phase, "checking_capacity", size)
+        self._notify(on_phase, "checking_capacity", size)
         option, region = self._resolve_placement(
             size=size,
             region=(request.region or self.config.region or "").strip(),
@@ -106,12 +104,12 @@ class DigitalOceanSandboxBackend(VmSshSandboxBackend):
         key_id: int | str = ""
         droplet_id = ""
         try:
-            _call(on_phase, "registering_ssh_key", f"{droplet_name}-key")
+            self._notify(on_phase, "registering_ssh_key", f"{droplet_name}-key")
             key_id = self._ensure_ssh_key(
                 name=f"{droplet_name}-key", public_key=request.public_key
             )
 
-            _call(on_phase, "creating", f"{size} in {region}")
+            self._notify(on_phase, "creating", f"{size} in {region}")
             workdir = request.remote_workdir or remote_experiment_dir(
                 experiment_id=request.experiment_id, root=self.config.remote_root
             )
@@ -140,9 +138,9 @@ class DigitalOceanSandboxBackend(VmSshSandboxBackend):
                 user_data=user_data,
             )
             droplet_id = str(droplet["id"])
-            _call(on_created, droplet_id, droplet_name)
+            self._notify(on_created, droplet_id, droplet_name)
 
-            _call(on_phase, "connecting", "waiting for active droplet and ssh")
+            self._notify(on_phase, "connecting", "waiting for active droplet and ssh")
             droplet = self._wait_for_active_droplet(droplet_id=droplet_id)
             ip = _public_ipv4(droplet)
             if not ip:
@@ -170,15 +168,11 @@ class DigitalOceanSandboxBackend(VmSshSandboxBackend):
             )
         except Exception:
             if droplet_id:
-                try:
+                with suppress(Exception):
                     self.client.delete_droplet(droplet_id)
-                except Exception:  # noqa: BLE001
-                    pass
             if key_id:
-                try:
+                with suppress(Exception):
                     self.client.delete_ssh_key(key_id)
-                except Exception:  # noqa: BLE001
-                    pass
             raise
 
     def is_alive(self, *, sandbox_id: str) -> bool:
@@ -204,34 +198,12 @@ class DigitalOceanSandboxBackend(VmSshSandboxBackend):
         except Exception:  # noqa: BLE001
             return False
         for key_id in key_ids:
-            try:
+            with suppress(Exception):
                 self.client.delete_ssh_key(key_id)
-            except Exception:  # noqa: BLE001
-                pass
         return True
 
-    def sandbox_environment(self) -> dict:
-        available_tokens: list[str] = []
-        if os.environ.get("HF_TOKEN"):
-            available_tokens.append("HF_TOKEN")
-        return {
-            "available_tokens": available_tokens,
-            "notes": (
-                [
-                    "HF_TOKEN is available inside the sandbox for Hugging Face downloads. "
-                    "Do not print or write the token; use it through Hugging Face tooling."
-                ]
-                if available_tokens
-                else []
-            ),
-        }
-
     def health(self) -> dict:
-        try:
-            self.client.list_sizes()
-            return {"ok": True, "backend": "digitalocean"}
-        except Exception as exc:  # noqa: BLE001
-            return {"ok": False, "backend": "digitalocean", "error": str(exc)}
+        return self._probe_health(lambda: self.client.list_sizes())
 
     def find_sandbox_id(
         self, *, experiment_id: str, sandbox_uid: str = ""
@@ -255,7 +227,6 @@ class DigitalOceanSandboxBackend(VmSshSandboxBackend):
         options = to_agent_options(
             self.client.list_sizes(), gpu=gpu, region=region, only_available=True
         )
-        regions = sorted({r for option in options for r in option.get("regions", [])})
         reason = (
             "DigitalOcean GPU droplets bundle GPU, CPU, and RAM into fixed size "
             "slugs; pick one instance_type. Destroyed droplets stop billing — "
@@ -267,15 +238,10 @@ class DigitalOceanSandboxBackend(VmSshSandboxBackend):
                 "usually needs a one-time unlock — request it in the DigitalOcean "
                 "console under Create > GPU Droplets."
             )
-        return {
-            "provider": "digitalocean",
-            "selection_required": True,
-            "select_with": "instance_type",
-            "reason": reason,
-            "regions": regions,
-            "count": len(options),
-            "options": options,
-        }
+        return self._selection_catalog(
+            reason=reason,
+            options=options,
+        )
 
     def _resolve_placement(
         self, *, size: str, region: str, requested_gpu: str | None
@@ -355,18 +321,6 @@ class DigitalOceanSandboxBackend(VmSshSandboxBackend):
             f"(last status: {last_status or 'unknown'})"
         )
 
-    def _wait_for_ssh(self, *, host: str) -> None:
-        deadline = time.monotonic() + self.config.poll_timeout_seconds
-        last_error = ""
-        while time.monotonic() < deadline:
-            try:
-                with socket.create_connection((host, 22), timeout=10):
-                    return
-            except OSError as exc:
-                last_error = str(exc)
-                time.sleep(self.config.poll_interval_seconds)
-        raise BackendUnavailableError(f"SSH never became reachable on {host}:22 ({last_error})")
-
     def _ssh_key_ids_for_droplet(self, *, sandbox_id: str) -> list[int | str]:
         """The rp-named key registered for this droplet, resolved by name."""
         try:
@@ -390,16 +344,6 @@ def _public_ipv4(droplet: dict[str, Any]) -> str:
         if isinstance(entry, dict) and entry.get("type") == "public":
             return str(entry.get("ip_address") or "")
     return ""
-
-
-def _sandbox_name(experiment_id: str) -> str:
-    safe = re.sub(r"[^a-z0-9]+", "-", experiment_id.lower()).strip("-")
-    return f"rp-{safe or 'exp'}"[:60]
-
-
-def _call(cb: Any, *args: Any) -> None:
-    if cb is not None:
-        cb(*args)
 
 
 def build_digitalocean_sandbox_backend(

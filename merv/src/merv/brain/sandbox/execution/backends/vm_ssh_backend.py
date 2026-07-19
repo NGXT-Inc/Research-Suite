@@ -2,6 +2,10 @@
 
 from __future__ import annotations
 
+import os
+import re
+import socket
+import time
 from typing import Any, Mapping
 
 from ..vm_ssh import (
@@ -15,7 +19,12 @@ from ..vm_ssh import (
     sandbox_tokens,
     write_secrets_via_mgmt_ssh,
 )
-from ...sandbox_backend import SandboxBackendBase, TranscriptTail
+from ...sandbox_backend import BackendUnavailableError, SandboxBackendBase, TranscriptTail
+
+
+def _vm_name(experiment_id: str, *, max_length: int = 60) -> str:
+    safe = re.sub(r"[^a-z0-9]+", "-", experiment_id.lower()).strip("-")
+    return f"rp-{safe or 'exp'}"[:max_length]
 
 
 class VmSshSandboxBackend(SandboxBackendBase):
@@ -123,6 +132,36 @@ class VmSshSandboxBackend(SandboxBackendBase):
         hands these to write_secrets. Empty when none are configured.
         """
         return sandbox_tokens()
+
+    def sandbox_environment(self) -> dict:
+        available_tokens: list[str] = []
+        if os.environ.get("HF_TOKEN"):
+            available_tokens.append("HF_TOKEN")
+        return {
+            "available_tokens": available_tokens,
+            "notes": (
+                [
+                    "HF_TOKEN is available inside the sandbox for Hugging Face downloads. "
+                    "Do not print or write the token; use it through Hugging Face tooling."
+                ]
+                if available_tokens
+                else []
+            ),
+        }
+
+    def _wait_for_ssh(self, *, host: str, port: int = 22) -> None:
+        deadline = time.monotonic() + self.config.poll_timeout_seconds
+        last_error = ""
+        while time.monotonic() < deadline:
+            try:
+                with socket.create_connection((host, port), timeout=10):
+                    return
+            except OSError as exc:
+                last_error = str(exc)
+                time.sleep(self.config.poll_interval_seconds)
+        raise BackendUnavailableError(
+            f"SSH never became reachable on {host}:{port} ({last_error})"
+        )
 
     def write_secrets(
         self,

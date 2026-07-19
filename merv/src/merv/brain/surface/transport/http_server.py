@@ -48,7 +48,6 @@ class UvicornHttpServer:
         self._socket = _bind_socket(host=host, port=port)
         selected_port = int(self._socket.getsockname()[1])
         self.server_address = (host, selected_port)
-        self._app = app
         config = uvicorn.Config(
             create_fastapi_app(app=app),
             host=host,
@@ -77,18 +76,27 @@ def make_http_server(
     return UvicornHttpServer(app=app, host=host, port=port)
 
 
-def _serve_uvicorn(*, fastapi_app, host: str, port: int) -> tuple[str, int, "uvicorn.Server", socket.socket]:
+def _run_server(*, server: Any, host: str, port: int, label: str) -> int:
     server_socket = _bind_socket(host=host, port=port)
     selected_port = int(server_socket.getsockname()[1])
     config = uvicorn.Config(
-        fastapi_app,
+        server.fastapi_app,
         host=host,
         port=selected_port,
         log_level="warning",
         access_log=False,
         lifespan="off",
     )
-    return host, selected_port, uvicorn.Server(config), server_socket
+    uv = uvicorn.Server(config)
+    print(f"merv {label} listening on http://{host}:{selected_port}", flush=True)
+    try:
+        uv.run(sockets=[server_socket])
+    except KeyboardInterrupt:
+        pass
+    finally:
+        server.shutdown()
+        server_socket.close()
+    return 0
 
 
 def _serve_control(*, host: str, port: int) -> int:
@@ -102,21 +110,7 @@ def _serve_control(*, host: str, port: int) -> int:
     from ..composition import build_control_server
 
     server = build_control_server()
-    host, selected_port, uv, server_socket = _serve_uvicorn(
-        fastapi_app=server.fastapi_app, host=host, port=port
-    )
-    print(
-        f"merv CONTROL plane listening on http://{host}:{selected_port}",
-        flush=True,
-    )
-    try:
-        uv.run(sockets=[server_socket])
-    except KeyboardInterrupt:
-        pass
-    finally:
-        server.shutdown()
-        server_socket.close()
-    return 0
+    return _run_server(server=server, host=host, port=port, label="CONTROL plane")
 
 
 def _serve_local(*, host: str, port: int, state_dir: Path | None) -> int:
@@ -124,21 +118,7 @@ def _serve_local(*, host: str, port: int, state_dir: Path | None) -> int:
     from ..composition import build_local_server
 
     server = build_local_server(state_dir=state_dir)
-    host, selected_port, uv, server_socket = _serve_uvicorn(
-        fastapi_app=server.fastapi_app, host=host, port=port
-    )
-    print(
-        f"merv brain listening on http://{host}:{selected_port}",
-        flush=True,
-    )
-    try:
-        uv.run(sockets=[server_socket])
-    except KeyboardInterrupt:
-        pass
-    finally:
-        server.shutdown()
-        server_socket.close()
-    return 0
+    return _run_server(server=server, host=host, port=port, label="brain")
 
 
 def control_main() -> int:

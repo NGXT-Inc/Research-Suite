@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from contextlib import closing
 import json
 from typing import Any
 
@@ -130,15 +131,12 @@ class ProjectService:
             return self._project_view(row=updated)
 
     def get(self, *, project_id: str | None = None) -> dict[str, Any]:
-        conn = self.store.connect()
-        try:
+        with closing(self.store.connect()) as conn:
             project_id = self.store.require_project_id(conn=conn, project_id=project_id)
             row = conn.execute("SELECT * FROM projects WHERE id = ?", (project_id,)).fetchone()
             if row is None:
                 raise NotFoundError(f"project not found: {project_id}")
             return self._project_view(row=row)
-        finally:
-            conn.close()
 
     def list_projects(
         self,
@@ -147,8 +145,7 @@ class ProjectService:
         include_hidden: bool = False,
         user_id: str = "",
     ) -> dict[str, Any]:
-        conn = self.store.connect()
-        try:
+        with closing(self.store.connect()) as conn:
             if user_id:
                 # Authenticated (hosted) callers see only projects they are a
                 # member of; the local surface passes no user_id and sees all.
@@ -171,8 +168,6 @@ class ProjectService:
             if not include_hidden:
                 views = [v for v in views if not v["settings"].get("hidden")]
             return {"projects": views}
-        finally:
-            conn.close()
 
     def current(self, *, tenant_id: str | None = None) -> dict[str, Any]:
         projects = self.list_projects(tenant_id=tenant_id)["projects"]

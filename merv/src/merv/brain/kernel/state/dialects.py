@@ -22,7 +22,7 @@ from __future__ import annotations
 import hashlib
 import re
 from collections.abc import Iterator, Sequence
-from contextlib import contextmanager
+from contextlib import contextmanager, suppress
 from types import TracebackType
 from typing import Any
 
@@ -158,10 +158,8 @@ class PostgresStateStore(BaseStateStore):
             yield conn
             conn.execute("COMMIT")
         except Exception:
-            try:
+            with suppress(Exception):  # connection may already be dead
                 conn.execute("ROLLBACK")
-            except Exception:  # noqa: BLE001 — connection may already be dead
-                pass
             raise
         finally:
             conn.close()

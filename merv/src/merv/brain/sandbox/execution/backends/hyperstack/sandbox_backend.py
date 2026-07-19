@@ -9,9 +9,7 @@ SSH never becomes reachable. Billing is per-minute while the VM exists
 
 from __future__ import annotations
 
-import os
-import re
-import socket
+from contextlib import suppress
 import time
 from pathlib import Path
 from typing import Any
@@ -29,7 +27,7 @@ from ....sandbox_backend import (
     SandboxRequest,
 )
 from ...sync_dirs import remote_experiment_dir, remote_root_of, remote_sessions_dir
-from ..vm_ssh_backend import SshInputRunner, SshRunner, VmSshSandboxBackend
+from ..vm_ssh_backend import SshInputRunner, SshRunner, VmSshSandboxBackend, _vm_name
 from .catalog import find_option, to_agent_options
 from .client import HyperstackClient
 from .config import HyperstackSandboxConfig
@@ -110,13 +108,13 @@ class HyperstackSandboxBackend(VmSshSandboxBackend):
                 "+ RAM). Call sandbox.options, or sandbox.request without an "
                 "instance_type, to see live availability, then pick one."
             )
-        _call(on_phase, "checking_capacity", flavor_name)
+        self._notify(on_phase, "checking_capacity", flavor_name)
         option = self._resolve_flavor(flavor_name=flavor_name, requested_gpu=request.gpu)
 
         keypair_id = ""
         vm_id = ""
         try:
-            _call(on_phase, "registering_ssh_key", key_name)
+            self._notify(on_phase, "registering_ssh_key", key_name)
             keypair = self.client.import_keypair(
                 name=key_name,
                 environment_name=self.config.environment_name,
@@ -124,7 +122,7 @@ class HyperstackSandboxBackend(VmSshSandboxBackend):
             )
             keypair_id = str(keypair.get("id") or "")
 
-            _call(on_phase, "creating", f"{flavor_name} in {self.config.environment_name}")
+            self._notify(on_phase, "creating", f"{flavor_name} in {self.config.environment_name}")
             workdir = request.remote_workdir or remote_experiment_dir(
                 experiment_id=request.experiment_id, root=self.config.remote_root
             )
@@ -154,9 +152,9 @@ class HyperstackSandboxBackend(VmSshSandboxBackend):
             vm_id = str(instance.get("id") or "")
             if not vm_id:
                 raise BackendUnavailableError("Hyperstack created a VM without an id")
-            _call(on_created, vm_id, instance_name)
+            self._notify(on_created, vm_id, instance_name)
 
-            _call(on_phase, "connecting", "waiting for active VM and ssh")
+            self._notify(on_phase, "connecting", "waiting for active VM and ssh")
             instance = self._wait_for_active_vm(vm_id=vm_id)
             ip = str(instance.get("floating_ip") or "")
             if not ip:
@@ -188,15 +186,11 @@ class HyperstackSandboxBackend(VmSshSandboxBackend):
             )
         except Exception:
             if vm_id:
-                try:
+                with suppress(Exception):
                     self.client.delete_vm(vm_id)
-                except Exception:  # noqa: BLE001
-                    pass
             if keypair_id:
-                try:
+                with suppress(Exception):
                     self.client.delete_keypair(keypair_id)
-                except Exception:  # noqa: BLE001
-                    pass
             raise
 
     def is_alive(self, *, sandbox_id: str) -> bool:
@@ -224,28 +218,8 @@ class HyperstackSandboxBackend(VmSshSandboxBackend):
         self._delete_keypairs_by_name(keypair_names)
         return True
 
-    def sandbox_environment(self) -> dict:
-        available_tokens: list[str] = []
-        if os.environ.get("HF_TOKEN"):
-            available_tokens.append("HF_TOKEN")
-        return {
-            "available_tokens": available_tokens,
-            "notes": (
-                [
-                    "HF_TOKEN is available inside the sandbox for Hugging Face downloads. "
-                    "Do not print or write the token; use it through Hugging Face tooling."
-                ]
-                if available_tokens
-                else []
-            ),
-        }
-
     def health(self) -> dict:
-        try:
-            self.client.list_flavors()
-            return {"ok": True, "backend": "hyperstack"}
-        except Exception as exc:  # noqa: BLE001
-            return {"ok": False, "backend": "hyperstack", "error": str(exc)}
+        return self._probe_health(lambda: self.client.list_flavors())
 
     def find_sandbox_id(
         self, *, experiment_id: str, sandbox_uid: str = ""
@@ -273,19 +247,13 @@ class HyperstackSandboxBackend(VmSshSandboxBackend):
             region=region,
             only_available=True,
         )
-        regions = sorted({r for option in options for r in option.get("regions", [])})
-        return {
-            "provider": "hyperstack",
-            "selection_required": True,
-            "select_with": "instance_type",
-            "reason": (
+        return self._selection_catalog(
+            reason=(
                 "Hyperstack bundles GPU, CPU, and RAM into fixed flavors; pick one "
                 "instance_type. Billing is per-minute while the VM exists."
             ),
-            "regions": regions,
-            "count": len(options),
-            "options": options,
-        }
+            options=options,
+        )
 
     def _resolve_flavor(
         self, *, flavor_name: str, requested_gpu: str | None
@@ -332,18 +300,6 @@ class HyperstackSandboxBackend(VmSshSandboxBackend):
             f"(last status: {last_status or 'unknown'})"
         )
 
-    def _wait_for_ssh(self, *, host: str) -> None:
-        deadline = time.monotonic() + self.config.poll_timeout_seconds
-        last_error = ""
-        while time.monotonic() < deadline:
-            try:
-                with socket.create_connection((host, 22), timeout=10):
-                    return
-            except OSError as exc:
-                last_error = str(exc)
-                time.sleep(self.config.poll_interval_seconds)
-        raise BackendUnavailableError(f"SSH never became reachable on {host}:22 ({last_error})")
-
     def _keypair_names_for_vm(self, *, sandbox_id: str) -> list[str]:
         try:
             instance = self.client.get_vm(sandbox_id)
@@ -363,20 +319,12 @@ class HyperstackSandboxBackend(VmSshSandboxBackend):
             return
         for keypair in keypairs:
             if str(keypair.get("name") or "") in wanted and keypair.get("id"):
-                try:
+                with suppress(Exception):
                     self.client.delete_keypair(keypair["id"])
-                except Exception:  # noqa: BLE001
-                    pass
 
 
 def _sandbox_name(experiment_id: str) -> str:
-    safe = re.sub(r"[^a-z0-9]+", "-", experiment_id.lower()).strip("-")
-    return f"rp-{safe or 'exp'}"[:50]  # Hyperstack caps VM names at 50 chars
-
-
-def _call(cb: Any, *args: Any) -> None:
-    if cb is not None:
-        cb(*args)
+    return _vm_name(experiment_id, max_length=50)  # Hyperstack caps VM names at 50 chars
 
 
 def build_hyperstack_sandbox_backend(

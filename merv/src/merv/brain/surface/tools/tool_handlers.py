@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from collections.abc import Callable
+from contextlib import suppress
 from typing import Any
 
 from ...mlflow import (
@@ -62,23 +63,6 @@ def _attach_feed_note(
         note = None
     if note is not None:
         result["feed_note"] = note
-
-
-def _experiment_get_state_agent(
-    *,
-    experiments: Any,
-    mlflow_tracking: Any,
-    experiment_id: str,
-    project_id: str | None = None,
-) -> dict[str, Any]:
-    full = experiments.get_state(experiment_id=experiment_id, project_id=project_id)
-    slim = slim_experiment_state(full)
-    return _with_mlflow_if_visible(
-        state=slim,
-        mlflow_tracking=mlflow_tracking,
-        project_id=str(full.get("project_id") or project_id or ""),
-        experiment_id=experiment_id,
-    )
 
 
 def _experiment_list_agent(
@@ -209,14 +193,26 @@ def _with_mlflow_if_visible(
     return state
 
 
-def _create_and_record_mlflow_run(
+def _ensure_mlflow_run(
     *,
     experiments: Any,
     mlflow_tracking: Any,
     state: dict[str, Any],
     project_id: str,
     experiment_id: str,
+    replace_terminal_run: bool,
 ) -> dict[str, Any]:
+    """Keep an existing run on start and an open run on retry. A retry replaces
+    a finalized run, or backfills one whose original creation failed."""
+    if mlflow_tracking is None:
+        return state
+    existing = state.get("mlflow_run") or {}
+    persisted_status = str(existing.get("status") or "").upper()
+    if existing.get("run_id") and (
+        not replace_terminal_run
+        or persisted_status not in MLFLOW_TERMINAL_RUN_STATUSES
+    ):
+        return state
     attempt_index = int(state.get("attempt_index") or 1)
     run = mlflow_tracking.create_run(
         project_id=project_id,
@@ -230,56 +226,6 @@ def _create_and_record_mlflow_run(
         project_id=project_id,
         experiment_id=experiment_id,
         run=run,
-    )
-
-
-def _ensure_mlflow_run_for_start(
-    *,
-    experiments: Any,
-    mlflow_tracking: Any,
-    state: dict[str, Any],
-    project_id: str,
-    experiment_id: str,
-) -> dict[str, Any]:
-    if mlflow_tracking is None:
-        return state
-    existing = state.get("mlflow_run") or {}
-    if existing.get("run_id"):
-        return state
-    return _create_and_record_mlflow_run(
-        experiments=experiments,
-        mlflow_tracking=mlflow_tracking,
-        state=state,
-        project_id=project_id,
-        experiment_id=experiment_id,
-    )
-
-
-def _ensure_mlflow_run_for_retry(
-    *,
-    experiments: Any,
-    mlflow_tracking: Any,
-    state: dict[str, Any],
-    project_id: str,
-    experiment_id: str,
-) -> dict[str, Any]:
-    """An infra retry resumes the persisted run while it is still open. Once
-    that run was finalized (e.g. FAILED after the crash), resuming would log
-    into a closed run — mint a fresh run for the same attempt instead. A
-    retry with no persisted run (creation failed at start_running) is also
-    the natural backfill point."""
-    if mlflow_tracking is None:
-        return state
-    existing = state.get("mlflow_run") or {}
-    persisted_status = str(existing.get("status") or "").upper()
-    if existing.get("run_id") and persisted_status not in MLFLOW_TERMINAL_RUN_STATUSES:
-        return state
-    return _create_and_record_mlflow_run(
-        experiments=experiments,
-        mlflow_tracking=mlflow_tracking,
-        state=state,
-        project_id=project_id,
-        experiment_id=experiment_id,
     )
 
 
@@ -302,7 +248,7 @@ def _finalize_plugin_mlflow_run(
         or run_status in MLFLOW_TERMINAL_RUN_STATUSES
     ):
         return state
-    try:
+    with suppress(Exception):  # MLflow must never block workflow state
         finalized = mlflow_tracking.finalize_run(
             project_id=project_id,
             experiment_id=experiment_id,
@@ -318,8 +264,6 @@ def _finalize_plugin_mlflow_run(
                 run=readback,
                 event_type="experiment.mlflow_run_refreshed",
             )
-    except Exception:  # noqa: BLE001 - MLflow must never block workflow state
-        pass
     return state
 
 
@@ -373,11 +317,15 @@ def build_control_tool_handlers(
     def experiment_get_state_agent(
         *, experiment_id: str, project_id: str | None = None
     ) -> dict[str, Any]:
-        return _experiment_get_state_agent(
-            experiments=experiments,
+        full = experiments.get_state(
+            experiment_id=experiment_id, project_id=project_id
+        )
+        slim = slim_experiment_state(full)
+        return _with_mlflow_if_visible(
+            state=slim,
             mlflow_tracking=mlflow_tracking,
+            project_id=str(full.get("project_id") or project_id or ""),
             experiment_id=experiment_id,
-            project_id=project_id,
         )
 
     def experiment_list_agent(
@@ -415,21 +363,14 @@ def build_control_tool_handlers(
             project_id=project_id,
         )
         resolved_project_id = str(result.get("project_id") or project_id or "")
-        if transition == "start_running":
-            result = _ensure_mlflow_run_for_start(
+        if transition in ("start_running", "retry_running"):
+            result = _ensure_mlflow_run(
                 experiments=experiments,
                 mlflow_tracking=mlflow_tracking,
                 state=result,
                 project_id=resolved_project_id,
                 experiment_id=experiment_id,
-            )
-        elif transition == "retry_running":
-            result = _ensure_mlflow_run_for_retry(
-                experiments=experiments,
-                mlflow_tracking=mlflow_tracking,
-                state=result,
-                project_id=resolved_project_id,
-                experiment_id=experiment_id,
+                replace_terminal_run=transition == "retry_running",
             )
         terminal_mlflow_status = _TRANSITION_MLFLOW_STATUSES.get(transition)
         if terminal_mlflow_status:

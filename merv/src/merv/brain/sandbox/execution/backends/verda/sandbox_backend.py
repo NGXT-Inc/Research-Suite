@@ -8,13 +8,12 @@ Billing rounds UP to 10-minute increments.
 
 from __future__ import annotations
 
-import os
-import re
-import socket
+from contextlib import suppress
 import time
 from pathlib import Path
 from typing import Any
 
+from .._values import _float_or_zero
 from ...bootstrap_tools import BASELINE_APT_PACKAGES, ML_PYTHON_PACKAGES
 from ...vm_bootstrap import build_standard_user_data
 from ....sandbox_backend import (
@@ -28,7 +27,7 @@ from ....sandbox_backend import (
     SandboxRequest,
 )
 from ...sync_dirs import remote_experiment_dir, remote_root_of, remote_sessions_dir
-from ..vm_ssh_backend import SshInputRunner, SshRunner, VmSshSandboxBackend
+from ..vm_ssh_backend import SshInputRunner, SshRunner, VmSshSandboxBackend, _vm_name as _sandbox_name
 from .catalog import find_option, to_agent_options
 from .client import VerdaClient
 from .config import VerdaSandboxConfig
@@ -95,7 +94,7 @@ class VerdaSandboxBackend(VmSshSandboxBackend):
                 "e.g. 1H100.80S.30V). Call sandbox.options, or sandbox.request "
                 "without an instance_type, to see live availability, then pick one."
             )
-        _call(on_phase, "checking_capacity", instance_type)
+        self._notify(on_phase, "checking_capacity", instance_type)
         option, location = self._resolve_placement(
             instance_type=instance_type,
             location=(request.region or self.config.location_code or "").strip(),
@@ -106,7 +105,7 @@ class VerdaSandboxBackend(VmSshSandboxBackend):
         script_id = ""
         instance_id = ""
         try:
-            _call(on_phase, "registering_ssh_key", f"{instance_name}-key")
+            self._notify(on_phase, "registering_ssh_key", f"{instance_name}-key")
             key_id = self.client.add_ssh_key(
                 name=f"{instance_name}-key", key=request.public_key
             )
@@ -130,7 +129,7 @@ class VerdaSandboxBackend(VmSshSandboxBackend):
                 name=f"{instance_name}-boot", script=script
             )
 
-            _call(on_phase, "creating", f"{instance_type} in {location}")
+            self._notify(on_phase, "creating", f"{instance_type} in {location}")
             instance_id = self.client.deploy_instance(
                 instance_type=instance_type,
                 image=self.config.image,
@@ -140,9 +139,9 @@ class VerdaSandboxBackend(VmSshSandboxBackend):
                 ssh_key_ids=[key_id],
                 startup_script_id=script_id,
             )
-            _call(on_created, instance_id, instance_name)
+            self._notify(on_created, instance_id, instance_name)
 
-            _call(on_phase, "connecting", "waiting for running instance and ssh")
+            self._notify(on_phase, "connecting", "waiting for running instance and ssh")
             instance = self._wait_for_running_instance(instance_id=instance_id)
             ip = str(instance.get("ip") or "")
             if not ip:
@@ -170,19 +169,15 @@ class VerdaSandboxBackend(VmSshSandboxBackend):
             )
         except Exception:
             if instance_id:
-                try:
+                with suppress(Exception):
                     self.client.perform_action(instance_id=instance_id, action="delete")
-                except Exception:  # noqa: BLE001
-                    pass
             for cleanup, resource_id in (
                 (self.client.delete_script, script_id),
                 (self.client.delete_ssh_key, key_id),
             ):
                 if resource_id:
-                    try:
+                    with suppress(Exception):
                         cleanup(resource_id)
-                    except Exception:  # noqa: BLE001
-                        pass
             raise
 
     def is_alive(self, *, sandbox_id: str) -> bool:
@@ -209,28 +204,8 @@ class VerdaSandboxBackend(VmSshSandboxBackend):
         self._delete_rp_resources(sandbox_id=sandbox_id)
         return True
 
-    def sandbox_environment(self) -> dict:
-        available_tokens: list[str] = []
-        if os.environ.get("HF_TOKEN"):
-            available_tokens.append("HF_TOKEN")
-        return {
-            "available_tokens": available_tokens,
-            "notes": (
-                [
-                    "HF_TOKEN is available inside the sandbox for Hugging Face downloads. "
-                    "Do not print or write the token; use it through Hugging Face tooling."
-                ]
-                if available_tokens
-                else []
-            ),
-        }
-
     def health(self) -> dict:
-        try:
-            self.client.list_instance_types()
-            return {"ok": True, "backend": "verda"}
-        except Exception as exc:  # noqa: BLE001
-            return {"ok": False, "backend": "verda", "error": str(exc)}
+        return self._probe_health(lambda: self.client.list_instance_types())
 
     def find_sandbox_id(
         self, *, experiment_id: str, sandbox_uid: str = ""
@@ -258,20 +233,14 @@ class VerdaSandboxBackend(VmSshSandboxBackend):
             region=region,
             only_available=True,
         )
-        regions = sorted({r for option in options for r in option.get("regions", [])})
-        return {
-            "provider": "verda",
-            "selection_required": True,
-            "select_with": "instance_type",
-            "reason": (
+        return self._selection_catalog(
+            reason=(
                 "Verda (DataCrunch) bundles GPU, CPU, and RAM into fixed instance "
                 "types; pick one instance_type. Billing rounds up to 10-minute "
                 "increments."
             ),
-            "regions": regions,
-            "count": len(options),
-            "options": options,
-        }
+            options=options,
+        )
 
     def _resolve_placement(
         self, *, instance_type: str, location: str, requested_gpu: str | None
@@ -336,18 +305,6 @@ class VerdaSandboxBackend(VmSshSandboxBackend):
             f"(last status: {last_status or 'unknown'})"
         )
 
-    def _wait_for_ssh(self, *, host: str) -> None:
-        deadline = time.monotonic() + self.config.poll_timeout_seconds
-        last_error = ""
-        while time.monotonic() < deadline:
-            try:
-                with socket.create_connection((host, 22), timeout=10):
-                    return
-            except OSError as exc:
-                last_error = str(exc)
-                time.sleep(self.config.poll_interval_seconds)
-        raise BackendUnavailableError(f"SSH never became reachable on {host}:22 ({last_error})")
-
     def _delete_rp_resources(self, *, sandbox_id: str) -> None:
         """Drop the rp-named key + script registered for this instance.
 
@@ -372,27 +329,8 @@ class VerdaSandboxBackend(VmSshSandboxBackend):
                 continue
             for resource in resources:
                 if str(resource.get("name") or "") == f"{hostname}{suffix}" and resource.get("id"):
-                    try:
+                    with suppress(Exception):
                         deleter(str(resource["id"]))
-                    except Exception:  # noqa: BLE001
-                        pass
-
-
-def _sandbox_name(experiment_id: str) -> str:
-    safe = re.sub(r"[^a-z0-9]+", "-", experiment_id.lower()).strip("-")
-    return f"rp-{safe or 'exp'}"[:60]
-
-
-def _call(cb: Any, *args: Any) -> None:
-    if cb is not None:
-        cb(*args)
-
-
-def _float_or_zero(value: Any) -> float:
-    try:
-        return float(value)
-    except (TypeError, ValueError):
-        return 0.0
 
 
 def build_verda_sandbox_backend(

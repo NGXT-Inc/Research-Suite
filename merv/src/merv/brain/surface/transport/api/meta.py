@@ -4,14 +4,9 @@ from __future__ import annotations
 
 from typing import Any
 
-from fastapi import APIRouter, Body, Query, Request
-from fastapi.responses import Response, StreamingResponse
+from fastapi import APIRouter, Query
 
-from .... import __version__
-from ...identity import LOCAL_PRINCIPAL
-from ....kernel.utils import NotFoundError, ValidationError
 from ....kernel.version import meta
-from .shared import JsonBody, conditional_json
 
 from .context import ApiRouteContext
 
@@ -64,7 +59,6 @@ def build_router(ctx: ApiRouteContext) -> APIRouter:
 
     @api_router.get("/api/activity")
     def activity(
-        request: Request,
         limit: int = Query(100, ge=1),
         source: str | None = None,
         project_id: str | None = None,
@@ -76,7 +70,6 @@ def build_router(ctx: ApiRouteContext) -> APIRouter:
     # broad exposure.
     @api_router.get("/api/debug/tool-calls")
     def tool_call_stats(
-        request: Request,
         minutes: int | None = Query(None, ge=1),
         source: str | None = None,
         status: str | None = None,
@@ -97,14 +90,14 @@ def build_router(ctx: ApiRouteContext) -> APIRouter:
         )
 
     @api_router.get("/api/debug/tool-calls/{call_id}")
-    def tool_call_detail(call_id: int, request: Request) -> dict[str, Any]:
+    def tool_call_detail(call_id: int) -> dict[str, Any]:
         return api.tool_call_detail(
             call_id=call_id,
             project_ids=None,
         )
 
     @api_router.post("/api/debug/tool-calls/clear")
-    def tool_calls_clear(request: Request) -> dict[str, Any]:
+    def tool_calls_clear() -> dict[str, Any]:
         return api.tool_calls_clear(project_ids=None)
 
 

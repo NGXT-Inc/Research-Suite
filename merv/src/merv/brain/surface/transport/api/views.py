@@ -350,12 +350,12 @@ class ResearchHttpApi:
         # living file).
         if version:
             return self._resource_content_at_version(
-                project_id=project_id, resource=resource, version_id=version
+                resource=resource, version_id=version
             )
         # Gated-role artifacts render their submitted bytes (the content the
         # gates lint and reviewers grade). Other roles are metadata-only here;
         # raw file reads live in the local MCP proxy.
-        pinned = self._pinned_gated_text(project_id=project_id, resource=resource)
+        pinned = self._pinned_gated_text(resource=resource)
         if pinned is not None:
             text, version_id = pinned
             return {
@@ -382,7 +382,7 @@ class ResearchHttpApi:
         }
 
     def _resource_content_at_version(
-        self, *, project_id: str, resource: dict[str, Any], version_id: str
+        self, *, resource: dict[str, Any], version_id: str
     ) -> dict[str, Any]:
         """Serve the exact submitted bytes of one pinned resource version.
 
@@ -444,9 +444,7 @@ class ResearchHttpApi:
                 best = (attempt, str(version_id))
         return best[1] if best else None
 
-    def _pinned_gated_text(
-        self, *, project_id: str, resource: dict[str, Any]
-    ) -> tuple[str, str] | None:
+    def _pinned_gated_text(self, *, resource: dict[str, Any]) -> tuple[str, str] | None:
         """The latest submitted bytes for a gated-role resource (decoded) plus
         the version id they came from, or None when the resource has no gated
         association (the caller then reads the live file).
@@ -877,8 +875,13 @@ class ResearchHttpApi:
         component renders. `extra_base` injects endpoint-specific fields (the
         project-current endpoint adds the staleness `signal`)."""
         base: dict[str, Any] = {"max_nodes": MAX_GRAPH_NODES, **(extra_base or {})}
+        # Prefer the current-attempt association, with prior-attempt fallback.
         chosen = graph_resource or (
-            self._reflection_graph_resource(reflection=reflection)
+            preferred_associated_resource(
+                resources=reflection.get("resources", []),
+                attempt=reflection.get("attempt_index"),
+                roles=PROJECT_GRAPH_ROLES,
+            )
             if reflection
             else None
         )
@@ -948,19 +951,6 @@ class ResearchHttpApi:
         version → blob), or None when nothing was submitted."""
         return self.app.resources.submitted_text_for_version(
             version_id=resource.get("association_version_id")
-        )
-
-    def _reflection_graph_resource(
-        self, *, reflection: dict[str, Any] | None
-    ) -> dict[str, Any] | None:
-        """The reflection's graph association — current attempt preferred, with
-        the prior-attempt fallback the experiment endpoint also uses."""
-        if reflection is None:
-            return None
-        return preferred_associated_resource(
-            resources=reflection.get("resources", []),
-            attempt=reflection.get("attempt_index"),
-            roles=PROJECT_GRAPH_ROLES,
         )
 
     def _experiment_view_model(self, *, exp: dict[str, Any]) -> dict[str, Any]:

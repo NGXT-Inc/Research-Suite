@@ -19,6 +19,7 @@ scenarios — observe identical results to the in-process wiring.
 from __future__ import annotations
 
 import json
+from contextlib import suppress
 from typing import Any
 from urllib import error as urllib_error
 from urllib.request import Request, urlopen
@@ -162,10 +163,8 @@ class HttpControlPlaneClient:
 
     def _error_from_http(self, *, exc: urllib_error.HTTPError) -> ResearchPluginError:
         raw = b""
-        try:
+        with suppress(Exception):
             raw = exc.read() or b""
-        except Exception:  # noqa: BLE001
-            pass
         try:
             body = json.loads(raw.decode("utf-8"))
         except (json.JSONDecodeError, UnicodeDecodeError):

@@ -2,11 +2,9 @@
 
 from __future__ import annotations
 
-import json
 from typing import Any
-from urllib.error import HTTPError, URLError
-from urllib.request import Request, urlopen
 
+from .._http import request_json
 from ....sandbox_backend import BackendUnavailableError
 from .config import DigitalOceanCloudConfig
 
@@ -90,36 +88,18 @@ class DigitalOceanClient:
     def _request(
         self, method: str, path: str, *, body: dict[str, Any] | None = None
     ) -> dict[str, Any]:
-        url = f"{self.config.base_url}{path}"
-        data = json.dumps(body).encode("utf-8") if body is not None else None
-        request = Request(
-            url,
-            data=data,
+        return request_json(
+            provider="DigitalOcean",
             method=method,
+            base_url=self.config.base_url,
+            path=path,
+            body=body,
             headers={
                 "Accept": "application/json",
                 "Authorization": f"Bearer {self.config.token}",
                 "Content-Type": "application/json",
                 "User-Agent": "merv/0.0013",
             },
+            timeout=self.timeout,
+            require_object=True,
         )
-        try:
-            with urlopen(request, timeout=self.timeout) as response:  # noqa: S310 - fixed API URL from config
-                payload = response.read().decode("utf-8", errors="replace")
-        except HTTPError as exc:
-            detail = exc.read().decode("utf-8", errors="replace")
-            raise BackendUnavailableError(
-                f"DigitalOcean API {method} {path} failed with HTTP {exc.code}: {detail}",
-                status=exc.code,
-            ) from exc
-        except URLError as exc:
-            raise BackendUnavailableError(f"DigitalOcean API is unreachable: {exc}") from exc
-        except TimeoutError as exc:
-            raise BackendUnavailableError("DigitalOcean API request timed out") from exc
-        try:
-            parsed = json.loads(payload) if payload else {}
-        except json.JSONDecodeError as exc:
-            raise BackendUnavailableError("DigitalOcean API returned invalid JSON") from exc
-        if not isinstance(parsed, dict):
-            raise BackendUnavailableError("DigitalOcean API returned a non-object response")
-        return parsed

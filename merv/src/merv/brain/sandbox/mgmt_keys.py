@@ -12,6 +12,7 @@ live in the sandbox module beside the backend port's other collaborators.
 
 from __future__ import annotations
 
+from contextlib import suppress
 from pathlib import Path
 
 from .sandbox_support import _safe_name
@@ -38,11 +39,7 @@ class LocalMgmtKeyStore:
     def remove(self, *, sandbox_uid: str) -> None:
         key_path = self.key_path(sandbox_uid=sandbox_uid)
         for path in (key_path, key_path.with_suffix(".pub")):
-            try:
+            with suppress(OSError):
                 path.unlink(missing_ok=True)
-            except OSError:
-                pass
-        try:
+        with suppress(OSError):
             key_path.parent.rmdir()
-        except OSError:
-            pass

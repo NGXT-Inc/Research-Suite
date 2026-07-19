@@ -23,10 +23,11 @@ import json
 import sys
 import time
 import traceback
+from contextlib import suppress
 from copy import deepcopy
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Any, Iterator, TextIO
+from typing import Any, TextIO
 from urllib.parse import urlsplit
 from urllib import error as urllib_error
 from urllib.request import Request, urlopen
@@ -57,17 +58,6 @@ _LOCAL_ENRICHED_CONTROL_TOOLS = frozenset({"sandbox.get", "sandbox.health"})
 # renders it from the brain-owned contracts, and parity tests prevent drift.
 _STATIC_CATALOG_PATH = Path(__file__).with_name("_tool_catalog.json")
 _STORAGE_PROVIDER_ENV_VAR = "MERV_STORAGE_PROVIDER"
-
-
-def _static_local_tool_catalog() -> list[dict[str, Any]]:
-    tools = json.loads(_STATIC_CATALOG_PATH.read_text(encoding="utf-8"))["tools"]
-    if not _storage_feature_enabled():
-        tools = [
-            tool
-            for tool in tools
-            if not str(tool.get("name", "")).startswith("storage.")
-        ]
-    return tools
 
 
 def _storage_feature_enabled() -> bool:
@@ -328,7 +318,7 @@ class HttpProxyMcpServer:
             # path that never injects the linked project_id; the brain's pydantic
             # validation returns the enum error for an unknown action.
             return self._call_cloud_raw(name="project", arguments=arguments)
-        plane = self._plane_for(name=name)
+        plane = self._tool_meta(name=name).plane
         if name in _LOCAL_ENRICHED_CONTROL_TOOLS:
             return self._call_local_enriched_control(name=name, arguments=arguments)
         if plane == "control":
@@ -361,7 +351,7 @@ class HttpProxyMcpServer:
         return self._result_dict(body=body)
 
     def _call_control_api(
-        self, *, path: str, payload: dict[str, Any]
+        self, path: str, payload: dict[str, Any]
     ) -> dict[str, Any]:
         return self._http_post(
             url=f"{self._require_control_url()}{path}",
@@ -560,9 +550,6 @@ class HttpProxyMcpServer:
 
     # ---- helpers ---------------------------------------------------------
 
-    def _plane_for(self, *, name: str) -> str:
-        return self._tool_meta(name=name).plane
-
     def _tool_meta(self, *, name: str) -> _ToolMeta:
         if self._tool_cache is None:
             catalog, complete = self._catalog_tools()
@@ -596,16 +583,21 @@ class HttpProxyMcpServer:
     def _local_tool_catalog(self) -> list[dict[str, Any]]:
         # Runtime routing is deterministic and dependency-free; regeneration
         # and parity checks are the only bridge to the brain-owned contracts.
-        return _static_local_tool_catalog()
+        tools = json.loads(_STATIC_CATALOG_PATH.read_text(encoding="utf-8"))["tools"]
+        if not _storage_feature_enabled():
+            tools = [
+                tool
+                for tool in tools
+                if not str(tool.get("name", "")).startswith("storage.")
+            ]
+        return tools
 
     def _local_executor(self) -> LocalDataPlane:
         if self._local_data_plane is None:
             self._local_data_plane = LocalDataPlane(
                 repo_root=self.config.repo_root,
                 project_id_resolver=self._resolve_project_id,
-                control_api_post=lambda path, payload: self._call_control_api(
-                    path=path, payload=payload
-                ),
+                control_api_post=self._call_control_api,
                 control_tool_call=lambda tool, args: self._call_cloud(
                     name=tool, arguments=args
                 ),
@@ -686,9 +678,7 @@ class HttpProxyMcpServer:
 
     def _http_get(self, *, url: str, is_cloud: bool) -> dict[str, Any]:
         req = Request(url, method="GET", headers=self._headers(is_cloud=is_cloud))
-        return self._send(
-            req=req, is_cloud=is_cloud, timeout=self.config.timeout_seconds
-        )
+        return self._send(req=req, timeout=self.config.timeout_seconds)
 
     def _http_post(
         self,
@@ -702,9 +692,7 @@ class HttpProxyMcpServer:
         req = Request(
             url, data=data, method="POST", headers=self._headers(is_cloud=is_cloud)
         )
-        return self._send(
-            req=req, is_cloud=is_cloud, timeout=timeout or self.config.timeout_seconds
-        )
+        return self._send(req=req, timeout=timeout or self.config.timeout_seconds)
 
     def _headers(self, *, is_cloud: bool) -> dict[str, str]:
         headers = {"Content-Type": "application/json", "Accept": "application/json"}
@@ -774,21 +762,19 @@ class HttpProxyMcpServer:
         self._session_cache = updated
         path = self.config.client_config_path
         if path is not None:
-            try:
+            with suppress(OSError):  # in-memory session still carries this proxy process
                 tmp = path.with_suffix(".tmp")
                 tmp.write_text(json.dumps(updated), encoding="utf-8")
                 tmp.chmod(0o600)
                 tmp.replace(path)
-            except OSError:
-                pass  # in-memory session still carries this proxy process
         return updated
 
-    def _send(self, *, req: Request, is_cloud: bool, timeout: float) -> dict[str, Any]:
+    def _send(self, *, req: Request, timeout: float) -> dict[str, Any]:
         try:
             with urlopen(req, timeout=timeout) as response:
                 body_bytes = response.read()
         except urllib_error.HTTPError as exc:
-            raise self._error_from_http(exc=exc, is_cloud=is_cloud) from exc
+            raise self._error_from_http(exc=exc) from exc
         except urllib_error.URLError as exc:
             if _is_loopback_url(self.config.control_url):
                 raise _UpstreamError(
@@ -810,14 +796,10 @@ class HttpProxyMcpServer:
                 details={"body": body_bytes[:512].decode("utf-8", errors="replace")},
             ) from exc
 
-    def _error_from_http(
-        self, *, exc: urllib_error.HTTPError, is_cloud: bool
-    ) -> _UpstreamError:
+    def _error_from_http(self, *, exc: urllib_error.HTTPError) -> _UpstreamError:
         raw = b""
-        try:
+        with suppress(Exception):
             raw = exc.read() or b""
-        except Exception:  # noqa: BLE001
-            pass
         try:
             body = json.loads(raw.decode("utf-8"))
         except (json.JSONDecodeError, UnicodeDecodeError):

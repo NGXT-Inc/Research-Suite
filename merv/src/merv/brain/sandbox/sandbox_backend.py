@@ -251,6 +251,19 @@ class SandboxBackendBase:
 
     capabilities: BackendCapabilities
 
+    @staticmethod
+    def _notify(callback: Callable[..., None] | None, *args: Any) -> None:
+        """Invoke a progress callback, allowing it to raise to cancel."""
+        if callback is not None:
+            callback(*args)
+
+    def _probe_health(self, probe: Callable[[], Any]) -> dict[str, Any]:
+        try:
+            probe()
+            return {"ok": True, "backend": self.capabilities.name}
+        except Exception as exc:  # noqa: BLE001
+            return {"ok": False, "backend": self.capabilities.name, "error": str(exc)}
+
     def capabilities_for(self, *, provider: str | None = None) -> BackendCapabilities:
         """Single-provider default: one backend serves every request."""
         _ = provider
@@ -284,6 +297,23 @@ class SandboxBackendBase:
     def refresh_ssh_endpoint(self, *, sandbox_id: str) -> tuple[str, int] | None:
         """Unsupported default: no refreshed SSH endpoint is available."""
         return None
+
+    def _selection_catalog(
+        self, *, reason: str, options: list[dict[str, Any]],
+        regions: list[str] | None = None,
+    ) -> dict[str, Any]:
+        """The common envelope for fixed bundled-hardware selections."""
+        if regions is None:
+            regions = sorted({r for option in options for r in option.get("regions", [])})
+        return {
+            "provider": self.capabilities.name,
+            "selection_required": self.capabilities.requires_hardware_selection,
+            "select_with": "instance_type",
+            "reason": reason,
+            "regions": regions,
+            "count": len(options),
+            "options": options,
+        }
 
     def hardware_catalog(
         self, *, gpu: str | None = None, region: str | None = None

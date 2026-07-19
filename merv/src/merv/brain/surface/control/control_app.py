@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from contextlib import suppress
 from pathlib import Path
 from types import SimpleNamespace
 from typing import Any
@@ -150,11 +151,7 @@ class ControlApp:
         )
 
     def shutdown(self) -> None:
-        try:
+        with suppress(Exception):
             self.sandboxes.shutdown()
-        except Exception:  # noqa: BLE001
-            pass
-        try:
+        with suppress(Exception):
             self.execution_backend.shutdown()
-        except Exception:  # noqa: BLE001
-            pass

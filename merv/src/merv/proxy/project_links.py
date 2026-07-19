@@ -6,6 +6,7 @@ linked by pre-proxy releases continue to work. No daemon is involved.
 
 from __future__ import annotations
 
+from contextlib import closing
 import sqlite3
 from datetime import datetime, timezone
 from pathlib import Path
@@ -52,8 +53,7 @@ class ProjectLinks:
 
     def link(self, *, repo_root: str, project_id: str) -> None:
         canonical = str(Path(repo_root).expanduser().resolve())
-        conn = self._connect()
-        try:
+        with closing(self._connect()) as conn:
             with conn:
                 conn.execute(
                     "INSERT INTO project_links (repo_root, project_id, created_at) "
@@ -61,29 +61,21 @@ class ProjectLinks:
                     "project_id = excluded.project_id",
                     (canonical, project_id, _now_iso()),
                 )
-        finally:
-            conn.close()
 
     def project_for_repo(self, *, repo_root: str) -> str | None:
         canonical = str(Path(repo_root).expanduser().resolve())
-        conn = self._connect()
-        try:
+        with closing(self._connect()) as conn:
             row = conn.execute(
                 "SELECT project_id FROM project_links WHERE repo_root = ?",
                 (canonical,),
             ).fetchone()
-        finally:
-            conn.close()
         return str(row["project_id"]) if row is not None else None
 
     def list_links(self) -> list[dict[str, str]]:
-        conn = self._connect()
-        try:
+        with closing(self._connect()) as conn:
             rows = conn.execute(
                 "SELECT repo_root, project_id, created_at FROM project_links ORDER BY repo_root"
             ).fetchall()
-        finally:
-            conn.close()
         return [
             {
                 "repo_root": str(row["repo_root"]),
@@ -95,14 +87,11 @@ class ProjectLinks:
 
     def unlink(self, *, repo_root: str) -> bool:
         canonical = str(Path(repo_root).expanduser().resolve())
-        conn = self._connect()
-        try:
+        with closing(self._connect()) as conn:
             with conn:
                 cur = conn.execute(
                     "DELETE FROM project_links WHERE repo_root = ?", (canonical,)
                 )
-        finally:
-            conn.close()
         return bool(cur.rowcount)
 
 

@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import time
+from contextlib import suppress
 from dataclasses import dataclass
 from datetime import datetime, timezone
 from typing import Callable, Mapping
@@ -464,7 +465,9 @@ class CentralMlflowService:
         )
         if found:
             return found
-        try:
+        # A concurrent creator may have won the race. Search once more before
+        # letting the caller report the failure.
+        with suppress(httpx.HTTPError):
             response = client.post(
                 f"{base}/api/2.0/mlflow/experiments/create",
                 json={"name": experiment_name},
@@ -473,10 +476,6 @@ class CentralMlflowService:
             created = str(response.json().get("experiment_id") or "")
             if created:
                 return created
-        except httpx.HTTPError:
-            # A concurrent creator may have won the race. Search once more
-            # before letting the caller report the failure.
-            pass
         found = self._find_mlflow_experiment_id(
             client=client,
             base=base,
@@ -541,13 +540,13 @@ class CentralMlflowService:
         """Read experiment metrics from the centralized MLflow server."""
         context = self.context(project_id=project_id, experiment_id=experiment_id)
         read_uri = self.server_uri or context.tracking_uri
+        unavailable = {
+            "experiment_id": experiment_id,
+            "available": False,
+            "source": "mlflow",
+        }
         if not read_uri:
-            return {
-                "experiment_id": experiment_id,
-                "available": False,
-                "source": "mlflow",
-                "hint": context.note,
-            }
+            return {**unavailable, "hint": context.note}
         try:
             snapshot = snapshot_mlflow(
                 read_uri,
@@ -555,17 +554,10 @@ class CentralMlflowService:
                 **({"include_history": False} if not include_history else {}),
             )
         except MlflowSnapshotError:
-            return {
-                "experiment_id": experiment_id,
-                "available": False,
-                "source": "mlflow",
-                "hint": "MLflow unreachable.",
-            }
+            return {**unavailable, "hint": "MLflow unreachable."}
         if not isinstance(snapshot, dict):
             return {
-                "experiment_id": experiment_id,
-                "available": False,
-                "source": "mlflow",
+                **unavailable,
                 "hint": "No MLflow runs found for this experiment yet.",
             }
         portable = dict(snapshot)

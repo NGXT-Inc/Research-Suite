@@ -12,6 +12,7 @@ design.
 
 from __future__ import annotations
 
+from contextlib import closing
 import json
 from typing import Any
 
@@ -63,7 +64,7 @@ from ..kernel.state.store import (
     rows_to_dicts,
 )
 from ..kernel.utils import NotFoundError, WorkflowError, new_id, now_iso
-from .review_gate import review_gate_state
+from .review_gate import _review_checklist_item, review_gate_state
 
 
 class ReflectionService:
@@ -273,7 +274,7 @@ class ReflectionService:
                 review["findings"] = json.loads(review.pop("findings_json", "[]"))
                 review["evidence"] = json.loads(review.pop("evidence_json", "{}"))
             data["reviews"] = reviews
-            data["reflection_coverage"] = self._reflection_coverage(reflection=data)
+            data["reflection_coverage"] = reflection_coverage_for(reflection=data)
             data["project_graph_diff"] = self._project_graph_diff(
                 conn=conn, reflection=data
             )
@@ -287,8 +288,7 @@ class ReflectionService:
                 conn.close()
 
     def list_reflections(self, *, project_id: str | None = None) -> dict[str, Any]:
-        conn = self.store.connect()
-        try:
+        with closing(self.store.connect()) as conn:
             project_id = self.store.require_project_id(conn=conn, project_id=project_id)
             rows = conn.execute(
                 "SELECT id FROM reflections WHERE project_id = ? ORDER BY created_at, id",
@@ -299,13 +299,10 @@ class ReflectionService:
                     self.get_state(reflection_id=row["id"], conn=conn) for row in rows
                 ]
             }
-        finally:
-            conn.close()
 
     def overview(self, *, project_id: str | None = None) -> dict[str, Any]:
         """All waves plus the current reflection signal for project UI views."""
-        conn = self.store.connect()
-        try:
+        with closing(self.store.connect()) as conn:
             project_id = self.store.require_project_id(conn=conn, project_id=project_id)
             rows = conn.execute(
                 "SELECT id FROM reflections WHERE project_id = ? ORDER BY created_at, id",
@@ -324,8 +321,6 @@ class ReflectionService:
                 "latest_published": published,
                 "signal": signal,
             }
-        finally:
-            conn.close()
 
     def project_logic_graph_selection(self, *, project_id: str) -> dict[str, Any]:
         """Select the current project graph wave and reflection signal.
@@ -335,8 +330,7 @@ class ReflectionService:
         submitted one yet. The transport layer owns response shaping; this
         service owns the record reads and selection policy.
         """
-        conn = self.store.connect()
-        try:
+        with closing(self.store.connect()) as conn:
             project_id = self.store.require_project_id(conn=conn, project_id=project_id)
             signal = self.reflection_signal(project_id=project_id, conn=conn)
             reflection = self.open_reflection(conn=conn, project_id=project_id)
@@ -352,8 +346,6 @@ class ReflectionService:
                 "reflection": reflection,
                 "graph_resource": graph_resource,
             }
-        finally:
-            conn.close()
 
     def open_reflection(self, *, conn, project_id: str) -> dict[str, Any] | None:
         """The one non-terminal wave for the project, fully hydrated, or None."""
@@ -521,15 +513,6 @@ class ReflectionService:
         data = json.loads(text)
         return data, []
 
-    def _reflection_coverage(self, *, reflection: dict[str, Any]) -> dict[str, Any]:
-        """Which roster lenses have a current-attempt reflection associated.
-
-        A reflection covers lens L when its file is named ``<L>.md`` (any
-        directory) — the dumb, predictable convention each fan-out subagent is
-        told to follow.
-        """
-        return reflection_coverage_for(reflection=reflection)
-
     def _gate_checklist(self, *, conn, reflection: dict[str, Any]) -> dict[str, Any]:
         """Current reflection-wave gate as machine-readable checklist data.
 
@@ -594,46 +577,16 @@ class ReflectionService:
 
         if forward.review is not None:
             review = forward.review
-            snapshot_id = review_snapshot_id(
-                target_type="reflection", target=reflection
+            items.append(
+                _review_checklist_item(
+                    conn=conn,
+                    status=status,
+                    target_type="reflection",
+                    target=reflection,
+                    review=review,
+                    label=reflection_gate_review_label(role=review.role),
+                )
             )
-            gate_state = review_gate_state(
-                conn=conn,
-                project_id=str(reflection["project_id"]),
-                target_type="reflection",
-                target_id=str(reflection["id"]),
-                role=review.role,
-                snapshot_id=snapshot_id,
-            )
-            passed = gate_state["satisfied"]
-            request = self._latest_review_request(
-                conn=conn,
-                reflection_id=str(reflection["id"]),
-                role=review.role,
-                target_snapshot_id=snapshot_id,
-            )
-            review_status = (
-                "passed" if passed else self._review_gate_status(request=request)
-            )
-            item = {
-                "id": f"review:{review.role}",
-                "kind": "review",
-                "role": review.role,
-                "label": reflection_gate_review_label(role=review.role),
-                "satisfied": passed,
-                "status": review_status,
-                "gate": status,
-                "action": (
-                    review.pass_action if passed else f"launch_{review.action_name}er"
-                ),
-                "skill": review.skill,
-            }
-            if gate_state.get("blocked_reason"):
-                item["problems"] = [gate_state["blocked_reason"]]
-            if request is not None:
-                item["request_id"] = request["id"]
-                item["expires_at"] = request["expires_at"]
-            items.append(item)
 
         return {
             "status": status,
@@ -642,34 +595,6 @@ class ReflectionService:
             "ready": all(bool(item.get("satisfied")) for item in items),
             "items": items,
         }
-
-    def _latest_review_request(
-        self,
-        *,
-        conn,
-        reflection_id: str,
-        role: str,
-        target_snapshot_id: str,
-    ) -> dict[str, Any] | None:
-        row = conn.execute(
-            """
-            SELECT id, status, expires_at
-            FROM review_requests
-            WHERE target_type = 'reflection' AND target_id = ? AND role = ?
-              AND target_snapshot_id = ?
-            ORDER BY created_seq DESC
-            LIMIT 1
-            """,
-            (reflection_id, role, target_snapshot_id),
-        ).fetchone()
-        return row_to_dict(row=row)
-
-    def _review_gate_status(self, *, request: dict[str, Any] | None) -> str:
-        if request is None:
-            return "pending"
-        if request.get("status") in {"requested", "started"}:
-            return str(request["status"])
-        return "pending"
 
     # ---- transitions ----
 

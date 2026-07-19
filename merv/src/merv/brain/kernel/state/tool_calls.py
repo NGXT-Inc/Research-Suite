@@ -22,7 +22,7 @@ from __future__ import annotations
 import json
 import sqlite3
 import threading
-from contextlib import contextmanager
+from contextlib import closing, contextmanager, suppress
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
 from typing import Any, Iterator
@@ -77,7 +77,7 @@ class ToolCallStore:
         """Persist one tool call with its full I/O. Never raises (telemetry)."""
         if not self.enabled:
             return
-        try:
+        with suppress(Exception):  # debug recording must never break a call
             sent_chars = payload_chars(value=arguments)
             received_chars = (
                 len(error or "") if status == "error" else payload_chars(value=result)
@@ -118,8 +118,6 @@ class ToolCallStore:
                     "(SELECT MAX(id) FROM tool_calls) - ?",
                     (self.max_rows,),
                 )
-        except Exception:  # noqa: BLE001 — debug recording must never break a call
-            pass
 
     @staticmethod
     def _target_of(arguments: Any) -> tuple[str | None, str | None]:
@@ -306,11 +304,9 @@ class ToolCallStore:
         """
         conn = sqlite3.connect(self.db_path, timeout=5.0)
         conn.row_factory = sqlite3.Row
-        try:
+        with closing(conn):
             with conn:
                 yield conn
-        finally:
-            conn.close()
 
     def _init_db(self) -> None:
         self.db_path.parent.mkdir(parents=True, exist_ok=True)

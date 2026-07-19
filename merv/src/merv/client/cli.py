@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from contextlib import closing, suppress
 import argparse
 import datetime as dt
 import json
@@ -90,7 +91,7 @@ def _parser() -> argparse.ArgumentParser:
         "connect",
         help="Configure/login and optionally link the current folder.",
     )
-    _add_control_args(connect, required=False)
+    _add_control_args(connect)
     connect.add_argument("--project-id", help="Existing hosted project id to link.")
     connect.add_argument("--repo", default=".", help="Local repo folder to link (default: cwd).")
     connect.set_defaults(func=_cmd_connect)
@@ -115,7 +116,7 @@ def _parser() -> argparse.ArgumentParser:
     return parser
 
 
-def _add_control_args(parser: argparse.ArgumentParser, *, required: bool = True) -> None:
+def _add_control_args(parser: argparse.ArgumentParser) -> None:
     parser.add_argument(
         "--control-url",
         required=False,
@@ -140,7 +141,6 @@ def _add_control_args(parser: argparse.ArgumentParser, *, required: bool = True)
 
 def _cmd_configure(args: argparse.Namespace) -> int:
     config_path = _config_path(args)
-    existing = read_client_config({CLIENT_CONFIG_ENV_VAR: str(config_path)})
     config = configure_client(
         config_path=config_path,
         control_url=args.control_url or HOSTED_CONTROL_URL,
@@ -162,10 +162,8 @@ def _post_json(url: str, payload: dict[str, Any], *, timeout: float = 10.0) -> d
             return json.loads(response.read().decode("utf-8"))
     except urllib.error.HTTPError as exc:
         body = ""
-        try:
+        with suppress(Exception):
             body = json.loads(exc.read().decode("utf-8")).get("detail", "")
-        except Exception:  # noqa: BLE001
-            pass
         raise ClientError(body or f"HTTP {exc.code} from {url}") from exc
     except urllib.error.URLError as exc:
         raise ClientError(f"brain unreachable at {url}: {exc.reason}") from exc
@@ -314,16 +312,12 @@ def configure_client(
     stored_key = existing.get("api_key", "") if api_key is None else api_key.strip()
     if stored_key:
         config["api_key"] = stored_key
-    if session is None:
-        # Preserve a stored browser-login session across re-configures.
-        for field in ("access_token", "refresh_token", "expires_at", "email"):
-            if existing.get(field):
-                config[field] = str(existing[field])
-    else:
-        for field in ("access_token", "refresh_token", "expires_at", "email"):
-            value = session.get(field)
-            if value:
-                config[field] = str(value)
+    session_fields = existing if session is None else session
+    # Preserve a stored browser-login session unless a replacement was supplied.
+    for field in ("access_token", "refresh_token", "expires_at", "email"):
+        value = session_fields.get(field)
+        if value:
+            config[field] = str(value)
     _write_json_private(config_path, config)
     return config
 
@@ -333,8 +327,7 @@ def link_repo(*, config_path: Path, repo_root: Path, project_id: str) -> dict[st
         raise ClientError("project_id is required")
     links = _project_links(config_path=config_path)
     canonical = str(repo_root.expanduser().resolve())
-    conn = _links_connect(links)
-    try:
+    with closing(_links_connect(links)) as conn:
         with conn:
             conn.execute(
                 "INSERT INTO project_links (repo_root, project_id, created_at) "
@@ -342,34 +335,26 @@ def link_repo(*, config_path: Path, repo_root: Path, project_id: str) -> dict[st
                 "project_id = excluded.project_id",
                 (canonical, project_id, _now_iso()),
             )
-    finally:
-        conn.close()
     return {"linked": True, "repo_root": canonical, "project_id": project_id}
 
 
 def route_repo(*, config_path: Path, repo_root: Path) -> dict[str, Any]:
     links = _project_links(config_path=config_path)
     canonical = str(repo_root.expanduser().resolve())
-    conn = _links_connect(links)
-    try:
+    with closing(_links_connect(links)) as conn:
         row = conn.execute(
             "SELECT project_id FROM project_links WHERE repo_root = ?",
             (canonical,),
         ).fetchone()
-    finally:
-        conn.close()
     project_id = str(row["project_id"]) if row is not None else None
     return {"exists": bool(project_id), "repo_root": canonical, "project_id": project_id}
 
 
 def list_links(*, config_path: Path) -> dict[str, Any]:
-    conn = _links_connect(_project_links(config_path=config_path))
-    try:
+    with closing(_links_connect(_project_links(config_path=config_path))) as conn:
         rows = conn.execute(
             "SELECT repo_root, project_id, created_at FROM project_links ORDER BY repo_root"
         ).fetchall()
-    finally:
-        conn.close()
     return {
         "links": [
             {
@@ -384,14 +369,11 @@ def list_links(*, config_path: Path) -> dict[str, Any]:
 
 def unlink_repo(*, config_path: Path, repo_root: Path) -> dict[str, Any]:
     canonical = str(repo_root.expanduser().resolve())
-    conn = _links_connect(_project_links(config_path=config_path))
-    try:
+    with closing(_links_connect(_project_links(config_path=config_path))) as conn:
         with conn:
             cur = conn.execute(
                 "DELETE FROM project_links WHERE repo_root = ?", (canonical,)
             )
-    finally:
-        conn.close()
     return {"unlinked": bool(cur.rowcount), "repo_root": canonical}
 
 
@@ -399,19 +381,6 @@ def _config_path(args: argparse.Namespace) -> Path:
     if getattr(args, "config", None):
         return Path(args.config).expanduser().resolve()
     return resolve_client_config_path()
-
-
-def _require_config(config_path: Path) -> dict[str, str]:
-    config = read_client_config({CLIENT_CONFIG_ENV_VAR: str(config_path)})
-    missing = [key for key in ("control_url",) if not config.get(key)]
-    if missing:
-        raise ClientError(
-            "machine is not configured; run "
-            "merv-client configure --control-url ..."
-        )
-    state_dir = str(_state_dir(config_path=config_path, config=config))
-    config.setdefault("daemon_state_dir", state_dir)
-    return config
 
 
 def _ensure_default_config(config_path: Path) -> dict[str, str]:

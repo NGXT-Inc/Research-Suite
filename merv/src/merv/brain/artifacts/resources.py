@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from contextlib import closing
 import hashlib
 import json
 import os
@@ -83,12 +84,10 @@ class ResourceService:
         rel_path = self._repo_relative_path(path=path)
         self._validate_content_sha256(content_sha256)
         observed_at = now_iso()
-        token = self._version_token(
-            path=rel_path,
-            mtime_ns=int(mtime_ns),
-            ctime_ns=int(ctime_ns),
-            size_bytes=int(size_bytes),
-        )
+        # ctime is included so an in-place edit that preserves mtime+size (e.g. a
+        # restored mtime) still changes the token: content cannot change without
+        # bumping the inode change time, even when mtime is held constant.
+        token = f"{rel_path}:{int(mtime_ns)}:{int(ctime_ns)}:{int(size_bytes)}"
         with self.store.transaction() as conn:
             project_id = self.store.require_project_id(conn=conn, project_id=project_id)
             # Resource identity is (project_id, path): the same repo file can be a
@@ -147,7 +146,7 @@ class ResourceService:
                         int(mtime_ns),
                         int(size_bytes),
                         observed_at,
-                        self._git_commit_or_none(path=rel_path),
+                        None,  # Optional git provenance; resource identity is file-first.
                         created_by,
                         observed_at,
                         observed_at,
@@ -342,7 +341,7 @@ class ResourceService:
                 raise NotFoundError(
                     f"resource not found in project {project_id}: {resource_id}"
                 )
-            target_project_id = self._ensure_target_exists(
+            target_project_id = self._targets().project_id_for(
                 conn=conn,
                 target_type=target_type,
                 target_id=target_id,
@@ -351,7 +350,7 @@ class ResourceService:
                 raise NotFoundError(
                     f"{target_type} not found in project {project_id}: {target_id}"
                 )
-            attempt_index = self._association_attempt_index(
+            attempt_index = self._targets().attempt_index_for(
                 conn=conn,
                 target_type=target_type,
                 target_id=target_id,
@@ -380,8 +379,7 @@ class ResourceService:
         ``current_version`` so large projects can be listed (and change-detected
         via ``version_token``) without re-pulling hundreds of KB per call.
         """
-        conn = self.store.connect()
-        try:
+        with closing(self.store.connect()) as conn:
             project_id = self.store.require_project_id(conn=conn, project_id=project_id)
             where = ["r.project_id = ?", "r.deleted = 0"]
             params: list[Any] = [project_id]
@@ -427,8 +425,6 @@ class ResourceService:
                 "has_more": (int(offset) + returned) < total,
                 "compact": bool(compact),
             }
-        finally:
-            conn.close()
 
     def resolve(
         self,
@@ -484,8 +480,7 @@ class ResourceService:
     def history(
         self, *, resource_id: str, project_id: str | None = None
     ) -> dict[str, Any]:
-        conn = self.store.connect()
-        try:
+        with closing(self.store.connect()) as conn:
             project_id = self.store.require_project_id(conn=conn, project_id=project_id)
             resource = self.resolve(
                 resource_id=resource_id, project_id=project_id, conn=conn
@@ -503,8 +498,6 @@ class ResourceService:
                 "resource": resource,
                 "versions": [self._hydrate_version(row=row, conn=conn) for row in rows],
             }
-        finally:
-            conn.close()
 
     def pinned_text_for_version(
         self, *, version_id: str, what: str, role: str = ""
@@ -519,8 +512,7 @@ class ResourceService:
             raise WorkflowError(
                 f"{what}: no blob store is configured; submitted content is unavailable"
             )
-        conn = self.store.connect()
-        try:
+        with closing(self.store.connect()) as conn:
             return load_pinned_text_for_version(
                 conn=conn,
                 blobs=self.blobs,
@@ -528,21 +520,16 @@ class ResourceService:
                 what=what,
                 role=role,
             )
-        finally:
-            conn.close()
 
     def submitted_text_for_version(self, *, version_id: str | None) -> str | None:
         """Best-effort submitted text for one version, decoded for UI display."""
         if not version_id or self.blobs is None:
             return None
-        conn = self.store.connect()
-        try:
+        with closing(self.store.connect()) as conn:
             row = conn.execute(
                 "SELECT project_id, content_sha256 FROM resource_versions WHERE id = ?",
                 (str(version_id),),
             ).fetchone()
-        finally:
-            conn.close()
         if row is None:
             return None
         try:
@@ -559,8 +546,7 @@ class ResourceService:
         """Best-effort submitted figure bytes for a markdown image link."""
         if not version_id or self.blobs is None:
             return None
-        conn = self.store.connect()
-        try:
+        with closing(self.store.connect()) as conn:
             row = conn.execute(
                 """
                 SELECT v.project_id, f.sha256
@@ -570,8 +556,6 @@ class ResourceService:
                 """,
                 (str(version_id), link_path),
             ).fetchone()
-        finally:
-            conn.close()
         if row is None:
             return None
         try:
@@ -746,26 +730,6 @@ class ResourceService:
                 "content_sha256 must be a lowercase sha256 hex digest"
             )
 
-    def _validate_submitted_figure_link(self, *, link: str) -> None:
-        if not link:
-            raise ValidationError("figure link is required")
-        if os.path.isabs(link):
-            raise ValidationError("figure links must be repo-relative")
-
-    def _ensure_target_exists(
-        self, *, conn: Connection, target_type: str, target_id: str
-    ) -> str | None:
-        return self._targets().project_id_for(
-            conn=conn, target_type=target_type, target_id=target_id
-        )
-
-    def _association_attempt_index(
-        self, *, conn: Connection, target_type: str, target_id: str
-    ) -> int:
-        return self._targets().attempt_index_for(
-            conn=conn, target_type=target_type, target_id=target_id
-        )
-
     def _targets(self) -> Any:
         if self.association_targets is None:
             raise RuntimeError(
@@ -887,8 +851,7 @@ class ResourceService:
         and the parsed JSON payload."""
         if self.blobs is None:
             return []
-        conn = self.store.connect()
-        try:
+        with closing(self.store.connect()) as conn:
             rows = conn.execute(
                 """
                 SELECT r.path, a.version_id, v.content_sha256, v.observed_at, v.project_id
@@ -901,8 +864,6 @@ class ResourceService:
                 """,
                 (target_type, target_id, int(attempt_index)),
             ).fetchall()
-        finally:
-            conn.close()
         sources: list[dict[str, Any]] = []
         for row in rows:
             path = str(row["path"])
@@ -1051,7 +1012,10 @@ class ResourceService:
             figure = submitted.get(link)
             if figure is None:
                 continue
-            self._validate_submitted_figure_link(link=link)
+            if not link:
+                raise ValidationError("figure link is required")
+            if os.path.isabs(link):
+                raise ValidationError("figure links must be repo-relative")
             data = figure.get("data")
             if not isinstance(data, bytes):
                 continue
@@ -1087,7 +1051,7 @@ class ResourceService:
         target_id: str,
         role: str,
     ) -> dict[str, Any]:
-        target_project_id = self._ensure_target_exists(
+        target_project_id = self._targets().project_id_for(
             conn=conn,
             target_type=target_type,
             target_id=target_id,
@@ -1096,7 +1060,7 @@ class ResourceService:
             raise NotFoundError(
                 f"{target_type} not found in project {project_id}: {target_id}"
             )
-        attempt_index = self._association_attempt_index(
+        attempt_index = self._targets().attempt_index_for(
             conn=conn,
             target_type=target_type,
             target_id=target_id,
@@ -1137,18 +1101,6 @@ class ResourceService:
             },
         )
         return self.resolve(resource_id=resource_id, conn=conn)
-
-    def _version_token(
-        self, *, path: str, mtime_ns: int, ctime_ns: int, size_bytes: int
-    ) -> str:
-        # ctime is included so an in-place edit that preserves mtime+size (e.g. a
-        # restored mtime) still changes the token: content cannot change without
-        # bumping the inode change time, even when mtime is held constant.
-        return f"{path}:{mtime_ns}:{ctime_ns}:{size_bytes}"
-
-    def _git_commit_or_none(self, *, path: str) -> str | None:
-        # Keep this optional and failure-tolerant; resource identity is file-first.
-        return None
 
     def _snapshot_version_record(
         self,

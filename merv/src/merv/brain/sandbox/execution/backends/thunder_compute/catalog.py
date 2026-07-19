@@ -4,6 +4,8 @@ from __future__ import annotations
 
 from typing import Any
 
+from .._values import _int_or_zero, _norm
+
 
 def summarize_specs(
     specs: dict[str, Any],
@@ -104,14 +106,3 @@ def _price_for(*, name: str, gpu_type: str, prices: dict[str, Any]) -> float:
         except (TypeError, ValueError):
             return 0.0
     return 0.0
-
-
-def _norm(value: Any) -> str:
-    return str(value or "").strip().lower()
-
-
-def _int_or_zero(value: Any) -> int:
-    try:
-        return int(value)
-    except (TypeError, ValueError):
-        return 0

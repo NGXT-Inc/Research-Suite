@@ -15,6 +15,7 @@ provider phase.
 
 from __future__ import annotations
 
+from contextlib import suppress
 import threading
 from dataclasses import dataclass
 from datetime import datetime
@@ -175,10 +176,8 @@ class SandboxProvisioner:
         for job in jobs:
             job.cancel.set()
         for job in jobs:
-            try:
+            with suppress(RuntimeError):
                 job.thread.join(timeout=2.0)
-            except RuntimeError:
-                pass
 
     def _provision(
         self,
@@ -274,7 +273,7 @@ class SandboxProvisioner:
             # provisioned generation so the price survives the row's
             # per-experiment overwrite. Best-effort — a ledger write must never
             # fail an otherwise-successful provision.
-            try:
+            with suppress(Exception):
                 self.registry.record_generation(
                     experiment_id=experiment_id,
                     project_id=project_id,
@@ -284,8 +283,6 @@ class SandboxProvisioner:
                     gpu=provisioned.gpu or (req.gpu or ""),
                     price_usd_per_hour=provisioned.price_usd_per_hour,
                 )
-            except Exception:  # noqa: BLE001
-                pass
             self.registry.emit_event(
                 project_id=project_id,
                 event_type="sandbox.created",

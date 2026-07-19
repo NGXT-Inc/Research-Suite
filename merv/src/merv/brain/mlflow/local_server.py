@@ -110,12 +110,10 @@ class LocalMlflowServer:
         while time.monotonic() < deadline:
             if self.process is not None and self.process.poll() is not None:
                 return False
-            try:
+            with suppress(httpx.HTTPError):
                 response = httpx.get(f"{self._url}/health", timeout=0.5)
                 if response.status_code < 500:
                     return True
-            except httpx.HTTPError:
-                pass
             time.sleep(0.25)
         return False
 

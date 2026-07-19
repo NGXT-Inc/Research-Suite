@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-import os
+from contextlib import suppress
 import shlex
 import subprocess
 import time
@@ -15,6 +15,7 @@ from ...vm_bootstrap import (
     build_bootstrap_core,
 )
 from ...vm_ssh import (
+    _run_ssh_process,
     ssh_command,
     stderr_detail,
 )
@@ -100,13 +101,13 @@ class ThunderComputeSandboxBackend(VmSshSandboxBackend):
             )
         if not request.management_public_key or not request.management_key_path:
             raise BackendValidationError("Thunder Compute requires a management SSH key")
-        _call(on_phase, "checking_capacity", instance_type)
+        self._notify(on_phase, "checking_capacity", instance_type)
         option = self._resolve_option(instance_type=instance_type, requested_gpu=request.gpu)
 
         instance_id = ""
         instance_uuid = ""
         try:
-            _call(on_phase, "creating", instance_type)
+            self._notify(on_phase, "creating", instance_type)
             created = self.client.create_instance(
                 cpu_cores=int(option["vcpus"]),
                 disk_size_gb=int(option["storage_gib"]),
@@ -118,9 +119,9 @@ class ThunderComputeSandboxBackend(VmSshSandboxBackend):
             )
             instance_id = str(created["identifier"])
             instance_uuid = str(created.get("uuid") or instance_id)
-            _call(on_created, instance_id, instance_uuid)
+            self._notify(on_created, instance_id, instance_uuid)
 
-            _call(on_phase, "connecting", "waiting for running instance and ssh")
+            self._notify(on_phase, "connecting", "waiting for running instance and ssh")
             instance = self._wait_for_running_instance(
                 instance_id=instance_id, instance_uuid=instance_uuid, on_phase=on_phase
             )
@@ -132,7 +133,7 @@ class ThunderComputeSandboxBackend(VmSshSandboxBackend):
             workdir = request.remote_workdir or remote_experiment_dir(
                 experiment_id=request.experiment_id, root=self.config.remote_root
             )
-            _call(on_phase, "bootstrapping", "installing sandbox ssh wrapper")
+            self._notify(on_phase, "bootstrapping", "installing sandbox ssh wrapper")
             self._bootstrap_vm(
                 host=host,
                 port=port,
@@ -160,10 +161,8 @@ class ThunderComputeSandboxBackend(VmSshSandboxBackend):
             )
         except Exception:
             if instance_id:
-                try:
+                with suppress(Exception):
                     self.client.delete_instance(instance_id)
-                except Exception:  # noqa: BLE001
-                    pass
             raise
 
     def is_alive(self, *, sandbox_id: str) -> bool:
@@ -187,28 +186,8 @@ class ThunderComputeSandboxBackend(VmSshSandboxBackend):
             return False
         return True
 
-    def sandbox_environment(self) -> dict[str, Any]:
-        available_tokens: list[str] = []
-        if os.environ.get("HF_TOKEN"):
-            available_tokens.append("HF_TOKEN")
-        return {
-            "available_tokens": available_tokens,
-            "notes": (
-                [
-                    "HF_TOKEN is available inside the sandbox for Hugging Face downloads. "
-                    "Do not print or write the token; use it through Hugging Face tooling."
-                ]
-                if available_tokens
-                else []
-            ),
-        }
-
     def health(self) -> dict[str, Any]:
-        try:
-            self.client.list_specs()
-            return {"ok": True, "backend": "thunder_compute"}
-        except Exception as exc:  # noqa: BLE001
-            return {"ok": False, "backend": "thunder_compute", "error": str(exc)}
+        return self._probe_health(lambda: self.client.list_specs())
 
     def hardware_catalog(
         self, *, gpu: str | None = None, region: str | None = None
@@ -220,18 +199,14 @@ class ThunderComputeSandboxBackend(VmSshSandboxBackend):
             gpu=gpu,
         )
         options = summary["instance_types"]
-        return {
-            "provider": "thunder_compute",
-            "selection_required": True,
-            "select_with": "instance_type",
-            "reason": (
+        return self._selection_catalog(
+            reason=(
                 "Thunder Compute exposes fixed GPU specs by instance_type; pick "
                 "one option rather than cpu/memory. Region selection is not exposed."
             ),
-            "regions": [],
-            "count": len(options),
-            "options": options,
-        }
+            regions=[],
+            options=options,
+        )
 
     def find_sandbox_id(
         self, *, experiment_id: str, sandbox_uid: str = ""
@@ -284,7 +259,7 @@ class ThunderComputeSandboxBackend(VmSshSandboxBackend):
         while time.monotonic() < deadline:
             instance = self._instance_by_id(instance_id, instance_uuid=instance_uuid)
             last_status = _status(instance)
-            _call(on_phase, "connecting", f"Thunder instance status: {last_status or 'unknown'}")
+            self._notify(on_phase, "connecting", f"Thunder instance status: {last_status or 'unknown'}")
             if last_status in ACTIVE_INSTANCE_STATUSES and instance.get("ip"):
                 return instance
             if last_status in TERMINAL_INSTANCE_STATUSES:
@@ -339,7 +314,7 @@ class ThunderComputeSandboxBackend(VmSshSandboxBackend):
         deadline = time.monotonic() + self.config.poll_timeout_seconds
         last_error = ""
         while time.monotonic() < deadline:
-            _call(on_phase, "bootstrapping", "running bootstrap over ssh")
+            self._notify(on_phase, "bootstrapping", "running bootstrap over ssh")
             try:
                 result = self._bootstrap_runner(
                     command,
@@ -367,30 +342,22 @@ class ThunderComputeSandboxBackend(VmSshSandboxBackend):
         deadline = time.monotonic() + self.config.poll_timeout_seconds
         last_error = ""
         while time.monotonic() < deadline:
-            _call(on_phase, "bootstrapping", "waiting for management ssh")
-            result = self._ssh_mgmt(
-                host=host,
-                port=port,
-                key_path=key_path,
-                remote_command="test -x /opt/merv/rec.sh && true",
+            self._notify(on_phase, "bootstrapping", "waiting for management ssh")
+            # Rebuild each attempt so the injected runner sees the retry cadence.
+            result = self._ssh_runner(
+                ssh_command(
+                    host=host,
+                    port=port,
+                    user=MGMT_SSH_USER,
+                    key_path=key_path,
+                    remote_command="test -x /opt/merv/rec.sh && true",
+                )
             )
             if result.returncode == 0:
                 return
             last_error = stderr_detail(result)
             time.sleep(self.config.poll_interval_seconds)
         raise BackendUnavailableError(f"Thunder management SSH never became ready: {last_error}")
-
-    def _ssh_mgmt(
-        self, *, host: str, port: int, key_path: str, remote_command: str
-    ) -> subprocess.CompletedProcess[str]:
-        command = ssh_command(
-            host=host,
-            port=port,
-            user=MGMT_SSH_USER,
-            key_path=key_path,
-            remote_command=remote_command,
-        )
-        return self._ssh_runner(command)
 
 
 def build_thunder_bootstrap_script(
@@ -465,20 +432,7 @@ def _contains_key_comment(instance: Mapping[str, Any], marker: str) -> bool:
 def _run_bootstrap(
     command: list[str], script: str, timeout: int
 ) -> subprocess.CompletedProcess[str]:
-    return subprocess.run(
-        command,
-        input=script,
-        text=True,
-        encoding="utf-8",
-        errors="replace",
-        capture_output=True,
-        timeout=timeout,
-    )
-
-
-def _call(cb: Any, *args: Any) -> None:
-    if cb is not None:
-        cb(*args)
+    return _run_ssh_process(command, stdin=script, timeout=timeout)
 
 
 def build_thunder_compute_sandbox_backend(

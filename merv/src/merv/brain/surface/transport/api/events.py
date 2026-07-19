@@ -17,20 +17,16 @@ from .context import ApiRouteContext
 def build_router(ctx: ApiRouteContext) -> APIRouter:
     api_router = APIRouter()
     api = ctx.api
-    surface = ctx.surface
-    api_for_project = ctx.api_for_project
-    route_call_tool = ctx.route_call_tool
     @api_router.get("/api/projects/{project_id}/events")
     def events(project_id: str, request: Request, limit: int = Query(100, ge=1)) -> Response:
-        target = api_for_project(project_id)
-        signal = target.app.store.project_event_signal(project_id=project_id)
+        signal = api.app.store.project_event_signal(project_id=project_id)
         # Mirror the store's limit clamp so limit=501 and limit=502 share one
         # ETag (identical bodies must not cache-miss on token identity).
         effective_limit = max(1, min(int(limit), 500))
         return conditional_json_from_signal(
             request,
             signal_parts=("events", project_id, effective_limit, signal),
-            payload=lambda: target.events(project_id=project_id, limit=limit),
+            payload=lambda: api.events(project_id=project_id, limit=limit),
         )
 
     @api_router.get("/api/projects/{project_id}/events/stream")
@@ -50,7 +46,7 @@ def build_router(ctx: ApiRouteContext) -> APIRouter:
         session (the browser reconnects per the retry hint) — also what makes
         the stream finite for TestClient, which buffers whole responses.
         """
-        store = api_for_project(project_id).app.store
+        store = api.app.store
         # Resolve the starting cursor eagerly so an unknown project 404s as
         # normal JSON instead of dying after SSE headers were sent.
         head = store.recent_events(project_id=project_id, limit=1)["events"]

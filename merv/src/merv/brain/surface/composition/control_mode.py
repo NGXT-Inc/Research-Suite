@@ -11,6 +11,7 @@ from __future__ import annotations
 
 import logging
 from collections.abc import Mapping
+from contextlib import suppress
 from pathlib import Path
 from typing import Any
 
@@ -385,7 +386,7 @@ def _resume_active_sandboxes(*, app: ControlApp) -> None:
     about rows that may have expired while the control plane was down.
     Best-effort — a reconcile failure must not block startup or the reaper.
     """
-    try:
+    with suppress(Exception):  # startup must not hinge on recovery
         had_running = bool(app.sandboxes.registry.list_running_rows())
         app.sandboxes.reconcile_running_rows()
         if had_running:
@@ -398,12 +399,8 @@ def _resume_active_sandboxes(*, app: ControlApp) -> None:
             threading.Thread(
                 target=_safe_reap, args=(app,), name="control-recovery-reap", daemon=True
             ).start()
-    except Exception:  # noqa: BLE001 — startup must not hinge on recovery
-        pass
 
 
 def _safe_reap(app: ControlApp) -> None:
-    try:
+    with suppress(Exception):  # the reaper must never die
         app.sandboxes.reap_expired()
-    except Exception:  # noqa: BLE001 — the reaper must never die
-        pass

@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from contextlib import closing
 import hashlib
 import http.client
 import shutil
@@ -110,8 +111,7 @@ def put_presigned_url(
         else http.client.HTTPConnection
     )
     request_target = urlunsplit(("", "", parsed.path or "/", parsed.query, ""))
-    conn = conn_cls(parsed.hostname, parsed.port, timeout=60)
-    try:
+    with closing(conn_cls(parsed.hostname, parsed.port, timeout=60)) as conn:
         with file_path.open("rb") as source:
             source.seek(offset)
             body = _LimitedReader(source=source, length=length)
@@ -129,8 +129,6 @@ def put_presigned_url(
                     + (f": {detail}" if detail else "")
                 )
             return response_headers
-    finally:
-        conn.close()
 
 
 def download_target_to_file(*, download: dict[str, Any], path: Path) -> None:

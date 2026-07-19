@@ -305,18 +305,14 @@ class FakeSandboxBackend(SandboxBackendBase):
             if self._catalog_regions is not None
             else sorted({r for o in options for r in o.get("regions", [])})
         )
-        return {
-            "provider": "fake",
-            "selection_required": self.capabilities.requires_hardware_selection,
-            "select_with": "instance_type",
-            "reason": (
+        return self._selection_catalog(
+            reason=(
                 "Fake bundled-hardware backend: GPU+CPU+RAM ship as fixed machine "
                 "types — pick one instance_type (mirrors Lambda Labs)."
             ),
-            "regions": regions,
-            "count": len(options),
-            "options": options,
-        }
+            regions=regions,
+            options=options,
+        )
 
     # ---- test helpers ----
 

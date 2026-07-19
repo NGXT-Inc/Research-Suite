@@ -10,6 +10,9 @@ from __future__ import annotations
 
 from typing import Any
 
+from ..kernel.state.store import row_to_dict
+from .domain.gates import ReviewRequirement
+from .domain.review_snapshot import review_snapshot_id
 from .projects import project_settings
 
 
@@ -55,3 +58,58 @@ def review_gate_state(
             "caller_session_id to review.start"
         ),
     }
+
+
+def _review_checklist_item(
+    *,
+    conn,
+    status: str,
+    target_type: str,
+    target: dict[str, Any],
+    review: ReviewRequirement,
+    label: str,
+) -> dict[str, Any]:
+    snapshot_id = review_snapshot_id(target_type=target_type, target=target)
+    gate_state = review_gate_state(
+        conn=conn,
+        project_id=str(target["project_id"]),
+        target_type=target_type,
+        target_id=str(target["id"]),
+        role=review.role,
+        snapshot_id=snapshot_id,
+    )
+    passed = gate_state["satisfied"]
+    row = conn.execute(
+        """
+        SELECT id, status, expires_at
+        FROM review_requests
+        WHERE target_type = ? AND target_id = ? AND role = ?
+          AND target_snapshot_id = ?
+        ORDER BY created_seq DESC
+        LIMIT 1
+        """,
+        (target_type, str(target["id"]), review.role, snapshot_id),
+    ).fetchone()
+    request = row_to_dict(row=row)
+    review_status = "pending"
+    if passed:
+        review_status = "passed"
+    elif request is not None and request.get("status") in {"requested", "started"}:
+        review_status = str(request["status"])
+    item: dict[str, Any] = {
+        "id": f"review:{review.role}",
+        "kind": "review",
+        "role": review.role,
+        "label": label,
+        "satisfied": passed,
+        "status": review_status,
+        "gate": status,
+        "action": review.pass_action if passed else f"launch_{review.action_name}er",
+        "skill": review.skill,
+    }
+    if gate_state.get("blocked_reason"):
+        item["problems"] = [gate_state["blocked_reason"]]
+    if request is not None:
+        item["request_id"] = request["id"]
+        item["expires_at"] = request["expires_at"]
+    return item

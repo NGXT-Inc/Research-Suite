@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from contextlib import suppress
 import json
 import os
 import sys
@@ -336,11 +337,9 @@ def cap_result(*, value: Any) -> Any:
 
 
 def jsonable(*, value: Any) -> Any:
-    try:
+    with suppress(TypeError, ValueError):
         json.dumps(value)
         return value
-    except (TypeError, ValueError):
-        pass
     if isinstance(value, dict):
         return {str(key): jsonable(value=item) for key, item in value.items()}
     if isinstance(value, (list, tuple)):

@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from contextlib import closing
 from dataclasses import dataclass
 from typing import Any
 
@@ -84,14 +85,11 @@ class GraphRefResolver:
         refs = self._refs_from_graph(graph=graph)
         if not refs:
             return {}
-        conn = self.store.connect()
-        try:
+        with closing(self.store.connect()) as conn:
             return {
                 ref: self._resolve_one(conn=conn, project_id=project_id, ref=ref)
                 for ref in refs
             }
-        finally:
-            conn.close()
 
     @staticmethod
     def _refs_from_graph(*, graph: dict[str, Any] | None) -> list[str]:

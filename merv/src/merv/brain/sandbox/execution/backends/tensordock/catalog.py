@@ -16,6 +16,8 @@ from __future__ import annotations
 import re
 from typing import Any
 
+from .._values import _float_or_zero, _int_or_zero, _norm
+
 
 # Deploy shape defaults per GPU (scaled by count, clipped to location maxima).
 DEFAULT_VCPUS_PER_GPU = 8
@@ -156,21 +158,3 @@ def _ram_step(ram_gb: int) -> int:
 def _gpu_label(v0_name: str) -> str:
     """Short GPU label, e.g. 'H100' from 'h100-sxm5-80gb'."""
     return v0_name.split("-")[0].upper() if v0_name else ""
-
-
-def _norm(value: Any) -> str:
-    return str(value or "").strip().lower()
-
-
-def _int_or_zero(value: Any) -> int:
-    try:
-        return int(value)
-    except (TypeError, ValueError):
-        return 0
-
-
-def _float_or_zero(value: Any) -> float:
-    try:
-        return float(value)
-    except (TypeError, ValueError):
-        return 0.0

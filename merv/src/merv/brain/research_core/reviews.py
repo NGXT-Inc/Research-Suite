@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from contextlib import closing
 import json
 from datetime import UTC, datetime, timedelta
 from typing import Any
@@ -387,12 +388,15 @@ class ReviewService:
                     "target changed after this review started; the verdict no "
                     "longer applies — request a fresh review"
                 )
-            return_to = self._validate_return_to(
-                target_type=req["target_type"],
-                role=req["role"],
-                verdict=verdict,
-                return_to=return_to,
-            )
+            try:
+                return_to = resolve_review_return(
+                    target_type=req["target_type"],
+                    role=req["role"],
+                    verdict=verdict,
+                    return_to=return_to,
+                )
+            except ValueError as exc:
+                raise ValidationError(str(exc)) from exc
             review_id = new_id(prefix="rev")
             conn.execute(
                 """
@@ -487,8 +491,7 @@ class ReviewService:
     def status(
         self, *, target_type: str, target_id: str, project_id: str | None = None
     ) -> dict[str, Any]:
-        conn = self.store.connect()
-        try:
+        with closing(self.store.connect()) as conn:
             project_id = self.store.require_project_id(conn=conn, project_id=project_id)
             requests = conn.execute(
                 """
@@ -505,15 +508,12 @@ class ReviewService:
                 (project_id, target_type, target_id),
             ).fetchall()
             return {
-                "requests": [self._hydrate_request(row=row) for row in requests],
+                "requests": [self._with_snapshot(row=row) for row in requests],
                 "reviews": [self._hydrate_review(row=row) for row in reviews],
             }
-        finally:
-            conn.close()
 
     def queue(self, *, project_id: str | None = None) -> dict[str, Any]:
-        conn = self.store.connect()
-        try:
+        with closing(self.store.connect()) as conn:
             project_id = self.store.require_project_id(conn=conn, project_id=project_id)
             req_rows = conn.execute(
                 """
@@ -539,8 +539,6 @@ class ReviewService:
                 "requests": [self._with_snapshot(row=row) for row in req_rows],
                 "reviews": [self._with_snapshot(row=row) for row in review_rows],
             }
-        finally:
-            conn.close()
 
     def open_requests_for_target(
         self,
@@ -551,8 +549,7 @@ class ReviewService:
     ) -> list[dict[str, Any]]:
         if not statuses:
             return []
-        conn = self.store.connect()
-        try:
+        with closing(self.store.connect()) as conn:
             project_id = self.store.require_project_id(conn=conn, project_id=project_id)
             placeholders = ", ".join("?" for _ in statuses)
             rows = conn.execute(
@@ -566,14 +563,11 @@ class ReviewService:
                 (project_id, experiment_id, *statuses),
             ).fetchall()
             return [row_to_dict(row=row) or {} for row in rows]
-        finally:
-            conn.close()
 
     def assert_request_in_project(
         self, *, project_id: str | None, review_request_id: Any
     ) -> None:
-        conn = self.store.connect()
-        try:
+        with closing(self.store.connect()) as conn:
             project_id = self.store.require_project_id(conn=conn, project_id=project_id)
             if not review_request_id:
                 raise ValidationError("review_request_id is required")
@@ -585,27 +579,21 @@ class ReviewService:
                 raise NotFoundError(
                     f"review request not found in project {project_id}: {review_request_id}"
                 )
-        finally:
-            conn.close()
 
     def request_project_id(self, *, review_request_id: Any) -> str | None:
         if not review_request_id:
             return None
-        conn = self.store.connect()
-        try:
+        with closing(self.store.connect()) as conn:
             row = conn.execute(
                 "SELECT project_id FROM review_requests WHERE id = ?",
                 (str(review_request_id),),
             ).fetchone()
             return str(row["project_id"]) if row else None
-        finally:
-            conn.close()
 
     def assert_session_in_project(
         self, *, project_id: str | None, review_session_id: Any
     ) -> None:
-        conn = self.store.connect()
-        try:
+        with closing(self.store.connect()) as conn:
             project_id = self.store.require_project_id(conn=conn, project_id=project_id)
             if not review_session_id:
                 raise ValidationError("review_session_id is required")
@@ -622,8 +610,6 @@ class ReviewService:
                 raise NotFoundError(
                     f"review session not found in project {project_id}: {review_session_id}"
                 )
-        finally:
-            conn.close()
 
     def gate_state(
         self, *, conn, target_type: str, target_id: str, role: str
@@ -714,19 +700,6 @@ class ReviewService:
         if expires is None or datetime.now(UTC) > expires:
             raise PermissionDeniedError("reviewer capability expired")
 
-    def _validate_return_to(
-        self, *, target_type: str, role: str, verdict: str, return_to: str
-    ) -> str:
-        try:
-            return resolve_review_return(
-                target_type=target_type,
-                role=role,
-                verdict=verdict,
-                return_to=return_to,
-            )
-        except ValueError as exc:
-            raise ValidationError(str(exc)) from exc
-
     def _validate_role_matches_gate(
         self, *, target_type: str, target_status: str, role: str
     ) -> None:
@@ -753,14 +726,6 @@ class ReviewService:
                 conn=conn, reflection_id=target_id
             )
         return f"{target_type}:{target_id}"
-
-    def _hydrate_request(self, *, row) -> dict[str, Any]:
-        data = row_to_dict(row=row) or {}
-        data["target_snapshot"] = self.snapshot_from_id(
-            snapshot_id=data.get("target_snapshot_id", "")
-        )
-        data["recovery"] = self._request_recovery(request=data)
-        return data
 
     def _request_recovery(self, *, request: dict[str, Any]) -> dict[str, Any]:
         status = str(request.get("status") or "")

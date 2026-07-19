@@ -7,19 +7,17 @@ developer shell with the tools agents expect.
 
 from __future__ import annotations
 
-import os
-import re
-import shlex
-import socket
+from contextlib import suppress
 import time
 from pathlib import Path
 from typing import Any, Mapping
 
+from .._values import _int_or_zero
 from ...bootstrap_tools import (
     BASELINE_APT_PACKAGES,
     ML_PYTHON_PACKAGES,
 )
-from ...vm_bootstrap import build_bootstrap_core
+from ...vm_bootstrap import build_standard_user_data
 from ....sandbox_backend import (
     BackendUnavailableError,
     BackendCapabilities,
@@ -31,7 +29,7 @@ from ....sandbox_backend import (
     SandboxRequest,
 )
 from ...sync_dirs import remote_experiment_dir, remote_root_of, remote_sessions_dir
-from ..vm_ssh_backend import SshInputRunner, SshRunner, VmSshSandboxBackend
+from ..vm_ssh_backend import SshInputRunner, SshRunner, VmSshSandboxBackend, _vm_name as _sandbox_name
 from .catalog import find_option, summarize_instance_types, to_agent_options
 from .client import LambdaCloudClient
 from .config import LambdaSandboxConfig
@@ -110,21 +108,21 @@ class LambdaLabsSandboxBackend(VmSshSandboxBackend):
         # type. If the agent overrode the instance type, don't force that region
         # onto it — auto-pick a region with capacity for the chosen SKU instead.
         default_region = "" if request.instance_type else self.config.region_name
-        _call(on_phase, "checking_capacity", instance_type)
+        self._notify(on_phase, "checking_capacity", instance_type)
         region, specs = self._resolve_placement(
             instance_type=instance_type,
             region=(request.region or default_region or "").strip(),
             requested_gpu=request.gpu,
         )
 
-        _call(on_phase, "registering_ssh_key", key_name)
+        self._notify(on_phase, "registering_ssh_key", key_name)
         key_id = ""
         instance_id = ""
         try:
             key = self.client.add_ssh_key(name=key_name, public_key=request.public_key)
             key_id = str(key.get("id") or "")
 
-            _call(on_phase, "creating", f"{instance_type} in {region}")
+            self._notify(on_phase, "creating", f"{instance_type} in {region}")
             workdir = request.remote_workdir or remote_experiment_dir(
                 experiment_id=request.experiment_id, root=self.config.remote_root
             )
@@ -147,9 +145,9 @@ class LambdaLabsSandboxBackend(VmSshSandboxBackend):
                 name=instance_name,
                 user_data=user_data,
             )
-            _call(on_created, instance_id, instance_name)
+            self._notify(on_created, instance_id, instance_name)
 
-            _call(on_phase, "connecting", "waiting for active instance and ssh")
+            self._notify(on_phase, "connecting", "waiting for active instance and ssh")
             instance = self._wait_for_active_instance(instance_id=instance_id)
             ip = str(instance.get("ip") or instance.get("hostname") or "")
             if not ip:
@@ -175,15 +173,11 @@ class LambdaLabsSandboxBackend(VmSshSandboxBackend):
             )
         except Exception:
             if instance_id:
-                try:
+                with suppress(Exception):
                     self.client.terminate_instances([instance_id])
-                except Exception:  # noqa: BLE001
-                    pass
             if key_id:
-                try:
+                with suppress(Exception):
                     self.client.delete_ssh_key(key_id)
-                except Exception:  # noqa: BLE001
-                    pass
             raise
 
     def is_alive(self, *, sandbox_id: str) -> bool:
@@ -208,28 +202,8 @@ class LambdaLabsSandboxBackend(VmSshSandboxBackend):
         self._delete_ssh_keys_by_name(key_names)
         return True
 
-    def sandbox_environment(self) -> dict:
-        available_tokens: list[str] = []
-        if os.environ.get("HF_TOKEN"):
-            available_tokens.append("HF_TOKEN")
-        return {
-            "available_tokens": available_tokens,
-            "notes": (
-                [
-                    "HF_TOKEN is available inside the sandbox for Hugging Face downloads. "
-                    "Do not print or write the token; use it through Hugging Face tooling."
-                ]
-                if available_tokens
-                else []
-            ),
-        }
-
     def health(self) -> dict:
-        try:
-            self.client.list_instance_types()
-            return {"ok": True, "backend": "lambda_labs"}
-        except Exception as exc:  # noqa: BLE001
-            return {"ok": False, "backend": "lambda_labs", "error": str(exc)}
+        return self._probe_health(lambda: self.client.list_instance_types())
 
     def find_sandbox_id(
         self, *, experiment_id: str, sandbox_uid: str = ""
@@ -259,18 +233,14 @@ class LambdaLabsSandboxBackend(VmSshSandboxBackend):
             only_available=True,
         )
         options = to_agent_options(summary)
-        return {
-            "provider": "lambda_labs",
-            "selection_required": True,
-            "select_with": "instance_type",
-            "reason": (
+        return self._selection_catalog(
+            reason=(
                 "Lambda Labs bundles GPU, CPU, and RAM into fixed machine types; "
                 "pick one instance_type rather than cpu/memory."
             ),
-            "regions": summary["regions"],
-            "count": len(options),
-            "options": options,
-        }
+            regions=summary["regions"],
+            options=options,
+        )
 
     def _resolve_placement(
         self, *, instance_type: str, region: str, requested_gpu: str | None
@@ -359,18 +329,6 @@ class LambdaLabsSandboxBackend(VmSshSandboxBackend):
             f"(last status: {last_status or 'unknown'})"
         )
 
-    def _wait_for_ssh(self, *, host: str) -> None:
-        deadline = time.monotonic() + self.config.poll_timeout_seconds
-        last_error = ""
-        while time.monotonic() < deadline:
-            try:
-                with socket.create_connection((host, 22), timeout=10):
-                    return
-            except OSError as exc:
-                last_error = str(exc)
-                time.sleep(self.config.poll_interval_seconds)
-        raise BackendUnavailableError(f"SSH never became reachable on {host}:22 ({last_error})")
-
     def _ssh_key_names_for_instance(self, *, sandbox_id: str) -> list[str]:
         try:
             instance = self.client.get_instance(sandbox_id)
@@ -393,10 +351,8 @@ class LambdaLabsSandboxBackend(VmSshSandboxBackend):
             key_name = str(key.get("name") or "")
             key_id = str(key.get("id") or "")
             if key_name in wanted and key_id:
-                try:
+                with suppress(Exception):
                     self.client.delete_ssh_key(key_id)
-                except Exception:  # noqa: BLE001
-                    pass
 
 
 def build_user_data(
@@ -409,72 +365,17 @@ def build_user_data(
     management_public_key: str = "",
     tokens: Mapping[str, str] | None = None,
 ) -> str:
-    apt_packages = " ".join(shlex.quote(pkg) for pkg in LAMBDA_APT_PACKAGES)
-    python_packages = " ".join(shlex.quote(pkg) for pkg in ML_PYTHON_PACKAGES)
-    # Install the MLflow client one-at-a-time, only when missing, and with
-    # --ignore-installed. The image ships Debian-owned Python packages without
-    # RECORD files; pip cannot uninstall those, so dependency upgrades that touch
-    # one can abort the whole install. --ignore-installed installs fresh copies
-    # into /usr/local (which shadows Debian dist-packages on sys.path) and never
-    # calls uninstall. uv is skipped here: `uv pip install --system` refuses
-    # PEP 668 externally-managed interpreters outright.
-    mlflow_package = shlex.quote("mlflow==2.18.0")
-    bootstrap_core = build_bootstrap_core(
+    _ = tokens  # Compatibility input; credentials are delivered post-boot.
+    return build_standard_user_data(
         public_key=public_key,
         experiment_id=experiment_id,
         workdir=workdir,
         sessions_dir=sessions_dir,
         sandbox_data_dir=sandbox_data_dir,
         management_public_key=management_public_key,
-        tokens=tokens,
+        apt_packages=LAMBDA_APT_PACKAGES,
+        python_packages=ML_PYTHON_PACKAGES,
     )
-    return f"""#!/usr/bin/env bash
-set -euxo pipefail
-export DEBIAN_FRONTEND=noninteractive
-
-{bootstrap_core}
-# === Phase 2: heavy toolchain install (the VM is already usable by here) ===
-apt-get update
-apt-get install -y --no-install-recommends {apt_packages}
-ln -sf /usr/bin/fdfind /usr/local/bin/fd || true
-python3 -m pip install --break-system-packages --upgrade pip uv || python3 -m pip install --user --upgrade pip uv || true
-if [ -x /root/.local/bin/uv ]; then
-  install -m 0755 /root/.local/bin/uv /usr/local/bin/uv
-fi
-if ! command -v uv >/dev/null 2>&1; then
-  curl -LsSf https://astral.sh/uv/install.sh | sh || true
-  if [ -x /root/.local/bin/uv ]; then
-    install -m 0755 /root/.local/bin/uv /usr/local/bin/uv
-  fi
-fi
-install_with_uv_or_pip() {{
-  if command -v uv >/dev/null 2>&1; then
-    uv pip install --system "$@" || python3 -m pip install --break-system-packages "$@"
-  else
-    python3 -m pip install --break-system-packages "$@"
-  fi
-}}
-python3 -c 'import mlflow' >/dev/null 2>&1 || python3 -m pip install --break-system-packages --ignore-installed {mlflow_package} || echo "[merv] mlflow install failed" >> /opt/merv/bootstrap.log
-install_with_uv_or_pip torch torchvision torchaudio || true
-install_with_uv_or_pip {python_packages} || true
-"""
-
-
-def _sandbox_name(experiment_id: str) -> str:
-    safe = re.sub(r"[^a-z0-9]+", "-", experiment_id.lower()).strip("-")
-    return f"rp-{safe or 'exp'}"[:60]
-
-
-def _call(cb: Any, *args: Any) -> None:
-    if cb is not None:
-        cb(*args)
-
-
-def _int_or_zero(value: Any) -> int:
-    try:
-        return int(value)
-    except (TypeError, ValueError):
-        return 0
 
 
 def build_lambda_labs_sandbox_backend(*, repo_root: Path | None = None, **_kwargs: Any) -> LambdaLabsSandboxBackend:

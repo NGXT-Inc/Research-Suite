@@ -10,6 +10,8 @@ from __future__ import annotations
 
 from typing import Any
 
+from .._values import _float_or_zero, _int_or_zero, _norm
+
 
 def to_agent_options(
     instance_types: list[dict[str, Any]],
@@ -70,21 +72,3 @@ def find_option(
         if _norm(option.get("instance_type")) == wanted:
             return option
     return None
-
-
-def _norm(value: Any) -> str:
-    return str(value or "").strip().lower()
-
-
-def _int_or_zero(value: Any) -> int:
-    try:
-        return int(value)
-    except (TypeError, ValueError):
-        return 0
-
-
-def _float_or_zero(value: Any) -> float:
-    try:
-        return float(value)
-    except (TypeError, ValueError):
-        return 0.0

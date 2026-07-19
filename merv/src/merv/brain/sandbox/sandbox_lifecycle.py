@@ -20,6 +20,7 @@ daemons keep scheduling. None of them decide life or death.
 
 from __future__ import annotations
 
+from contextlib import suppress
 from datetime import UTC, datetime
 from typing import Any, Callable
 
@@ -107,11 +108,9 @@ class SandboxLifecycle:
         """
         sandbox_uid = str(facts.get("sandbox_uid") or "")
         if sandbox_uid:
-            try:
+            with suppress(Exception):  # key cleanup must never block the mark
                 self.mgmt_keys.remove(sandbox_uid=sandbox_uid)
-            except Exception:  # noqa: BLE001 — key cleanup must never block the mark
-                pass
-        try:
+        with suppress(Exception):  # best-effort; never block the mark
             self.tasks.submit(
                 task_type="teardown",
                 payload={
@@ -124,16 +123,12 @@ class SandboxLifecycle:
                     experiment_id=experiment_id, sandbox_uid=sandbox_uid
                 ),
             )
-        except Exception:  # noqa: BLE001 — best-effort; never block the mark
-            pass
 
     # ---------- VM termination ----------
 
     def terminate_quietly(self, *, sandbox_id: str) -> None:
-        try:
+        with suppress(Exception):
             self.backend.terminate(sandbox_id=sandbox_id)
-        except Exception:  # noqa: BLE001
-            pass
 
     def cleanup_orphan(
         self, *, experiment_id: str, row: dict[str, Any] | None
@@ -307,7 +302,7 @@ class SandboxLifecycle:
         # The agent's conn file must follow the endpoint: a conn_refresh task
         # re-renders it through the data plane. Best-effort, like the refresh
         # itself — the next agent view re-renders it anyway.
-        try:
+        with suppress(Exception):  # refresh must never break the caller
             self.tasks.submit(
                 task_type="conn_refresh",
                 payload={
@@ -319,8 +314,6 @@ class SandboxLifecycle:
                     project_id=str(fresh.get("project_id") or "")
                 ),
             )
-        except Exception:  # noqa: BLE001 — refresh must never break the caller
-            pass
         self.registry.emit_event(
             project_id=str(row.get("project_id")),
             event_type="sandbox.endpoint_refreshed",
