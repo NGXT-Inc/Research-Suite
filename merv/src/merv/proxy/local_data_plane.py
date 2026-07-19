@@ -164,7 +164,9 @@ class LocalDataPlane:
             destination_path=str(args.get("destination_path") or ""),
             overwrite=bool(args.get("overwrite")),
         )
-        result["storage_guidance"] = self._storage_guidance()
+        from merv.shared.storage_guidance import STORAGE_RULE_OF_THUMB
+
+        result["storage_guidance"] = str(STORAGE_RULE_OF_THUMB)
         result["rsync"] = RSYNC_PULL_OUTPUTS_HINT
         # Live-runs nudge rides along from the control sandbox.get lookup, so
         # pulling outputs from a box with a run still going is never silent.
@@ -571,8 +573,3 @@ class LocalDataPlane:
             validate_openssh_public_key(str(payload.get("public_key") or ""))
         except ValueError as exc:
             raise LocalDataPlaneError(str(exc)) from exc
-
-    def _storage_guidance(self) -> str:
-        from merv.shared.storage_guidance import STORAGE_RULE_OF_THUMB
-
-        return str(STORAGE_RULE_OF_THUMB)
