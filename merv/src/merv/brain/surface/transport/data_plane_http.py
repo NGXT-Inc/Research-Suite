@@ -10,8 +10,8 @@ from typing import Any
 from fastapi import Body, Request
 from merv.shared.tool_validation import validate_openssh_public_key
 
-from ..feed.feed import MAX_EMBED_BYTES, MAX_IMAGE_BYTES
-from ..kernel.utils import ValidationError
+from ...feed.feed import MAX_EMBED_BYTES, MAX_IMAGE_BYTES
+from ...kernel.utils import ValidationError
 
 JsonBody = dict[str, Any] | None
 DataPlaneProjectApp = Callable[[Request, str], Any]

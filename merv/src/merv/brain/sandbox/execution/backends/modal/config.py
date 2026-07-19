@@ -15,7 +15,7 @@ from ...sync_dirs import DEFAULT_DATA_DIR, DEFAULT_REMOTE_ROOT, SESSIONS_DIRNAME
 def _env_discovery_disabled() -> bool:
     """True in control mode, where implicit user-machine .env discovery is off.
 
-    Reads MERV_MODE directly (no merv.brain.config import) to keep the
+    Reads MERV_MODE directly (no merv.brain.surface.config import) to keep the
     execution backends loosely coupled from the composition layer. Local mode
     keeps checkout-adjacent .env discovery for development; control resolves
     credentials from the process environment or secret store only.

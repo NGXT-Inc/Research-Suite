@@ -14,7 +14,7 @@ from pathlib import Path
 
 import uvicorn
 
-from merv.brain.composition import build_local_server
+from merv.brain.surface.composition import build_local_server
 from merv.brain.feed import feed_policy
 from merv.brain.sandbox.execution.backends.fake import FakeSandboxBackend
 from merv.brain.kernel.state import StateStore

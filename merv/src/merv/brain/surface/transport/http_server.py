@@ -16,7 +16,7 @@ from typing import Any
 import uvicorn
 
 from ..config import Mode, resolve_mode
-from ..kernel.env import env_bool, env_value
+from ...kernel.env import env_bool, env_value
 from .http_api import create_fastapi_app
 
 

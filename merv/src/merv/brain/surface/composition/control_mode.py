@@ -38,22 +38,22 @@ from ..config import (
 from .brain_dirs import resolve_brain_state_root, resolve_local_brain_staging
 from ..control.control_app import ControlApp
 from ..control.control_runtime import ControlTaskChannel
-from ..kernel.env import env_bool, env_value
-from ..sandbox.execution import build_sandbox_backend
+from ...kernel.env import env_bool, env_value
+from ...sandbox.execution import build_sandbox_backend
 from ..transport.http_api import create_fastapi_app
 from ..transport.http_policy import HttpSurfacePolicy
-from ..services.auth import (
+from ..auth import (
     SUPABASE_JWT_SECRET_ENV_VAR,
     SUPABASE_URL_ENV_VAR,
     SupabaseVerifier,
 )
-from ..services.cleanup import CleanupService
-from ..mlflow import CentralMlflowService
-from ..mlflow.config import MLFLOW_TRACKING_URI_ENV_VAR
-from ..object_storage.service import StorageLedgerService
-from ..sandbox.managed_mgmt_keys import MountedMgmtKeyStore
-from ..sandbox.mgmt_keys import LocalMgmtKeyStore
-from ..kernel.utils import ValidationError
+from ..cleanup import CleanupService
+from ...mlflow import CentralMlflowService
+from ...mlflow.config import MLFLOW_TRACKING_URI_ENV_VAR
+from ...object_storage.service import StorageLedgerService
+from ...sandbox.managed_mgmt_keys import MountedMgmtKeyStore
+from ...sandbox.mgmt_keys import LocalMgmtKeyStore
+from ...kernel.utils import ValidationError
 
 
 CONTROL_COMPAT_REPO_ROOT = Path("/var/empty/merv-control")

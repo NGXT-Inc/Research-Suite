@@ -27,4 +27,4 @@ fi
 
 export PYTHONPATH="$PLUGIN_DIR/src${PYTHONPATH:+:$PYTHONPATH}"
 
-exec "$PYTHON_BIN" -m merv.brain.client_cli "$@"
+exec "$PYTHON_BIN" -m merv.client.cli "$@"

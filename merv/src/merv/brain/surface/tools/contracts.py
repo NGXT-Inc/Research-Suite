@@ -14,7 +14,7 @@ from merv.shared.tool_validation import (
 )
 
 from ..config import storage_feature_enabled
-from ..research_core.domain.vocabulary import REVIEW_VERDICT_VALUES
+from ...research_core.domain.vocabulary import REVIEW_VERDICT_VALUES
 
 
 class ContractModel(BaseModel):

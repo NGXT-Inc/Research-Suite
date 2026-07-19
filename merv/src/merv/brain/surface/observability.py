@@ -14,8 +14,8 @@ import sys
 from typing import Any
 
 from .config import Mode, resolve_mode
-from .kernel.state.activity import SENSITIVE_KEYS
-from .kernel.utils import parse_iso
+from ..kernel.state.activity import SENSITIVE_KEYS
+from ..kernel.utils import parse_iso
 
 
 def _redact(fields: dict[str, Any]) -> dict[str, Any]:

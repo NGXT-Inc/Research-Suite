@@ -23,7 +23,7 @@ from typing import Any
 from urllib import error as urllib_error
 from urllib.request import Request, urlopen
 
-from ..kernel.utils import (
+from ...kernel.utils import (
     NotFoundError,
     PermissionDeniedError,
     ResearchPluginError,

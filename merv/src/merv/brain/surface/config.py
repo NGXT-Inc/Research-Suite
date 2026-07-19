@@ -22,11 +22,11 @@ from merv.shared.client_config import (
     resolve_client_config_path,
 )
 
-from .kernel.env import env_value
-from .kernel.utils import ValidationError
+from ..kernel.env import env_value
+from ..kernel.utils import ValidationError
 
 if TYPE_CHECKING:  # the store import stays lazy at runtime (see build_state_store)
-    from .kernel.state import BaseStateStore
+    from ..kernel.state import BaseStateStore
 
 
 MODE_ENV_VAR = "MERV_MODE"
@@ -236,10 +236,10 @@ def build_blob_store(
     """
     bucket = resolve_blob_bucket(env)
     if bucket:
-        from .object_storage.s3_blobs import S3BlobStore
+        from ..object_storage.s3_blobs import S3BlobStore
 
         return S3BlobStore(bucket=bucket)
-    from .object_storage.blobs import LocalDirBlobStore
+    from ..object_storage.blobs import LocalDirBlobStore
 
     root = resolve_blob_dir(env)
     return LocalDirBlobStore(root=Path(root) if root else default_root)
@@ -265,7 +265,7 @@ def build_object_store(
             f"{STORAGE_BUCKET_ENV_VAR} is required when {STORAGE_PROVIDER_ENV_VAR}=s3",
             details={"provider": provider},
         )
-    from .object_storage.s3_object_store import S3CompatibleObjectStore
+    from ..object_storage.s3_object_store import S3CompatibleObjectStore
 
     return S3CompatibleObjectStore(
         bucket=bucket,
@@ -288,11 +288,11 @@ def build_state_store(
     """
     url = resolve_db_url(env)
     if url is None:
-        from .kernel.state import StateStore
+        from ..kernel.state import StateStore
 
         return StateStore(db_path=db_path)
     if url.startswith(_POSTGRES_URL_PREFIXES):
-        from .kernel.state.dialects import PostgresStateStore
+        from ..kernel.state.dialects import PostgresStateStore
 
         return PostgresStateStore(dsn=url)
     raise ValidationError(

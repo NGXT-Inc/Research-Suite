@@ -70,4 +70,4 @@ if [[ -z "${MERV_LAMBDA_ENV_FILE:-${RESEARCH_PLUGIN_LAMBDA_ENV_FILE:-}}" \
   done
 fi
 
-exec "$PYTHON_BIN" -m merv.brain.transport.http_server "$@"
+exec "$PYTHON_BIN" -m merv.brain.surface.transport.http_server "$@"

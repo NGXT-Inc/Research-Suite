@@ -9,7 +9,7 @@ from typing import Any
 from fastapi import Header, Request
 from fastapi.concurrency import run_in_threadpool
 
-from ..kernel.utils import ValidationError
+from ...kernel.utils import ValidationError
 
 ToolCatalog = Callable[[], list[dict[str, Any]]]
 ToolFilter = Callable[[dict[str, Any]], bool]

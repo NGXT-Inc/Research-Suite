@@ -4,24 +4,24 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 
-from ..artifacts.pinned import PinnedStore
-from ..artifacts.resources import ResourceService
-from ..research_core.association_targets import AssociationTargets
-from ..research_core.claims import ClaimService
-from ..research_core.experiments import ExperimentService
-from ..feed.feed import FeedService
-from ..research_core.graph_refs import GraphRefResolver
-from ..services.permissions import PermissionService
-from ..research_core.project_overview import ProjectOverviewService
-from ..research_core.projects import ProjectService
-from ..sandbox.quotas import QuotaService
-from ..research_core.reflection_tools import ReflectionToolService
-from ..research_core.reviews import ReviewService
-from ..research_core.reflections import ReflectionService
-from ..kernel.state import BaseStateStore
-from ..object_storage.blobs import BlobStore
-from ..object_storage.service import objects_for_experiment
-from ..kernel.utils import NotFoundError
+from ...artifacts.pinned import PinnedStore
+from ...artifacts.resources import ResourceService
+from ...research_core.association_targets import AssociationTargets
+from ...research_core.claims import ClaimService
+from ...research_core.experiments import ExperimentService
+from ...feed.feed import FeedService
+from ...research_core.graph_refs import GraphRefResolver
+from ..permissions import PermissionService
+from ...research_core.project_overview import ProjectOverviewService
+from ...research_core.projects import ProjectService
+from ...sandbox.quotas import QuotaService
+from ...research_core.reflection_tools import ReflectionToolService
+from ...research_core.reviews import ReviewService
+from ...research_core.reflections import ReflectionService
+from ...kernel.state import BaseStateStore
+from ...object_storage.blobs import BlobStore
+from ...object_storage.service import objects_for_experiment
+from ...kernel.utils import NotFoundError
 
 
 @dataclass(frozen=True)

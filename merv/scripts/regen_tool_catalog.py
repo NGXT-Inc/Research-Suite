@@ -15,7 +15,7 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "src"))
 
-from merv.brain.tools.contracts import DATA_PLANE_TOOL_NAMES, static_tool_catalog
+from merv.brain.surface.tools.contracts import DATA_PLANE_TOOL_NAMES, static_tool_catalog
 
 
 _STATIC_CATALOG_PATH = (

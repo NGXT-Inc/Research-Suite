@@ -11,19 +11,19 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse, Response
 from pydantic import ValidationError as PydanticValidationError
 
-from ... import __version__
-from ...services.auth import UnauthorizedError
-from ...services.identity import LOCAL_PRINCIPAL
-from ...kernel.state import monotonic_ms
+from .... import __version__
+from ...auth import UnauthorizedError
+from ...identity import LOCAL_PRINCIPAL
+from ....kernel.state import monotonic_ms
 from ...tools.contracts import DATA_PLANE_TOOL_NAMES, PROJECT_SCOPED_TOOL_NAMES, TOOL_CONTRACTS
-from ...kernel.utils import (
+from ....kernel.utils import (
     ContentUnavailableError,
     DataPlaneRequiredError,
     NotFoundError,
     ResearchPluginError,
     ValidationError,
 )
-from ...kernel.version import CLIENT_VERSION_HEADER, MIN_PROXY_VERSION, is_below_floor
+from ....kernel.version import CLIENT_VERSION_HEADER, MIN_PROXY_VERSION, is_below_floor
 from ..admin_http import register_admin_routes
 from ..data_plane_http import register_data_plane_routes
 from ..http_policy import (

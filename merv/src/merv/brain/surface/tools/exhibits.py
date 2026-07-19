@@ -15,14 +15,14 @@ from typing import Any
 
 from merv.shared.artifact_roles import EXHIBIT_ROLE
 
-from ..research_core.domain.paths import experiment_folder_rel
-from ..mlflow import (
+from ...research_core.domain.paths import experiment_folder_rel
+from ...mlflow import (
     METRICS_EXHIBIT_FILENAME,
     build_metrics_exhibit,
     exhibit_bytes,
     mlflow_experiment_name,
 )
-from ..kernel.utils import WorkflowError
+from ...kernel.utils import WorkflowError
 
 
 def exhibit_rel_path(*, experiment_id: str, name: str) -> str:

@@ -8,10 +8,10 @@ from typing import Any
 from fastapi import APIRouter, Body, Query, Request
 from fastapi.responses import Response, StreamingResponse
 
-from ... import __version__
-from ...services.identity import LOCAL_PRINCIPAL
-from ...kernel.utils import NotFoundError, ValidationError
-from ...kernel.version import meta
+from .... import __version__
+from ...identity import LOCAL_PRINCIPAL
+from ....kernel.utils import NotFoundError, ValidationError
+from ....kernel.version import meta
 from .shared import JsonBody, conditional_json_from_signal
 
 from .context import ApiRouteContext

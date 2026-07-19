@@ -20,7 +20,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "src"))
 
 from merv.brain.app import ResearchPluginApp
 from merv.brain.sandbox.execution.backends.fake import FakeSandboxBackend
-from merv.brain.transport.http_server import make_http_server
+from merv.brain.surface.transport.http_server import make_http_server
 
 
 def main() -> int:

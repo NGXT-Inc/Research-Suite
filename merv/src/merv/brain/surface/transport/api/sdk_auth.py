@@ -18,8 +18,8 @@ from typing import Any
 from fastapi import APIRouter, Body, Request
 from fastapi.responses import JSONResponse
 
-from ...kernel.utils import ValidationError
-from ...services.auth import UnauthorizedError
+from ....kernel.utils import ValidationError
+from ...auth import UnauthorizedError
 from .shared import JsonBody
 
 SESSION_TTL_SECONDS = 600.0

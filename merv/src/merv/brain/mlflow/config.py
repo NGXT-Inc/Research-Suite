@@ -2,9 +2,9 @@
 
 These env vars configure only the MLflow extension, so their resolution lives
 inside the extension (module-boundary fix, phase 4a): the mlflow module must
-not import the surface's ``merv.brain.config``. Process-role config
+not import the surface's ``merv.brain.surface.config``. Process-role config
 (``RESEARCH_PLUGIN_REQUIRE_AGENT_MLFLOW`` enforcement, mode selection) stays in
-``merv.brain.config`` where the composition roots read it.
+``merv.brain.surface.config`` where the composition roots read it.
 """
 
 from __future__ import annotations
