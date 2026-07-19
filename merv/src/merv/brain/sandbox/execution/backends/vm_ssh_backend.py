@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import os
 from typing import Any, Mapping
 
 from ..vm_ssh import (
@@ -123,6 +124,22 @@ class VmSshSandboxBackend(SandboxBackendBase):
         hands these to write_secrets. Empty when none are configured.
         """
         return sandbox_tokens()
+
+    def sandbox_environment(self) -> dict:
+        available_tokens: list[str] = []
+        if os.environ.get("HF_TOKEN"):
+            available_tokens.append("HF_TOKEN")
+        return {
+            "available_tokens": available_tokens,
+            "notes": (
+                [
+                    "HF_TOKEN is available inside the sandbox for Hugging Face downloads. "
+                    "Do not print or write the token; use it through Hugging Face tooling."
+                ]
+                if available_tokens
+                else []
+            ),
+        }
 
     def write_secrets(
         self,

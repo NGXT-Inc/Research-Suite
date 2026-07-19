@@ -8,7 +8,6 @@ Billing rounds UP to 10-minute increments.
 
 from __future__ import annotations
 
-import os
 import re
 import socket
 import time
@@ -208,22 +207,6 @@ class VerdaSandboxBackend(VmSshSandboxBackend):
             return False
         self._delete_rp_resources(sandbox_id=sandbox_id)
         return True
-
-    def sandbox_environment(self) -> dict:
-        available_tokens: list[str] = []
-        if os.environ.get("HF_TOKEN"):
-            available_tokens.append("HF_TOKEN")
-        return {
-            "available_tokens": available_tokens,
-            "notes": (
-                [
-                    "HF_TOKEN is available inside the sandbox for Hugging Face downloads. "
-                    "Do not print or write the token; use it through Hugging Face tooling."
-                ]
-                if available_tokens
-                else []
-            ),
-        }
 
     def health(self) -> dict:
         try:

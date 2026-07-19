@@ -10,7 +10,6 @@ the provision-time price quote is the recorded rate, refined by the live
 
 from __future__ import annotations
 
-import os
 import re
 import socket
 import time
@@ -206,22 +205,6 @@ class TensorDockSandboxBackend(VmSshSandboxBackend):
         except Exception:  # noqa: BLE001
             return False
         return True
-
-    def sandbox_environment(self) -> dict:
-        available_tokens: list[str] = []
-        if os.environ.get("HF_TOKEN"):
-            available_tokens.append("HF_TOKEN")
-        return {
-            "available_tokens": available_tokens,
-            "notes": (
-                [
-                    "HF_TOKEN is available inside the sandbox for Hugging Face downloads. "
-                    "Do not print or write the token; use it through Hugging Face tooling."
-                ]
-                if available_tokens
-                else []
-            ),
-        }
 
     def health(self) -> dict:
         try:
