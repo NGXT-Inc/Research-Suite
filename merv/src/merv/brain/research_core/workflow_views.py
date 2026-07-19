@@ -21,6 +21,7 @@ _SLIM_RESOURCE_FIELDS = (
     "id", "association_role", "association_version_id", "path", "kind",
     "missing", "size_bytes",
 )
+_SLIM_REVIEW_FIELDS = ("id", "role", "verdict", "created_at", "synopsis")
 _SANDBOX_SUMMARY_FIELDS = (
     "sandbox_id", "status", "gpu", "cpu", "memory",
     "ssh_host", "ssh_port", "ssh_user", "workdir", "sandbox_data_dir", "expires_at",
@@ -93,13 +94,7 @@ def _slim_experiment(exp: dict[str, Any]) -> dict[str, Any]:
             for res in exp.get("current_attempt_resources", [])
         ],
         "reviews": [
-            {
-                "id": review.get("id"),
-                "role": review.get("role"),
-                "verdict": review.get("verdict"),
-                "created_at": review.get("created_at"),
-                "synopsis": review.get("synopsis"),
-            }
+            {field: review.get(field) for field in _SLIM_REVIEW_FIELDS}
             for review in exp.get("reviews", [])
         ],
     }
@@ -133,13 +128,7 @@ def slim_reflection(syn: dict[str, Any]) -> dict[str, Any]:
             for res in syn.get("current_attempt_resources", [])
         ],
         "reviews": [
-            {
-                "id": review.get("id"),
-                "role": review.get("role"),
-                "verdict": review.get("verdict"),
-                "created_at": review.get("created_at"),
-                "synopsis": review.get("synopsis"),
-            }
+            {field: review.get(field) for field in _SLIM_REVIEW_FIELDS}
             for review in syn.get("reviews", [])
         ],
         "allowed_transitions": syn.get("allowed_transitions", []),
