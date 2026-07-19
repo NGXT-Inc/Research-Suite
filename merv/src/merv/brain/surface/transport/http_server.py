@@ -76,24 +76,18 @@ def make_http_server(
     return UvicornHttpServer(app=app, host=host, port=port)
 
 
-def _serve_uvicorn(*, fastapi_app, host: str, port: int) -> tuple[str, int, "uvicorn.Server", socket.socket]:
+def _run_server(*, server: Any, host: str, port: int, label: str) -> int:
     server_socket = _bind_socket(host=host, port=port)
     selected_port = int(server_socket.getsockname()[1])
     config = uvicorn.Config(
-        fastapi_app,
+        server.fastapi_app,
         host=host,
         port=selected_port,
         log_level="warning",
         access_log=False,
         lifespan="off",
     )
-    return host, selected_port, uvicorn.Server(config), server_socket
-
-
-def _run_server(*, server: Any, host: str, port: int, label: str) -> int:
-    host, selected_port, uv, server_socket = _serve_uvicorn(
-        fastapi_app=server.fastapi_app, host=host, port=port
-    )
+    uv = uvicorn.Server(config)
     print(f"merv {label} listening on http://{host}:{selected_port}", flush=True)
     try:
         uv.run(sockets=[server_socket])
