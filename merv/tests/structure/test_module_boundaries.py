@@ -32,8 +32,9 @@ MODULES = (KERNEL, RESEARCH_CORE, ARTIFACTS, OBJECT_STORAGE, SANDBOX, FEED, MLFL
 # Directory-level assignments (deepest matching prefix wins; FILE_MODULES wins
 # over both). Paths are backend-relative posix.
 PACKAGE_MODULES = {
-    "state": KERNEL,
-    "ports": KERNEL,
+    "kernel": KERNEL,
+    "state": KERNEL,  # transitional shim package for backend.kernel.state
+    "ports": KERNEL,  # transitional shim package for backend.kernel.ports
     "domain": RESEARCH_CORE,
     "artifacts": ARTIFACTS,
     "storage": OBJECT_STORAGE,
@@ -57,7 +58,7 @@ FILE_MODULES = {
     "utils.py": KERNEL,
     "env.py": KERNEL,
     "version.py": KERNEL,
-    # secret_tokens is a pure-stdlib token helper imported by state/store.py
+    # secret_tokens is a pure-stdlib token helper imported by kernel/state/store.py
     # (kernel) and services/reviews.py — it must live at the kernel floor.
     "secret_tokens.py": KERNEL,
     # object_storage: blob adapters live under storage/ (PACKAGE_MODULES).

@@ -1,26 +1,11 @@
-"""Record-store primitives and legacy local diagnostic adapters.
+"""Transitional shim — moved to backend.kernel.state; deleted at de-shim."""
+import sys
 
-``StateStore`` is the local SQLite record store; hosted composition imports the
-Postgres dialect directly. ``ActivityLogger`` and ``ToolCallStore`` remain
-available to compatibility callers, while the current unified ``ControlApp``
-uses bounded in-memory diagnostic sinks from ``control.control_runtime``.
-"""
+from ..kernel import state as _moved
+from ..kernel.state import activity, dialects, store, tool_call_stats, tool_calls
 
-from .activity import ActivityLogger, monotonic_ms
-from .store import BaseStateStore, SqliteStateStore, StateStore, row_to_dict, rows_to_dicts
-from .tool_calls import ToolCallStore
-
-# The Postgres dialect (state.dialects.PostgresStateStore) is deliberately
-# not re-exported here: importing it is a control-profile/test concern and
-# its psycopg dependency must stay optional for local installs.
-
-__all__ = [
-    "ActivityLogger",
-    "BaseStateStore",
-    "SqliteStateStore",
-    "StateStore",
-    "ToolCallStore",
-    "monotonic_ms",
-    "row_to_dict",
-    "rows_to_dicts",
-]
+# Alias every submodule so backend.state.store et al. resolve to the SAME
+# module objects as backend.kernel.state.* (identity-preserving).
+for _sub in (activity, dialects, store, tool_call_stats, tool_calls):
+    sys.modules[f"{__name__}.{_sub.__name__.rsplit('.', 1)[1]}"] = _sub
+sys.modules[__name__] = _moved

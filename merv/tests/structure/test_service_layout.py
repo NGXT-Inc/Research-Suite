@@ -656,7 +656,7 @@ class ServiceLayoutTest(unittest.TestCase):
                 )
 
     def test_utils_stays_free_of_local_path_guards(self) -> None:
-        path = BACKEND_ROOT / "utils.py"
+        path = BACKEND_ROOT / "kernel" / "utils.py"
         self.assertEqual(_import_module_names(path), {"datetime", "uuid"})
         source = path.read_text(encoding="utf-8")
         self.assertNotIn("resolve_repo_relative_file", source)
@@ -700,7 +700,7 @@ class ServiceLayoutTest(unittest.TestCase):
         # logging is allowed for the one-per-process legacy-env deprecation
         # warning; the kernel resolver must otherwise stay dependency-free.
         self.assertEqual(
-            _import_module_names(BACKEND_ROOT / "env.py"),
+            _import_module_names(BACKEND_ROOT / "kernel" / "env.py"),
             {"collections.abc", "logging", "os"},
         )
         for path in sorted(BACKEND_ROOT.rglob("*.py")):
@@ -781,7 +781,7 @@ class ServiceLayoutTest(unittest.TestCase):
                         )
 
     def test_store_contract_uses_neutral_connection_types(self) -> None:
-        source = (BACKEND_ROOT / "state" / "store.py").read_text(encoding="utf-8")
+        source = (BACKEND_ROOT / "kernel" / "state" / "store.py").read_text(encoding="utf-8")
         base_source = source[
             source.index("class BaseStateStore:"):source.index("class StateStore(")
         ]
@@ -1240,12 +1240,12 @@ class ServiceLayoutTest(unittest.TestCase):
 
     def test_opaque_secret_token_helpers_are_single_sourced(self) -> None:
         self.assertEqual(
-            _import_module_names(BACKEND_ROOT / "secret_tokens.py"),
+            _import_module_names(BACKEND_ROOT / "kernel" / "secret_tokens.py"),
             {"hashlib", "hmac", "secrets"},
         )
         sensitive_paths = (
             BACKEND_ROOT / "services" / "reviews.py",
-            BACKEND_ROOT / "state" / "store.py",
+            BACKEND_ROOT / "kernel" / "state" / "store.py",
         )
         for path in sensitive_paths:
             with self.subTest(module=path.relative_to(BACKEND_ROOT).as_posix()):

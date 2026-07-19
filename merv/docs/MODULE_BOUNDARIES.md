@@ -31,7 +31,7 @@ MLflow extension, and a surface that composes them.
 
 | Module         | Backend code                                                                |
 |----------------|-----------------------------------------------------------------------------|
-| kernel         | `state/*` (incl. `tool_call_stats`), `ports/*` (incl. the `AdmissionRequest` contract in `ports/quota_admission`), `utils`, `env`, `version`, `secret_tokens` |
+| kernel         | `kernel/state/*` (incl. `tool_call_stats`), `kernel/ports/*` (incl. the `AdmissionRequest` contract in `ports/quota_admission`), `kernel/{utils,env,version,secret_tokens}` |
 | research_core  | workflow/experiments/claims/reviews/reflections/projects services + views, `graph_refs`, `reflection_tools`, `domain/*` (minus overrides) |
 | artifacts      | `artifacts/*` (resources, pinned + PinnedStore facade, roles, markdown_images, figure_view, resource_selection) |
 | object_storage | `storage/*`, `domain/storage_guidance`                                       |

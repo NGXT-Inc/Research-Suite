@@ -66,8 +66,8 @@ CONTROL_MODULES = (
     BACKEND_ROOT / "control" / "control_app.py",
     BACKEND_ROOT / "control" / "control_runtime.py",
     BACKEND_ROOT / "control" / "control_client.py",
-    BACKEND_ROOT / "state" / "store.py",
-    BACKEND_ROOT / "state" / "dialects.py",
+    BACKEND_ROOT / "kernel" / "state" / "store.py",
+    BACKEND_ROOT / "kernel" / "state" / "dialects.py",
     BACKEND_ROOT / "sandbox" / "managed_mgmt_keys.py",
 )
 
@@ -441,7 +441,7 @@ load("subprocess")
     def test_state_store_knows_no_repo_root(self) -> None:
         # The record store is a records-only component (plan §3.1): local
         # paths belong to LocalWorkspace / the DataPlaneWorker.
-        source = (BACKEND_ROOT / "state" / "store.py").read_text(encoding="utf-8")
+        source = (BACKEND_ROOT / "kernel" / "state" / "store.py").read_text(encoding="utf-8")
         self.assertNotIn("repo_root", source)
 
     def test_sandbox_views_do_not_import_execution(self) -> None:
@@ -479,8 +479,8 @@ load("subprocess")
         # never reach into the record store.
         for name in ("activity.py", "tool_calls.py"):
             with self.subTest(module=name):
-                source = (BACKEND_ROOT / "state" / name).read_text(encoding="utf-8")
-                self.assertNotIn("store", _imports(BACKEND_ROOT / "state" / name))
+                source = (BACKEND_ROOT / "kernel" / "state" / name).read_text(encoding="utf-8")
+                self.assertNotIn("store", _imports(BACKEND_ROOT / "kernel" / "state" / name))
                 self.assertNotIn("StateStore", source)
 
     def test_services_package_init_is_import_light(self) -> None:
