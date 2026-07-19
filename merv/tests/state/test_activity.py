@@ -7,7 +7,7 @@ import tempfile
 import unittest
 from pathlib import Path
 
-from backend.state.activity import (
+from merv.brain.kernel.state.activity import (
     RESULT_LOG_MAX_BYTES,
     ActivityLogger,
     cap_result,

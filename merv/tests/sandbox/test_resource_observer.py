@@ -5,8 +5,8 @@ import tempfile
 import unittest
 from pathlib import Path
 
-from backend.dataplane.resource_observer import LocalResourceObserver
-from backend.utils import NotFoundError, ValidationError
+from merv.brain.dataplane.resource_observer import LocalResourceObserver
+from merv.brain.kernel.utils import NotFoundError, ValidationError
 
 
 class LocalResourceObserverTest(unittest.TestCase):

@@ -3,7 +3,7 @@ from __future__ import annotations
 import unittest
 from datetime import UTC, datetime, timedelta, timezone
 
-from backend.utils import format_iso, parse_iso
+from merv.brain.kernel.utils import format_iso, parse_iso
 
 
 class IsoTimestampTest(unittest.TestCase):

@@ -7,8 +7,8 @@ from pathlib import Path
 from fastapi.testclient import TestClient
 
 from tests.support.brain import TestBrain
-from backend.tools.contracts import MCP_HIDDEN_TOOL_NAMES
-from backend.utils import ValidationError
+from merv.brain.tools.contracts import MCP_HIDDEN_TOOL_NAMES
+from merv.brain.kernel.utils import ValidationError
 
 
 class ProjectToolTest(unittest.TestCase):

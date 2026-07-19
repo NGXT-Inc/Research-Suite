@@ -10,8 +10,8 @@ import unittest
 from pathlib import Path
 from unittest import mock
 
-from backend.client_cli import configure_client, main
-from mcp_server.proxy import HttpProxyMcpServer, ProxyConfig
+from merv.brain.client_cli import configure_client, main
+from merv.proxy.proxy import HttpProxyMcpServer, ProxyConfig
 
 
 def _response(payload: dict) -> mock.MagicMock:
@@ -41,9 +41,9 @@ class DeviceFlowLoginTest(unittest.TestCase):
                 ),
             ]
             with (
-                mock.patch("backend.client_cli.urllib.request.urlopen", side_effect=responses) as opened,
-                mock.patch("backend.client_cli.webbrowser.open", return_value=True) as browser,
-                mock.patch("backend.client_cli.time.sleep"),
+                mock.patch("merv.brain.client_cli.urllib.request.urlopen", side_effect=responses) as opened,
+                mock.patch("merv.brain.client_cli.webbrowser.open", return_value=True) as browser,
+                mock.patch("merv.brain.client_cli.time.sleep"),
                 mock.patch("sys.stdout", new=io.StringIO()) as out,
             ):
                 code = main(["--config", str(config_path), "login", "--control-url", "https://brain.example"])
@@ -63,7 +63,7 @@ class DeviceFlowLoginTest(unittest.TestCase):
         with tempfile.TemporaryDirectory() as tmp:
             config_path = Path(tmp) / "client.json"
             with (
-                mock.patch("backend.client_cli.webbrowser.open") as browser,
+                mock.patch("merv.brain.client_cli.webbrowser.open") as browser,
                 mock.patch("sys.stdout", new=io.StringIO()),
             ):
                 code = main(["--config", str(config_path), "login", "--api-key", "rr_sk_x"])
@@ -108,7 +108,7 @@ class ProxySessionRefreshTest(unittest.TestCase):
                 )
             )
             with mock.patch(
-                "mcp_server.proxy.urlopen",
+                "merv.proxy.proxy.urlopen",
                 return_value=_response(
                     {"access_token": "jwt-new", "refresh_token": "refresh-2", "expires_in": 3600}
                 ),
@@ -142,7 +142,7 @@ class ProxySessionRefreshTest(unittest.TestCase):
                     client_config_path=config_path,
                 )
             )
-            with mock.patch("mcp_server.proxy.urlopen") as opened:
+            with mock.patch("merv.proxy.proxy.urlopen") as opened:
                 self.assertEqual(
                     proxy._headers(is_cloud=True)["Authorization"], "Bearer jwt-live"
                 )

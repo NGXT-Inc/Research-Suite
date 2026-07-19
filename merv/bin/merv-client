@@ -25,6 +25,6 @@ else
   PYTHON_BIN="python3"
 fi
 
-export PYTHONPATH="$PLUGIN_DIR${PYTHONPATH:+:$PYTHONPATH}"
+export PYTHONPATH="$PLUGIN_DIR/src${PYTHONPATH:+:$PYTHONPATH}"
 
-exec "$PYTHON_BIN" -m backend.client_cli "$@"
+exec "$PYTHON_BIN" -m merv.brain.client_cli "$@"

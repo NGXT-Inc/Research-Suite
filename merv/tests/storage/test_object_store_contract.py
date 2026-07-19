@@ -10,7 +10,7 @@ import unittest
 from pathlib import Path
 from unittest.mock import patch
 
-from backend.utils import NotFoundError, ValidationError
+from merv.brain.kernel.utils import NotFoundError, ValidationError
 
 
 class ObjectStoreContractMixin:
@@ -129,7 +129,7 @@ class ObjectStoreContractMixin:
 
 class S3CompatibleObjectStoreClientConfigTest(unittest.TestCase):
     def test_boto3_client_receives_explicit_credentials_when_both_set(self) -> None:
-        from backend.storage.s3_object_store import S3CompatibleObjectStore
+        from merv.brain.object_storage.s3_object_store import S3CompatibleObjectStore
 
         captured = {}
         fake_boto3 = types.SimpleNamespace(
@@ -160,7 +160,7 @@ class S3CompatibleObjectStoreClientConfigTest(unittest.TestCase):
         )
 
     def test_boto3_client_omits_credentials_unless_both_set(self) -> None:
-        from backend.storage.s3_object_store import S3CompatibleObjectStore
+        from merv.brain.object_storage.s3_object_store import S3CompatibleObjectStore
 
         calls = []
         fake_boto3 = types.SimpleNamespace(
@@ -216,7 +216,7 @@ class S3CompatibleObjectStoreContractTest(ObjectStoreContractMixin, unittest.Tes
     _bucket_seq = 0
 
     def make_store(self, **kwargs):
-        from backend.storage.s3_object_store import S3CompatibleObjectStore
+        from merv.brain.object_storage.s3_object_store import S3CompatibleObjectStore
 
         assert s3_fixture is not None
         assert s3_fixture._endpoint is not None

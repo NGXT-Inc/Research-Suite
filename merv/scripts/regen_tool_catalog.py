@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
-"""Regenerate mcp_server/_tool_catalog.json from the live tool contracts.
+"""Regenerate src/merv/proxy/_tool_catalog.json from the live tool contracts.
 
-Run after changing backend/tools/contracts.py; the surface test
+Run after changing src/merv/brain/tools/contracts.py; the surface test
 tests/surface/test_static_tool_catalog.py fails until the checked-in file
 matches the live render.
 """
@@ -11,9 +11,9 @@ from __future__ import annotations
 import sys
 from pathlib import Path
 
-sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
+sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "src"))
 
-from mcp_server.proxy import _STATIC_CATALOG_PATH, _render_static_catalog_text
+from merv.proxy.proxy import _STATIC_CATALOG_PATH, _render_static_catalog_text
 
 
 def main() -> int:

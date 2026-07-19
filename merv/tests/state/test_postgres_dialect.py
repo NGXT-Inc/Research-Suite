@@ -39,17 +39,17 @@ import unittest
 from pathlib import Path
 
 from tests.support.brain import TestBrain
-from backend.config import build_state_store, resolve_db_url
-from backend.execution.backends.fake import FakeSandboxBackend
-from backend.state.dialects import PostgresStateStore, translate_schema_to_postgres
-from backend.state.store import (
+from merv.brain.config import build_state_store, resolve_db_url
+from merv.brain.sandbox.execution.backends.fake import FakeSandboxBackend
+from merv.brain.kernel.state.dialects import PostgresStateStore, translate_schema_to_postgres
+from merv.brain.kernel.state.store import (
     EXPERIMENT_MLFLOW_COLUMNS,
     MIGRATIONS,
     SCHEMA,
     StateStore,
     next_created_seq,
 )
-from backend.utils import ValidationError, now_iso
+from merv.brain.kernel.utils import ValidationError, now_iso
 from tests.surface.test_control_plane_contract import (
     ClientHarness,
     ControlPlaneContractScenarios,
@@ -920,7 +920,7 @@ class SchemaParityTest(unittest.TestCase):
     def test_no_question_marks_inside_sql_string_literals(self) -> None:
         """The dialect's '?' → '%s' translation is string-level; it is only
         sound while no SQL keeps a literal '?' or '%' inside quotes. Walk
-        every SQL-looking constant in backend/ and keep that invariant."""
+        every SQL-looking constant in src/merv/brain/ and keep that invariant."""
         import ast
 
         from tests.paths import BACKEND_ROOT

@@ -5,8 +5,8 @@ import tempfile
 import unittest
 from pathlib import Path
 
-from backend.dataplane.sandbox_outputs import pull_sandbox_outputs
-from backend.utils import ValidationError
+from merv.brain.dataplane.sandbox_outputs import pull_sandbox_outputs
+from merv.brain.kernel.utils import ValidationError
 
 
 class SandboxOutputPullTest(unittest.TestCase):

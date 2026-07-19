@@ -4,8 +4,8 @@ import tempfile
 import unittest
 from pathlib import Path
 
-from backend.dataplane.feed_images import LocalFeedImageReader
-from backend.utils import ValidationError
+from merv.brain.dataplane.feed_images import LocalFeedImageReader
+from merv.brain.kernel.utils import ValidationError
 
 
 _PNG = bytes.fromhex(

@@ -35,9 +35,9 @@ class DeployArtifactsTest(unittest.TestCase):
         text = (DEPLOY / "Dockerfile").read_text(encoding="utf-8")
         # Installs the `control` extra (Postgres + object store + provider SDK).
         self.assertIn('.[control]', text)
-        # Shared stdlib-only config helpers are imported by backend.config and
-        # must be present before the wheel/install step runs in the image.
-        self.assertIn("COPY research_plugin_shared ./research_plugin_shared", text)
+        # The whole src/ tree (brain + proxy + shared) must be present before
+        # the wheel/install step runs in the image.
+        self.assertIn("COPY src ./src", text)
         # Runs the control console-script entrypoint, not a raw module.
         self.assertIn("merv-control", text)
         # Non-root user.
@@ -59,7 +59,7 @@ class DeployArtifactsTest(unittest.TestCase):
         scripts = pyproject["project"]["scripts"]
         self.assertEqual(
             scripts.get("merv-control"),
-            "backend.transport.http_server:control_main",
+            "merv.brain.transport.http_server:control_main",
         )
         # The control extra exists and carries the Postgres + object-store deps.
         control_extra = " ".join(

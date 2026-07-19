@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import unittest
 
-from backend.domain.synopsis import validate_synopsis
+from merv.brain.research_core.domain.synopsis import validate_synopsis
 
 VALID = (
     "The embedding-initialized head narrowly beat its rerun baseline, so the "

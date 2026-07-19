@@ -1,7 +1,7 @@
 # Merv Architecture
 
 This document describes the architecture implemented by the current codebase.
-The executable contracts in `backend/domain/*`, `backend/tools/contracts.py`, and
+The executable contracts in `src/merv/brain/research_core/domain/*`, `src/merv/brain/tools/contracts.py`, and
 the structural tests under `tests/structure/` are authoritative when prose and
 code disagree.
 
@@ -142,7 +142,7 @@ diagnostic view and is not part of durable research state.
 
 ## Tool routing
 
-The central registry in `backend/tools/contracts.py` assigns every tool to one
+The central registry in `src/merv/brain/tools/contracts.py` assigns every tool to one
 plane. Control tools run in the brain. These checkout-sensitive tools run in the
 proxy and submit validated facts or bytes to the brain:
 
@@ -166,7 +166,7 @@ keeps the privacy boundary enforceable rather than conventional.
 ## Workflow architecture
 
 Experiment transitions are declared once in
-`backend/domain/workflow_gates.py`:
+`src/merv/brain/research_core/domain/workflow_gates.py`:
 
 ```text
 planned -> design_review -> ready_to_run -> running -> experiment_review -> complete
@@ -183,7 +183,7 @@ The same gate table drives:
 - transition discovery and gate checklists returned to agents and the UI.
 
 Reflection transitions are declared in
-`backend/domain/reflection_gates.py`:
+`src/merv/brain/research_core/domain/reflection_gates.py`:
 
 ```text
 reflecting -> synthesizing -> reflection_review -> published

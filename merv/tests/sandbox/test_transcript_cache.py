@@ -1,7 +1,7 @@
 """Control-side transcript cursor cache (cloud plan Phase 9, risk 14).
 
 Repeated transcript reads for the same sandbox within the TTL serve from memory
-instead of re-hitting the backend/SSH; a cursor that has consumed all cached
+instead of re-hitting the src/merv/brain/SSH; a cursor that has consumed all cached
 output reads fresh so new output is never hidden; the TTL and the bound expire
 entries. Cursor comparisons use the transcript's TRUE byte size (not the tail
 window length), so a log bigger than the window still refreshes correctly.
@@ -12,8 +12,8 @@ from __future__ import annotations
 
 import unittest
 
-from backend.sandbox.sandbox_backend import TranscriptTail
-from backend.services.transcript_cache import TranscriptCache
+from merv.brain.sandbox.sandbox_backend import TranscriptTail
+from merv.brain.sandbox.transcript_cache import TranscriptCache
 
 
 def _tail(text: str, *, total: int | None = None) -> TranscriptTail:

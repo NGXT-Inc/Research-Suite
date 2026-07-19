@@ -8,19 +8,19 @@ import unittest
 from pathlib import Path
 from unittest.mock import patch
 
-from backend.execution import build_sandbox_backend
-from backend.execution.backends.thunder_compute.catalog import summarize_specs
-from backend.execution.backends.thunder_compute.config import (
+from merv.brain.sandbox.execution import build_sandbox_backend
+from merv.brain.sandbox.execution.backends.thunder_compute.catalog import summarize_specs
+from merv.brain.sandbox.execution.backends.thunder_compute.config import (
     ThunderCloudConfig,
     ThunderSandboxConfig,
 )
-from backend.execution.backends.thunder_compute.sandbox_backend import (
+from merv.brain.sandbox.execution.backends.thunder_compute.sandbox_backend import (
     ThunderComputeSandboxBackend,
     build_thunder_bootstrap_script,
 )
-from backend.execution.vm_bootstrap import MGMT_SSH_USER, REC_SCRIPT
-from backend.execution.vm_ssh import TRANSCRIPT_TAIL_DEFAULT
-from backend.sandbox.sandbox_backend import (
+from merv.brain.sandbox.execution.vm_bootstrap import MGMT_SSH_USER, REC_SCRIPT
+from merv.brain.sandbox.execution.vm_ssh import TRANSCRIPT_TAIL_DEFAULT
+from merv.brain.sandbox.sandbox_backend import (
     BackendUnavailableError,
     BackendValidationError,
     SandboxRequest,

@@ -6,9 +6,9 @@ import tempfile
 import unittest
 from pathlib import Path
 
-from backend.control.control_runtime import ControlToolCallSink
-from backend.state.tool_call_stats import percentile
-from backend.state.tool_calls import ToolCallStore
+from merv.brain.control.control_runtime import ControlToolCallSink
+from merv.brain.kernel.state.tool_call_stats import percentile
+from merv.brain.kernel.state.tool_calls import ToolCallStore
 
 
 class PercentileTest(unittest.TestCase):
@@ -223,9 +223,10 @@ class ToolCallStatsParityTest(unittest.TestCase):
             )
 
     def test_rollup_helpers_are_single_sourced(self) -> None:
-        backend = Path(__file__).resolve().parents[2] / "backend"
-        for rel_path in ("state/tool_calls.py", "control/control_runtime.py"):
-            source = (backend / rel_path).read_text(encoding="utf-8")
+        from tests.paths import BACKEND_ROOT
+
+        for rel_path in ("kernel/state/tool_calls.py", "control/control_runtime.py"):
+            source = (BACKEND_ROOT / rel_path).read_text(encoding="utf-8")
             with self.subTest(module=rel_path):
                 self.assertNotIn("def _percentile", source)
                 self.assertNotIn("def _by_tool", source)

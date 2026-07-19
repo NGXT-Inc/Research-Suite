@@ -17,10 +17,10 @@ import unittest
 from pathlib import Path
 
 from tests.support.brain import TestBrain
-from backend.mlflow.exhibit import WINDOW_SKEW_MS, build_metrics_exhibit, exhibit_bytes
-from backend.mlflow.metrics import MAX_METRIC_KEYS, MAX_RUNS
-from backend.mlflow.tracking import MlflowTrackingContext
-from backend.utils import ValidationError, WorkflowError
+from merv.brain.mlflow.exhibit import WINDOW_SKEW_MS, build_metrics_exhibit, exhibit_bytes
+from merv.brain.mlflow.metrics import MAX_METRIC_KEYS, MAX_RUNS
+from merv.brain.mlflow.tracking import MlflowTrackingContext
+from merv.brain.kernel.utils import ValidationError, WorkflowError
 
 WINDOW_START = "2026-07-05T10:00:00Z"
 WINDOW_START_MS = 1_783_245_600_000  # 2026-07-05T10:00:00Z

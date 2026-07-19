@@ -13,12 +13,12 @@ import unittest
 from pathlib import Path
 from unittest import mock
 
-from backend.composition import control_mode
-from backend.composition.brain_dirs import (
+from merv.brain.composition import control_mode
+from merv.brain.composition.brain_dirs import (
     resolve_brain_state_root,
     resolve_local_brain_staging,
 )
-from backend.execution.backends.fake import FakeSandboxBackend
+from merv.brain.sandbox.execution.backends.fake import FakeSandboxBackend
 
 
 def _mounted_mgmt_key_env(root: Path) -> dict[str, str]:
@@ -138,7 +138,7 @@ class BrainCompositionLayoutTest(unittest.TestCase):
         (legacy / "state.sqlite").write_bytes(b"")  # empty file = empty sqlite db
         # Legacy DIRECTORY state must never trigger the env deprecation
         # warning — only legacy env-var *input* does.
-        with self.assertNoLogs("backend.env", level="WARNING"):
+        with self.assertNoLogs("merv.brain.kernel.env", level="WARNING"):
             self._build()
         # The legacy store was opened (migrations populate it) and no
         # de-nested twin ever appears: identical behavior to pre-v0.0014.

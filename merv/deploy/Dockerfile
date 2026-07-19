@@ -29,9 +29,7 @@ WORKDIR /app
 # Copy the project and install with the control extra. The `control` profile
 # pulls psycopg + boto3 + the provider SDK (pyproject [project.optional-dependencies]).
 COPY pyproject.toml README.md ./
-COPY backend ./backend
-COPY mcp_server ./mcp_server
-COPY research_plugin_shared ./research_plugin_shared
+COPY src ./src
 RUN pip install ".[control]"
 
 # Run as a non-root user (the control plane never needs root; it holds no user

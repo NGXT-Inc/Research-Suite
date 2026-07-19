@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import unittest
 
-from backend.domain.review_snapshot import review_snapshot_id
+from merv.brain.research_core.domain.review_snapshot import review_snapshot_id
 
 
 class ReviewSnapshotIdTest(unittest.TestCase):

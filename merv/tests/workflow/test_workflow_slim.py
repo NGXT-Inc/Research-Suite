@@ -8,7 +8,7 @@ import unittest
 from pathlib import Path
 
 from tests.support.brain import TestBrain
-from backend.execution.backends.fake import FakeSandboxBackend
+from merv.brain.sandbox.execution.backends.fake import FakeSandboxBackend
 
 
 # association_version_id is the submission pin — agents confirm a

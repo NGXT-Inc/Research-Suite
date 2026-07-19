@@ -2,7 +2,7 @@
 
 docs/MODULE_BOUNDARIES.md defines the target: a KERNEL, five modules
 (RESEARCH_CORE, ARTIFACTS, OBJECT_STORAGE, SANDBOX, FEED) plus the MLFLOW
-extension, and a SURFACE that composes them. Every backend production file is
+extension, and a SURFACE that composes them. Every brain production file is
 assigned to exactly one module, imports (including function-local ones — the
 codebase uses them to break cycles) may only follow the allowed edges, and
 today's violations are frozen in GRANDFATHERED as a monotonically shrinking
@@ -30,70 +30,32 @@ SURFACE = "surface"
 MODULES = (KERNEL, RESEARCH_CORE, ARTIFACTS, OBJECT_STORAGE, SANDBOX, FEED, MLFLOW, SURFACE)
 
 # Directory-level assignments (deepest matching prefix wins; FILE_MODULES wins
-# over both). Paths are backend-relative posix.
+# over both). Paths are brain-relative posix.
 PACKAGE_MODULES = {
-    "state": KERNEL,
-    "ports": KERNEL,
-    "domain": RESEARCH_CORE,
+    "kernel": KERNEL,
+    "research_core": RESEARCH_CORE,
     "artifacts": ARTIFACTS,
-    "storage": OBJECT_STORAGE,
-    "services/sandbox": SANDBOX,
+    "object_storage": OBJECT_STORAGE,
     "sandbox": SANDBOX,
-    "execution": SANDBOX,
+    "feed": FEED,
     "mlflow": MLFLOW,
     "tools": SURFACE,
     "transport": SURFACE,
     "composition": SURFACE,
     "control": SURFACE,
     "dataplane": SURFACE,
+    # cross-module glue services (auth/cleanup/identity/permissions) awaiting
+    # the surface sub-foldering tranche.
+    "services": SURFACE,
 }
 
-# File-level assignments and overrides. Every backend .py file must resolve to
+# File-level assignments and overrides. Every brain .py file must resolve to
 # a module through this table or PACKAGE_MODULES — unknown files fail
 # test_every_backend_file_is_classified.
 FILE_MODULES = {
-    # kernel: package root docstring/version shell plus shared primitives.
+    # kernel: package root docstring/version shell.
     "__init__.py": KERNEL,
-    "utils.py": KERNEL,
-    "env.py": KERNEL,
-    "version.py": KERNEL,
-    # secret_tokens is a pure-stdlib token helper imported by state/store.py
-    # (kernel) and services/reviews.py — it must live at the kernel floor.
-    "secret_tokens.py": KERNEL,
-    # object_storage: blob adapters live under storage/ (PACKAGE_MODULES).
-    "domain/storage_guidance.py": OBJECT_STORAGE,
-    # research_core: workflow/claims/experiments/reviews/reflection services.
-    "services/workflow.py": RESEARCH_CORE,
-    "services/workflow_views.py": RESEARCH_CORE,
-    "services/experiments.py": RESEARCH_CORE,
-    "services/experiment_views.py": RESEARCH_CORE,
-    "services/claims.py": RESEARCH_CORE,
-    "services/association_targets.py": RESEARCH_CORE,
-    "services/reviews.py": RESEARCH_CORE,
-    "services/review_gate.py": RESEARCH_CORE,
-    "services/reflections.py": RESEARCH_CORE,
-    "services/project_overview.py": RESEARCH_CORE,
-    "services/projects.py": RESEARCH_CORE,
-    "services/reflection_tools.py": RESEARCH_CORE,
-    "services/graph_refs.py": RESEARCH_CORE,
-    # sandbox: lifecycle services + local strays of the sandbox stack.
-    "services/transcript_cache.py": SANDBOX,
-    "services/quotas.py": SANDBOX,  # TODO tenancy concern — may move later
-    "domain/sandbox_paths.py": SANDBOX,
-    # ssh_keys generates sandbox ssh keypairs (sandbox_conn + mgmt keys).
-    "ssh_keys.py": SANDBOX,
-    # feed: services plus feed's own domain policy files.
-    "services/feed.py": FEED,
-    "services/feed_unfurl.py": FEED,
-    "domain/feed_images.py": FEED,
-    "domain/feed_embeds.py": FEED,
-    "domain/feed_policy.py": FEED,
-    # surface: composition/transport strays and cross-module glue services.
-    "services/__init__.py": SURFACE,  # import-free shell (test_plane_layout)
-    "services/auth.py": SURFACE,  # Supabase verifier, composed only hosted-side
-    "services/cleanup.py": SURFACE,
-    "services/identity.py": SURFACE,
-    "services/permissions.py": SURFACE,
+    # surface: composition/transport strays awaiting the surface tranche.
     "config.py": SURFACE,
     "client_cli.py": SURFACE,
     "observability.py": SURFACE,
@@ -176,24 +138,24 @@ def _classify(rel: str) -> str | None:
 
 
 def _dotted_index() -> dict[str, str]:
-    """Absolute dotted module name -> backend-relative file path."""
+    """Absolute dotted module name -> brain-relative file path."""
     index: dict[str, str] = {}
     for path in _backend_files():
         rel = path.relative_to(BACKEND_ROOT)
         parts = rel.parent.parts if rel.name == "__init__.py" else (*rel.parent.parts, rel.stem)
-        index[".".join(("backend", *parts))] = rel.as_posix()
+        index[".".join(("merv", "brain", *parts))] = rel.as_posix()
     return index
 
 
 def _import_targets(path: Path, dotted: dict[str, str]) -> set[str]:
-    """Backend files imported by ``path``, top-level and function-local alike.
+    """Brain files imported by ``path``, top-level and function-local alike.
 
     Relative imports resolve against the importing file's package; for
     ``from base import name`` the deeper ``base.name`` submodule wins when it
     exists, otherwise the edge points at ``base`` itself.
     """
     rel = path.relative_to(BACKEND_ROOT)
-    package = ("backend", *rel.parent.parts)
+    package = ("merv", "brain", *rel.parent.parts)
     targets: set[str] = set()
     for node in ast.walk(ast.parse(path.read_text(encoding="utf-8"))):
         if isinstance(node, ast.Import):
@@ -241,7 +203,7 @@ class ModuleBoundaryTest(unittest.TestCase):
         )
         self.assertFalse(
             unclassified,
-            "new backend files must be assigned a module in "
+            "new brain files must be assigned a module in "
             f"tests/structure/test_module_boundaries.py: {unclassified}",
         )
 

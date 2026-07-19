@@ -5,7 +5,7 @@ import unittest
 from pathlib import Path
 
 from tests.support.brain import TestBrain
-from backend.execution.backends.fake import FakeSandboxBackend
+from merv.brain.sandbox.execution.backends.fake import FakeSandboxBackend
 
 
 class SandboxIdentityTest(unittest.TestCase):

@@ -4,10 +4,10 @@ import tempfile
 import unittest
 from pathlib import Path
 
-from backend.dataplane.resource_artifacts import LocalResourceArtifactReader
-from backend.artifacts.markdown_images import MARKDOWN_FIGURE_MAX_BYTES
-from backend.artifacts.roles import GATED_ROLE_BYTE_CAPS
-from backend.utils import NotFoundError, ValidationError
+from merv.brain.dataplane.resource_artifacts import LocalResourceArtifactReader
+from merv.brain.artifacts.markdown_images import MARKDOWN_FIGURE_MAX_BYTES
+from merv.brain.artifacts.roles import GATED_ROLE_BYTE_CAPS
+from merv.brain.kernel.utils import NotFoundError, ValidationError
 
 
 class LocalResourceArtifactReaderTest(unittest.TestCase):

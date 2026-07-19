@@ -4,7 +4,7 @@ import os
 import unittest
 from unittest import mock
 
-from backend.env import (
+from merv.brain.kernel.env import (
     _reset_env_deprecation_warnings,
     env_bool,
     env_float,
@@ -14,7 +14,7 @@ from backend.env import (
     env_value,
     merv_env_name,
 )
-from research_plugin_shared.client_config import (
+from merv.shared.client_config import (
     dual_env_value,
     _warned_legacy_names as _shared_warned,
 )
@@ -82,28 +82,28 @@ class DeprecationWarningTest(unittest.TestCase):
     def test_legacy_source_from_process_env_warns_once(self) -> None:
         with mock.patch.dict(os.environ, {"RESEARCH_PLUGIN_BLOB_BUCKET": "b"}):
             os.environ.pop("MERV_BLOB_BUCKET", None)
-            with self.assertLogs("backend.env", level="WARNING") as logs:
+            with self.assertLogs("merv.brain.kernel.env", level="WARNING") as logs:
                 self.assertEqual(env_value("MERV_BLOB_BUCKET"), "b")
             self.assertEqual(len(logs.output), 1)
             self.assertIn("RESEARCH_PLUGIN_BLOB_BUCKET is deprecated", logs.output[0])
             self.assertIn("MERV_BLOB_BUCKET", logs.output[0])
             # Second read of the same variable stays silent.
-            with self.assertNoLogs("backend.env", level="WARNING"):
+            with self.assertNoLogs("merv.brain.kernel.env", level="WARNING"):
                 self.assertEqual(env_value("MERV_BLOB_BUCKET"), "b")
 
     def test_primary_source_never_warns(self) -> None:
         env_vars = {"MERV_BLOB_BUCKET": "b", "RESEARCH_PLUGIN_BLOB_BUCKET": "old"}
         with mock.patch.dict(os.environ, env_vars):
-            with self.assertNoLogs("backend.env", level="WARNING"):
+            with self.assertNoLogs("merv.brain.kernel.env", level="WARNING"):
                 self.assertEqual(env_value("MERV_BLOB_BUCKET"), "b")
 
     def test_explicit_env_mapping_never_warns(self) -> None:
-        with self.assertNoLogs("backend.env", level="WARNING"):
+        with self.assertNoLogs("merv.brain.kernel.env", level="WARNING"):
             env_value("MERV_BLOB_BUCKET", env={"RESEARCH_PLUGIN_BLOB_BUCKET": "b"})
 
 
 class SharedDualEnvValueTest(unittest.TestCase):
-    """The stdlib-only twin in research_plugin_shared matches backend.env."""
+    """The stdlib-only twin in merv.shared matches merv.brain.kernel.env."""
 
     def setUp(self) -> None:
         _shared_warned.clear()

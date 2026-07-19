@@ -80,7 +80,7 @@ process only — see `.env.example`. Startup details:
 ## Tests
 
 ```bash
-PYTHONPATH=. .venv/bin/python -m unittest discover -s tests
+PYTHONPATH=src .venv/bin/python -m unittest discover -s tests
 ```
 
 Set `MERV_EXECUTION_BACKEND=fake` to keep tests and local workflows

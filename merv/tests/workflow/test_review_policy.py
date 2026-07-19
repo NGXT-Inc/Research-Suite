@@ -7,8 +7,8 @@ import unittest
 from pathlib import Path
 
 from tests.support.brain import TestBrain
-from backend.state.store import next_created_seq
-from backend.utils import WorkflowError, new_id, now_iso
+from merv.brain.kernel.state.store import next_created_seq
+from merv.brain.kernel.utils import WorkflowError, new_id, now_iso
 
 VALID_PLAN = (
     "## Summary\n"

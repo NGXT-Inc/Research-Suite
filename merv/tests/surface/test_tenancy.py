@@ -18,8 +18,8 @@ import unittest
 from pathlib import Path
 
 from tests.support.brain import TestBrain
-from backend.execution.backends.fake import FakeSandboxBackend
-from backend.utils import NotFoundError, PermissionDeniedError
+from merv.brain.sandbox.execution.backends.fake import FakeSandboxBackend
+from merv.brain.kernel.utils import NotFoundError, PermissionDeniedError
 
 
 class TenancyTest(unittest.TestCase):

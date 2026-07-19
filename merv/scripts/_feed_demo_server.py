@@ -14,11 +14,11 @@ from pathlib import Path
 
 import uvicorn
 
-from backend.composition import build_local_server
-from backend.domain import feed_policy
-from backend.execution.backends.fake import FakeSandboxBackend
-from backend.state import StateStore
-from backend.storage.blobs import LocalDirBlobStore
+from merv.brain.composition import build_local_server
+from merv.brain.feed import feed_policy
+from merv.brain.sandbox.execution.backends.fake import FakeSandboxBackend
+from merv.brain.kernel.state import StateStore
+from merv.brain.object_storage.blobs import LocalDirBlobStore
 
 # Stagger always applies: default to the real clock so "X ago" labels are
 # realistic without an env var. FEED_NOW_MS still overrides for frozen demos.

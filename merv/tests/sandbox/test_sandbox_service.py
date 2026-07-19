@@ -7,11 +7,11 @@ import unittest
 from pathlib import Path
 
 from tests.support.brain import TestBrain
-from backend.execution.backends.fake import FakeSandboxBackend
-from backend.mlflow import CentralMlflowService
-from backend.sandbox.sandbox_backend import BackendCapabilities, SandboxRequest
-from backend.utils import NotFoundError, ValidationError, parse_iso
-from backend.workspace import local_experiment_dir
+from merv.brain.sandbox.execution.backends.fake import FakeSandboxBackend
+from merv.brain.mlflow import CentralMlflowService
+from merv.brain.sandbox.sandbox_backend import BackendCapabilities, SandboxRequest
+from merv.brain.kernel.utils import NotFoundError, ValidationError, parse_iso
+from merv.brain.workspace import local_experiment_dir
 
 
 class SandboxServiceTest(unittest.TestCase):
@@ -1137,7 +1137,7 @@ class SandboxServiceTest(unittest.TestCase):
 
     def _require_hardware_selection(self) -> None:
         """Flip the fake backend into Lambda-style bundled-hardware behavior."""
-        from backend.sandbox.sandbox_backend import BackendCapabilities
+        from merv.brain.sandbox.sandbox_backend import BackendCapabilities
 
         self.backend.capabilities = BackendCapabilities(
             name="fake",

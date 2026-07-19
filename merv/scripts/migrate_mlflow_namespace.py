@@ -2,7 +2,7 @@
 """Rename existing MLflow experiments from the legacy rp/ namespace to merv/.
 
 One-time deploy companion to the MLFLOW_NAMESPACE_PREFIX flip in
-backend/mlflow/tracking.py: new experiments are created as merv/<project>/<exp>,
+src/merv/brain/mlflow/tracking.py: new experiments are created as merv/<project>/<exp>,
 and this script renames every existing `rp/...` experiment in place over the
 MLflow REST API so name-based lookups keep resolving. Idempotent — a second run
 finds nothing left to rename. `merv/...` name collisions (a re-run after a
@@ -21,11 +21,11 @@ import argparse
 import sys
 from pathlib import Path
 
-sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
+sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "src"))
 
 import httpx
 
-from backend.mlflow.config import (
+from merv.brain.mlflow.config import (
     resolve_mlflow_server_uri,
     resolve_mlflow_tracking_uri,
 )

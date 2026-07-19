@@ -16,11 +16,11 @@ import argparse
 import sys
 from pathlib import Path
 
-sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
+sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "src"))
 
-from backend.app import ResearchPluginApp
-from backend.execution.backends.fake import FakeSandboxBackend
-from backend.transport.http_server import make_http_server
+from merv.brain.app import ResearchPluginApp
+from merv.brain.sandbox.execution.backends.fake import FakeSandboxBackend
+from merv.brain.transport.http_server import make_http_server
 
 
 def main() -> int:

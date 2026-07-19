@@ -14,11 +14,11 @@ from urllib.parse import urlsplit
 from fastapi.testclient import TestClient
 
 from tests.support.brain import TestBrain
-from backend.execution.backends.fake import FakeSandboxBackend
-from backend.transport.http_api import create_fastapi_app
-from backend.transport.http_policy import HttpSurfacePolicy
-from mcp_server.project_links import ProjectLinks
-from mcp_server.proxy import HttpProxyMcpServer, ProxyConfig
+from merv.brain.sandbox.execution.backends.fake import FakeSandboxBackend
+from merv.brain.transport.http_api import create_fastapi_app
+from merv.brain.transport.http_policy import HttpSurfacePolicy
+from merv.proxy.project_links import ProjectLinks
+from merv.proxy.proxy import HttpProxyMcpServer, ProxyConfig
 
 
 class _HttpHarness:

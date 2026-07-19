@@ -1,6 +1,6 @@
 """The checked-in tool catalog keeps the proxy runnable on bare python3.
 
-mcp_server/_tool_catalog.json is the pydantic-free fallback for
+src/merv/proxy/_tool_catalog.json is the pydantic-free fallback for
 tools/list on client machines with no pip installs. Two guarantees pin it:
 the file is byte-identical to the live contracts rendering (regenerate with
 scripts/regen_tool_catalog.py), and the proxy actually serves the same
@@ -15,9 +15,9 @@ import tempfile
 import unittest
 from pathlib import Path
 
-from backend.tools.contracts import STORAGE_TOOL_NAMES, TOOL_CONTRACTS
-from mcp_server.local_data_plane import LocalDataPlane, LocalDataPlaneError
-from mcp_server.proxy import (
+from merv.brain.tools.contracts import STORAGE_TOOL_NAMES, TOOL_CONTRACTS
+from merv.proxy.local_data_plane import LocalDataPlane, LocalDataPlaneError
+from merv.proxy.proxy import (
     _STATIC_CATALOG_PATH,
     _render_static_catalog_text,
     HttpProxyMcpServer,
@@ -40,15 +40,19 @@ class _BlockThirdParty:
 def _without_pydantic():
     """Simulate a machine where pydantic was never installed.
 
-    Evicts cached backend/pydantic modules so re-imports actually execute,
+    Evicts cached src/merv/brain/pydantic modules so re-imports actually execute,
     and blocks pydantic at the finder so those re-imports fail the same way
     they would on a bare python3.
     """
-    prefixes = ("backend", "pydantic")
+    prefixes = ("merv.brain", "pydantic")
+
+    def _matches(name: str) -> bool:
+        return any(
+            name == prefix or name.startswith(prefix + ".") for prefix in prefixes
+        )
+
     saved = {
-        name: module
-        for name, module in sys.modules.items()
-        if name.split(".")[0] in prefixes
+        name: module for name, module in sys.modules.items() if _matches(name)
     }
     for name in saved:
         del sys.modules[name]
@@ -58,7 +62,7 @@ def _without_pydantic():
         yield
     finally:
         sys.meta_path.remove(finder)
-        for name in [n for n in sys.modules if n.split(".")[0] in prefixes]:
+        for name in [n for n in sys.modules if _matches(n)]:
             del sys.modules[name]
         sys.modules.update(saved)
 
@@ -68,7 +72,7 @@ class StaticCatalogParityTest(unittest.TestCase):
         self.assertEqual(
             _STATIC_CATALOG_PATH.read_text(encoding="utf-8"),
             _render_static_catalog_text(),
-            "mcp_server/_tool_catalog.json is stale — run "
+            "src/merv/proxy/_tool_catalog.json is stale — run "
             "scripts/regen_tool_catalog.py after changing tool contracts.",
         )
 

@@ -7,8 +7,8 @@ import unittest
 from pathlib import Path
 
 from tests.support.brain import TestBrain
-from backend.tools.contracts import ReviewStartInput
-from backend.utils import ValidationError
+from merv.brain.tools.contracts import ReviewStartInput
+from merv.brain.kernel.utils import ValidationError
 
 VALID_PLAN = (
     "## Summary\n"

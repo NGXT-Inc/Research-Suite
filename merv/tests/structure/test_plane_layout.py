@@ -20,7 +20,7 @@ import unittest
 from pathlib import Path
 from typing import Protocol, get_type_hints
 
-from backend.tools.contracts import (
+from merv.brain.tools.contracts import (
     CONTROL_PLANE_TOOL_NAMES,
     DATA_PLANE_TOOL_NAMES,
     TOOL_CONTRACTS,
@@ -30,9 +30,13 @@ from tests.paths import (
     ARTIFACTS_ROOT,
     BACKEND_ROOT,
     DOMAIN_ROOT,
-    PLUGIN_ROOT,
+    FEED_ROOT,
+    IMPORT_ROOT,
     PORTS_ROOT,
+    PROXY_ROOT,
+    RESEARCH_CORE_ROOT,
     SERVICES_ROOT,
+    SHARED_ROOT,
 )
 
 
@@ -47,27 +51,32 @@ CONTROL_MODULES = (
     *DOMAIN_MODULES,
     *PORT_MODULES,
     BACKEND_ROOT / "sandbox" / "sandbox_backend.py",
+    BACKEND_ROOT / "sandbox" / "sandbox_paths.py",
+    BACKEND_ROOT / "object_storage" / "storage_guidance.py",
     BACKEND_ROOT / "tools" / "tool_facade.py",
     BACKEND_ROOT / "tools" / "tool_handlers.py",
-    SERVICES_ROOT / "projects.py",
-    SERVICES_ROOT / "claims.py",
-    SERVICES_ROOT / "experiments.py",
-    SERVICES_ROOT / "reflections.py",
-    SERVICES_ROOT / "reviews.py",
-    SERVICES_ROOT / "workflow.py",
-    SERVICES_ROOT / "workflow_views.py",
-    SERVICES_ROOT / "experiment_views.py",
+    RESEARCH_CORE_ROOT / "projects.py",
+    RESEARCH_CORE_ROOT / "claims.py",
+    RESEARCH_CORE_ROOT / "experiments.py",
+    RESEARCH_CORE_ROOT / "reflections.py",
+    RESEARCH_CORE_ROOT / "reviews.py",
+    RESEARCH_CORE_ROOT / "workflow.py",
+    RESEARCH_CORE_ROOT / "workflow_views.py",
+    RESEARCH_CORE_ROOT / "experiment_views.py",
     SERVICES_ROOT / "permissions.py",
-    SERVICES_ROOT / "project_overview.py",
-    SERVICES_ROOT / "reflection_tools.py",
-    SERVICES_ROOT / "feed.py",
-    SERVICES_ROOT / "sandbox" / "sandbox_metrics.py",
+    RESEARCH_CORE_ROOT / "project_overview.py",
+    RESEARCH_CORE_ROOT / "reflection_tools.py",
+    FEED_ROOT / "feed.py",
+    FEED_ROOT / "feed_policy.py",
+    FEED_ROOT / "feed_images.py",
+    FEED_ROOT / "feed_embeds.py",
+    BACKEND_ROOT / "sandbox" / "sandbox_metrics.py",
     BACKEND_ROOT / "control" / "record_core.py",
     BACKEND_ROOT / "control" / "control_app.py",
     BACKEND_ROOT / "control" / "control_runtime.py",
     BACKEND_ROOT / "control" / "control_client.py",
-    BACKEND_ROOT / "state" / "store.py",
-    BACKEND_ROOT / "state" / "dialects.py",
+    BACKEND_ROOT / "kernel" / "state" / "store.py",
+    BACKEND_ROOT / "kernel" / "state" / "dialects.py",
     BACKEND_ROOT / "sandbox" / "managed_mgmt_keys.py",
 )
 
@@ -326,7 +335,7 @@ class ToolPlanePartitionTest(unittest.TestCase):
         )
 
     def test_http_data_plane_features_point_at_data_plane_tools(self) -> None:
-        from backend.transport.http_policy import HTTP_DATA_PLANE_FEATURE_TO_TOOL
+        from merv.brain.transport.http_policy import HTTP_DATA_PLANE_FEATURE_TO_TOOL
 
         self.assertEqual(
             HTTP_DATA_PLANE_FEATURE_TO_TOOL,
@@ -338,8 +347,8 @@ class ToolPlanePartitionTest(unittest.TestCase):
         self.assertLessEqual(set(HTTP_DATA_PLANE_FEATURE_TO_TOOL.values()), DATA_PLANE_TOOL_NAMES)
 
     def test_proxy_local_data_plane_dispatches_contract_plane_sets(self) -> None:
-        proxy = PLUGIN_ROOT / "mcp_server" / "proxy.py"
-        local_data_plane = PLUGIN_ROOT / "mcp_server" / "local_data_plane.py"
+        proxy = PROXY_ROOT / "proxy.py"
+        local_data_plane = PROXY_ROOT / "local_data_plane.py"
         source = proxy.read_text(encoding="utf-8")
 
         self.assertIn("DATA_PLANE_TOOL_NAMES", source)
@@ -382,8 +391,8 @@ load("subprocess")
 
     def test_management_key_adapter_lint_catches_import_forms(self) -> None:
         cases = (
-            "import backend.sandbox.mgmt_keys\n",
-            "from backend.sandbox import mgmt_keys\n",
+            "import merv.brain.sandbox.mgmt_keys\n",
+            "from merv.brain.sandbox import mgmt_keys\n",
             "from ..sandbox.mgmt_keys import LocalMgmtKeyStore\n",
         )
         with tempfile.TemporaryDirectory() as tmp:
@@ -394,7 +403,21 @@ load("subprocess")
                     self.assertTrue(_imports_management_key_adapter(path))
 
     def test_only_sandbox_io_modules_spawn_processes(self) -> None:
-        for path in sorted(SERVICES_ROOT.rglob("*.py")):
+        # Everything service-shaped is spawn-free; inside the sandbox module
+        # only execution/ (provider IO) and ssh_keys.py (keygen) may spawn.
+        sandbox_record_modules = [
+            path
+            for path in (BACKEND_ROOT / "sandbox").glob("*.py")
+            if path.name != "ssh_keys.py"
+        ]
+        for path in sorted(
+            (
+                *SERVICES_ROOT.rglob("*.py"),
+                *RESEARCH_CORE_ROOT.rglob("*.py"),
+                *FEED_ROOT.rglob("*.py"),
+                *sandbox_record_modules,
+            )
+        ):
             with self.subTest(module=path.name):
                 self.assertFalse(
                     _process_spawn_references(path),
@@ -414,7 +437,7 @@ load("subprocess")
                 )
 
     def test_tool_dispatcher_uses_narrow_permission_policy(self) -> None:
-        from backend.tools.tool_facade import ToolDispatcher, ToolPermissionPolicy
+        from merv.brain.tools.tool_facade import ToolDispatcher, ToolPermissionPolicy
 
         hints = get_type_hints(ToolDispatcher.__init__)
         self.assertIs(hints["permissions"], ToolPermissionPolicy)
@@ -441,12 +464,12 @@ load("subprocess")
     def test_state_store_knows_no_repo_root(self) -> None:
         # The record store is a records-only component (plan §3.1): local
         # paths belong to LocalWorkspace / the DataPlaneWorker.
-        source = (BACKEND_ROOT / "state" / "store.py").read_text(encoding="utf-8")
+        source = (BACKEND_ROOT / "kernel" / "state" / "store.py").read_text(encoding="utf-8")
         self.assertNotIn("repo_root", source)
 
     def test_sandbox_views_do_not_import_execution(self) -> None:
         # Remote directory names are projected without provider execution machinery.
-        path = SERVICES_ROOT / "sandbox" / "sandbox_views.py"
+        path = BACKEND_ROOT / "sandbox" / "sandbox_views.py"
         self.assertNotIn("execution", _import_segments(path))
 
     def test_sandbox_services_use_backend_port_not_execution_package(self) -> None:
@@ -455,7 +478,7 @@ load("subprocess")
         for name in ("sandbox_daemons.py", "sandbox_provisioner.py", "sandboxes.py"):
             with self.subTest(module=name):
                 self.assertNotIn(
-                    "execution", _import_segments(SERVICES_ROOT / "sandbox" / name)
+                    "execution", _import_segments(BACKEND_ROOT / "sandbox" / name)
                 )
 
     def test_sandbox_backend_port_is_neutral(self) -> None:
@@ -479,8 +502,8 @@ load("subprocess")
         # never reach into the record store.
         for name in ("activity.py", "tool_calls.py"):
             with self.subTest(module=name):
-                source = (BACKEND_ROOT / "state" / name).read_text(encoding="utf-8")
-                self.assertNotIn("store", _imports(BACKEND_ROOT / "state" / name))
+                source = (BACKEND_ROOT / "kernel" / "state" / name).read_text(encoding="utf-8")
+                self.assertNotIn("store", _imports(BACKEND_ROOT / "kernel" / "state" / name))
                 self.assertNotIn("StateStore", source)
 
     def test_services_package_init_is_import_light(self) -> None:
@@ -504,16 +527,16 @@ load("subprocess")
             self.assertNotIn(forbidden, imports)
         code = """
 import sys
-import backend.sandbox.sandbox_support
+import merv.brain.sandbox.sandbox_support
 for name in (
-	    "backend.services.sandbox.sandboxes",
-	    "backend.workspace",
+	    "merv.brain.sandbox.sandboxes",
+	    "merv.brain.workspace",
 ):
     if name in sys.modules:
         raise SystemExit(f"{name} loaded")
 """
         env = dict(os.environ)
-        env["PYTHONPATH"] = str(BACKEND_ROOT.parent)
+        env["PYTHONPATH"] = str(IMPORT_ROOT)
         subprocess.run([sys.executable, "-c", code], check=True, env=env)
 
     def test_dataplane_package_init_is_import_light(self) -> None:
@@ -524,15 +547,15 @@ for name in (
             self.assertNotIn(forbidden, imports)
         code = """
 import sys
-import backend.dataplane
+import merv.brain.dataplane
 for name in (
-    "backend.workspace",
+    "merv.brain.workspace",
 ):
     if name in sys.modules:
         raise SystemExit(f"{name} loaded")
 """
         env = dict(os.environ)
-        env["PYTHONPATH"] = str(BACKEND_ROOT.parent)
+        env["PYTHONPATH"] = str(IMPORT_ROOT)
         subprocess.run([sys.executable, "-c", code], check=True, env=env)
 
     def test_dataplane_modules_do_not_import_services(self) -> None:
@@ -547,18 +570,18 @@ for name in (
         # implementation pair today.
         # Keep it lean by avoiding a single-impl reader port until a real
         # ControlApp composition gives that port a second implementation.
-        imports = _import_segments(SERVICES_ROOT / "project_overview.py")
+        imports = _import_segments(RESEARCH_CORE_ROOT / "project_overview.py")
         self.assertIn("projects", imports)
         self.assertIn("reflections", imports)
         self.assertNotIn("project_readers", imports)
-        source = (SERVICES_ROOT / "project_overview.py").read_text(encoding="utf-8")
+        source = (RESEARCH_CORE_ROOT / "project_overview.py").read_text(encoding="utf-8")
         self.assertIn("projects: ProjectService", source)
         self.assertIn("reflections: ReflectionService", source)
         self.assertNotIn("class ProjectCurrentReader", source)
         self.assertNotIn("class SynthesisOverviewReader", source)
-        from backend.services.project_overview import ProjectOverviewService
-        from backend.services.projects import ProjectService
-        from backend.services.reflections import ReflectionService
+        from merv.brain.research_core.project_overview import ProjectOverviewService
+        from merv.brain.research_core.projects import ProjectService
+        from merv.brain.research_core.reflections import ReflectionService
 
         hints = get_type_hints(ProjectOverviewService.__init__)
         self.assertIs(hints["projects"], ProjectService)
@@ -593,12 +616,12 @@ for name in (
         # workflow.status_and_next is a control-safe orientation view. It
         # should compose against narrow read ports instead of redeclaring
         # collaborator protocols inside the workflow service module.
-        imports = _import_segments(SERVICES_ROOT / "workflow.py")
+        imports = _import_segments(RESEARCH_CORE_ROOT / "workflow.py")
         self.assertFalse(
             {"experiments", "reviews", "sandboxes", "reflections"} & imports
         )
         self.assertIn("workflow_readers", imports)
-        source = (SERVICES_ROOT / "workflow.py").read_text(encoding="utf-8")
+        source = (RESEARCH_CORE_ROOT / "workflow.py").read_text(encoding="utf-8")
         self.assertIn("experiments: ExperimentWorkflowReader", source)
         self.assertNotIn("class ExperimentWorkflowReader", source)
         self.assertNotIn("class ReviewWorkflowReader", source)
@@ -618,7 +641,7 @@ for name in (
         self.assertNotIn("def register_file(", source)
         self.assertNotIn("class ResourceObserver", source)
         self.assertNotIn("class ResourceAssociationPolicy", source)
-        proxy_source = (PLUGIN_ROOT / "mcp_server" / "local_data_plane.py").read_text(
+        proxy_source = (PROXY_ROOT / "local_data_plane.py").read_text(
             encoding="utf-8"
         )
         self.assertIn('name == "resource.register"', proxy_source)
@@ -629,14 +652,14 @@ for name in (
         # reflection.* has one adapter and one implementation today. Keep it
         # lean by avoiding a single-impl port, but pin the narrow method surface
         # the adapter is allowed to use.
-        imports = _import_segments(SERVICES_ROOT / "reflection_tools.py")
+        imports = _import_segments(RESEARCH_CORE_ROOT / "reflection_tools.py")
         self.assertIn("reflections", imports)
         self.assertNotIn("reflection_waves", imports)
-        source = (SERVICES_ROOT / "reflection_tools.py").read_text(encoding="utf-8")
+        source = (RESEARCH_CORE_ROOT / "reflection_tools.py").read_text(encoding="utf-8")
         self.assertIn("reflections: ReflectionService", source)
         self.assertNotIn("class ReflectionWaveStore", source)
-        from backend.services.reflection_tools import ReflectionToolService
-        from backend.services.reflections import ReflectionService
+        from merv.brain.research_core.reflection_tools import ReflectionToolService
+        from merv.brain.research_core.reflections import ReflectionService
 
         self.assertIs(
             get_type_hints(ReflectionToolService.__init__)["reflections"],
@@ -790,7 +813,17 @@ for name in (
         # filesystem key custody adapter belongs to composition-state wiring,
         # not services/.
         self.assertFalse((SERVICES_ROOT / "sandbox_mgmt_keys.py").exists())
-        for path in sorted(SERVICES_ROOT.rglob("*.py")):
+        service_modules = (
+            *SERVICES_ROOT.rglob("*.py"),
+            *RESEARCH_CORE_ROOT.rglob("*.py"),
+            *FEED_ROOT.rglob("*.py"),
+            *(
+                path
+                for path in (BACKEND_ROOT / "sandbox").glob("*.py")
+                if path.name not in {"mgmt_keys.py", "managed_mgmt_keys.py"}
+            ),
+        )
+        for path in sorted(service_modules):
             with self.subTest(module=path.name):
                 self.assertFalse(_imports_management_key_adapter(path))
                 self.assertNotIn("LocalMgmtKeyStore", path.read_text(encoding="utf-8"))
@@ -806,8 +839,8 @@ for name in (
 
     def test_local_ssh_keygen_is_single_sourced(self) -> None:
         self.assertEqual(
-            _imports(BACKEND_ROOT / "ssh_keys.py"),
-            {"os", "pathlib", "subprocess", "utils"},
+            _imports(BACKEND_ROOT / "sandbox" / "ssh_keys.py"),
+            {"os", "pathlib", "subprocess", "kernel"},
         )
         path = BACKEND_ROOT / "sandbox" / "mgmt_keys.py"
         self.assertIn("ssh_keys", _import_segments(path))
@@ -819,16 +852,16 @@ for name in (
         # data-plane worker machinery.
         code = """
 import sys
-import backend.control.control_app
+import merv.brain.control.control_app
 for name in (
-    "backend.workspace",
-    "backend.sandbox.mgmt_keys",
+    "merv.brain.workspace",
+    "merv.brain.sandbox.mgmt_keys",
 ):
     if name in sys.modules:
         raise SystemExit(f"{name} loaded")
 """
         env = dict(os.environ)
-        env["PYTHONPATH"] = str(BACKEND_ROOT.parent)
+        env["PYTHONPATH"] = str(IMPORT_ROOT)
         subprocess.run([sys.executable, "-c", code], check=True, env=env)
 
 
@@ -837,47 +870,67 @@ class ProxyStdlibOnlyTest(unittest.TestCase):
 
     The proxy ships as part of the base wheel with no third-party deps so it
     runs under any Python — even the daemon profile that drops the provider
-    SDKs. Walk the mcp_server package and assert no import resolves outside the
+    SDKs. Walk the merv.proxy package and assert no import resolves outside the
     stdlib (or the package itself), so the dual-upstream rewrite never reaches
     for pydantic/fastapi/boto3 by accident.
     """
 
     # The proxy package, its stdlib-only shared helper, and the standard library
-    # are the only allowed roots. (sys.stdlib_module_names covers 3.11+.)
-    def test_mcp_server_imports_only_stdlib(self) -> None:
+    # are the only allowed roots — merv.brain must never be imported statically.
+    # (sys.stdlib_module_names covers 3.11+.)
+    def test_proxy_imports_only_stdlib(self) -> None:
         import sys
 
-        plugin_root = BACKEND_ROOT.parent
-        mcp_root = plugin_root / "mcp_server"
-        shared_root = plugin_root / "research_plugin_shared"
-        own = (
-            {p.stem for p in mcp_root.glob("*.py")}
-            | {p.stem for p in shared_root.glob("*.py")}
-            | {
-                "mcp_server",
-                "research_plugin_shared",
-            }
-        )
-        allowed = set(sys.stdlib_module_names) | own | {"__future__"}
-        for path in sorted([*mcp_root.glob("*.py"), *shared_root.glob("*.py")]):
-            with self.subTest(module=path.name):
-                external = _imports(path) - allowed
-                self.assertFalse(
-                    external,
-                    f"{path.name} imports non-stdlib modules: {sorted(external)}",
-                )
+        allowed_prefixes = ("merv.proxy", "merv.shared")
+        for package, root in (("merv.proxy", PROXY_ROOT), ("merv.shared", SHARED_ROOT)):
+            for path in sorted(root.rglob("*.py")):
+                if "__pycache__" in path.parts:
+                    continue
+                # The file's own package: subpackage-aware, so nested modules
+                # resolve relative imports against the right base.
+                file_pkg = ".".join((package, *path.relative_to(root).parent.parts))
+                names: set[str] = set()
+                tree = ast.parse(path.read_text(encoding="utf-8"))
+                for node in ast.walk(tree):
+                    if isinstance(node, ast.Import):
+                        names.update(alias.name for alias in node.names)
+                    elif isinstance(node, ast.ImportFrom):
+                        if node.module == "__future__":
+                            continue
+                        if node.level:
+                            # Resolve relative imports against the owning package.
+                            pkg_parts = file_pkg.split(".")
+                            base = ".".join(pkg_parts[: len(pkg_parts) - (node.level - 1)])
+                            names.add(f"{base}.{node.module}" if node.module else base)
+                        elif node.module:
+                            names.add(node.module)
+                with self.subTest(module=path.relative_to(root).as_posix()):
+                    external = {
+                        name
+                        for name in names
+                        if name.split(".")[0] not in sys.stdlib_module_names
+                        and not any(
+                            name == prefix or name.startswith(prefix + ".")
+                            for prefix in allowed_prefixes
+                        )
+                    }
+                    self.assertFalse(
+                        external,
+                        f"{path.name} imports non-stdlib modules: {sorted(external)}",
+                    )
 
-    def test_mcp_server_dynamic_imports_stay_in_backend(self) -> None:
+    def test_proxy_dynamic_imports_stay_in_brain(self) -> None:
         # Static imports are pinned above, but the proxy also lazy-imports
-        # backend modules by string (importlib.import_module / _import_attr).
-        # Pin every dynamic target to the backend package so a third-party
+        # brain modules by string (importlib.import_module / _import_attr).
+        # Pin every dynamic target to the brain package so a third-party
         # module can never sneak in through the dynamic path — and remember:
         # any new dynamic target must either be pydantic-free or sit behind an
         # ImportError fallback (tests/surface/test_static_tool_catalog.py
         # drives the proxy with pydantic blocked to prove it).
-        plugin_root = BACKEND_ROOT.parent
         targets: set[str] = set()
-        for path in sorted((plugin_root / "mcp_server").glob("*.py")):
+        for path in sorted(PROXY_ROOT.rglob("*.py")):
+            if "__pycache__" in path.parts:
+                continue
             for node in ast.walk(ast.parse(path.read_text(encoding="utf-8"))):
                 if not isinstance(node, ast.Call) or not node.args:
                     continue
@@ -889,20 +942,19 @@ class ProxyStdlibOnlyTest(unittest.TestCase):
                 first = node.args[0]
                 if (is_import_module or is_import_attr) and isinstance(first, ast.Constant):
                     targets.add(str(first.value))
-        self.assertTrue(targets, "expected the proxy's lazy backend imports to be found")
+        self.assertTrue(targets, "expected the proxy's lazy brain imports to be found")
         for target in sorted(targets):
-            self.assertEqual(
-                target.split(".")[0],
-                "backend",
+            self.assertTrue(
+                target.startswith("merv.brain."),
                 f"dynamic import of {target!r} — the proxy may lazy-import "
-                "only backend modules",
+                "only merv.brain modules",
             )
 
-    def test_mcp_server_ships_the_static_tool_catalog(self) -> None:
+    def test_proxy_ships_the_static_tool_catalog(self) -> None:
         # The bare-python fallback for tools/list: the file must ship with the
         # tree and carry the routing fields the proxy reads. Freshness against
         # the live contracts is pinned by test_static_tool_catalog.py.
-        catalog_path = BACKEND_ROOT.parent / "mcp_server" / "_tool_catalog.json"
+        catalog_path = PROXY_ROOT / "_tool_catalog.json"
         self.assertTrue(catalog_path.is_file())
         tools = json.loads(catalog_path.read_text(encoding="utf-8"))["tools"]
         self.assertTrue(tools)
@@ -911,13 +963,14 @@ class ProxyStdlibOnlyTest(unittest.TestCase):
             self.assertIn("inputSchema", tool)
             self.assertIn("plane", tool)
 
-    def test_mcp_server_does_not_require_datetime_utc_alias(self) -> None:
+    def test_proxy_does_not_require_datetime_utc_alias(self) -> None:
         # Codex may launch the stdio proxy with Apple CLT Python 3.9.
         # datetime.UTC was added in 3.11, so proxy modules must use
         # datetime.timezone.utc instead.
-        plugin_root = BACKEND_ROOT.parent
-        for path in sorted((plugin_root / "mcp_server").glob("*.py")):
-            with self.subTest(module=path.name):
+        for path in sorted(PROXY_ROOT.rglob("*.py")):
+            if "__pycache__" in path.parts:
+                continue
+            with self.subTest(module=path.relative_to(PROXY_ROOT).as_posix()):
                 source = path.read_text(encoding="utf-8")
                 self.assertNotIn("from datetime import UTC", source)
                 self.assertNotIn("datetime.UTC", source)

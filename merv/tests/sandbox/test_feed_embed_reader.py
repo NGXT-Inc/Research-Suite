@@ -4,9 +4,9 @@ import tempfile
 import unittest
 from pathlib import Path
 
-from backend.dataplane.feed_embeds import LocalFeedEmbedReader
-from backend.domain.feed_embeds import MAX_FEED_EMBED_BYTES
-from backend.utils import ValidationError
+from merv.brain.dataplane.feed_embeds import LocalFeedEmbedReader
+from merv.brain.feed.feed_embeds import MAX_FEED_EMBED_BYTES
+from merv.brain.kernel.utils import ValidationError
 
 
 _HTML = b"<!doctype html><html><body><div>chart</div></body></html>"

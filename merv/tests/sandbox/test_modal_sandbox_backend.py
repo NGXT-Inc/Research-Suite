@@ -7,10 +7,10 @@ import unittest
 from pathlib import Path
 from unittest import mock
 
-from backend.sandbox.sandbox_backend import BackendUnavailableError, BackendValidationError
-from backend.sandbox.sandbox_backend import SandboxRequest, TranscriptTail
-from backend.execution.backends.modal.config import ModalConfig
-from backend.execution.backends.modal.sandbox_backend import ModalSandboxBackend
+from merv.brain.sandbox.sandbox_backend import BackendUnavailableError, BackendValidationError
+from merv.brain.sandbox.sandbox_backend import SandboxRequest, TranscriptTail
+from merv.brain.sandbox.execution.backends.modal.config import ModalConfig
+from merv.brain.sandbox.execution.backends.modal.sandbox_backend import ModalSandboxBackend
 from tests.fakes import FakeProcess
 
 
@@ -267,7 +267,7 @@ class ModalSandboxBackendTest(unittest.TestCase):
                 }
             ],
         )
-        from backend.execution.vm_ssh import sandbox_tokens
+        from merv.brain.sandbox.execution.vm_ssh import sandbox_tokens
 
         with unittest.mock.patch.dict(
             os.environ,
@@ -282,7 +282,7 @@ class ModalSandboxBackendTest(unittest.TestCase):
     def test_boot_script_has_no_sandbox_mlflow_or_tensorboard_server(self) -> None:
         # The image layering writes the boot script as a heredoc into the
         # image; the embedded module-level BOOT_SCRIPT is the source of truth.
-        from backend.execution.backends.modal.sandbox_backend import BOOT_SCRIPT, REC_SCRIPT
+        from merv.brain.sandbox.execution.backends.modal.sandbox_backend import BOOT_SCRIPT, REC_SCRIPT
 
         self.assertNotIn("mlflow server", BOOT_SCRIPT)
         self.assertNotIn("backend-store-uri", BOOT_SCRIPT)

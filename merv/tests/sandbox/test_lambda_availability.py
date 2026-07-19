@@ -9,19 +9,19 @@ from contextlib import contextmanager
 from pathlib import Path
 from unittest.mock import patch
 
-from backend.execution import build_sandbox_backend
-from backend.execution.backends.lambda_labs.catalog import summarize_instance_types
-from backend.execution.backends.lambda_labs.config import LambdaCloudConfig
-from backend.execution.backends.lambda_labs.sandbox_backend import (
+from merv.brain.sandbox.execution import build_sandbox_backend
+from merv.brain.sandbox.execution.backends.lambda_labs.catalog import summarize_instance_types
+from merv.brain.sandbox.execution.backends.lambda_labs.config import LambdaCloudConfig
+from merv.brain.sandbox.execution.backends.lambda_labs.sandbox_backend import (
     LambdaLabsSandboxBackend,
     build_user_data,
     _sandbox_name,
 )
-from backend.execution.backends.lambda_labs.config import LambdaSandboxConfig
-from backend.execution.vm_bootstrap import MGMT_SSH_USER, REC_SCRIPT
-from backend.execution.vm_ssh import TRANSCRIPT_TAIL_DEFAULT
-from backend.sandbox.sandbox_backend import BackendUnavailableError, BackendValidationError
-from backend.sandbox.sandbox_backend import SandboxRequest, TranscriptTail
+from merv.brain.sandbox.execution.backends.lambda_labs.config import LambdaSandboxConfig
+from merv.brain.sandbox.execution.vm_bootstrap import MGMT_SSH_USER, REC_SCRIPT
+from merv.brain.sandbox.execution.vm_ssh import TRANSCRIPT_TAIL_DEFAULT
+from merv.brain.sandbox.sandbox_backend import BackendUnavailableError, BackendValidationError
+from merv.brain.sandbox.sandbox_backend import SandboxRequest, TranscriptTail
 
 
 INSTANCE_TYPES = {

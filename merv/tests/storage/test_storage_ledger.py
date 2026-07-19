@@ -9,9 +9,9 @@ from urllib.parse import urlsplit
 from urllib.request import url2pathname
 
 from tests.fakes import FakeObjectStore
-from backend.state.store import StateStore
-from backend.storage.service import STORAGE_DEFAULT_TTL_SECONDS, StorageLedgerService
-from backend.utils import NotFoundError, ValidationError, parse_iso
+from merv.brain.kernel.state.store import StateStore
+from merv.brain.object_storage.service import STORAGE_DEFAULT_TTL_SECONDS, StorageLedgerService
+from merv.brain.kernel.utils import NotFoundError, ValidationError, parse_iso
 
 
 class StorageLedgerServiceTest(unittest.TestCase):

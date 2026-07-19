@@ -9,11 +9,11 @@ from unittest.mock import patch
 from fastapi.testclient import TestClient
 
 from tests.support.brain import TestBrain
-from backend.mlflow import CentralMlflowService
-from backend.transport.http_api import ResearchHttpApi, create_fastapi_app
-from backend.execution.backends.fake import FakeSandboxBackend
-from backend.utils import ContentUnavailableError
-from mcp_server.time_utils import now_iso
+from merv.brain.mlflow import CentralMlflowService
+from merv.brain.transport.http_api import ResearchHttpApi, create_fastapi_app
+from merv.brain.sandbox.execution.backends.fake import FakeSandboxBackend
+from merv.brain.kernel.utils import ContentUnavailableError
+from merv.proxy.time_utils import now_iso
 
 
 _NO_RESOURCE_MUTATION = object()
@@ -333,7 +333,7 @@ class ResearchPluginHttpApiTest(unittest.TestCase):
         self.configure_mlflow(mlflow)
 
         url = f"/api/projects/{project_id}/experiments/{exp_id}/results/metrics"
-        with patch("backend.mlflow.tracking.snapshot_mlflow", return_value=None):
+        with patch("merv.brain.mlflow.tracking.snapshot_mlflow", return_value=None):
             empty = self.request("GET", url)
         self.assertFalse(empty["available"])
         self.assertIn("hint", empty)
@@ -358,13 +358,13 @@ class ResearchPluginHttpApiTest(unittest.TestCase):
                 }
             ],
         }
-        with patch("backend.mlflow.tracking.snapshot_mlflow", return_value=snapshot):
+        with patch("merv.brain.mlflow.tracking.snapshot_mlflow", return_value=snapshot):
             live = self.request("GET", url)
         self.assertTrue(live["available"])
         self.assertNotIn("base_url", live)
 
         self.request("POST", f"/api/projects/{project_id}/experiments/{exp_id}/sandbox/release")
-        with patch("backend.mlflow.tracking.snapshot_mlflow", return_value=snapshot):
+        with patch("merv.brain.mlflow.tracking.snapshot_mlflow", return_value=snapshot):
             durable = self.request("GET", url)
         self.assertTrue(durable["available"])
         run = durable["experiments"][0]["runs"][0]
@@ -418,7 +418,7 @@ class ResearchPluginHttpApiTest(unittest.TestCase):
         ]
         with (
             patch(
-                "backend.mlflow.tracking.snapshot_mlflow", return_value=snapshot
+                "merv.brain.mlflow.tracking.snapshot_mlflow", return_value=snapshot
             ) as snapshot_read,
             patch.object(
                 self.app.mlflow_tracking,
@@ -1535,7 +1535,7 @@ class ResourceRelFileTest(unittest.TestCase):
 
 class FigureViewTest(unittest.TestCase):
     def test_resource_fanout_rolls_up_past_cap(self) -> None:
-        from backend.artifacts.figure_view import RESOURCE_FANOUT_CAP, build_experiment_figure
+        from merv.brain.artifacts.figure_view import RESOURCE_FANOUT_CAP, build_experiment_figure
 
         experiment = {
             "id": "exp_x",

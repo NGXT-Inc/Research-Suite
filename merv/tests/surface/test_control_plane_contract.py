@@ -26,12 +26,12 @@ from urllib import error as urllib_error
 from urllib.request import Request, urlopen
 
 from tests.support.brain import DEFAULT_PUBLIC_KEY, TestBrain
-from backend.control.control_client import HttpControlPlaneClient
-from backend.execution.backends.fake import FakeSandboxBackend
-from backend.tools.contracts import DATA_PLANE_TOOL_NAMES
-from backend.transport.http_server import make_http_server
-from backend.utils import NotFoundError, ValidationError
-from mcp_server.local_data_plane import LocalDataPlane, LocalDataPlaneError
+from merv.brain.control.control_client import HttpControlPlaneClient
+from merv.brain.sandbox.execution.backends.fake import FakeSandboxBackend
+from merv.brain.tools.contracts import DATA_PLANE_TOOL_NAMES
+from merv.brain.transport.http_server import make_http_server
+from merv.brain.kernel.utils import NotFoundError, ValidationError
+from merv.proxy.local_data_plane import LocalDataPlane, LocalDataPlaneError
 
 # Artifact bodies that satisfy the gate lints (plan spine, report spine,
 # graph envelope), so the loop exercises gates as passes.

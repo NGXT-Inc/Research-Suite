@@ -42,7 +42,7 @@ EOF
   exit 1
 fi
 
-export PYTHONPATH="$PLUGIN_DIR${PYTHONPATH:+:$PYTHONPATH}"
+export PYTHONPATH="$PLUGIN_DIR/src${PYTHONPATH:+:$PYTHONPATH}"
 
 # Provider/HF credential resolution. Secrets must live OUTSIDE the plugin tree
 # so they are never copied into a Claude Code install cache or accidentally
@@ -70,4 +70,4 @@ if [[ -z "${MERV_LAMBDA_ENV_FILE:-${RESEARCH_PLUGIN_LAMBDA_ENV_FILE:-}}" \
   done
 fi
 
-exec "$PYTHON_BIN" -m backend.transport.http_server "$@"
+exec "$PYTHON_BIN" -m merv.brain.transport.http_server "$@"

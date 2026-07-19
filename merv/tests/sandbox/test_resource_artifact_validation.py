@@ -4,7 +4,7 @@ import tempfile
 import unittest
 from pathlib import Path
 
-from backend.dataplane.resource_validation import validate_local_resource_artifact
+from merv.brain.dataplane.resource_validation import validate_local_resource_artifact
 
 
 VALID_PLAN = (

@@ -2,14 +2,14 @@ from __future__ import annotations
 
 import unittest
 
-from backend.domain.review_gates import (
+from merv.brain.research_core.domain.review_gates import (
     REVIEW_GATE_EXEMPT_ROLES,
     REVIEW_GATE_ROLES,
     expected_review_gate_role,
     is_review_gate_exempt,
 )
-from backend.domain.reflection_gates import REFLECTION_GATE_TABLE
-from backend.domain.workflow_gates import GATE_TABLE
+from merv.brain.research_core.domain.reflection_gates import REFLECTION_GATE_TABLE
+from merv.brain.research_core.domain.workflow_gates import GATE_TABLE
 
 
 def _review_roles_from_gate_tables() -> dict[tuple[str, str], str]:

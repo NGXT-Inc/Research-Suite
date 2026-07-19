@@ -5,16 +5,16 @@ from __future__ import annotations
 import unittest
 from unittest.mock import patch
 
-from backend.execution.backends.hyperstack.catalog import to_agent_options
-from backend.execution.backends.hyperstack.config import (
+from merv.brain.sandbox.execution.backends.hyperstack.catalog import to_agent_options
+from merv.brain.sandbox.execution.backends.hyperstack.config import (
     HyperstackCloudConfig,
     HyperstackSandboxConfig,
 )
-from backend.execution.backends.hyperstack.sandbox_backend import (
+from merv.brain.sandbox.execution.backends.hyperstack.sandbox_backend import (
     SSH_INGRESS_RULES,
     HyperstackSandboxBackend,
 )
-from backend.sandbox.sandbox_backend import (
+from merv.brain.sandbox.sandbox_backend import (
     BackendUnavailableError,
     BackendValidationError,
     CapacityUnavailableError,

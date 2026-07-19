@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import unittest
 
-from backend.domain.review_returns import (
+from merv.brain.research_core.domain.review_returns import (
     REVIEW_RETURN_RULES,
     resolve_review_return,
 )

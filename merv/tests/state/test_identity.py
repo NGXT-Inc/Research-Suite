@@ -2,9 +2,9 @@ from __future__ import annotations
 
 import unittest
 
-from backend.config import ALLOWED_ORIGINS_ENV_VAR, resolve_allowed_origins
-from backend.services.identity import LOCAL_PRINCIPAL, Principal
-from backend.utils import ValidationError
+from merv.brain.config import ALLOWED_ORIGINS_ENV_VAR, resolve_allowed_origins
+from merv.brain.services.identity import LOCAL_PRINCIPAL, Principal
+from merv.brain.kernel.utils import ValidationError
 
 
 class IdentityConfigTest(unittest.TestCase):

@@ -22,22 +22,22 @@ from pathlib import Path
 from typing import get_type_hints
 
 from tests.support.brain import TestBrain
-from backend.control.control_runtime import ControlSandboxWorker, ControlTaskChannel
-from backend.execution.backends.fake import FakeSandboxBackend
-from backend.services.sandbox.sandbox_daemons import SandboxDaemons
-from backend.services.sandbox.sandbox_heartbeat import (
+from merv.brain.control.control_runtime import ControlSandboxWorker, ControlTaskChannel
+from merv.brain.sandbox.execution.backends.fake import FakeSandboxBackend
+from merv.brain.sandbox.sandbox_daemons import SandboxDaemons
+from merv.brain.sandbox.sandbox_heartbeat import (
     SandboxHeartbeatMonitor,
     SandboxIdlePolicy,
 )
-from backend.services.sandbox.sandbox_lifecycle import SandboxLifecycle
-from backend.services.sandbox.sandbox_metrics import SandboxMetrics
-from backend.services.sandbox.sandbox_provisioner import SandboxProvisioner
-from backend.services.sandbox.sandbox_registry import SandboxRegistry
-from backend.services.sandbox.sandboxes import SandboxService
-from backend.utils import ValidationError
-from tests.paths import SERVICES_ROOT
+from merv.brain.sandbox.sandbox_lifecycle import SandboxLifecycle
+from merv.brain.sandbox.sandbox_metrics import SandboxMetrics
+from merv.brain.sandbox.sandbox_provisioner import SandboxProvisioner
+from merv.brain.sandbox.sandbox_registry import SandboxRegistry
+from merv.brain.sandbox.sandboxes import SandboxService
+from merv.brain.kernel.utils import ValidationError
+from tests.paths import BACKEND_ROOT, IMPORT_ROOT
 
-FACADE = SERVICES_ROOT / "sandbox" / "sandboxes.py"
+FACADE = BACKEND_ROOT / "sandbox" / "sandboxes.py"
 
 
 def _import_modules(path: Path) -> set[str]:
@@ -235,17 +235,17 @@ class SandboxDecompositionTest(unittest.TestCase):
     def test_facade_import_does_not_load_data_plane_task_machinery(self) -> None:
         code = """
 import sys
-import backend.services.sandbox.sandboxes
+import merv.brain.sandbox.sandboxes
 for name in (
-    "backend.dataplane.tasks",
-	    "backend.dataplane.worker",
-	    "backend.workspace",
+    "merv.brain.dataplane.tasks",
+	    "merv.brain.dataplane.worker",
+	    "merv.brain.workspace",
 ):
     if name in sys.modules:
         raise SystemExit(f"{name} loaded")
 """
         env = dict(os.environ)
-        env["PYTHONPATH"] = str(FACADE.parents[3])
+        env["PYTHONPATH"] = str(IMPORT_ROOT)
         subprocess.run([sys.executable, "-c", code], check=True, env=env)
 
     def test_service_type_hints_resolve_without_data_plane_worker(self) -> None:

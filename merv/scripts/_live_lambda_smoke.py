@@ -20,15 +20,15 @@ import time
 from pathlib import Path
 
 # Make the merv package root importable when run as a bare script.
-sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
+sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "src"))
 
 # Test-only: point the remote workspace at /home/ubuntu (exists at boot).
 os.environ.setdefault("MERV_LAMBDA_WORKDIR", "/home/ubuntu/rp_synced")
 os.environ.setdefault("MERV_LAMBDA_DATA_DIR", "/home/ubuntu/rp_unsynced")
 
-from backend.app import ResearchPluginApp
-from backend.execution.backends.lambda_labs.config import load_lambda_env_file
-from backend.execution.backends.lambda_labs import LambdaCloudClient
+from merv.brain.app import ResearchPluginApp
+from merv.brain.sandbox.execution.backends.lambda_labs.config import load_lambda_env_file
+from merv.brain.sandbox.execution.backends.lambda_labs import LambdaCloudClient
 
 load_lambda_env_file()
 

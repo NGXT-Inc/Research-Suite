@@ -6,8 +6,8 @@ import unittest
 from pathlib import Path
 from unittest.mock import patch
 
-from backend.ssh_keys import ensure_ed25519_keypair
-from backend.utils import ValidationError
+from merv.brain.sandbox.ssh_keys import ensure_ed25519_keypair
+from merv.brain.kernel.utils import ValidationError
 
 
 class SshKeysTest(unittest.TestCase):
@@ -26,7 +26,7 @@ class SshKeysTest(unittest.TestCase):
             "ssh-ed25519 AAAAexisting\n", encoding="utf-8"
         )
 
-        with patch("backend.ssh_keys.subprocess.run") as run:
+        with patch("merv.brain.sandbox.ssh_keys.subprocess.run") as run:
             public_key = ensure_ed25519_keypair(
                 key_path=self.key_path,
                 comment="merv-exp_1",
@@ -48,7 +48,7 @@ class SshKeysTest(unittest.TestCase):
             )
             return subprocess.CompletedProcess(cmd, 0)
 
-        with patch("backend.ssh_keys.subprocess.run", side_effect=fake_run):
+        with patch("merv.brain.sandbox.ssh_keys.subprocess.run", side_effect=fake_run):
             public_key = ensure_ed25519_keypair(
                 key_path=self.key_path,
                 comment="merv-exp_1",
@@ -61,7 +61,7 @@ class SshKeysTest(unittest.TestCase):
 
     def test_missing_ssh_keygen_maps_to_validation_error(self) -> None:
         with patch(
-            "backend.ssh_keys.subprocess.run", side_effect=FileNotFoundError()
+            "merv.brain.sandbox.ssh_keys.subprocess.run", side_effect=FileNotFoundError()
         ):
             with self.assertRaisesRegex(
                 ValidationError,
@@ -78,7 +78,7 @@ class SshKeysTest(unittest.TestCase):
         failure = subprocess.CalledProcessError(
             1, ["ssh-keygen"], stderr="denied"
         )
-        with patch("backend.ssh_keys.subprocess.run", side_effect=failure):
+        with patch("merv.brain.sandbox.ssh_keys.subprocess.run", side_effect=failure):
             with self.assertRaisesRegex(
                 ValidationError,
                 "failed to generate sandbox SSH key: denied",

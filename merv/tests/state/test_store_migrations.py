@@ -6,7 +6,7 @@ import unittest
 from pathlib import Path
 
 from tests.support.brain import TestBrain
-from backend.state.store import MIGRATIONS, StateStore
+from merv.brain.kernel.state.store import MIGRATIONS, StateStore
 
 
 OLD_SCHEMA = """

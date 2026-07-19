@@ -1,0 +1,11 @@
+# Bulk mechanical commits excluded from git blame: the backend restructure
+# tranches (pure moves that make the tree match the module map, see
+# merv/docs/RESTRUCTURE_MAP.md while it exists). Each tranche appends its
+# move-commit sha below. Enable once per clone with:
+#   git config blame.ignoreRevsFile .git-blame-ignore-revs
+
+# T1: feed module -> backend/feed/
+6e908db78661f5b05ac753f72690e66243102bf4
+
+# Phase 2 integration: re-root at src/merv/ + de-shim to final paths
+20c6130ed21c39790d8c285204ca20aaeba23159

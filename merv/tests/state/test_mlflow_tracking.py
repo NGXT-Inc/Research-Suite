@@ -7,11 +7,11 @@ import unittest
 from pathlib import Path
 from unittest.mock import MagicMock, patch
 
-from backend.mlflow.config import resolve_mlflow_mode
-from backend.mlflow.local_server import LocalMlflowServer
-from backend.mlflow.metrics import MlflowSnapshotError
-from backend.mlflow.tracking import CentralMlflowService
-from backend.utils import ValidationError
+from merv.brain.mlflow.config import resolve_mlflow_mode
+from merv.brain.mlflow.local_server import LocalMlflowServer
+from merv.brain.mlflow.metrics import MlflowSnapshotError
+from merv.brain.mlflow.tracking import CentralMlflowService
+from merv.brain.kernel.utils import ValidationError
 
 
 class _JsonResponse:
@@ -224,7 +224,7 @@ class MlflowTrackingServiceTest(unittest.TestCase):
             "experiments": [{"name": "merv/proj_123/exp_456", "runs": []}],
         }
         with patch(
-            "backend.mlflow.tracking.snapshot_mlflow",
+            "merv.brain.mlflow.tracking.snapshot_mlflow",
             return_value=snapshot,
         ) as snapshot_mlflow:
             metrics = service.results_metrics(
@@ -246,10 +246,10 @@ class MlflowTrackingServiceTest(unittest.TestCase):
 
     def test_results_metrics_distinguishes_unreachable_from_no_runs(self) -> None:
         service = CentralMlflowService(server_uri="http://mlflow:5000")
-        with patch("backend.mlflow.tracking.snapshot_mlflow", return_value=None):
+        with patch("merv.brain.mlflow.tracking.snapshot_mlflow", return_value=None):
             empty = service.results_metrics(project_id="proj", experiment_id="exp")
         with patch(
-            "backend.mlflow.tracking.snapshot_mlflow",
+            "merv.brain.mlflow.tracking.snapshot_mlflow",
             side_effect=MlflowSnapshotError("down"),
         ):
             unreachable = service.results_metrics(
@@ -267,7 +267,7 @@ class MlflowTrackingServiceTest(unittest.TestCase):
             dashboard_url="https://mlflow.test",
         )
         with patch(
-            "backend.mlflow.tracking.search_mlflow_experiments",
+            "merv.brain.mlflow.tracking.search_mlflow_experiments",
             return_value=[
                 {"name": "merv/proj/exp", "experiment_id": "7"},
                 {"name": "merv/proj/stray", "experiment_id": "8"},
@@ -294,8 +294,8 @@ class MlflowTrackingServiceTest(unittest.TestCase):
         client = _RunCreateClient()
 
         with (
-            patch("backend.mlflow.tracking.httpx.Client", return_value=client),
-            patch("backend.mlflow.tracking.time.time", return_value=1234.0),
+            patch("merv.brain.mlflow.tracking.httpx.Client", return_value=client),
+            patch("merv.brain.mlflow.tracking.time.time", return_value=1234.0),
         ):
             run = service.create_run(
                 project_id="proj_123",
@@ -354,9 +354,9 @@ class MlflowTrackingServiceTest(unittest.TestCase):
         client = _FinalizeRunClient(["RUNNING", "RUNNING", "FINISHED"])
 
         with (
-            patch("backend.mlflow.tracking.httpx.Client", return_value=client),
-            patch("backend.mlflow.tracking.time.time", return_value=2000.0),
-            patch("backend.mlflow.tracking.time.sleep") as sleep,
+            patch("merv.brain.mlflow.tracking.httpx.Client", return_value=client),
+            patch("merv.brain.mlflow.tracking.time.time", return_value=2000.0),
+            patch("merv.brain.mlflow.tracking.time.sleep") as sleep,
         ):
             result = service.finalize_run(
                 project_id="proj_123",
@@ -396,8 +396,8 @@ class MlflowTrackingServiceTest(unittest.TestCase):
         client = _FinalizeRunClient(["RUNNING", "FINISHED"], update_status_code=500)
 
         with (
-            patch("backend.mlflow.tracking.httpx.Client", return_value=client),
-            patch("backend.mlflow.tracking.time.time", return_value=2000.0),
+            patch("merv.brain.mlflow.tracking.httpx.Client", return_value=client),
+            patch("merv.brain.mlflow.tracking.time.time", return_value=2000.0),
         ):
             result = service.finalize_run(
                 project_id="proj_123",
@@ -420,8 +420,8 @@ class MlflowTrackingServiceTest(unittest.TestCase):
         client = _FinalizeRunClient(["RUNNING", "RUNNING", "FINISHED"])
 
         with (
-            patch("backend.mlflow.tracking.httpx.Client", return_value=client),
-            patch("backend.mlflow.tracking.time.sleep"),
+            patch("merv.brain.mlflow.tracking.httpx.Client", return_value=client),
+            patch("merv.brain.mlflow.tracking.time.sleep"),
         ):
             result = service.finalize_run(
                 project_id="proj_123",
@@ -446,7 +446,7 @@ class MlflowTrackingServiceTest(unittest.TestCase):
         )
         client = _FinalizeRunClient(["FAILED", "FAILED"])
 
-        with patch("backend.mlflow.tracking.httpx.Client", return_value=client):
+        with patch("merv.brain.mlflow.tracking.httpx.Client", return_value=client):
             result = service.finalize_run(
                 project_id="proj_123",
                 experiment_id="exp_456",
@@ -480,7 +480,7 @@ class MlflowTrackingServiceTest(unittest.TestCase):
                 raise RuntimeError(f"connect failed for {url}")
 
         with patch(
-            "backend.mlflow.tracking.httpx.Client", return_value=_ExplodingClient()
+            "merv.brain.mlflow.tracking.httpx.Client", return_value=_ExplodingClient()
         ):
             result = service.finalize_run(
                 project_id="proj_123",
@@ -501,7 +501,7 @@ class LocalMlflowServerTest(unittest.TestCase):
             "RESEARCH_PLUGIN_MLFLOW_TRACKING_URI": "http://mlflow.example.test",
         }
         with tempfile.TemporaryDirectory() as tmp, patch.dict(os.environ, env, clear=True):
-            with patch("backend.mlflow.local_server.subprocess.Popen") as popen:
+            with patch("merv.brain.mlflow.local_server.subprocess.Popen") as popen:
                 service = LocalMlflowServer(root=Path(tmp)).start()
 
         popen.assert_not_called()
@@ -516,8 +516,8 @@ class LocalMlflowServerTest(unittest.TestCase):
             with (
                 patch.object(LocalMlflowServer, "_choose_port", return_value=5678),
                 patch.object(LocalMlflowServer, "_wait_until_ready", return_value=True),
-                patch("backend.mlflow.local_server.subprocess.Popen", return_value=process) as popen,
-                patch("backend.mlflow.local_server.os.killpg") as killpg,
+                patch("merv.brain.mlflow.local_server.subprocess.Popen", return_value=process) as popen,
+                patch("merv.brain.mlflow.local_server.os.killpg") as killpg,
             ):
                 server = LocalMlflowServer(root=Path(tmp))
                 service = server.start()
@@ -537,7 +537,7 @@ class LocalMlflowServerTest(unittest.TestCase):
         with tempfile.TemporaryDirectory() as tmp, patch.dict(os.environ, {}, clear=True):
             with (
                 patch.object(LocalMlflowServer, "_choose_port", return_value=5678),
-                patch("backend.mlflow.local_server.subprocess.Popen", return_value=process),
+                patch("merv.brain.mlflow.local_server.subprocess.Popen", return_value=process),
             ):
                 service = LocalMlflowServer(root=Path(tmp)).start()
 

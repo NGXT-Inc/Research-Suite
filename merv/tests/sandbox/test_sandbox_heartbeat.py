@@ -9,10 +9,10 @@ from types import SimpleNamespace
 from unittest.mock import patch
 
 from tests.support.brain import TestBrain
-from backend.execution.backends.fake import FakeSandboxBackend
-from backend.services.sandbox.sandbox_daemons import SandboxDaemons
-from backend.services.sandbox.sandbox_heartbeat import SandboxActivityPolicy, SandboxIdlePolicy
-from backend.utils import format_iso
+from merv.brain.sandbox.execution.backends.fake import FakeSandboxBackend
+from merv.brain.sandbox.sandbox_daemons import SandboxDaemons
+from merv.brain.sandbox.sandbox_heartbeat import SandboxActivityPolicy, SandboxIdlePolicy
+from merv.brain.kernel.utils import format_iso
 
 
 def _sample(

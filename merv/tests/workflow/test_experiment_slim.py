@@ -9,7 +9,7 @@ import unittest
 from pathlib import Path
 
 from tests.support.brain import TestBrain
-from backend.execution.backends.fake import FakeSandboxBackend
+from merv.brain.sandbox.execution.backends.fake import FakeSandboxBackend
 
 SLIM_RESOURCE_KEYS = {"id", "association_role", "path", "kind", "size_bytes", "missing", "title"}
 WASTE_RESOURCE_KEYS = {"version_token", "mtime_ns", "current_version_id", "association_version_id",

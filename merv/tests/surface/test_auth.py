@@ -21,12 +21,12 @@ import jwt
 from fastapi.testclient import TestClient
 
 from tests.support.brain import TestBrain
-from backend.config import UI_BASE_URL_ENV_VAR, resolve_ui_base_url
-from backend.execution.backends.fake import FakeSandboxBackend
-from backend.services.auth import SupabaseVerifier, UnauthorizedError
-from backend.transport.http_api import create_fastapi_app
-from backend.transport.http_policy import HttpSurfacePolicy
-from backend.version import CLIENT_VERSION_HEADER
+from merv.brain.config import UI_BASE_URL_ENV_VAR, resolve_ui_base_url
+from merv.brain.sandbox.execution.backends.fake import FakeSandboxBackend
+from merv.brain.services.auth import SupabaseVerifier, UnauthorizedError
+from merv.brain.transport.http_api import create_fastapi_app
+from merv.brain.transport.http_policy import HttpSurfacePolicy
+from merv.brain.kernel.version import CLIENT_VERSION_HEADER
 
 SECRET = "test-jwt-secret"
 USER_A = "11111111-1111-1111-1111-111111111111"

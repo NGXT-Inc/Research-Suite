@@ -60,7 +60,7 @@ class FakeBlobStore:
     ) -> str:
         import hashlib
 
-        from backend.utils import now_iso
+        from merv.brain.kernel.utils import now_iso
 
         sha = hashlib.sha256(data).hexdigest()
         key = (namespace, sha)
@@ -81,7 +81,7 @@ class FakeBlobStore:
         return sha
 
     def get(self, *, namespace: str, sha256: str) -> bytes:
-        from backend.utils import NotFoundError
+        from merv.brain.kernel.utils import NotFoundError
 
         key = (namespace, sha256)
         if key not in self.blobs:
@@ -100,7 +100,7 @@ class FakeBlobStore:
         return {"url": path.resolve().as_uri()}
 
     def stat(self, *, namespace: str, sha256: str):
-        from backend.storage.blobs import BlobStat
+        from merv.brain.object_storage.blobs import BlobStat
 
         meta = self.meta.get((namespace, sha256))
         if meta is None:
@@ -125,7 +125,7 @@ class FakeBlobStore:
         import tempfile
         from pathlib import Path as _Path
 
-        from backend.utils import new_id
+        from merv.brain.kernel.utils import new_id
 
         if self._staging_dir is None:
             self._staging_dir = tempfile.mkdtemp(prefix="fake-blob-uploads-")
@@ -146,7 +146,7 @@ class FakeBlobStore:
         }
 
     def finalize_put(self, *, upload_id: str):
-        from backend.utils import NotFoundError, ValidationError
+        from merv.brain.kernel.utils import NotFoundError, ValidationError
 
         meta = self.uploads.pop(upload_id, None)
         if meta is None:
@@ -177,7 +177,7 @@ class FakeBlobStore:
         return stat
 
     def sweep_expired(self, *, now: str | None = None) -> int:
-        from backend.utils import now_iso
+        from merv.brain.kernel.utils import now_iso
 
         cutoff = now or now_iso()
         expired = [
@@ -216,8 +216,8 @@ class FakeObjectStore:
         import tempfile
         from pathlib import Path as _Path
 
-        from backend.storage.blobs import _validate_keys
-        from backend.utils import new_id, now_iso
+        from merv.brain.object_storage.blobs import _validate_keys
+        from merv.brain.kernel.utils import new_id, now_iso
 
         _validate_keys(namespace=namespace, sha256=sha256)
         if self._staging_dir is None:
@@ -243,8 +243,8 @@ class FakeObjectStore:
     def complete_upload(self, *, upload_id: str, parts: list[dict] | None = None):
         import hashlib
 
-        from backend.ports.object_store import ObjectStat
-        from backend.utils import NotFoundError, ValidationError, now_iso
+        from merv.brain.kernel.ports.object_store import ObjectStat
+        from merv.brain.kernel.utils import NotFoundError, ValidationError, now_iso
 
         _ = parts
         meta = self.uploads.pop(upload_id, None)
@@ -289,7 +289,7 @@ class FakeObjectStore:
         import tempfile
         from pathlib import Path as _Path
 
-        from backend.utils import NotFoundError
+        from merv.brain.kernel.utils import NotFoundError
 
         key = (namespace, sha256)
         if key not in self.objects:
@@ -301,7 +301,7 @@ class FakeObjectStore:
         return {"url": path.resolve().as_uri(), "expires_in": int(expires_in)}
 
     def stat(self, *, namespace: str, sha256: str):
-        from backend.ports.object_store import ObjectStat
+        from merv.brain.kernel.ports.object_store import ObjectStat
 
         meta = self.meta.get((namespace, sha256))
         return ObjectStat(**meta) if meta is not None else None

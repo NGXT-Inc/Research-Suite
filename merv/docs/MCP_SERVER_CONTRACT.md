@@ -1,7 +1,7 @@
 # MCP Server Contract
 
 This document describes the current agent-facing MCP architecture. The live
-schemas and descriptions generated from `backend/tools/contracts.py` are the
+schemas and descriptions generated from `src/merv/brain/tools/contracts.py` are the
 authoritative per-field contract; `tools/list` is the authoritative catalog for
 the active deployment.
 
@@ -144,7 +144,7 @@ mark_failed
 abandon
 ```
 
-The declarative table in `backend/domain/workflow_gates.py` drives enforcement,
+The declarative table in `src/merv/brain/research_core/domain/workflow_gates.py` drives enforcement,
 `allowed_transitions`, gate checklists, and `workflow.status_and_next`.
 
 - `submit_design` requires a pinned `plan` resource with the required section
