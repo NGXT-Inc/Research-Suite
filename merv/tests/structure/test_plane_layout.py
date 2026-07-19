@@ -31,15 +31,17 @@ from tests.paths import (
     BACKEND_ROOT,
     DOMAIN_ROOT,
     FEED_ROOT,
-    PLUGIN_ROOT,
+    IMPORT_ROOT,
     PORTS_ROOT,
+    PROXY_ROOT,
+    RESEARCH_CORE_ROOT,
     SERVICES_ROOT,
+    SHARED_ROOT,
 )
 
 
 # Record halves that must be servable from a cloud control plane: no local
 # processes, no conn machinery, no dataplane worker.
-RESEARCH_CORE_ROOT = BACKEND_ROOT / "research_core"
 ARTIFACTS_MODULES = tuple(sorted(ARTIFACTS_ROOT.glob("*.py")))
 DOMAIN_MODULES = tuple(sorted(DOMAIN_ROOT.glob("*.py")))
 PORT_MODULES = tuple(sorted(PORTS_ROOT.glob("*.py")))
@@ -343,8 +345,8 @@ class ToolPlanePartitionTest(unittest.TestCase):
         self.assertLessEqual(set(HTTP_DATA_PLANE_FEATURE_TO_TOOL.values()), DATA_PLANE_TOOL_NAMES)
 
     def test_proxy_local_data_plane_dispatches_contract_plane_sets(self) -> None:
-        proxy = PLUGIN_ROOT / "mcp_server" / "proxy.py"
-        local_data_plane = PLUGIN_ROOT / "mcp_server" / "local_data_plane.py"
+        proxy = PROXY_ROOT / "proxy.py"
+        local_data_plane = PROXY_ROOT / "local_data_plane.py"
         source = proxy.read_text(encoding="utf-8")
 
         self.assertIn("DATA_PLANE_TOOL_NAMES", source)
@@ -518,7 +520,7 @@ for name in (
         raise SystemExit(f"{name} loaded")
 """
         env = dict(os.environ)
-        env["PYTHONPATH"] = str(BACKEND_ROOT.parent)
+        env["PYTHONPATH"] = str(IMPORT_ROOT)
         subprocess.run([sys.executable, "-c", code], check=True, env=env)
 
     def test_dataplane_package_init_is_import_light(self) -> None:
@@ -537,7 +539,7 @@ for name in (
         raise SystemExit(f"{name} loaded")
 """
         env = dict(os.environ)
-        env["PYTHONPATH"] = str(BACKEND_ROOT.parent)
+        env["PYTHONPATH"] = str(IMPORT_ROOT)
         subprocess.run([sys.executable, "-c", code], check=True, env=env)
 
     def test_dataplane_modules_do_not_import_services(self) -> None:
@@ -623,7 +625,7 @@ for name in (
         self.assertNotIn("def register_file(", source)
         self.assertNotIn("class ResourceObserver", source)
         self.assertNotIn("class ResourceAssociationPolicy", source)
-        proxy_source = (PLUGIN_ROOT / "mcp_server" / "local_data_plane.py").read_text(
+        proxy_source = (PROXY_ROOT / "local_data_plane.py").read_text(
             encoding="utf-8"
         )
         self.assertIn('name == "resource.register"', proxy_source)
@@ -833,7 +835,7 @@ for name in (
         raise SystemExit(f"{name} loaded")
 """
         env = dict(os.environ)
-        env["PYTHONPATH"] = str(BACKEND_ROOT.parent)
+        env["PYTHONPATH"] = str(IMPORT_ROOT)
         subprocess.run([sys.executable, "-c", code], check=True, env=env)
 
 
@@ -852,9 +854,8 @@ class ProxyStdlibOnlyTest(unittest.TestCase):
     def test_mcp_server_imports_only_stdlib(self) -> None:
         import sys
 
-        plugin_root = BACKEND_ROOT.parent
-        mcp_root = plugin_root / "mcp_server"
-        shared_root = plugin_root / "research_plugin_shared"
+        mcp_root = PROXY_ROOT
+        shared_root = SHARED_ROOT
         own = (
             {p.stem for p in mcp_root.glob("*.py")}
             | {p.stem for p in shared_root.glob("*.py")}
@@ -880,9 +881,8 @@ class ProxyStdlibOnlyTest(unittest.TestCase):
         # any new dynamic target must either be pydantic-free or sit behind an
         # ImportError fallback (tests/surface/test_static_tool_catalog.py
         # drives the proxy with pydantic blocked to prove it).
-        plugin_root = BACKEND_ROOT.parent
         targets: set[str] = set()
-        for path in sorted((plugin_root / "mcp_server").glob("*.py")):
+        for path in sorted(PROXY_ROOT.glob("*.py")):
             for node in ast.walk(ast.parse(path.read_text(encoding="utf-8"))):
                 if not isinstance(node, ast.Call) or not node.args:
                     continue
@@ -907,7 +907,7 @@ class ProxyStdlibOnlyTest(unittest.TestCase):
         # The bare-python fallback for tools/list: the file must ship with the
         # tree and carry the routing fields the proxy reads. Freshness against
         # the live contracts is pinned by test_static_tool_catalog.py.
-        catalog_path = BACKEND_ROOT.parent / "mcp_server" / "_tool_catalog.json"
+        catalog_path = PROXY_ROOT / "_tool_catalog.json"
         self.assertTrue(catalog_path.is_file())
         tools = json.loads(catalog_path.read_text(encoding="utf-8"))["tools"]
         self.assertTrue(tools)
@@ -920,8 +920,7 @@ class ProxyStdlibOnlyTest(unittest.TestCase):
         # Codex may launch the stdio proxy with Apple CLT Python 3.9.
         # datetime.UTC was added in 3.11, so proxy modules must use
         # datetime.timezone.utc instead.
-        plugin_root = BACKEND_ROOT.parent
-        for path in sorted((plugin_root / "mcp_server").glob("*.py")):
+        for path in sorted(PROXY_ROOT.glob("*.py")):
             with self.subTest(module=path.name):
                 source = path.read_text(encoding="utf-8")
                 self.assertNotIn("from datetime import UTC", source)

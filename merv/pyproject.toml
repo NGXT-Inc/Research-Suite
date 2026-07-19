@@ -40,6 +40,11 @@ merv-http = "backend.transport.http_server:main"
 merv-control = "backend.transport.http_server:control_main"
 merv-client = "backend.client_cli:main"
 
+[tool.pytest.ini_options]
+# The shipped packages live under src/ (src-layout); tests import them from
+# there without an editable install.
+pythonpath = ["src"]
+
 [tool.setuptools.packages.find]
 # Discover backend + mcp_server AND their subpackages (backend.services,
 # backend.state, backend.execution.*, …). The old explicit two-package list

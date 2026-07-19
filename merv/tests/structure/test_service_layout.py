@@ -7,11 +7,11 @@ from inspect import Parameter, signature as inspect_signature
 from pathlib import Path
 from typing import Any, Protocol, get_type_hints, is_typeddict
 
-from tests.paths import ARTIFACTS_ROOT, BACKEND_ROOT, DOMAIN_ROOT, FEED_ROOT, PLUGIN_ROOT, PORTS_ROOT, SERVICES_ROOT
+from tests.paths import ARTIFACTS_ROOT, BACKEND_ROOT, DOMAIN_ROOT, FEED_ROOT, PLUGIN_ROOT, PORTS_ROOT, RESEARCH_CORE_ROOT, SERVICES_ROOT
 
 ROOT = PLUGIN_ROOT
 SERVICES = SERVICES_ROOT
-RESEARCH_CORE = BACKEND_ROOT / "research_core"
+RESEARCH_CORE = RESEARCH_CORE_ROOT
 RESEARCH_CORE_DOMAIN = RESEARCH_CORE / "domain"
 UI_SRC = PLUGIN_ROOT.parent / "research_state_ui" / "src"
 HTTP_TRANSPORT_MODULES = (
