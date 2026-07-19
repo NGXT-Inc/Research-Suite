@@ -7,41 +7,60 @@
 
 ## Tranche playbook
 
-The repeatable procedure for every tranche. T1 (feed) is the executed
-reference — read its commits when in doubt.
+The transition runs as a TWO-PHASE model executed by PARALLEL tranches.
 
-**Scope law.** A tranche is a PURE MOVE: `git mv` + import rewrites +
-test-classification updates. Filenames keep their exact names; no logic
-edits, no renames, no drive-by cleanups. The full suite must finish with
-counts byte-identical to the predecessor baseline (T1 baseline:
-1250 passed, 34 skipped, 0 failed).
+**Phase 1 — canonical move + classified compatibility shims (one tranche per
+module, all branched from the SAME base, run concurrently).** A tranche is a
+PURE MOVE of its own module's files only: `git mv` + relative-depth fixes
+INSIDE moved files + an identity-preserving shim at EVERY old path + line-
+scoped classifier/sweep updates. Filenames keep their exact names; no logic
+edits, no drive-by cleanups; consumers are NOT rewritten (the shims keep every
+old import, patch target, and lazy dotted string working unchanged). The full
+suite must finish with counts byte-identical to the shared baseline
+(1250 passed, 34 skipped, 0 failed at base 755d3e5).
 
-**Procedure.**
+**Shim pattern.** File shim: `import sys` + import the canonical module +
+`sys.modules[__name__] = _moved`. Package shim: the same, PLUS old dotted
+submodule paths must resolve to the *canonical* module objects — bare aliasing
+is NOT sufficient (loading `old_pkg.sub` through the aliased `__path__`
+re-executes the file as a second module object). The ratified mechanism is the
+sandbox tranche's lazy meta-path finder (an `(old_prefix, new_prefix)`
+resolver installed by the package shim; lazy, identity-preserving in both
+import orders, patch-safe under both spellings). Eager submodule
+pre-registration is an acceptable variant only for small, cheap-to-import
+packages. Every shim carries a "deleted at de-shim" marker comment. Shims KEEP
+their legacy classifier entries until de-shim (shim→canonical is a same-module
+edge, always legal).
 
-1. Branch `restructure-tN` from local main; verify the previous tranche's
-   merge is in `git log` before starting.
-2. `git mv` the tranche's files per the map below. A new module package gets
-   an `__init__.py` containing only a one-line docstring (the deliberately
-   import-free shell convention of `services/__init__.py`).
-3. Rewrite every import site. Search `merv/backend`, `merv/mcp_server`,
-   `merv/tests`, `merv/scripts` for each old path in ALL its forms:
-   absolute (`backend.services.feed`), relative (`..domain.feed_policy`),
-   and **bare dotted strings** — `mock.patch("backend....")` targets and the
-   `_import_attr("backend....")` lazy imports in `mcp_server/local_data_plane.py`
-   never show up in an `import`-shaped grep. Same-depth moves
-   (`backend/a/x.py` → `backend/b/x.py`) keep `..` imports valid — only
-   intra-module imports flip to `.` siblings.
-4. Ratchet the classifier (see "Ratchet mixed-state pattern" below).
-5. Reclassify package-scoped test sweeps (see "Sweep coverage rule" below).
-   Add a `<MODULE>_ROOT` constant to `tests/paths.py` when tests need the new
-   package root.
-6. Verify: `cd merv && python3 -m pytest -q` — identical counts, zero
-   failures. `mcp_server/_tool_catalog.json` must be untouched unless the
-   tranche moved contract text (it should not).
-7. Append the move commit's sha to `/.git-blame-ignore-revs` (tiny follow-up
-   commit), so `git blame` skips the mechanical churn.
-8. Commit messages end with the standard `Co-Authored-By: Claude Fable 5`
-   trailer.
+**Phase 2 — integration/de-shim (one coordinated pass after all tranches
+merge).** Rewrite every consumer to canonical paths using the per-tranche
+review inventories, delete all shims, drop the legacy classifier
+entries/prefixes, collapse multi-root test sweeps to end-state scopes, and
+restore any pinned names the shims preserved (e.g. the `backend.env` logger
+pin reverts to `__name__` together with its assertLogs tests).
+
+**Per-tranche mechanics.** (1) Branch `restructure-tN-<module>` from the
+shared base — parallel tranches do NOT wait for each other; disjoint file
+ownership is the law (own module's files + line-scoped classifier/sweep edits
+only; do not reformat shared tables). (2) Old paths that belong to sibling
+modules stay old (their shims cover them) — only recompute relative dot-depth
+against the new location; intra-module imports flip to `.` siblings.
+(3) Bare dotted strings — `mock.patch("backend....")` targets and the
+`_import_attr("backend....")` lazy imports in `mcp_server/local_data_plane.py`
+— never show up in an `import`-shaped grep; with shims they keep working, but
+they belong in the tranche's reported de-shim inventory. (4) Append the move
+commit's sha to `/.git-blame-ignore-revs` (the orchestrator consolidates
+shas from parallel branches). (5) Commit messages end with the standard
+`Co-Authored-By: Claude Fable 5` trailer.
+
+**Verification bar.** Per tranche: `cd merv && python3 -m pytest -q` with
+byte-identical counts, PLUS identity smoke checks — for every shimmed module
+(including dotted submodules) assert old-name `is` new-name in BOTH import
+orders. Suite counts alone cannot detect a duplicated module object.
+`mcp_server/_tool_catalog.json` must be byte-untouched. At integration
+additionally: build a wheel, install into a clean environment, import every
+entry point, and run the suite from the installed package — source-checkout
+tests have previously missed packaging failures.
 
 **Ratchet mixed-state pattern.** `FILE_MODULES` (file-exact, wins) +
 `PACKAGE_MODULES` (deepest-prefix wins) classify every backend file exactly
@@ -68,9 +87,13 @@ discipline); do NOT extend consumer-specific lints (e.g. the sandbox-backend
 contract sweeps) to modules that never touch that contract. The final tranche
 collapses these multi-root sweeps to their end-state scopes.
 
-**Final tranche additionally:** delete this file, do the docs path sweep
-(`MODULE_BOUNDARIES.md` module→package table is updated per-tranche; the rest
-of `docs/` at the end), and sweep test method names that went stale (e.g.
+**Final tranche additionally:** delete this file, and run the FULL-TREE
+sweep: `git grep` EVERY tracked file (not just backend/mcp_server/tests/
+scripts — also pyproject.toml and packaging metadata, deploy/, bin/, clients/,
+agents/, skills/, docs/, .mcp*.json and other manifests, research_state_ui
+comments) for every old path in BOTH dotted (`backend.services.feed`) and
+slash (`backend/services/feed`) forms; zero hits outside deliberate history
+notes. Sweep stale test method names (e.g.
 `test_feed_policy_is_domain_leaf_module` — the "domain" is historical).
 
 ## Move map
@@ -211,7 +234,7 @@ are `merv/backend`-relative unless prefixed `merv/`.
 - `backend/sandbox/sandbox_backend.py` → *(stays)*
 - `backend/sandbox/sandbox_support.py` → *(stays)*
 - `backend/services/quotas.py` → `backend/sandbox/quotas.py`
-- `backend/services/sandbox/__init__.py` → `backend/sandbox/__init__.py`
+- `backend/services/sandbox/__init__.py` → *(becomes the transitional package shim; deleted at de-shim — `backend/sandbox/__init__.py` already exists)*
 - `backend/services/sandbox/sandbox_daemons.py` → `backend/sandbox/sandbox_daemons.py`
 - `backend/services/sandbox/sandbox_heartbeat.py` → `backend/sandbox/sandbox_heartbeat.py`
 - `backend/services/sandbox/sandbox_lifecycle.py` → `backend/sandbox/sandbox_lifecycle.py`
