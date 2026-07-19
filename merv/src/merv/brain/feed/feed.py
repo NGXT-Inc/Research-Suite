@@ -153,34 +153,17 @@ class FeedService:
         # failed ALTER aborts the whole transaction on Postgres) and failure
         # means the column already exists — both dialects lack a portable
         # IF NOT EXISTS for columns.
-        try:
-            with self.store.transaction() as conn:
-                conn.execute(
-                    "ALTER TABLE posts ADD COLUMN kind TEXT NOT NULL DEFAULT ''"
-                )
-        except Exception:  # noqa: BLE001
-            pass
-        try:
-            with self.store.transaction() as conn:
-                conn.execute(
-                    "ALTER TABLE posts ADD COLUMN in_reply_to TEXT NOT NULL DEFAULT ''"
-                )
-        except Exception:  # noqa: BLE001
-            pass
-        try:
-            with self.store.transaction() as conn:
-                conn.execute(
-                    "ALTER TABLE posts ADD COLUMN embed_sha256 TEXT NOT NULL DEFAULT ''"
-                )
-        except Exception:  # noqa: BLE001
-            pass
-        try:
-            with self.store.transaction() as conn:
-                conn.execute(
-                    "ALTER TABLE posts ADD COLUMN embed_content_type TEXT NOT NULL DEFAULT ''"
-                )
-        except Exception:  # noqa: BLE001
-            pass
+        for statement in (
+            "ALTER TABLE posts ADD COLUMN kind TEXT NOT NULL DEFAULT ''",
+            "ALTER TABLE posts ADD COLUMN in_reply_to TEXT NOT NULL DEFAULT ''",
+            "ALTER TABLE posts ADD COLUMN embed_sha256 TEXT NOT NULL DEFAULT ''",
+            "ALTER TABLE posts ADD COLUMN embed_content_type TEXT NOT NULL DEFAULT ''",
+        ):
+            try:
+                with self.store.transaction() as conn:
+                    conn.execute(statement)
+            except Exception:  # noqa: BLE001
+                pass
 
     # -- identity -----------------------------------------------------------
 
