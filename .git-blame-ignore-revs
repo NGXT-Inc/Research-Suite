@@ -6,3 +6,6 @@
 
 # T1: feed module -> backend/feed/
 6e908db78661f5b05ac753f72690e66243102bf4
+
+# Phase 2 integration: re-root at src/merv/ + de-shim to final paths
+20c6130ed21c39790d8c285204ca20aaeba23159
