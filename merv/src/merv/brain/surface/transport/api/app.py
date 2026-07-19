@@ -57,9 +57,6 @@ def create_fastapi_app(
     )
     api = ResearchHttpApi(app=app)
 
-    def api_for_project(project_id: str) -> ResearchHttpApi:
-        return api
-
     def route_call_tool(
         *,
         name: str,
@@ -362,7 +359,7 @@ def create_fastapi_app(
             project_id=project_id, user_id=user_id
         ):
             raise NotFoundError(f"project not found: {project_id}")
-        return api_for_project(project_id).app
+        return api.app
 
     if auth is not None:
         # Browser-handoff login for CLI/proxy clients (merv-client login).
@@ -392,10 +389,7 @@ def create_fastapi_app(
     ctx = ApiRouteContext(
         api=api,
         surface=surface,
-        cleanup=cleanup,
-        api_for_project=api_for_project,
         route_call_tool=route_call_tool,
-        app_for_data_plane_project=app_for_data_plane_project,
         auth_meta=auth.meta() if auth is not None else None,
     )
     for build in (

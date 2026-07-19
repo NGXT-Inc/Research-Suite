@@ -4,14 +4,9 @@ from __future__ import annotations
 
 from typing import Any
 
-from fastapi import APIRouter, Body, Query, Request
-from fastapi.responses import Response, StreamingResponse
+from fastapi import APIRouter
 
-from .... import __version__
-from ...identity import LOCAL_PRINCIPAL
-from ....kernel.utils import NotFoundError, ValidationError
-from ....kernel.version import meta
-from .shared import JsonBody, conditional_json
+from ....kernel.utils import NotFoundError
 
 from .context import ApiRouteContext
 
@@ -19,11 +14,8 @@ from .context import ApiRouteContext
 def build_router(ctx: ApiRouteContext) -> APIRouter:
     api_router = APIRouter()
     api = ctx.api
-    surface = ctx.surface
-    api_for_project = ctx.api_for_project
-    route_call_tool = ctx.route_call_tool
     def storage_for_project(project_id: str) -> Any:
-        storage = api_for_project(project_id).app.storage
+        storage = api.app.storage
         if storage is None:
             raise NotFoundError("storage is not enabled on this backend")
         return storage

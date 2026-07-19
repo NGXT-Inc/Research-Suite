@@ -350,12 +350,12 @@ class ResearchHttpApi:
         # living file).
         if version:
             return self._resource_content_at_version(
-                project_id=project_id, resource=resource, version_id=version
+                resource=resource, version_id=version
             )
         # Gated-role artifacts render their submitted bytes (the content the
         # gates lint and reviewers grade). Other roles are metadata-only here;
         # raw file reads live in the local MCP proxy.
-        pinned = self._pinned_gated_text(project_id=project_id, resource=resource)
+        pinned = self._pinned_gated_text(resource=resource)
         if pinned is not None:
             text, version_id = pinned
             return {
@@ -382,7 +382,7 @@ class ResearchHttpApi:
         }
 
     def _resource_content_at_version(
-        self, *, project_id: str, resource: dict[str, Any], version_id: str
+        self, *, resource: dict[str, Any], version_id: str
     ) -> dict[str, Any]:
         """Serve the exact submitted bytes of one pinned resource version.
 
@@ -444,9 +444,7 @@ class ResearchHttpApi:
                 best = (attempt, str(version_id))
         return best[1] if best else None
 
-    def _pinned_gated_text(
-        self, *, project_id: str, resource: dict[str, Any]
-    ) -> tuple[str, str] | None:
+    def _pinned_gated_text(self, *, resource: dict[str, Any]) -> tuple[str, str] | None:
         """The latest submitted bytes for a gated-role resource (decoded) plus
         the version id they came from, or None when the resource has no gated
         association (the caller then reads the live file).
