@@ -274,7 +274,7 @@ class ReflectionService:
                 review["findings"] = json.loads(review.pop("findings_json", "[]"))
                 review["evidence"] = json.loads(review.pop("evidence_json", "{}"))
             data["reviews"] = reviews
-            data["reflection_coverage"] = self._reflection_coverage(reflection=data)
+            data["reflection_coverage"] = reflection_coverage_for(reflection=data)
             data["project_graph_diff"] = self._project_graph_diff(
                 conn=conn, reflection=data
             )
@@ -512,15 +512,6 @@ class ReflectionService:
             return None, [f"{what}: {problem}" for problem in problems]
         data = json.loads(text)
         return data, []
-
-    def _reflection_coverage(self, *, reflection: dict[str, Any]) -> dict[str, Any]:
-        """Which roster lenses have a current-attempt reflection associated.
-
-        A reflection covers lens L when its file is named ``<L>.md`` (any
-        directory) — the dumb, predictable convention each fan-out subagent is
-        told to follow.
-        """
-        return reflection_coverage_for(reflection=reflection)
 
     def _gate_checklist(self, *, conn, reflection: dict[str, Any]) -> dict[str, Any]:
         """Current reflection-wave gate as machine-readable checklist data.

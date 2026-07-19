@@ -388,12 +388,15 @@ class ReviewService:
                     "target changed after this review started; the verdict no "
                     "longer applies — request a fresh review"
                 )
-            return_to = self._validate_return_to(
-                target_type=req["target_type"],
-                role=req["role"],
-                verdict=verdict,
-                return_to=return_to,
-            )
+            try:
+                return_to = resolve_review_return(
+                    target_type=req["target_type"],
+                    role=req["role"],
+                    verdict=verdict,
+                    return_to=return_to,
+                )
+            except ValueError as exc:
+                raise ValidationError(str(exc)) from exc
             review_id = new_id(prefix="rev")
             conn.execute(
                 """
@@ -696,19 +699,6 @@ class ReviewService:
         expires = parse_iso(req["expires_at"])
         if expires is None or datetime.now(UTC) > expires:
             raise PermissionDeniedError("reviewer capability expired")
-
-    def _validate_return_to(
-        self, *, target_type: str, role: str, verdict: str, return_to: str
-    ) -> str:
-        try:
-            return resolve_review_return(
-                target_type=target_type,
-                role=role,
-                verdict=verdict,
-                return_to=return_to,
-            )
-        except ValueError as exc:
-            raise ValidationError(str(exc)) from exc
 
     def _validate_role_matches_gate(
         self, *, target_type: str, target_status: str, role: str
