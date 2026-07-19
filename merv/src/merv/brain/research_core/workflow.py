@@ -194,8 +194,8 @@ class WorkflowService:
             sandboxes = self.sandboxes.sandboxes_for_project(
                 conn=conn, project_id=project_id
             )
-            active_processes = self._sort_active_processes(
-                processes=[
+            active_processes = self._sort_active(
+                items=[
                     self._process_view(
                         sandbox=sandbox,
                         experiment=experiments_by_id.get(
@@ -209,7 +209,8 @@ class WorkflowService:
                     )
                     for sandbox in sandboxes
                     if sandbox.get("status") in ACTIVE_PROCESS_STATUSES
-                ]
+                ],
+                status_priority=PROCESS_STATUS_PRIORITY,
             )
 
             active_experiments: list[dict[str, Any]] = []
@@ -239,8 +240,9 @@ class WorkflowService:
                 )
 
             return {
-                "active_experiments": self._sort_active_experiments(
-                    experiments=active_experiments,
+                "active_experiments": self._sort_active(
+                    items=active_experiments,
+                    status_priority=EXPERIMENT_STATUS_PRIORITY,
                 ),
                 "active_processes": active_processes,
             }
@@ -954,32 +956,20 @@ class WorkflowService:
             result["live_experiments"] = live_experiments
         return result
 
-    def _sort_active_experiments(
-        self, *, experiments: list[dict[str, Any]]
+    def _sort_active(
+        self,
+        *,
+        items: list[dict[str, Any]],
+        status_priority: dict[str, int],
     ) -> list[dict[str, Any]]:
-        experiments = sorted(
-            experiments,
+        items = sorted(
+            items,
             key=lambda item: item.get("updated_at") or item.get("created_at") or "",
             reverse=True,
         )
         return sorted(
-            experiments,
-            key=lambda item: EXPERIMENT_STATUS_PRIORITY.get(
-                str(item.get("status")), 99
-            ),
-        )
-
-    def _sort_active_processes(
-        self, *, processes: list[dict[str, Any]]
-    ) -> list[dict[str, Any]]:
-        processes = sorted(
-            processes,
-            key=lambda item: item.get("updated_at") or item.get("created_at") or "",
-            reverse=True,
-        )
-        return sorted(
-            processes,
-            key=lambda item: PROCESS_STATUS_PRIORITY.get(str(item.get("status")), 99),
+            items,
+            key=lambda item: status_priority.get(str(item.get("status")), 99),
         )
 
     def _process_view(
