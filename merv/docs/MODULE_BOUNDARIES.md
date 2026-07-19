@@ -34,7 +34,7 @@ MLflow extension, and a surface that composes them.
 | kernel         | `state/*` (incl. `tool_call_stats`), `ports/*` (incl. the `AdmissionRequest` contract in `ports/quota_admission`), `utils`, `env`, `version`, `secret_tokens` |
 | research_core  | workflow/experiments/claims/reviews/reflections/projects services + views, `graph_refs`, `reflection_tools`, `domain/*` (minus overrides) |
 | artifacts      | `artifacts/*` (resources, pinned + PinnedStore facade, roles, markdown_images, figure_view, resource_selection) |
-| object_storage | `storage/*`, `domain/storage_guidance`                                       |
+| object_storage | `object_storage/*` (transitional shims stay at `storage/*` and `domain/storage_guidance` until de-shim) |
 | sandbox        | `services/sandbox/*`, `sandbox/*` (incl. the `mgmt_keys`/`managed_mgmt_keys` custody adapters), `execution/*`, `services/{transcript_cache,quotas}`, `domain/sandbox_paths`, `ssh_keys` |
 | feed           | `services/{feed,feed_unfurl}`, `domain/{feed_images,feed_embeds,feed_policy}` |
 | mlflow         | `mlflow/*` (extension, incl. its own env config in `mlflow/config`)          |

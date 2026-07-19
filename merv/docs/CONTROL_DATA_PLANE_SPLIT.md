@@ -42,7 +42,7 @@ local upstream path.
 | Workflow gates | `services/workflow.py`, validators | Pure policy over submitted records/bytes. |
 | Sandbox lifecycle | `services/sandbox/*`, `execution/backends/*` | Provider credentials, VM lifecycle, quotas, reapers. |
 | State and audit | `state/*` | SQLite locally, Postgres/durable stores hosted. |
-| Blob/storage records | `storage/*`, blob stores | Submitted artifacts and optional heavy objects sent explicitly through data-plane flows. |
+| Blob/storage records | `object_storage/*` (transitional shim at `storage/*`), blob stores | Submitted artifacts and optional heavy objects sent explicitly through data-plane flows. |
 | UI/API surface | `transport/api/*` | Browser/control endpoints plus private proxy-submission routes under `/api/data-plane/*`; browsers do not perform checkout-local operations. |
 
 The brain may serve `/api/*` for the UI and `/mcp/*` for control-tool calls, but
