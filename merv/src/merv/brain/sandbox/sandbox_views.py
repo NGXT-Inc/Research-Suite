@@ -99,6 +99,21 @@ def _is_live(*, status: str, ssh: dict[str, Any]) -> bool:
     return bool(ssh.get("host") and ssh.get("port") and status in ACTIVE_SANDBOX_STATUSES)
 
 
+def _sandbox_dirs(*, row: dict[str, Any]) -> tuple[str, str]:
+    experiment_id = str(row.get("experiment_id") or "")
+    remote_dir = str(
+        row.get("sync_dir")
+        or row.get("workdir")
+        or remote_experiment_dir(
+            experiment_id=str(row.get("sandbox_uid") or experiment_id)
+        )
+    )
+    data_dir = str(
+        row.get("sandbox_data_dir") or row.get("unsynced_dir") or DEFAULT_DATA_DIR
+    )
+    return remote_dir, data_dir
+
+
 def agent_row_facts(
     *,
     row: dict[str, Any],
@@ -114,18 +129,8 @@ def agent_row_facts(
     prose built on them) is merged by ``merge_agent_view``.
     """
     status = row.get("status") or "none"
-    experiment_id = str(row.get("experiment_id") or "")
     active_experiment_ids = list(row.get("active_experiment_ids") or [])
-    remote_dir = str(
-        row.get("sync_dir")
-        or row.get("workdir")
-        or remote_experiment_dir(
-            experiment_id=str(row.get("sandbox_uid") or experiment_id)
-        )
-    )
-    data_dir = str(
-        row.get("sandbox_data_dir") or row.get("unsynced_dir") or DEFAULT_DATA_DIR
-    )
+    remote_dir, data_dir = _sandbox_dirs(row=row)
     facts: dict[str, Any] = {
         "sandbox_uid": row.get("sandbox_uid"),
         "experiment_id": row.get("experiment_id"),
@@ -308,18 +313,8 @@ def sandbox_row_view(
     ``local_sync_dir`` is machine-local data-plane enrichment: callers resolve
     it through the worker (it no longer lives in the row).
     """
-    experiment_id = str(row.get("experiment_id") or "")
     active_experiment_ids = list(row.get("active_experiment_ids") or [])
-    remote_dir = str(
-        row.get("sync_dir")
-        or row.get("workdir")
-        or remote_experiment_dir(
-            experiment_id=str(row.get("sandbox_uid") or experiment_id)
-        )
-    )
-    data_dir = str(
-        row.get("sandbox_data_dir") or row.get("unsynced_dir") or DEFAULT_DATA_DIR
-    )
+    remote_dir, data_dir = _sandbox_dirs(row=row)
     view = {
         "sandbox_uid": row.get("sandbox_uid"),
         "experiment_id": row.get("experiment_id"),
