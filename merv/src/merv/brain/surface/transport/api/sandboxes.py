@@ -22,15 +22,14 @@ def build_router(ctx: ApiRouteContext) -> APIRouter:
         # Signal ETag: every sandbox mutation (status/heartbeat/command/
         # terminate) bumps updated_at, so the row digest changes iff this
         # payload would — a 304 short-circuits before rendering the rows.
-        target = api
         return conditional_json_from_signal(
             request,
             signal_parts=(
                 "sandboxes",
                 project_id,
-                target.app.store.project_sandbox_signal(project_id=project_id),
+                api.app.store.project_sandbox_signal(project_id=project_id),
             ),
-            payload=lambda: target.sandbox_list_view(project_id=project_id),
+            payload=lambda: api.sandbox_list_view(project_id=project_id),
         )
 
     @api_router.get("/api/projects/{project_id}/compute-cost")

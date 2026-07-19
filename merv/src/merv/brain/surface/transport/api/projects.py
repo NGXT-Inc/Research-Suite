@@ -74,8 +74,7 @@ def build_router(ctx: ApiRouteContext) -> APIRouter:
         # resources all append events), live sandbox rows (heartbeats bump
         # updated_at but write no event), and the MLflow reachability probe
         # (external, 5s-cached). A 304 skips the heavy status/experiment render.
-        target = api
-        store = target.app.store
+        store = api.app.store
         return conditional_json_from_signal(
             request,
             signal_parts=(
@@ -84,21 +83,20 @@ def build_router(ctx: ApiRouteContext) -> APIRouter:
                 store.project_event_signal(project_id=project_id),
                 store.project_sandbox_signal(project_id=project_id),
                 json.dumps(
-                    target.app.mlflow_tracking.health(),
+                    api.app.mlflow_tracking.health(),
                     sort_keys=True,
                     separators=(",", ":"),
                     default=str,
                 ),
             ),
-            payload=lambda: target.home(project_id=project_id),
+            payload=lambda: api.home(project_id=project_id),
         )
 
     @api_router.get("/api/projects/{project_id}/status")
     def project_status(project_id: str, experiment_id: str | None = None) -> dict[str, Any]:
         # Full shape for the UI (see home()); the tool stays slim for the agent.
-        target = api
-        return target._present(
-            target.app.workflow.status_and_next(
+        return api._present(
+            api.app.workflow.status_and_next(
                 project_id=project_id, experiment_id=experiment_id
             )
         )

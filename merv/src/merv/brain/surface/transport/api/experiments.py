@@ -37,9 +37,8 @@ def build_router(ctx: ApiRouteContext) -> APIRouter:
     @api_router.get("/api/projects/{project_id}/experiments/{experiment_id}/status")
     def experiment_status(project_id: str, experiment_id: str) -> dict[str, Any]:
         # Full shape for the UI (see home()); the tool stays slim for the agent.
-        target = api
-        return target._present(
-            target.app.workflow.status_and_next(
+        return api._present(
+            api.app.workflow.status_and_next(
                 project_id=project_id, experiment_id=experiment_id
             )
         )
