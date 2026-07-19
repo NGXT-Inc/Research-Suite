@@ -313,16 +313,12 @@ def configure_client(
     stored_key = existing.get("api_key", "") if api_key is None else api_key.strip()
     if stored_key:
         config["api_key"] = stored_key
-    if session is None:
-        # Preserve a stored browser-login session across re-configures.
-        for field in ("access_token", "refresh_token", "expires_at", "email"):
-            if existing.get(field):
-                config[field] = str(existing[field])
-    else:
-        for field in ("access_token", "refresh_token", "expires_at", "email"):
-            value = session.get(field)
-            if value:
-                config[field] = str(value)
+    session_fields = existing if session is None else session
+    # Preserve a stored browser-login session unless a replacement was supplied.
+    for field in ("access_token", "refresh_token", "expires_at", "email"):
+        value = session_fields.get(field)
+        if value:
+            config[field] = str(value)
     _write_json_private(config_path, config)
     return config
 
