@@ -10,7 +10,6 @@ access for the account, and the default image is the AI/ML-ready Ubuntu
 from __future__ import annotations
 
 import re
-import socket
 import time
 from pathlib import Path
 from typing import Any
@@ -337,18 +336,6 @@ class DigitalOceanSandboxBackend(VmSshSandboxBackend):
             f"DigitalOcean droplet {droplet_id} did not become active before timeout "
             f"(last status: {last_status or 'unknown'})"
         )
-
-    def _wait_for_ssh(self, *, host: str) -> None:
-        deadline = time.monotonic() + self.config.poll_timeout_seconds
-        last_error = ""
-        while time.monotonic() < deadline:
-            try:
-                with socket.create_connection((host, 22), timeout=10):
-                    return
-            except OSError as exc:
-                last_error = str(exc)
-                time.sleep(self.config.poll_interval_seconds)
-        raise BackendUnavailableError(f"SSH never became reachable on {host}:22 ({last_error})")
 
     def _ssh_key_ids_for_droplet(self, *, sandbox_id: str) -> list[int | str]:
         """The rp-named key registered for this droplet, resolved by name."""

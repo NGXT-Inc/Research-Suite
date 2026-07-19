@@ -14,7 +14,6 @@ from __future__ import annotations
 
 import base64
 import re
-import socket
 import time
 from pathlib import Path
 from typing import Any
@@ -291,20 +290,6 @@ class VoltageParkSandboxBackend(VmSshSandboxBackend):
         raise BackendUnavailableError(
             f"Voltage Park VM {vm_id} did not start before timeout "
             f"(last status: {last_status or 'unknown'})"
-        )
-
-    def _wait_for_ssh(self, *, host: str, port: int = 22) -> None:
-        deadline = time.monotonic() + self.config.poll_timeout_seconds
-        last_error = ""
-        while time.monotonic() < deadline:
-            try:
-                with socket.create_connection((host, port), timeout=10):
-                    return
-            except OSError as exc:
-                last_error = str(exc)
-                time.sleep(self.config.poll_interval_seconds)
-        raise BackendUnavailableError(
-            f"SSH never became reachable on {host}:{port} ({last_error})"
         )
 
 
