@@ -234,46 +234,25 @@ def _create_and_record_mlflow_run(
     )
 
 
-def _ensure_mlflow_run_for_start(
+def _ensure_mlflow_run(
     *,
     experiments: Any,
     mlflow_tracking: Any,
     state: dict[str, Any],
     project_id: str,
     experiment_id: str,
+    replace_terminal_run: bool,
 ) -> dict[str, Any]:
-    if mlflow_tracking is None:
-        return state
-    existing = state.get("mlflow_run") or {}
-    if existing.get("run_id"):
-        return state
-    return _create_and_record_mlflow_run(
-        experiments=experiments,
-        mlflow_tracking=mlflow_tracking,
-        state=state,
-        project_id=project_id,
-        experiment_id=experiment_id,
-    )
-
-
-def _ensure_mlflow_run_for_retry(
-    *,
-    experiments: Any,
-    mlflow_tracking: Any,
-    state: dict[str, Any],
-    project_id: str,
-    experiment_id: str,
-) -> dict[str, Any]:
-    """An infra retry resumes the persisted run while it is still open. Once
-    that run was finalized (e.g. FAILED after the crash), resuming would log
-    into a closed run — mint a fresh run for the same attempt instead. A
-    retry with no persisted run (creation failed at start_running) is also
-    the natural backfill point."""
+    """Keep an existing run on start and an open run on retry. A retry replaces
+    a finalized run, or backfills one whose original creation failed."""
     if mlflow_tracking is None:
         return state
     existing = state.get("mlflow_run") or {}
     persisted_status = str(existing.get("status") or "").upper()
-    if existing.get("run_id") and persisted_status not in MLFLOW_TERMINAL_RUN_STATUSES:
+    if existing.get("run_id") and (
+        not replace_terminal_run
+        or persisted_status not in MLFLOW_TERMINAL_RUN_STATUSES
+    ):
         return state
     return _create_and_record_mlflow_run(
         experiments=experiments,
@@ -414,21 +393,14 @@ def build_control_tool_handlers(
             project_id=project_id,
         )
         resolved_project_id = str(result.get("project_id") or project_id or "")
-        if transition == "start_running":
-            result = _ensure_mlflow_run_for_start(
+        if transition in ("start_running", "retry_running"):
+            result = _ensure_mlflow_run(
                 experiments=experiments,
                 mlflow_tracking=mlflow_tracking,
                 state=result,
                 project_id=resolved_project_id,
                 experiment_id=experiment_id,
-            )
-        elif transition == "retry_running":
-            result = _ensure_mlflow_run_for_retry(
-                experiments=experiments,
-                mlflow_tracking=mlflow_tracking,
-                state=result,
-                project_id=resolved_project_id,
-                experiment_id=experiment_id,
+                replace_terminal_run=transition == "retry_running",
             )
         terminal_mlflow_status = _TRANSITION_MLFLOW_STATUSES.get(transition)
         if terminal_mlflow_status:
