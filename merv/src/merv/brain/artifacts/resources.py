@@ -83,12 +83,10 @@ class ResourceService:
         rel_path = self._repo_relative_path(path=path)
         self._validate_content_sha256(content_sha256)
         observed_at = now_iso()
-        token = self._version_token(
-            path=rel_path,
-            mtime_ns=int(mtime_ns),
-            ctime_ns=int(ctime_ns),
-            size_bytes=int(size_bytes),
-        )
+        # ctime is included so an in-place edit that preserves mtime+size (e.g. a
+        # restored mtime) still changes the token: content cannot change without
+        # bumping the inode change time, even when mtime is held constant.
+        token = f"{rel_path}:{int(mtime_ns)}:{int(ctime_ns)}:{int(size_bytes)}"
         with self.store.transaction() as conn:
             project_id = self.store.require_project_id(conn=conn, project_id=project_id)
             # Resource identity is (project_id, path): the same repo file can be a
@@ -147,7 +145,7 @@ class ResourceService:
                         int(mtime_ns),
                         int(size_bytes),
                         observed_at,
-                        self._git_commit_or_none(path=rel_path),
+                        None,  # Optional git provenance; resource identity is file-first.
                         created_by,
                         observed_at,
                         observed_at,
@@ -746,12 +744,6 @@ class ResourceService:
                 "content_sha256 must be a lowercase sha256 hex digest"
             )
 
-    def _validate_submitted_figure_link(self, *, link: str) -> None:
-        if not link:
-            raise ValidationError("figure link is required")
-        if os.path.isabs(link):
-            raise ValidationError("figure links must be repo-relative")
-
     def _ensure_target_exists(
         self, *, conn: Connection, target_type: str, target_id: str
     ) -> str | None:
@@ -1051,7 +1043,10 @@ class ResourceService:
             figure = submitted.get(link)
             if figure is None:
                 continue
-            self._validate_submitted_figure_link(link=link)
+            if not link:
+                raise ValidationError("figure link is required")
+            if os.path.isabs(link):
+                raise ValidationError("figure links must be repo-relative")
             data = figure.get("data")
             if not isinstance(data, bytes):
                 continue
@@ -1137,18 +1132,6 @@ class ResourceService:
             },
         )
         return self.resolve(resource_id=resource_id, conn=conn)
-
-    def _version_token(
-        self, *, path: str, mtime_ns: int, ctime_ns: int, size_bytes: int
-    ) -> str:
-        # ctime is included so an in-place edit that preserves mtime+size (e.g. a
-        # restored mtime) still changes the token: content cannot change without
-        # bumping the inode change time, even when mtime is held constant.
-        return f"{path}:{mtime_ns}:{ctime_ns}:{size_bytes}"
-
-    def _git_commit_or_none(self, *, path: str) -> str | None:
-        # Keep this optional and failure-tolerant; resource identity is file-first.
-        return None
 
     def _snapshot_version_record(
         self,
