@@ -22,7 +22,7 @@ from __future__ import annotations
 import json
 import sqlite3
 import threading
-from contextlib import contextmanager, suppress
+from contextlib import closing, contextmanager, suppress
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
 from typing import Any, Iterator
@@ -304,11 +304,9 @@ class ToolCallStore:
         """
         conn = sqlite3.connect(self.db_path, timeout=5.0)
         conn.row_factory = sqlite3.Row
-        try:
+        with closing(conn):
             with conn:
                 yield conn
-        finally:
-            conn.close()
 
     def _init_db(self) -> None:
         self.db_path.parent.mkdir(parents=True, exist_ok=True)
