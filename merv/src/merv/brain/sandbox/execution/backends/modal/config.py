@@ -5,22 +5,10 @@ from __future__ import annotations
 from dataclasses import dataclass
 from pathlib import Path, PurePosixPath
 
-from .._config import _load_env_text
+from .._config import _env_discovery_disabled, _load_env_text
 from .....kernel.env import env_int, env_raw, env_value
 from ....sandbox_backend import BackendValidationError
 from ...sync_dirs import DEFAULT_DATA_DIR, DEFAULT_REMOTE_ROOT, SESSIONS_DIRNAME
-
-
-def _env_discovery_disabled() -> bool:
-    """True in control mode, where implicit user-machine .env discovery is off.
-
-    Reads MERV_MODE directly (no merv.brain.surface.config import) to keep the
-    execution backends loosely coupled from the composition layer. Local mode
-    keeps checkout-adjacent .env discovery for development; control resolves
-    credentials from the process environment or secret store only.
-    """
-    return (env_value("MERV_MODE") or "").lower() == "control"
-
 
 VALID_GPUS: frozenset[str] = frozenset({"T4", "L4", "A10G", "L40S", "A100", "A100-80GB", "H100", "B200"})
 DEFAULT_GPU = "A100"

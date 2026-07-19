@@ -4,8 +4,20 @@ from __future__ import annotations
 
 import os
 
+from ....kernel.env import env_value
 from ...sandbox_backend import BackendValidationError
 from ..sync_dirs import SESSIONS_DIRNAME
+
+
+def _env_discovery_disabled() -> bool:
+    """True in control mode, where implicit user-machine .env discovery is off.
+
+    Reads MERV_MODE directly (no merv.brain.surface.config import) to keep the
+    execution backends loosely coupled from the composition layer. Local mode
+    keeps checkout-adjacent .env discovery for development; control resolves
+    credentials from the process environment or secret store only.
+    """
+    return (env_value("MERV_MODE") or "").lower() == "control"
 
 
 def _load_env_text(text: str) -> None:

@@ -5,16 +5,11 @@ from __future__ import annotations
 from dataclasses import dataclass
 from pathlib import Path
 
+from .._config import _env_discovery_disabled
 from .._config import _absolute_posix_path, _load_env_text, _positive_float, _positive_int, _validate_data_dir
 from .....kernel.env import env_value
 from ....sandbox_backend import BackendValidationError
 from ...sync_dirs import DEFAULT_DATA_DIR, DEFAULT_REMOTE_ROOT
-
-
-def _env_discovery_disabled() -> bool:
-    """True in control mode, where user-machine .env discovery is off (§3.4)."""
-    return (env_value("MERV_MODE") or "").lower() == "control"
-
 
 DEFAULT_BASE_URL = "https://cloud.lambda.ai/api/v1"
 DEFAULT_SANDBOX_DATA_DIR = DEFAULT_DATA_DIR
