@@ -6,7 +6,7 @@ from pathlib import Path
 from typing import Any
 
 from merv.shared.project_dirs import PROJECT_STATE_DIR_NAMES
-from merv.shared.errors import ValidationError
+from merv.shared.errors import NotFoundError, ValidationError
 
 
 def repo_relative_path(*, path: str, subject: str = "path") -> str:
@@ -35,4 +35,15 @@ def resolve_repo_path(
         full.relative_to(root)
     except ValueError as exc:
         raise ValidationError(f"{subject} escapes repo root") from exc
+    return rel_path, full
+
+
+def resolve_repo_file(*, repo_root: Any, path: str) -> tuple[str, Path]:
+    rel_path, full = resolve_repo_path(
+        repo_root=repo_root, path=path, subject="resource path"
+    )
+    if not full.exists():
+        raise NotFoundError(f"resource file does not exist: {path}")
+    if not full.is_file():
+        raise ValidationError("v0.0001 resources must be files")
     return rel_path, full

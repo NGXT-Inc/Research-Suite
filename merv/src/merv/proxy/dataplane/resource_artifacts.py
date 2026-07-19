@@ -16,7 +16,7 @@ from merv.shared.markdown_images import (
     markdown_image_targets,
 )
 
-from .repo_paths import resolve_repo_path
+from .repo_paths import resolve_repo_file
 
 
 class LocalResourceArtifactReader:
@@ -29,7 +29,7 @@ class LocalResourceArtifactReader:
         cap = GATED_ROLE_BYTE_CAPS.get(role)
         if cap is None:
             return self._read_metric_result(path=path, role=role)
-        rel_path, file_path = self._resolve_file(path=path)
+        rel_path, file_path = resolve_repo_file(repo_root=self.repo_root, path=path)
         size = file_path.stat().st_size
         if size > cap:
             raise ValidationError(
@@ -72,7 +72,7 @@ class LocalResourceArtifactReader:
         if cap is None:
             return empty
         try:
-            rel_path, file_path = self._resolve_file(path=path)
+            rel_path, file_path = resolve_repo_file(repo_root=self.repo_root, path=path)
         except (NotFoundError, ValidationError):
             return empty
         if file_path.stat().st_size > cap:
@@ -82,16 +82,6 @@ class LocalResourceArtifactReader:
             "content_type": mimetypes.guess_type(rel_path)[0] or "application/json",
             "figures": [],
         }
-
-    def _resolve_file(self, *, path: str) -> tuple[str, Path]:
-        rel_path, file_path = resolve_repo_path(
-            repo_root=self.repo_root, path=path, subject="resource path"
-        )
-        if not file_path.exists():
-            raise NotFoundError(f"resource file does not exist: {path}")
-        if not file_path.is_file():
-            raise ValidationError("v0.0001 resources must be files")
-        return rel_path, file_path
 
     def submitted_figures(
         self, *, markdown_rel_path: str, markdown_text: str

@@ -11,10 +11,9 @@ import hashlib
 import mimetypes
 from pathlib import Path
 
-from merv.shared.errors import NotFoundError, ValidationError
 from merv.shared.resource_records import ResourceObservation
 
-from .repo_paths import resolve_repo_path
+from .repo_paths import resolve_repo_file
 
 
 class LocalResourceObserver:
@@ -47,15 +46,7 @@ class LocalResourceObserver:
         }
 
     def resolve_repo_file(self, *, path: str) -> tuple[str, Path]:
-        rel_path, full = resolve_repo_path(
-            repo_root=self.repo_root, path=path, subject="resource path"
-        )
-        rel = Path(rel_path)
-        if not full.exists():
-            raise NotFoundError(f"resource file does not exist: {path}")
-        if not full.is_file():
-            raise ValidationError("v0.0001 resources must be files")
-        return rel.as_posix(), full
+        return resolve_repo_file(repo_root=self.repo_root, path=path)
 
 
 def content_sha256(file_path: Path) -> str:
