@@ -9,8 +9,8 @@ from unittest.mock import patch
 from pydantic import ValidationError as PydanticValidationError
 
 from tests.support.brain import TestBrain
-from backend.config import STORAGE_PROVIDER_ENV_VAR
-from backend.tools.contracts import (
+from merv.brain.config import STORAGE_PROVIDER_ENV_VAR
+from merv.brain.tools.contracts import (
     CONTROL_PLANE_TOOL_NAMES,
     DATA_PLANE_TOOL_NAMES,
     MCP_HIDDEN_TOOL_NAMES,
@@ -34,9 +34,9 @@ from backend.tools.contracts import (
     static_tool_catalog,
     tool_plane,
 )
-from backend.execution.backends.fake import FakeSandboxBackend
-from backend.tools.tool_facade import ToolDispatcher
-from backend.tools.tool_handlers import build_control_tool_handlers, build_local_tool_handlers
+from merv.brain.sandbox.execution.backends.fake import FakeSandboxBackend
+from merv.brain.tools.tool_facade import ToolDispatcher
+from merv.brain.tools.tool_handlers import build_control_tool_handlers, build_local_tool_handlers
 
 
 class _HandlerTarget:

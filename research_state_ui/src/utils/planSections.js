@@ -4,7 +4,7 @@
  * the spine (Objective & hypothesis, Evaluation) stays expanded, and the
  * recommended sections (Method, Outputs, Risks) plus the Attempt log collapse.
  *
- * Mirrors the backend schema in backend/services/experiments.py
+ * Mirrors the brain schema in merv/src/merv/brain/research_core/experiments.py
  * (REQUIRED_PLAN_SECTIONS) and skills/research-workflow/plan-template.md.
  *
  * Splitting is on H2 (`## `) headings, which is the level the template uses.

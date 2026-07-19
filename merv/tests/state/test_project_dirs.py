@@ -13,7 +13,7 @@ import unittest
 from pathlib import Path
 from unittest import mock
 
-from research_plugin_shared.project_dirs import (
+from merv.shared.project_dirs import (
     LEGACY_PROJECT_STATE_DIR,
     PROJECT_STATE_DIR,
     PROJECT_STATE_DIR_NAMES,
@@ -21,10 +21,10 @@ from research_plugin_shared.project_dirs import (
     resolve_project_state_dir,
 )
 
-from backend.dataplane.repo_paths import repo_relative_path
-from backend.state.activity import ActivityLogger
-from backend.utils import ValidationError
-from backend.workspace import LocalWorkspace
+from merv.brain.dataplane.repo_paths import repo_relative_path
+from merv.brain.kernel.state.activity import ActivityLogger
+from merv.brain.kernel.utils import ValidationError
+from merv.brain.workspace import LocalWorkspace
 
 
 class ResolveProjectStateDirTest(unittest.TestCase):

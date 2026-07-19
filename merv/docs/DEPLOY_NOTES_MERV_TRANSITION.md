@@ -27,7 +27,7 @@ release:
 ## MLflow namespace rp/ -> merv/
 
 New experiments are created under `merv/<project>/<experiment>`
-(MLFLOW_NAMESPACE_PREFIX in backend/mlflow/tracking.py). Run at deploy, on
+(MLFLOW_NAMESPACE_PREFIX in src/merv/brain/mlflow/tracking.py). Run at deploy, on
 prod and against local dev MLflow:
 
 ```

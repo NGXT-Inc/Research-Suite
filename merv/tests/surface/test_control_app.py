@@ -7,9 +7,9 @@ from unittest.mock import patch
 
 from fastapi.testclient import TestClient
 
-from backend.composition.control_mode import build_control_app
-from backend.composition import control_mode
-from backend.config import (
+from merv.brain.composition.control_mode import build_control_app
+from merv.brain.composition import control_mode
+from merv.brain.config import (
     ALLOWED_ORIGINS_ENV_VAR,
     BLOB_BUCKET_ENV_VAR,
     CONTROL_RESTRICT_CORS_ENV_VAR,
@@ -19,19 +19,19 @@ from backend.config import (
     REQUIRE_AGENT_MLFLOW_ENV_VAR,
     REQUIRE_SANDBOX_BACKEND_ENV_VAR,
 )
-from backend.mlflow.config import (
+from merv.brain.mlflow.config import (
     MLFLOW_MODE_ENV_VAR,
     MLFLOW_SERVER_URI_ENV_VAR,
     MLFLOW_TRACKING_URI_ENV_VAR,
 )
-from backend.execution.backends.fake import FakeSandboxBackend
-from backend.transport.http_api import create_fastapi_app
-from backend.transport.http_policy import HttpSurfacePolicy
-from backend.state import StateStore
-from backend.storage.blobs import LocalDirBlobStore
-from backend.sandbox.managed_mgmt_keys import MountedMgmtKeyStore
-from backend.utils import ValidationError
-from backend.version import CLIENT_VERSION_HEADER
+from merv.brain.sandbox.execution.backends.fake import FakeSandboxBackend
+from merv.brain.transport.http_api import create_fastapi_app
+from merv.brain.transport.http_policy import HttpSurfacePolicy
+from merv.brain.kernel.state import StateStore
+from merv.brain.object_storage.blobs import LocalDirBlobStore
+from merv.brain.sandbox.managed_mgmt_keys import MountedMgmtKeyStore
+from merv.brain.kernel.utils import ValidationError
+from merv.brain.kernel.version import CLIENT_VERSION_HEADER
 
 
 def _mounted_mgmt_key_env(root: Path) -> dict[str, str]:
@@ -361,7 +361,7 @@ class ControlAppTest(unittest.TestCase):
             )
 
             with patch(
-                "backend.mlflow.tracking.snapshot_mlflow",
+                "merv.brain.mlflow.tracking.snapshot_mlflow",
                 return_value=dict(snapshot),
             ) as capture:
                 result = app.mlflow_tracking.results_metrics(
@@ -395,11 +395,11 @@ class ControlAppTest(unittest.TestCase):
             }
             with (
                 patch(
-                    "backend.composition.control_mode.build_state_store",
+                    "merv.brain.composition.control_mode.build_state_store",
                     return_value=store,
                 ) as state_factory,
                 patch(
-                    "backend.composition.control_mode.build_blob_store",
+                    "merv.brain.composition.control_mode.build_blob_store",
                     return_value=blobs,
                 ) as blob_factory,
             ):
@@ -423,7 +423,7 @@ class ControlAppTest(unittest.TestCase):
             )
 
     def test_control_server_reads_allowed_origins_from_env(self) -> None:
-        from backend.composition.control_mode import build_control_server
+        from merv.brain.composition.control_mode import build_control_server
 
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)
@@ -463,12 +463,12 @@ class ControlAppTest(unittest.TestCase):
             )
 
     def test_control_server_warns_when_allowed_origins_empty(self) -> None:
-        from backend.composition.control_mode import build_control_server
+        from merv.brain.composition.control_mode import build_control_server
 
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)
             with self.assertLogs(
-                "backend.composition.control_mode", level="WARNING"
+                "merv.brain.composition.control_mode", level="WARNING"
             ) as logs:
                 server = build_control_server(
                     repo_root=root,
@@ -478,7 +478,7 @@ class ControlAppTest(unittest.TestCase):
             self.assertIn(ALLOWED_ORIGINS_ENV_VAR, "\n".join(logs.output))
 
     def test_control_server_private_surface_and_cors_are_configured_independently(self) -> None:
-        from backend.composition.control_mode import build_control_server
+        from merv.brain.composition.control_mode import build_control_server
 
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)
@@ -486,7 +486,7 @@ class ControlAppTest(unittest.TestCase):
             # tokenless), which now emits its own open-surface warning — so
             # assert the CORS warning specifically rather than no-logs-at-all.
             with self.assertLogs(
-                "backend.composition.control_mode", level="WARNING"
+                "merv.brain.composition.control_mode", level="WARNING"
             ) as logs:
                 server = build_control_server(
                     repo_root=root,

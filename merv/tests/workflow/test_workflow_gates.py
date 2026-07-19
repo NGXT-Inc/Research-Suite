@@ -7,12 +7,12 @@ import unittest
 from pathlib import Path
 
 from tests.support.brain import TestBrain
-from backend.domain.artifacts import plan_sections_missing
-from backend.domain.experiment_policy import (
+from merv.brain.research_core.domain.artifacts import plan_sections_missing
+from merv.brain.research_core.domain.experiment_policy import (
     ACTIVE_EXPERIMENT_CAP,
     infer_claim_status_from_conclusion,
 )
-from backend.utils import PermissionDeniedError, ValidationError, WorkflowError
+from merv.brain.kernel.utils import PermissionDeniedError, ValidationError, WorkflowError
 
 # A plan that satisfies the required spine (Summary; Objective & hypothesis;
 # Evaluation), so submit_design's section lint passes.
@@ -1186,7 +1186,7 @@ class WorkflowGateTest(unittest.TestCase):
     def test_claim_update_is_project_scoped(self) -> None:
         claim = self.call("claim.create", project_id=self.project_id, statement="Claim.")
         other = self.call("project", action="create", name="Other")
-        from backend.utils import NotFoundError
+        from merv.brain.kernel.utils import NotFoundError
 
         with self.assertRaises(NotFoundError):
             self.call("claim.update", project_id=other["id"], claim_id=claim["id"], status="supported")

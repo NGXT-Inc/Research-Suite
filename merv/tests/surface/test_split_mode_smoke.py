@@ -13,13 +13,13 @@ from fastapi.testclient import TestClient
 from pydantic import ValidationError as PydanticValidationError
 
 from tests.support.brain import TestBrain
-from backend.control.control_runtime import ControlTaskChannel
-from backend.execution.backends.fake import FakeSandboxBackend
-from backend.transport.http_api import create_fastapi_app
-from backend.utils import ValidationError
-from mcp_server.local_data_plane import LocalDataPlane, LocalDataPlaneError
-from mcp_server.project_links import ProjectLinks
-from mcp_server.proxy import HttpProxyMcpServer, ProxyConfig
+from merv.brain.control.control_runtime import ControlTaskChannel
+from merv.brain.sandbox.execution.backends.fake import FakeSandboxBackend
+from merv.brain.transport.http_api import create_fastapi_app
+from merv.brain.kernel.utils import ValidationError
+from merv.proxy.local_data_plane import LocalDataPlane, LocalDataPlaneError
+from merv.proxy.project_links import ProjectLinks
+from merv.proxy.proxy import HttpProxyMcpServer, ProxyConfig
 
 
 VALID_PUBLIC_KEY = "ssh-ed25519 " + ("A" * 48) + " caller@test"
@@ -116,7 +116,7 @@ class ProxyLocalDataPlaneSmokeTest(unittest.TestCase):
             }
 
         with patch(
-            "backend.dataplane.sandbox_outputs.pull_sandbox_outputs",
+            "merv.brain.dataplane.sandbox_outputs.pull_sandbox_outputs",
             return_value={"ok": True, "copied": []},
         ) as pull:
             result = self._plane(tool_call=tool_call).call_tool(

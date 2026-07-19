@@ -14,15 +14,15 @@ import unittest
 from pathlib import Path
 
 from tests.support.brain import TestBrain
-from backend.execution.backends.fake import FakeSandboxBackend
-from backend.execution.backends.lambda_labs.sandbox_backend import (
+from merv.brain.sandbox.execution.backends.fake import FakeSandboxBackend
+from merv.brain.sandbox.execution.backends.lambda_labs.sandbox_backend import (
     build_user_data,
 )
-from backend.execution.vm_bootstrap import MGMT_EXEC_SCRIPT, MGMT_SSH_USER
-from backend.execution.backends.modal.sandbox_backend import BOOT_SCRIPT
-from backend.sandbox.managed_mgmt_keys import MountedMgmtKeyStore
-from backend.sandbox.mgmt_keys import LocalMgmtKeyStore
-from backend.utils import ValidationError
+from merv.brain.sandbox.execution.vm_bootstrap import MGMT_EXEC_SCRIPT, MGMT_SSH_USER
+from merv.brain.sandbox.execution.backends.modal.sandbox_backend import BOOT_SCRIPT
+from merv.brain.sandbox.managed_mgmt_keys import MountedMgmtKeyStore
+from merv.brain.sandbox.mgmt_keys import LocalMgmtKeyStore
+from merv.brain.kernel.utils import ValidationError
 
 
 class LocalMgmtKeyStoreTest(unittest.TestCase):

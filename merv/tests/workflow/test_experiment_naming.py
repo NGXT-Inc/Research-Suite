@@ -8,9 +8,9 @@ import unittest
 from pathlib import Path
 
 from tests.support.brain import TestBrain
-from backend.execution.backends.fake import FakeSandboxBackend
-from backend.utils import ValidationError
-from backend.workspace import local_experiment_dir
+from merv.brain.sandbox.execution.backends.fake import FakeSandboxBackend
+from merv.brain.kernel.utils import ValidationError
+from merv.brain.workspace import local_experiment_dir
 
 
 class ExperimentNamingTest(unittest.TestCase):

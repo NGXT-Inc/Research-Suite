@@ -5,9 +5,9 @@ import unittest
 from pathlib import Path
 
 from tests.support.brain import TestBrain
-from backend.domain.experiment_policy import ACTIVE_EXPERIMENT_CAP
-from backend.domain.reflection_policy import REFLECTION_BLOCK_NEW_TERMINAL_THRESHOLD
-from backend.utils import WorkflowError
+from merv.brain.research_core.domain.experiment_policy import ACTIVE_EXPERIMENT_CAP
+from merv.brain.research_core.domain.reflection_policy import REFLECTION_BLOCK_NEW_TERMINAL_THRESHOLD
+from merv.brain.kernel.utils import WorkflowError
 
 
 class ReflectionExperimentWriterTest(unittest.TestCase):

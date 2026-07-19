@@ -19,10 +19,10 @@ from datetime import UTC, datetime
 from pathlib import Path
 
 from tests.support.brain import TestBrain
-from backend.config import MGMT_KEY_PATH_ENV_VAR, MGMT_PUBLIC_KEY_ENV_VAR
-from backend.execution.backends.fake import FakeSandboxBackend
-from backend.sandbox.sandbox_backend import BackendCapabilities
-from backend.services.cleanup import CleanupService
+from merv.brain.config import MGMT_KEY_PATH_ENV_VAR, MGMT_PUBLIC_KEY_ENV_VAR
+from merv.brain.sandbox.execution.backends.fake import FakeSandboxBackend
+from merv.brain.sandbox.sandbox_backend import BackendCapabilities
+from merv.brain.services.cleanup import CleanupService
 
 
 def _mounted_mgmt_key_env(root: Path) -> dict[str, str]:
@@ -137,7 +137,7 @@ class ControlRestartTest(unittest.TestCase):
         return backend
 
     def _build(self):
-        from backend.composition.control_mode import build_control_app
+        from merv.brain.composition.control_mode import build_control_app
 
         backend = self._reaper_backend()
         app, _queue = build_control_app(

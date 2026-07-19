@@ -8,10 +8,10 @@ import unittest
 from pathlib import Path
 from unittest import mock
 
-from backend.execution import build_sandbox_backend
-from backend.execution.backends.fake import FakeSandboxBackend
-from backend.execution.multiplexer import MultiplexingSandboxBackend
-from backend.sandbox.sandbox_backend import (
+from merv.brain.sandbox.execution import build_sandbox_backend
+from merv.brain.sandbox.execution.backends.fake import FakeSandboxBackend
+from merv.brain.sandbox.execution.multiplexer import MultiplexingSandboxBackend
+from merv.brain.sandbox.sandbox_backend import (
     BackendCapabilities,
     BackendUnavailableError,
     BackendValidationError,
@@ -176,7 +176,7 @@ class MultiplexedServiceTest(unittest.TestCase):
     """SandboxService over a two-provider multiplexer (whole-stack routing)."""
 
     def setUp(self) -> None:
-        from backend.mlflow import CentralMlflowService
+        from merv.brain.mlflow import CentralMlflowService
         from tests.support.brain import TestBrain
 
         self.tmp = tempfile.TemporaryDirectory()
@@ -245,7 +245,7 @@ class MultiplexedServiceTest(unittest.TestCase):
         self.assertEqual(result["provider"], "alpha")
 
     def test_unknown_provider_is_a_clean_validation_error(self) -> None:
-        from backend.utils import ValidationError
+        from merv.brain.kernel.utils import ValidationError
 
         with self.assertRaisesRegex(ValidationError, "alpha, beta"):
             self.call("sandbox.request", project_id=self.project_id, provider="gamma")

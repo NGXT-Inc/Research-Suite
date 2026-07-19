@@ -27,9 +27,9 @@ import tempfile
 import time
 from pathlib import Path
 
-from backend.app import ResearchPluginApp
-from backend.execution.backends.modal.config import ModalConfig
-from backend.execution.backends.modal.sandbox_backend import ModalSandboxBackend
+from merv.brain.app import ResearchPluginApp
+from merv.brain.sandbox.execution.backends.modal.config import ModalConfig
+from merv.brain.sandbox.execution.backends.modal.sandbox_backend import ModalSandboxBackend
 
 
 PASS = "\033[32mPASS\033[0m"

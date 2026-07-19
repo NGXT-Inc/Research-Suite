@@ -20,15 +20,15 @@ import time
 import unittest
 from pathlib import Path
 
-from backend.execution.backends.modal.sandbox_backend import (
+from merv.brain.sandbox.execution.backends.modal.sandbox_backend import (
     MODAL_APT_PACKAGES,
     REC_SCRIPT as MODAL_REC_SCRIPT,
 )
-from backend.execution.backends.lambda_labs.sandbox_backend import (
+from merv.brain.sandbox.execution.backends.lambda_labs.sandbox_backend import (
     LAMBDA_APT_PACKAGES,
 )
-from backend.execution.vm_bootstrap import REC_SCRIPT as LAMBDA_REC_SCRIPT
-from backend.execution.bootstrap_tools import (
+from merv.brain.sandbox.execution.vm_bootstrap import REC_SCRIPT as LAMBDA_REC_SCRIPT
+from merv.brain.sandbox.execution.bootstrap_tools import (
     BASELINE_APT_PACKAGES,
     REC_EXEC_CORE,
 )

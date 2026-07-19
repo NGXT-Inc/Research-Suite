@@ -5,15 +5,15 @@ from __future__ import annotations
 import unittest
 from unittest.mock import patch
 
-from backend.execution.backends.digitalocean.catalog import to_agent_options
-from backend.execution.backends.digitalocean.config import (
+from merv.brain.sandbox.execution.backends.digitalocean.catalog import to_agent_options
+from merv.brain.sandbox.execution.backends.digitalocean.config import (
     DigitalOceanCloudConfig,
     DigitalOceanSandboxConfig,
 )
-from backend.execution.backends.digitalocean.sandbox_backend import (
+from merv.brain.sandbox.execution.backends.digitalocean.sandbox_backend import (
     DigitalOceanSandboxBackend,
 )
-from backend.sandbox.sandbox_backend import (
+from merv.brain.sandbox.sandbox_backend import (
     BackendUnavailableError,
     BackendValidationError,
     CapacityUnavailableError,

@@ -4,7 +4,7 @@ import json
 import unittest
 from unittest.mock import patch
 
-from backend.mlflow.metrics import (
+from merv.brain.mlflow.metrics import (
     MAX_HISTORY_POINTS,
     MAX_METRIC_KEYS,
     MlflowSnapshotError,
@@ -69,7 +69,7 @@ class FakeClient:
 
 def _client_patch(client: FakeClient):
     return patch(
-        "backend.mlflow.metrics.httpx.Client",
+        "merv.brain.mlflow.metrics.httpx.Client",
         return_value=client,
     )
 

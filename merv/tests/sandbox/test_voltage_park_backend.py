@@ -6,15 +6,15 @@ import base64
 import unittest
 from unittest.mock import patch
 
-from backend.execution.backends.voltage_park.catalog import to_agent_options
-from backend.execution.backends.voltage_park.config import (
+from merv.brain.sandbox.execution.backends.voltage_park.catalog import to_agent_options
+from merv.brain.sandbox.execution.backends.voltage_park.config import (
     VoltageParkCloudConfig,
     VoltageParkSandboxConfig,
 )
-from backend.execution.backends.voltage_park.sandbox_backend import (
+from merv.brain.sandbox.execution.backends.voltage_park.sandbox_backend import (
     VoltageParkSandboxBackend,
 )
-from backend.sandbox.sandbox_backend import (
+from merv.brain.sandbox.sandbox_backend import (
     BackendUnavailableError,
     BackendValidationError,
     CapacityUnavailableError,

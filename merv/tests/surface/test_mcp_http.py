@@ -7,7 +7,7 @@ import unittest
 import httpx
 from fastapi import FastAPI
 
-from backend.transport.mcp_http import register_mcp_routes
+from merv.brain.transport.mcp_http import register_mcp_routes
 
 
 class McpCallThreadpoolTest(unittest.TestCase):

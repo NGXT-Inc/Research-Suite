@@ -32,10 +32,10 @@ MLflow extension, and a surface that composes them.
 | Module         | Backend code                                                                |
 |----------------|-----------------------------------------------------------------------------|
 | kernel         | `kernel/state/*` (incl. `tool_call_stats`), `kernel/ports/*` (incl. the `AdmissionRequest` contract in `ports/quota_admission`), `kernel/{utils,env,version,secret_tokens}` |
-| research_core  | workflow/experiments/claims/reviews/reflections/projects services + views, `graph_refs`, `reflection_tools`, `domain/*` (minus overrides) |
+| research_core  | `research_core/*` (workflow/experiments/claims/reviews/reflections/projects services + views, `graph_refs`, `reflection_tools`), `research_core/domain/*` |
 | artifacts      | `artifacts/*` (resources, pinned + PinnedStore facade, roles, markdown_images, figure_view, resource_selection) |
-| object_storage | `object_storage/*` (transitional shims stay at `storage/*` and `domain/storage_guidance` until de-shim) |
-| sandbox        | `services/sandbox/*`, `sandbox/*` (incl. the `mgmt_keys`/`managed_mgmt_keys` custody adapters), `execution/*`, `services/{transcript_cache,quotas}`, `domain/sandbox_paths`, `ssh_keys` |
+| object_storage | `object_storage/*` (incl. `storage_guidance`) |
+| sandbox        | `sandbox/*` (incl. the `mgmt_keys`/`managed_mgmt_keys` custody adapters, `sandbox_paths`, `ssh_keys`, `transcript_cache`, `quotas`), `sandbox/execution/*` |
 | feed           | `feed/*` (feed, feed_unfurl, feed_images, feed_embeds, feed_policy)          |
 | mlflow         | `mlflow/*` (extension, incl. its own env config in `mlflow/config`)          |
 | surface        | `tools/*`, `transport/*`, `composition/*`, `control/*`, `dataplane/*`, `config`, `client_cli`, glue services (`permissions`, `identity`, `cleanup`), `workspace`, `observability` |
@@ -61,5 +61,5 @@ Two module-content rules ride along with the import law:
   existence/scope checks.
 - **Provider neutrality:** sandbox services do not dispatch on provider-name
   literals. Provider differences are expressed as `BackendCapabilities` flags
-  and implemented under `execution/backends/<provider>/`, enforced by
+  and implemented under `sandbox/execution/backends/<provider>/`, enforced by
   `test_services_do_not_dispatch_on_provider_name_literals`.

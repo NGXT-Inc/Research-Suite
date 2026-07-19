@@ -15,10 +15,10 @@ import tempfile
 import unittest
 from pathlib import Path
 
-from backend.composition.control_mode import build_control_app
-from backend.config import MGMT_KEY_PATH_ENV_VAR, MGMT_PUBLIC_KEY_ENV_VAR
-from backend.execution.backends.fake import FakeSandboxBackend
-from backend.sandbox.sandbox_backend import BackendCapabilities
+from merv.brain.composition.control_mode import build_control_app
+from merv.brain.config import MGMT_KEY_PATH_ENV_VAR, MGMT_PUBLIC_KEY_ENV_VAR
+from merv.brain.sandbox.execution.backends.fake import FakeSandboxBackend
+from merv.brain.sandbox.sandbox_backend import BackendCapabilities
 
 
 def _mounted_mgmt_key_env(root: Path) -> dict[str, str]:

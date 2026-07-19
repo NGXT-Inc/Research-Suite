@@ -13,9 +13,9 @@ from pathlib import Path
 from urllib.error import URLError
 from urllib.request import Request, urlopen
 
-from backend import __version__ as BACKEND_VERSION
-from mcp_server import __version__ as MCP_VERSION
-from research_plugin_shared.project_dirs import PROJECT_STATE_DIR_NAMES
+from merv.brain import __version__ as BACKEND_VERSION
+from merv.proxy import __version__ as MCP_VERSION
+from merv.shared.project_dirs import PROJECT_STATE_DIR_NAMES
 from tests.paths import PLUGIN_ROOT
 
 
@@ -34,11 +34,10 @@ class LocalShippingTest(unittest.TestCase):
 
     def _copy_install(self) -> None:
         self.install_dir.mkdir(parents=True)
-        shutil.copytree(self.source_plugin / "backend", self.install_dir / "backend")
-        shutil.copytree(self.source_plugin / "mcp_server", self.install_dir / "mcp_server")
         shutil.copytree(
-            self.source_plugin / "research_plugin_shared",
-            self.install_dir / "research_plugin_shared",
+            self.source_plugin / "src",
+            self.install_dir / "src",
+            ignore=shutil.ignore_patterns("__pycache__"),
         )
         shutil.copytree(self.source_plugin / "bin", self.install_dir / "bin")
         shutil.copytree(self.source_plugin / "skills", self.install_dir / "skills")

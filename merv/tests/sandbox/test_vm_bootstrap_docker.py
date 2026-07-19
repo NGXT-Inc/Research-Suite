@@ -25,10 +25,10 @@ import time
 import unittest
 from pathlib import Path
 
-from backend.execution.backends.lambda_labs.sandbox_backend import (
+from merv.brain.sandbox.execution.backends.lambda_labs.sandbox_backend import (
     LambdaLabsSandboxBackend,
 )
-from backend.execution.vm_bootstrap import build_bootstrap_core
+from merv.brain.sandbox.execution.vm_bootstrap import build_bootstrap_core
 
 
 IMAGE = "rp-test-sshd:bookworm"

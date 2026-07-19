@@ -7,12 +7,12 @@ import unittest
 from pathlib import Path
 
 from tests.support.brain import TestBrain
-from backend.domain.experiment_policy import ACTIVE_EXPERIMENT_CAP
-from backend.domain.reflection_policy import (
+from merv.brain.research_core.domain.experiment_policy import ACTIVE_EXPERIMENT_CAP
+from merv.brain.research_core.domain.reflection_policy import (
     REFLECTION_BLOCK_NEW_TERMINAL_THRESHOLD,
     REFLECTION_NUDGE_NEW_TERMINAL_THRESHOLD,
 )
-from backend.utils import PermissionDeniedError, ValidationError, WorkflowError
+from merv.brain.kernel.utils import PermissionDeniedError, ValidationError, WorkflowError
 
 # A project logic graph that satisfies the envelope lint (valid JSON, ≤16
 # nodes, DAG) — the same lint experiments use, one level up.

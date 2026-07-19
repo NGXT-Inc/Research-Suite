@@ -16,9 +16,9 @@ from datetime import UTC, datetime, timedelta
 from pathlib import Path
 
 from tests.support.brain import TestBrain
-from backend.execution.backends.fake import FakeSandboxBackend
-from backend.sandbox.sandbox_backend import BackendCapabilities
-from backend.services.cleanup import CleanupService
+from merv.brain.sandbox.execution.backends.fake import FakeSandboxBackend
+from merv.brain.sandbox.sandbox_backend import BackendCapabilities
+from merv.brain.services.cleanup import CleanupService
 
 
 class CleanupSweepTest(unittest.TestCase):

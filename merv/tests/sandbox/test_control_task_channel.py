@@ -2,8 +2,8 @@ from __future__ import annotations
 
 import unittest
 
-from backend.control.control_runtime import ControlTaskChannel
-from backend.utils import ValidationError
+from merv.brain.control.control_runtime import ControlTaskChannel
+from merv.brain.kernel.utils import ValidationError
 
 
 class ControlTaskChannelTest(unittest.TestCase):

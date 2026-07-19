@@ -6,24 +6,24 @@ import unittest
 from types import SimpleNamespace
 from unittest import mock
 
-from backend.execution.backends.digitalocean import DigitalOceanSandboxBackend
-from backend.execution.backends.fake import FakeSandboxBackend
-from backend.execution.backends.hyperstack import HyperstackSandboxBackend
-from backend.execution.backends.lambda_labs import LambdaLabsSandboxBackend
-from backend.execution.backends.modal.sandbox_backend import ModalSandboxBackend
-from backend.execution.backends.tensordock import TensorDockSandboxBackend
-from backend.execution.backends.thunder_compute import ThunderComputeSandboxBackend
-from backend.execution.backends.verda import VerdaSandboxBackend
-from backend.execution.backends.voltage_park import VoltageParkSandboxBackend
-from backend.execution.multiplexer import MultiplexingSandboxBackend
-from backend.sandbox.sandbox_backend import (
+from merv.brain.sandbox.execution.backends.digitalocean import DigitalOceanSandboxBackend
+from merv.brain.sandbox.execution.backends.fake import FakeSandboxBackend
+from merv.brain.sandbox.execution.backends.hyperstack import HyperstackSandboxBackend
+from merv.brain.sandbox.execution.backends.lambda_labs import LambdaLabsSandboxBackend
+from merv.brain.sandbox.execution.backends.modal.sandbox_backend import ModalSandboxBackend
+from merv.brain.sandbox.execution.backends.tensordock import TensorDockSandboxBackend
+from merv.brain.sandbox.execution.backends.thunder_compute import ThunderComputeSandboxBackend
+from merv.brain.sandbox.execution.backends.verda import VerdaSandboxBackend
+from merv.brain.sandbox.execution.backends.voltage_park import VoltageParkSandboxBackend
+from merv.brain.sandbox.execution.multiplexer import MultiplexingSandboxBackend
+from merv.brain.sandbox.sandbox_backend import (
     BackendCapabilities,
     ProvisionedSandbox,
     SandboxBackendBase,
     SandboxRequest,
     TranscriptTail,
 )
-from backend.services.sandbox.sandbox_daemons import SandboxDaemons
+from merv.brain.sandbox.sandbox_daemons import SandboxDaemons
 from tests.paths import BACKEND_ROOT, SERVICES_ROOT
 
 
@@ -194,7 +194,7 @@ class SandboxBackendContractTest(unittest.TestCase):
 
     def test_control_composition_forces_the_expiry_reaper(self) -> None:
         # The control composition (not the sandbox module) must compute the
-        # force flag — the daemons no longer import backend.config.
+        # force flag — the daemons no longer import merv.brain.config.
         control_source = (BACKEND_ROOT / "composition" / "control_mode.py").read_text(
             encoding="utf-8"
         )

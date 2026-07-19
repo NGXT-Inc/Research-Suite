@@ -21,7 +21,7 @@ import time
 import unittest
 from pathlib import Path
 
-from backend.execution.run_receipts import (
+from merv.brain.sandbox.execution.run_receipts import (
     MERV_RUN_SCRIPT,
     parse_runs_listing,
     runs_listing_command,

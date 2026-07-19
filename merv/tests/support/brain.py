@@ -7,19 +7,19 @@ from typing import Any
 
 from fastapi.testclient import TestClient
 
-from research_plugin_shared.project_dirs import PROJECT_STATE_DIR_NAMES
+from merv.shared.project_dirs import PROJECT_STATE_DIR_NAMES
 
-from backend.composition import build_local_server
-from backend.execution.backends.fake import FakeSandboxBackend
-from backend.state import StateStore
-from backend.storage.blobs import LocalDirBlobStore
-from backend.tools.contracts import (
+from merv.brain.composition import build_local_server
+from merv.brain.sandbox.execution.backends.fake import FakeSandboxBackend
+from merv.brain.kernel.state import StateStore
+from merv.brain.object_storage.blobs import LocalDirBlobStore
+from merv.brain.tools.contracts import (
     DATA_PLANE_TOOL_NAMES,
     available_tool_names,
     static_tool_catalog,
 )
-from backend.utils import NotFoundError, ValidationError
-from mcp_server.local_data_plane import LocalDataPlane, LocalDataPlaneError
+from merv.brain.kernel.utils import NotFoundError, ValidationError
+from merv.proxy.local_data_plane import LocalDataPlane, LocalDataPlaneError
 
 
 DEFAULT_PUBLIC_KEY = "ssh-ed25519 " + ("A" * 48) + " test-brain@local"

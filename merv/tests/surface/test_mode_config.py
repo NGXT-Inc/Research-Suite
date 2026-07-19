@@ -8,7 +8,7 @@ from unittest.mock import patch
 from fastapi.testclient import TestClient
 
 from tests.support.brain import TestBrain
-from backend.config import (
+from merv.brain.config import (
     MGMT_KEY_PATH_ENV_VAR,
     MGMT_PUBLIC_KEY_ENV_VAR,
     Mode,
@@ -21,10 +21,10 @@ from backend.config import (
     resolve_storage_secret_access_key,
     storage_feature_enabled,
 )
-from backend.execution.backends.fake import FakeSandboxBackend
-from backend.transport.http_api import create_fastapi_app
-from backend.transport.http_policy import HttpSurfacePolicy
-from backend.utils import ValidationError
+from merv.brain.sandbox.execution.backends.fake import FakeSandboxBackend
+from merv.brain.transport.http_api import create_fastapi_app
+from merv.brain.transport.http_policy import HttpSurfacePolicy
+from merv.brain.kernel.utils import ValidationError
 
 
 def _mounted_mgmt_key_env(root: Path) -> dict[str, str]:
@@ -401,7 +401,7 @@ class SecretStoreCredentialsTest(unittest.TestCase):
     def test_explicit_env_file_is_the_secret_store_seam_in_control(self) -> None:
         import os
 
-        from backend.execution.backends.modal.config import load_modal_env_file
+        from merv.brain.sandbox.execution.backends.modal.config import load_modal_env_file
 
         os.environ["RESEARCH_PLUGIN_MODE"] = "control"
         os.environ["RESEARCH_PLUGIN_MODAL_ENV_FILE"] = str(self.env_file)
@@ -411,7 +411,7 @@ class SecretStoreCredentialsTest(unittest.TestCase):
     def test_implicit_dotenv_disabled_in_control(self) -> None:
         import os
 
-        from backend.execution.backends.modal import config as modal_config
+        from merv.brain.sandbox.execution.backends.modal import config as modal_config
 
         os.environ["RESEARCH_PLUGIN_MODE"] = "control"
         os.environ.pop("RESEARCH_PLUGIN_MODAL_ENV_FILE", None)
@@ -426,7 +426,7 @@ class SecretStoreCredentialsTest(unittest.TestCase):
     def test_implicit_dotenv_still_works_in_local(self) -> None:
         import os
 
-        from backend.execution.backends.modal import config as modal_config
+        from merv.brain.sandbox.execution.backends.modal import config as modal_config
 
         os.environ["RESEARCH_PLUGIN_MODE"] = "local"
         os.environ.pop("RESEARCH_PLUGIN_MODAL_ENV_FILE", None)
@@ -460,7 +460,7 @@ class VersionHandshakeTest(unittest.TestCase):
         self.tmp.cleanup()
 
     def test_meta_returns_server_version_floors_and_capabilities(self) -> None:
-        from backend.version import (
+        from merv.brain.kernel.version import (
             MIN_PROXY_VERSION,
             SERVER_VERSION,
         )
@@ -481,7 +481,7 @@ class VersionHandshakeTest(unittest.TestCase):
         self.assertFalse(local.json()["capabilities"]["local_data_plane_http"])
 
     def test_in_range_client_passes_and_below_floor_is_rejected(self) -> None:
-        from backend.version import SERVER_VERSION
+        from merv.brain.kernel.version import SERVER_VERSION
 
         ok = self.client.get(
             "/api/projects",
@@ -503,13 +503,10 @@ class VersionHandshakeTest(unittest.TestCase):
         self.assertEqual(resp.status_code, 200, resp.text)
 
     def test_proxy_header_literal_matches_backend_constant(self) -> None:
-        from pathlib import Path as _Path
+        from merv.brain.kernel.version import CLIENT_VERSION_HEADER
+        from tests.paths import PROXY_ROOT
 
-        from backend.version import CLIENT_VERSION_HEADER
-
-        proxy_src = (
-            _Path(__file__).resolve().parents[2] / "mcp_server" / "proxy.py"
-        ).read_text(encoding="utf-8")
+        proxy_src = (PROXY_ROOT / "proxy.py").read_text(encoding="utf-8")
         self.assertIn(f'"{CLIENT_VERSION_HEADER}"', proxy_src)
 
 
@@ -522,7 +519,7 @@ class ModeCompositionTest(unittest.TestCase):
         self.tmp.cleanup()
 
     def test_control_server_builds_private_surface_and_data_plane_submission(self) -> None:
-        from backend.composition import build_control_server
+        from merv.brain.composition import build_control_server
 
         server = build_control_server(
             repo_root=self.repo,
@@ -537,7 +534,7 @@ class ModeCompositionTest(unittest.TestCase):
         self.assertEqual(client.get("/api/projects").status_code, 200)
 
     def test_daemon_builder_is_removed(self) -> None:
-        import backend.composition as composition
+        import merv.brain.composition as composition
 
         self.assertFalse(hasattr(composition, "build_daemon_server"))
 

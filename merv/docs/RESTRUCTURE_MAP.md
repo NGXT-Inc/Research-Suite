@@ -4,6 +4,38 @@
 > that makes the backend tree match the module map enforced by
 > `tests/structure/test_module_boundaries.py`. The final tranche deletes this
 > file. The module map itself lives in `docs/MODULE_BOUNDARIES.md`.
+>
+> Legacy paths below are deliberate history: they document the move itself and
+> are exempt from the zero-legacy sweep.
+
+## Status
+
+- **Phase 1 — executed.** Five parallel tranches (feed, object_storage,
+  kernel, sandbox, research_core) moved every module behind
+  identity-preserving shims; merged on `restructure` (a2eb9c4, suite
+  1250/34/0).
+- **Phase 2 — executed** (branch `restructure-final`). The tree is re-rooted
+  at the ratified `src/merv/` namespace: `backend/` → `src/merv/brain/`,
+  `mcp_server/` → `src/merv/proxy/`, `research_plugin_shared/` →
+  `src/merv/shared/`. All 43 shims plus the vacated legacy package inits are
+  deleted; every consumer (imports, patch targets, lazy dotted strings,
+  scripts, docs, sweeps) speaks final `merv.brain.*` / `merv.proxy` /
+  `merv.shared` paths; the legacy classifier entries/prefixes are dropped;
+  the multi-root test sweeps are collapsed to end-state scopes; the
+  `kernel/env.py` logger is back on `__name__`; packaging targets `src/`
+  (packages.find where=src, console scripts, proxy package-data, src-pathed
+  bin wrappers and Dockerfile).
+- **Remaining:**
+  1. **Surface tranche** — fold the surface strays (`tools/`, `transport/`,
+     `composition/`, `control/`, `services/`, `config.py`, `client_cli.py`,
+     `workspace.py`, `observability.py`) into `brain/surface/`, and execute
+     the `dataplane/` → proxy move per the map below.
+  2. **Boundary decision** — ratify (or reject) the dataplane-ownership edge
+     the surface tranche implies before moving it.
+  3. **Final doc sweep** — refresh `MODULE_BOUNDARIES.md` /
+     `CONTROL_DATA_PLANE_SPLIT.md` physical-path tables to the end state,
+     sweep stale test method names, then delete this file and
+     `RESTRUCTURE_DESHIM_INVENTORY.md`.
 
 ## Tranche playbook
 

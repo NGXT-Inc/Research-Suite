@@ -13,7 +13,7 @@ import os
 import unittest
 from pathlib import Path
 
-from backend import __version__ as BACKEND_VERSION
+from merv.brain import __version__ as BACKEND_VERSION
 from tests.paths import PLUGIN_ROOT
 
 

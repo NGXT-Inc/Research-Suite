@@ -9,21 +9,21 @@ from contextlib import redirect_stdout
 from pathlib import Path
 from unittest.mock import patch
 
-from backend.client_cli import (
+from merv.brain.client_cli import (
     HOSTED_CONTROL_URL,
     configure_client,
     main,
 )
-from backend.config import (
+from merv.brain.config import (
     CLIENT_CONFIG_ENV_VAR,
     CONTROL_URL_ENV_VAR,
     read_client_config,
     resolve_control_url,
     resolve_daemon_state_dir,
 )
-import mcp_server.__main__ as mcp_entrypoint
-from mcp_server.__main__ import _repo_is_linked
-from mcp_server.project_links import ProjectLinks
+import merv.proxy.__main__ as mcp_entrypoint
+from merv.proxy.__main__ import _repo_is_linked
+from merv.proxy.project_links import ProjectLinks
 
 
 class ClientConfigTest(unittest.TestCase):
@@ -82,7 +82,7 @@ class ClientConfigTest(unittest.TestCase):
             config_path = Path(tmp) / "client.json"
             repo = Path(tmp) / "repo"
             repo.mkdir()
-            with patch("backend.client_cli.link_repo", return_value={"linked": True}) as link:
+            with patch("merv.brain.client_cli.link_repo", return_value={"linked": True}) as link:
                 with redirect_stdout(io.StringIO()):
                     code = main(
                         [

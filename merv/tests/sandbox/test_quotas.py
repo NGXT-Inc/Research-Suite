@@ -15,10 +15,10 @@ from pathlib import Path
 from datetime import UTC, datetime
 
 from tests.support.brain import TestBrain
-from backend.ports.quota_admission import AdmissionRequest
-from backend.execution.backends.fake import FakeSandboxBackend
-from backend.services.quotas import GLOBAL_SCOPE, QuotaService
-from backend.utils import PermissionDeniedError
+from merv.brain.kernel.ports.quota_admission import AdmissionRequest
+from merv.brain.sandbox.execution.backends.fake import FakeSandboxBackend
+from merv.brain.sandbox.quotas import GLOBAL_SCOPE, QuotaService
+from merv.brain.kernel.utils import PermissionDeniedError
 
 
 class QuotaAdmissionTest(unittest.TestCase):

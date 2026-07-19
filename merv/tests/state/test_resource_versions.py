@@ -6,7 +6,7 @@ import unittest
 from pathlib import Path
 
 from tests.support.brain import TestBrain
-from backend.utils import ValidationError
+from merv.brain.kernel.utils import ValidationError
 
 
 class ResourceVersioningTest(unittest.TestCase):

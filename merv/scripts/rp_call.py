@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """Tiny driver that calls Merv MCP tools through the real proxy.
 
-Reuses mcp_server.proxy (the same brain routing, version, project-link, and
+Reuses merv.proxy.proxy (the same brain routing, version, project-link, and
 checkout-local data-plane logic an MCP client uses), so this is a faithful
 stand-in for a client-launched stdio server. Usage:
 
@@ -21,14 +21,14 @@ import json
 import sys
 from pathlib import Path
 
-from research_plugin_shared.client_config import (
+from merv.shared.client_config import (
     CLIENT_CONFIG_ENV_VAR,
     dual_env_value,
     read_client_config,
     resolve_client_config_path,
 )
-from mcp_server.project_links import default_project_links_path
-from mcp_server.proxy import DEFAULT_CONTROL_URL, HttpProxyMcpServer, ProxyConfig
+from merv.proxy.project_links import default_project_links_path
+from merv.proxy.proxy import DEFAULT_CONTROL_URL, HttpProxyMcpServer, ProxyConfig
 
 
 def _build_server() -> HttpProxyMcpServer:

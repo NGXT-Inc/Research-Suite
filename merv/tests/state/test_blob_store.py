@@ -8,11 +8,11 @@ import unittest
 from pathlib import Path
 
 from tests.support.brain import TestBrain
-from backend.domain.artifacts import MAX_REPORT_BYTES
-from backend.domain.graph_lint import MAX_GRAPH_BYTES
-from backend.artifacts.roles import GATED_ROLE_BYTE_CAPS, GATED_ROLES
-from backend.storage.blobs import LocalDirBlobStore
-from backend.utils import NotFoundError, ValidationError
+from merv.brain.research_core.domain.artifacts import MAX_REPORT_BYTES
+from merv.brain.research_core.domain.graph_lint import MAX_GRAPH_BYTES
+from merv.brain.artifacts.roles import GATED_ROLE_BYTE_CAPS, GATED_ROLES
+from merv.brain.object_storage.blobs import LocalDirBlobStore
+from merv.brain.kernel.utils import NotFoundError, ValidationError
 from tests.fakes import FakeBlobStore
 
 

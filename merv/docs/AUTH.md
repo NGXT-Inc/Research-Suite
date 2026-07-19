@@ -10,7 +10,7 @@ implicit local principal exactly as before.
 
 One `Authorization: Bearer <credential>` header, two credential shapes,
 dispatched by prefix (RapidReview's contract, reimplemented in
-`backend/services/auth.py`):
+`src/merv/brain/services/auth.py`):
 
 - **Supabase session JWT** — browser sign-in via supabase-js in the UI.
   Verified locally (HS256, `SUPABASE_JWT_SECRET`, audience `authenticated`);
@@ -21,7 +21,7 @@ dispatched by prefix (RapidReview's contract, reimplemented in
   RapidReview; this repo has no key machinery of its own.
 
 Enforcement lives in the `attach_principal` middleware
-(`backend/transport/api/app.py`): OPTIONS, `/health`, `/api/meta`, and
+(`src/merv/brain/transport/api/app.py`): OPTIONS, `/health`, `/api/meta`, and
 `/internal/auth/mlflow` stay open; the 426 version floor runs before auth so
 stale clients get "upgrade", not "login". A verified credential becomes
 `Principal(user_id=<supabase sub>)`.

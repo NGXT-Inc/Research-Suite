@@ -7,9 +7,9 @@ import unittest
 from pathlib import Path
 
 from tests.support.brain import TestBrain
-from backend.control.control_runtime import ControlTaskChannel
-from backend.execution.backends.fake import FakeSandboxBackend
-from backend.utils import ValidationError
+from merv.brain.control.control_runtime import ControlTaskChannel
+from merv.brain.sandbox.execution.backends.fake import FakeSandboxBackend
+from merv.brain.kernel.utils import ValidationError
 
 
 class TaskChannelTestBase(unittest.TestCase):

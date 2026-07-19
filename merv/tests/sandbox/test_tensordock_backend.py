@@ -5,18 +5,18 @@ from __future__ import annotations
 import unittest
 from unittest.mock import patch
 
-from backend.execution.backends.tensordock.catalog import (
+from merv.brain.sandbox.execution.backends.tensordock.catalog import (
     parse_instance_type,
     to_agent_options,
 )
-from backend.execution.backends.tensordock.config import (
+from merv.brain.sandbox.execution.backends.tensordock.config import (
     TensorDockCloudConfig,
     TensorDockSandboxConfig,
 )
-from backend.execution.backends.tensordock.sandbox_backend import (
+from merv.brain.sandbox.execution.backends.tensordock.sandbox_backend import (
     TensorDockSandboxBackend,
 )
-from backend.sandbox.sandbox_backend import (
+from merv.brain.sandbox.sandbox_backend import (
     BackendUnavailableError,
     BackendValidationError,
     CapacityUnavailableError,

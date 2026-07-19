@@ -25,7 +25,7 @@ Shared invariants across all clients:
   that do not spawn stdio servers in the project directory (Cursor) must set
   the env var explicitly; the others rely on cwd.
 - The proxy needs no pip installs: it runs on bare `python3` (3.11+). The
-  tool catalog ships as checked-in JSON (`mcp_server/_tool_catalog.json`) so
+  tool catalog ships as checked-in JSON (`src/merv/proxy/_tool_catalog.json`) so
   discovery works without third-party packages; optional local prevalidation
   uses the live Pydantic contracts when they are already installed and otherwise
   preserves the bare-Python path. A venv is only needed to run a local brain.

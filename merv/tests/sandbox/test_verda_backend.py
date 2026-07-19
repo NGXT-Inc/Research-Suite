@@ -5,13 +5,13 @@ from __future__ import annotations
 import unittest
 from unittest.mock import patch
 
-from backend.execution.backends.verda.catalog import to_agent_options
-from backend.execution.backends.verda.config import (
+from merv.brain.sandbox.execution.backends.verda.catalog import to_agent_options
+from merv.brain.sandbox.execution.backends.verda.config import (
     VerdaCloudConfig,
     VerdaSandboxConfig,
 )
-from backend.execution.backends.verda.sandbox_backend import VerdaSandboxBackend
-from backend.sandbox.sandbox_backend import (
+from merv.brain.sandbox.execution.backends.verda.sandbox_backend import VerdaSandboxBackend
+from merv.brain.sandbox.sandbox_backend import (
     BackendUnavailableError,
     BackendValidationError,
     CapacityUnavailableError,

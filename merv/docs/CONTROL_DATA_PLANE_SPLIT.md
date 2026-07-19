@@ -38,11 +38,11 @@ local upstream path.
 
 | Component | Modules | Why brain-side |
 |---|---|---|
-| Projects, claims, experiments, reviews, reflections | `services/*` | Durable records and workflow policy. |
-| Workflow gates | `services/workflow.py`, validators | Pure policy over submitted records/bytes. |
-| Sandbox lifecycle | `services/sandbox/*`, `execution/backends/*` | Provider credentials, VM lifecycle, quotas, reapers. |
+| Projects, claims, experiments, reviews, reflections | `research_core/*` | Durable records and workflow policy. |
+| Workflow gates | `research_core/workflow.py`, validators | Pure policy over submitted records/bytes. |
+| Sandbox lifecycle | `sandbox/*`, `sandbox/execution/backends/*` | Provider credentials, VM lifecycle, quotas, reapers. |
 | State and audit | `kernel/state/*` | SQLite locally, Postgres/durable stores hosted. |
-| Blob/storage records | `object_storage/*` (transitional shim at `storage/*`), blob stores | Submitted artifacts and optional heavy objects sent explicitly through data-plane flows. |
+| Blob/storage records | `object_storage/*`, blob stores | Submitted artifacts and optional heavy objects sent explicitly through data-plane flows. |
 | UI/API surface | `transport/api/*` | Browser/control endpoints plus private proxy-submission routes under `/api/data-plane/*`; browsers do not perform checkout-local operations. |
 
 The brain may serve `/api/*` for the UI and `/mcp/*` for control-tool calls, but
@@ -57,9 +57,9 @@ inspect paths under a checkout.
 | Experiment folders | `dataplane/experiment_folders.py` | Creates `experiments/<name>/` in the checkout. |
 | Feed attachments | `dataplane/feed_images.py`, `dataplane/feed_embeds.py` | Reads local images and HTML embeds submitted with feed posts. |
 | Resource paths | `dataplane/repo_paths.py` | Normalizes and bounds checkout-relative paths. |
-| Storage transfer | `storage/file_transfer.py`, called by `mcp_server/local_data_plane.py` | Hashes and transfers local checkout files through presigned object-store URLs. |
-| Sandbox output pulls | `dataplane/sandbox_outputs.py`, lazy-imported by `mcp_server/local_data_plane.py` | Runs safe `rsync` from the sandbox into the local experiment folder. |
-| Project links | `mcp_server/project_links.py` | Maps checkout folders to brain project ids in `project_links.sqlite`. |
+| Storage transfer | `object_storage/file_transfer.py`, called by `src/merv/proxy/local_data_plane.py` | Hashes and transfers local checkout files through presigned object-store URLs. |
+| Sandbox output pulls | `dataplane/sandbox_outputs.py`, lazy-imported by `src/merv/proxy/local_data_plane.py` | Runs safe `rsync` from the sandbox into the local experiment folder. |
+| Project links | `src/merv/proxy/project_links.py` | Maps checkout folders to brain project ids in `project_links.sqlite`. |
 | Caller SSH custody | client/proxy environment | `sandbox.request` requires caller `public_key`; the caller owns the private key and supplies its path only for local rsync operations. |
 
 ## Tool split

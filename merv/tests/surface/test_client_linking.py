@@ -4,8 +4,8 @@ import tempfile
 import unittest
 from pathlib import Path
 
-from backend.client_cli import link_repo, list_links, route_repo, unlink_repo
-from mcp_server.proxy import HttpProxyMcpServer, ProxyConfig
+from merv.brain.client_cli import link_repo, list_links, route_repo, unlink_repo
+from merv.proxy.proxy import HttpProxyMcpServer, ProxyConfig
 
 
 class ClientLinkingTest(unittest.TestCase):

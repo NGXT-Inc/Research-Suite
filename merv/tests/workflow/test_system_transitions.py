@@ -13,14 +13,14 @@ import unittest
 from pathlib import Path
 
 from tests.support.brain import TestBrain
-from backend.execution.backends.fake import FakeSandboxBackend
-from backend.domain.workflow_gates import (
+from merv.brain.sandbox.execution.backends.fake import FakeSandboxBackend
+from merv.brain.research_core.domain.workflow_gates import (
     GATE_TABLE,
     SYSTEM_TRANSITIONS,
     TRANSITION_GRAPH,
     TRANSITION_REQUIREMENTS,
 )
-from backend.utils import WorkflowError
+from merv.brain.kernel.utils import WorkflowError
 from tests.paths import BACKEND_ROOT
 
 

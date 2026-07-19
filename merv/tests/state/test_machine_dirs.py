@@ -12,17 +12,17 @@ import unittest
 from pathlib import Path
 from unittest import mock
 
-from research_plugin_shared.machine_dirs import (
+from merv.shared.machine_dirs import (
     LEGACY_MACHINE_STATE_DIR,
     MACHINE_STATE_DIR,
     resolve_machine_state_dir,
 )
-from research_plugin_shared.client_config import (
+from merv.shared.client_config import (
     default_client_config_path,
     default_daemon_secret_path,
     resolve_client_config_path,
 )
-from mcp_server.project_links import default_project_links_path
+from merv.proxy.project_links import default_project_links_path
 
 
 class ResolveMachineStateDirTest(unittest.TestCase):
