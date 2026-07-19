@@ -65,23 +65,6 @@ def _attach_feed_note(
         result["feed_note"] = note
 
 
-def _experiment_get_state_agent(
-    *,
-    experiments: Any,
-    mlflow_tracking: Any,
-    experiment_id: str,
-    project_id: str | None = None,
-) -> dict[str, Any]:
-    full = experiments.get_state(experiment_id=experiment_id, project_id=project_id)
-    slim = slim_experiment_state(full)
-    return _with_mlflow_if_visible(
-        state=slim,
-        mlflow_tracking=mlflow_tracking,
-        project_id=str(full.get("project_id") or project_id or ""),
-        experiment_id=experiment_id,
-    )
-
-
 def _experiment_list_agent(
     *, experiments: Any, project_id: str | None = None
 ) -> dict[str, Any]:
@@ -334,11 +317,15 @@ def build_control_tool_handlers(
     def experiment_get_state_agent(
         *, experiment_id: str, project_id: str | None = None
     ) -> dict[str, Any]:
-        return _experiment_get_state_agent(
-            experiments=experiments,
+        full = experiments.get_state(
+            experiment_id=experiment_id, project_id=project_id
+        )
+        slim = slim_experiment_state(full)
+        return _with_mlflow_if_visible(
+            state=slim,
             mlflow_tracking=mlflow_tracking,
+            project_id=str(full.get("project_id") or project_id or ""),
             experiment_id=experiment_id,
-            project_id=project_id,
         )
 
     def experiment_list_agent(
