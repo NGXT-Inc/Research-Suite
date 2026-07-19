@@ -21,7 +21,9 @@ LEGACY_ENV_PREFIX = "RESEARCH_PLUGIN_"
 
 FALSE_VALUES = {"0", "false", "no", "off"}
 
-LOGGER = logging.getLogger("backend.env")  # pinned pre-move name: operator log filters + tests/state/test_env.py key on it
+LOGGER = logging.getLogger("backend.env")  # pinned pre-move name: operator log filters key on it;
+# de-shim MUST restore getLogger(__name__) together with the assertLogs pins in
+# tests/state/test_env.py and tests/surface/test_brain_dirs.py:141.
 _warned_legacy_names: set[str] = set()
 
 

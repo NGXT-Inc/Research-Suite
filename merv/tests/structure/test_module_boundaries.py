@@ -58,7 +58,7 @@ FILE_MODULES = {
     "utils.py": KERNEL,
     "env.py": KERNEL,
     "version.py": KERNEL,
-    # secret_tokens is a pure-stdlib token helper imported by state/store.py
+    # secret_tokens is a pure-stdlib token helper imported by kernel/state/store.py
     # (kernel) and services/reviews.py — it must live at the kernel floor.
     "secret_tokens.py": KERNEL,
     # object_storage: blob adapters live under storage/ (PACKAGE_MODULES).
