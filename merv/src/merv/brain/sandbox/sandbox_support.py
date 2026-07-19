@@ -154,11 +154,6 @@ def _safe_name(identity: str) -> str:
     return "".join(ch if ch.isalnum() or ch in "-_." else "_" for ch in identity) or "sandbox"
 
 
-def _shq(value: str) -> str:
-    """POSIX single-quote a value for safe `source` in the conn file."""
-    return "'" + value.replace("'", "'\\''") + "'"
-
-
 # Markers the in-sandbox rec.sh ForceCommand wrapper writes to the transcript:
 #   command start: "[<ts>] $ <command>"
 #   command exit:  "[<ts>] (exit <code>)"   (rc captured via PIPESTATUS[0])

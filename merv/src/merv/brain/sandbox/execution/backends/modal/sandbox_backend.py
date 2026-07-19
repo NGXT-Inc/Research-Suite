@@ -38,7 +38,7 @@ from ...usage_metrics import (
     METRICS_SCRIPT,
     parse_metrics,
 )
-from ....sandbox_backend import BackendUnavailableError, BackendValidationError
+from ....sandbox_backend import BackendUnavailableError
 from ...sync_dirs import remote_experiment_dir, remote_root_of, remote_sessions_dir
 from ...transcript_wire import (
     TRANSCRIPT_TAIL_DEFAULT,
@@ -62,7 +62,7 @@ from ....sandbox_backend import (
     TranscriptTail,
 )
 from .config import COMPUTE_TIERS, DEFAULT_GPU, VALID_GPUS, ModalConfig
-from ._sandbox_ops import ensure_remote_dir, exec_checked, maybe_await, read_stream, wait_process
+from ._sandbox_ops import maybe_await, read_stream, wait_process
 
 
 ActivityHook = Callable[[str, dict[str, Any]], None]
