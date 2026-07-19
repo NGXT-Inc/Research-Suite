@@ -219,7 +219,7 @@ def load_modal_env_file() -> None:
         return  # control mode: no implicit .env discovery
     else:
         # merv/src/merv/brain/sandbox/execution/backends/modal/config.py -> merv/
-        path = Path(__file__).resolve().parents[5] / ".env"
+        path = Path(__file__).resolve().parents[7] / ".env"
         if not path.exists():
             return
     for raw_line in path.read_text().splitlines():

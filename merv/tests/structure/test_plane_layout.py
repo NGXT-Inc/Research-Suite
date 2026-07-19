@@ -883,7 +883,12 @@ class ProxyStdlibOnlyTest(unittest.TestCase):
 
         allowed_prefixes = ("merv.proxy", "merv.shared")
         for package, root in (("merv.proxy", PROXY_ROOT), ("merv.shared", SHARED_ROOT)):
-            for path in sorted(root.glob("*.py")):
+            for path in sorted(root.rglob("*.py")):
+                if "__pycache__" in path.parts:
+                    continue
+                # The file's own package: subpackage-aware, so nested modules
+                # resolve relative imports against the right base.
+                file_pkg = ".".join((package, *path.relative_to(root).parent.parts))
                 names: set[str] = set()
                 tree = ast.parse(path.read_text(encoding="utf-8"))
                 for node in ast.walk(tree):
@@ -894,13 +899,12 @@ class ProxyStdlibOnlyTest(unittest.TestCase):
                             continue
                         if node.level:
                             # Resolve relative imports against the owning package.
-                            base = ".".join(
-                                package.split(".")[: len(package.split(".")) - (node.level - 1)]
-                            )
+                            pkg_parts = file_pkg.split(".")
+                            base = ".".join(pkg_parts[: len(pkg_parts) - (node.level - 1)])
                             names.add(f"{base}.{node.module}" if node.module else base)
                         elif node.module:
                             names.add(node.module)
-                with self.subTest(module=path.name):
+                with self.subTest(module=path.relative_to(root).as_posix()):
                     external = {
                         name
                         for name in names
@@ -924,7 +928,9 @@ class ProxyStdlibOnlyTest(unittest.TestCase):
         # ImportError fallback (tests/surface/test_static_tool_catalog.py
         # drives the proxy with pydantic blocked to prove it).
         targets: set[str] = set()
-        for path in sorted(PROXY_ROOT.glob("*.py")):
+        for path in sorted(PROXY_ROOT.rglob("*.py")):
+            if "__pycache__" in path.parts:
+                continue
             for node in ast.walk(ast.parse(path.read_text(encoding="utf-8"))):
                 if not isinstance(node, ast.Call) or not node.args:
                     continue
@@ -961,8 +967,10 @@ class ProxyStdlibOnlyTest(unittest.TestCase):
         # Codex may launch the stdio proxy with Apple CLT Python 3.9.
         # datetime.UTC was added in 3.11, so proxy modules must use
         # datetime.timezone.utc instead.
-        for path in sorted(PROXY_ROOT.glob("*.py")):
-            with self.subTest(module=path.name):
+        for path in sorted(PROXY_ROOT.rglob("*.py")):
+            if "__pycache__" in path.parts:
+                continue
+            with self.subTest(module=path.relative_to(PROXY_ROOT).as_posix()):
                 source = path.read_text(encoding="utf-8")
                 self.assertNotIn("from datetime import UTC", source)
                 self.assertNotIn("datetime.UTC", source)

@@ -115,7 +115,7 @@ def load_thunder_env_file() -> None:
     elif (env_value("MERV_MODE") or "").lower() == "control":
         return
     else:
-        path = Path(__file__).resolve().parents[5] / ".env"
+        path = Path(__file__).resolve().parents[7] / ".env"
         if not path.exists():
             return
     for raw_line in path.read_text().splitlines():
