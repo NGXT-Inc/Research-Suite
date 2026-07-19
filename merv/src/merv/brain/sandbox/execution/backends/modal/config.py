@@ -5,7 +5,6 @@ from __future__ import annotations
 import os
 from dataclasses import dataclass
 from pathlib import Path, PurePosixPath
-from typing import Any, Mapping
 
 from .....kernel.env import env_int, env_raw, env_value
 from ....sandbox_backend import BackendValidationError
@@ -45,21 +44,6 @@ DEFAULT_JOB_TIMEOUT = 3000
 DEFAULT_IDLE_TIMEOUT = 0
 DEFAULT_TIMEOUT_BUFFER_SECONDS = 60
 MAX_MODAL_SANDBOX_TIMEOUT = 24 * 60 * 60
-
-_KNOWN_HINTS = frozenset(
-    {
-        "cloud",
-        "compute_tier",
-        "cuda_devel",
-        "experiment_path",
-        "gpu",
-        "image_packages",
-        "notes",
-        "region",
-        "timeout",
-    }
-)
-
 
 @dataclass(frozen=True)
 class ModalConfig:
@@ -160,38 +144,6 @@ class ModalConfig:
         return max(0, MAX_MODAL_SANDBOX_TIMEOUT - self.retention_seconds - self.timeout_buffer_seconds)
 
 
-@dataclass(frozen=True)
-class ModalJobHints:
-    gpu: str
-    compute_tier: str
-    cuda_devel: bool
-    image_packages: tuple[str, ...]
-    timeout: int
-    experiment_path: str | None
-    cloud: str | None
-    region: str | tuple[str, ...] | None
-
-    @property
-    def cpu(self) -> int:
-        return COMPUTE_TIERS[self.compute_tier]["cpu"]
-
-    @property
-    def memory(self) -> int:
-        return COMPUTE_TIERS[self.compute_tier]["memory"]
-
-    @property
-    def compatibility_key(self) -> tuple[Any, ...]:
-        return (
-            self.gpu,
-            self.compute_tier,
-            self.cuda_devel,
-            self.image_packages,
-            self.timeout,
-            self.cloud,
-            self.region,
-        )
-
-
 def load_modal_env_file() -> None:
     """Load Modal credentials from an env file without importing dotenv.
 
@@ -233,39 +185,6 @@ def load_modal_env_file() -> None:
             os.environ[key] = value
 
 
-def parse_modal_hints(
-    *, backend_hints: Mapping[str, Any], config: ModalConfig
-) -> ModalJobHints:
-    raw = dict(backend_hints)
-    unknown = sorted(set(raw) - _KNOWN_HINTS)
-    if unknown:
-        raise BackendValidationError(f"unknown Modal backend_hints: {', '.join(unknown)}")
-
-    gpu = str(raw.get("gpu", DEFAULT_GPU)).upper()
-    if gpu not in VALID_GPUS:
-        raise BackendValidationError(f"invalid Modal gpu: {gpu}")
-
-    compute_tier = str(raw.get("compute_tier", "default"))
-    if compute_tier not in COMPUTE_TIERS:
-        raise BackendValidationError(f"invalid Modal compute_tier: {compute_tier}")
-
-    timeout = _positive_int(raw.get("timeout", config.job_timeout), field="timeout")
-    config.validate_timeout_budget(job_timeout=timeout)
-
-    return ModalJobHints(
-        gpu=gpu,
-        compute_tier=compute_tier,
-        cuda_devel=_bool_hint(raw.get("cuda_devel", False), field="cuda_devel"),
-        image_packages=_string_tuple(raw.get("image_packages", ()), field="image_packages"),
-        timeout=timeout,
-        experiment_path=_optional_repo_relative_dir(
-            raw.get("experiment_path"), field="experiment_path"
-        ),
-        cloud=_optional_string(raw.get("cloud"), field="cloud"),
-        region=_region_hint(raw.get("region")),
-    )
-
-
 def _env_str(name: str, default: str) -> str:
     raw = env_raw(name)
     value = default.strip() if raw is None else raw
@@ -297,77 +216,6 @@ def _modal_env_int(*, name: str, default: int) -> int:
     except ValueError as exc:
         raise BackendValidationError(f"{name} must be an integer") from exc
     return parsed
-
-
-def _positive_int(value: Any, *, field: str) -> int:
-    try:
-        parsed = int(value)
-    except (TypeError, ValueError) as exc:
-        raise BackendValidationError(f"{field} must be an integer") from exc
-    if parsed <= 0:
-        raise BackendValidationError(f"{field} must be positive")
-    return parsed
-
-
-def _bool_hint(value: Any, *, field: str) -> bool:
-    if isinstance(value, bool):
-        return value
-    if isinstance(value, str):
-        lowered = value.strip().lower()
-        if lowered in {"1", "true", "yes", "on"}:
-            return True
-        if lowered in {"0", "false", "no", "off"}:
-            return False
-    raise BackendValidationError(f"{field} must be a boolean")
-
-
-def _string_tuple(value: Any, *, field: str) -> tuple[str, ...]:
-    if value in (None, ""):
-        return ()
-    if not isinstance(value, (list, tuple)):
-        raise BackendValidationError(f"{field} must be a list of strings")
-    result = []
-    for item in value:
-        if not isinstance(item, str) or not item.strip():
-            raise BackendValidationError(f"{field} must be a list of non-empty strings")
-        result.append(item.strip())
-    return tuple(result)
-
-
-def _optional_string(value: Any, *, field: str) -> str | None:
-    if value in (None, ""):
-        return None
-    if not isinstance(value, str):
-        raise BackendValidationError(f"{field} must be a string")
-    return value.strip() or None
-
-
-def _region_hint(value: Any) -> str | tuple[str, ...] | None:
-    if value in (None, ""):
-        return None
-    if isinstance(value, str):
-        return value.strip() or None
-    if isinstance(value, (list, tuple)):
-        return _string_tuple(value, field="region") or None
-    raise BackendValidationError("region must be a string or list of strings")
-
-
-def _optional_repo_relative_dir(value: Any, *, field: str) -> str | None:
-    if value in (None, ""):
-        return None
-    if not isinstance(value, str):
-        raise BackendValidationError(f"{field} must be a string")
-    rel = PurePosixPath(value)
-    if rel.is_absolute() or any(part == ".." for part in rel.parts):
-        raise BackendValidationError(f"{field} must be repo-relative and may not contain '..'")
-    cleaned = rel.as_posix().rstrip("/")
-    if cleaned in {"", "."}:
-        raise BackendValidationError(f"{field} must identify a concrete experiment directory")
-    if len(PurePosixPath(cleaned).parts) < 2:
-        raise BackendValidationError(
-            f"{field} must identify an experiment directory with at least two path components"
-        )
-    return cleaned or None
 
 
 def _absolute_posix_path(value: str, *, field: str) -> str:
