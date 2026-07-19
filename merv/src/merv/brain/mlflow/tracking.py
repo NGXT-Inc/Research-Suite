@@ -540,13 +540,13 @@ class CentralMlflowService:
         """Read experiment metrics from the centralized MLflow server."""
         context = self.context(project_id=project_id, experiment_id=experiment_id)
         read_uri = self.server_uri or context.tracking_uri
+        unavailable = {
+            "experiment_id": experiment_id,
+            "available": False,
+            "source": "mlflow",
+        }
         if not read_uri:
-            return {
-                "experiment_id": experiment_id,
-                "available": False,
-                "source": "mlflow",
-                "hint": context.note,
-            }
+            return {**unavailable, "hint": context.note}
         try:
             snapshot = snapshot_mlflow(
                 read_uri,
@@ -554,17 +554,10 @@ class CentralMlflowService:
                 **({"include_history": False} if not include_history else {}),
             )
         except MlflowSnapshotError:
-            return {
-                "experiment_id": experiment_id,
-                "available": False,
-                "source": "mlflow",
-                "hint": "MLflow unreachable.",
-            }
+            return {**unavailable, "hint": "MLflow unreachable."}
         if not isinstance(snapshot, dict):
             return {
-                "experiment_id": experiment_id,
-                "available": False,
-                "source": "mlflow",
+                **unavailable,
                 "hint": "No MLflow runs found for this experiment yet.",
             }
         portable = dict(snapshot)
