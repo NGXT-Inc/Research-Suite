@@ -1,7 +1,7 @@
 # Merv Architecture
 
 This document describes the architecture implemented by the current codebase.
-The executable contracts in `src/merv/brain/research_core/domain/*`, `src/merv/brain/tools/contracts.py`, and
+The executable contracts in `src/merv/brain/research_core/domain/*`, `src/merv/brain/surface/tools/contracts.py`, and
 the structural tests under `tests/structure/` are authoritative when prose and
 code disagree.
 
@@ -149,7 +149,7 @@ diagnostic view and is not part of durable research state.
 
 ## Tool routing
 
-The brain registry in `src/merv/brain/tools/contracts.py` remains the generator
+The brain registry in `src/merv/brain/surface/tools/contracts.py` remains the generator
 and source of truth for tool schemas and plane assignments. The proxy never
 imports it at runtime: its sole runtime registry is the checked-in
 `src/merv/proxy/_tool_catalog.json`, whose byte-for-byte parity is enforced by

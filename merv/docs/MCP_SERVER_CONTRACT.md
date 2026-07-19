@@ -1,7 +1,7 @@
 # MCP Server Contract
 
 This document describes the current agent-facing MCP architecture. The live
-schemas and descriptions generated from `src/merv/brain/tools/contracts.py` are the
+schemas and descriptions generated from `src/merv/brain/surface/tools/contracts.py` are the
 authoritative per-field contract; `tools/list` is the authoritative catalog for
 the active deployment.
 

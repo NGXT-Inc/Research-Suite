@@ -4,8 +4,8 @@ The Merv UI talks directly to the brain's `/api/*` HTTP surface. The
 same brain also serves `/mcp/*` to local stdio proxies, but the browser is not an
 agent runtime and has no chat endpoint.
 
-The route modules under `src/merv/brain/transport/api/` and the projections in
-`src/merv/brain/transport/api/views.py` are the executable source of truth for this
+The route modules under `src/merv/brain/surface/transport/api/` and the projections in
+`src/merv/brain/surface/transport/api/views.py` are the executable source of truth for this
 document.
 
 ## Runtime and trust boundary

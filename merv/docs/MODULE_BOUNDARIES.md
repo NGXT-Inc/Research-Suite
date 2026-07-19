@@ -6,8 +6,8 @@ shared layer sit outside this brain-only module law.
 
 ```
                     ┌───────────────────────── SURFACE ─────────────────────────┐
-                    │  tools/ transport/ composition/ control/                  │
-                    │  config client_cli  (imports anything)                    │
+                    │  surface/: tools/ transport/ composition/ control/        │
+                    │  config observability glue  (imports anything)            │
                     └───────┬──────────┬──────────┬─────────┬─────────┬─────────┘
                             ▼          ▼          ▼         ▼         ▼
    MLFLOW ──────▶ RESEARCH_CORE   ARTIFACTS   OBJECT_   SANDBOX     FEED
@@ -44,7 +44,7 @@ the standard library and itself, never either plane.
 | sandbox        | `sandbox/*` (incl. the `mgmt_keys`/`managed_mgmt_keys` custody adapters, `sandbox_paths`, `ssh_keys`, `transcript_cache`, `quotas`), `sandbox/execution/*` |
 | feed           | `feed/*` (feed, feed_unfurl, feed_policy)                                   |
 | mlflow         | `mlflow/*` (extension, incl. its own env config in `mlflow/config`)          |
-| surface        | `tools/*`, `transport/*`, `composition/*`, `control/*`, `config`, `client_cli`, glue services (`permissions`, `identity`, `cleanup`), `observability` |
+| surface        | `surface/*` — one physical package: `surface/{tools,transport,composition,control}/*`, glue services (`auth`, `permissions`, `identity`, `cleanup`), `surface/config`, `surface/observability` |
 
 Outside the brain modular-monolith classifier:
 
@@ -52,6 +52,7 @@ Outside the brain modular-monolith classifier:
 |---|---|
 | local proxy | `src/merv/proxy/*`, including `dataplane/*` and `workspace.py` |
 | pure shared | `src/merv/shared/*`, including errors, path/wire/tool contracts, storage helpers, feed media, artifact roles, and markdown parsing |
+| login CLI | `src/merv/client/*` — ships in the slim plugin bundle; imports only stdlib + `merv.shared`, never `merv.brain` |
 
 The authoritative, file-exact table is `FILE_MODULES`/`PACKAGE_MODULES` in
 `tests/structure/test_module_boundaries.py`.
