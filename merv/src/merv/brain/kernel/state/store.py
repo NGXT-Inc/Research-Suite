@@ -13,7 +13,7 @@ import re
 import sqlite3
 import uuid
 from collections.abc import Iterable, Iterator, Mapping, Sequence
-from contextlib import contextmanager
+from contextlib import closing, contextmanager
 from pathlib import Path
 from types import TracebackType
 from typing import Any, Protocol
@@ -1140,8 +1140,7 @@ class BaseStateStore:
         self, *, project_id: str | None, after_id: int, limit: int = 500
     ) -> dict[str, Any]:
         """Ascending tail of the append-only events table — the SSE cursor read."""
-        conn = self.connect()
-        try:
+        with closing(self.connect()) as conn:
             project_id = self.require_project_id(conn=conn, project_id=project_id)
             rows = conn.execute(
                 """
@@ -1159,8 +1158,6 @@ class BaseStateStore:
                 item["payload"] = json.loads(str(item.pop("payload_json", "{}")))
                 events.append(item)
             return {"events": events}
-        finally:
-            conn.close()
 
     def add_project_member(self, *, project_id: str, user_id: str) -> None:
         with self.transaction() as conn:
@@ -1181,31 +1178,24 @@ class BaseStateStore:
             )
 
     def is_project_member(self, *, project_id: str, user_id: str) -> bool:
-        conn = self.connect()
-        try:
+        with closing(self.connect()) as conn:
             row = conn.execute(
                 "SELECT 1 FROM project_members WHERE project_id = ? AND user_id = ?",
                 (project_id, user_id),
             ).fetchone()
             return row is not None
-        finally:
-            conn.close()
 
     def list_project_members(self, *, project_id: str) -> list[dict[str, Any]]:
-        conn = self.connect()
-        try:
+        with closing(self.connect()) as conn:
             rows = conn.execute(
                 "SELECT user_id, added_at FROM project_members WHERE project_id = ? ORDER BY added_at",
                 (project_id,),
             ).fetchall()
             return [row_to_dict(row=row) or {} for row in rows]
-        finally:
-            conn.close()
 
     def project_event_signal(self, *, project_id: str | None) -> str:
         """Monotonic per-project signal for the append-only event stream."""
-        conn = self.connect()
-        try:
+        with closing(self.connect()) as conn:
             project_id = self.require_project_id(conn=conn, project_id=project_id)
             row = conn.execute(
                 """
@@ -1218,8 +1208,6 @@ class BaseStateStore:
             if row is None:
                 return "0:0"
             return f"{int(row['max_id'] or 0)}:{int(row['count'] or 0)}"
-        finally:
-            conn.close()
 
     def project_sandbox_signal(self, *, project_id: str | None) -> str:
         """Change signal for a project's sandbox rows (no event-table proxy).
@@ -1231,8 +1219,7 @@ class BaseStateStore:
         fields the sandbox_list_view surfaces: it changes iff that payload would.
         Cheap — a few rows, a handful of columns, no per-row view rendering.
         """
-        conn = self.connect()
-        try:
+        with closing(self.connect()) as conn:
             project_id = self.require_project_id(conn=conn, project_id=project_id)
             rows = conn.execute(
                 """
@@ -1255,12 +1242,9 @@ class BaseStateStore:
                 for row in rows
             )
             return f"{len(rows)}:{digest}"
-        finally:
-            conn.close()
 
     def recent_events(self, *, project_id: str | None, limit: int = 100) -> dict[str, Any]:
-        conn = self.connect()
-        try:
+        with closing(self.connect()) as conn:
             project_id = self.require_project_id(conn=conn, project_id=project_id)
             rows = conn.execute(
                 """
@@ -1278,8 +1262,6 @@ class BaseStateStore:
                 item["payload"] = json.loads(str(item.pop("payload_json", "{}")))
                 events.append(item)
             return {"events": events}
-        finally:
-            conn.close()
 
 
 class StateStore(BaseStateStore):
