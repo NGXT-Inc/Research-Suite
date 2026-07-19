@@ -149,3 +149,16 @@ Open a previously linked project folder and ask the agent to call
 - **Cursor still lists `research-plugin`**: that's the stale account-synced
   marketplace — remove it from the Customize → Plugins page (deleting local
   folders is not enough).
+
+## Remaining pre-rename compatibility
+
+Two legacy symbols still ship for older checkouts and will be removed once no
+supported deployment or recorded run references them:
+
+- `rp_run` — superseded by `merv_run`; the alias remains until recorded runs
+  referencing it age out.
+- `RP_EXPERIMENT_DIR` — superseded by the `MERV_*` spelling; the dual-read
+  resolver keeps the old name working.
+
+Remove them together, with a changelog note, once telemetry shows no reads of
+the legacy names.

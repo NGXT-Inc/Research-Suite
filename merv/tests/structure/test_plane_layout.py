@@ -29,6 +29,7 @@ from merv.brain.surface.tools.contracts import (
 from tests.paths import (
     ARTIFACTS_ROOT,
     BACKEND_ROOT,
+    CLIENT_ROOT,
     DOMAIN_ROOT,
     FEED_ROOT,
     IMPORT_ROOT,
@@ -919,12 +920,16 @@ class ProxyStdlibOnlyTest(unittest.TestCase):
     def test_proxy_imports_only_stdlib(self) -> None:
         import sys
 
-        for package, root in (("merv.proxy", PROXY_ROOT), ("merv.shared", SHARED_ROOT)):
-            allowed_prefixes = (
-                ("merv.proxy", "merv.shared")
-                if package == "merv.proxy"
-                else ("merv.shared",)
-            )
+        for package, root in (
+            ("merv.proxy", PROXY_ROOT),
+            ("merv.shared", SHARED_ROOT),
+            ("merv.client", CLIENT_ROOT),
+        ):
+            allowed_prefixes = {
+                "merv.proxy": ("merv.proxy", "merv.shared"),
+                "merv.shared": ("merv.shared",),
+                "merv.client": ("merv.client", "merv.shared"),
+            }[package]
             for path in sorted(root.rglob("*.py")):
                 if "__pycache__" in path.parts:
                     continue
@@ -980,7 +985,11 @@ class ProxyStdlibOnlyTest(unittest.TestCase):
 
     def test_proxy_performs_no_brain_imports_static_or_dynamic(self) -> None:
         targets: set[str] = set()
-        for package, root in (("merv.proxy", PROXY_ROOT), ("merv.shared", SHARED_ROOT)):
+        for package, root in (
+            ("merv.proxy", PROXY_ROOT),
+            ("merv.shared", SHARED_ROOT),
+            ("merv.client", CLIENT_ROOT),
+        ):
             for path in sorted(root.rglob("*.py")):
                 if "__pycache__" not in path.parts:
                     targets.update(
@@ -1009,7 +1018,11 @@ class ProxyStdlibOnlyTest(unittest.TestCase):
 
     def test_proxy_and_shared_runtime_closure_excludes_brain(self) -> None:
         modules: list[str] = []
-        for package, root in (("merv.proxy", PROXY_ROOT), ("merv.shared", SHARED_ROOT)):
+        for package, root in (
+            ("merv.proxy", PROXY_ROOT),
+            ("merv.shared", SHARED_ROOT),
+            ("merv.client", CLIENT_ROOT),
+        ):
             for path in sorted(root.rglob("*.py")):
                 if "__pycache__" in path.parts:
                     continue
@@ -1076,11 +1089,33 @@ if loaded:
             "merv/brain/feed/" + "feed_images.py",
             "merv/brain/artifacts/" + "markdown_images.py",
             "merv/brain/artifacts/" + "roles.py",
+            # T6 surface fold: the old brain-root strays and merv.client's
+            # former home must never be referenced again.
+            "merv.brain." + "tools",
+            "merv.brain." + "transport",
+            "merv.brain." + "composition",
+            "merv.brain." + "control",
+            "merv.brain." + "services",
+            "merv.brain." + "config",
+            "merv.brain." + "observability",
+            "merv.brain." + "client_cli",
+            "merv/brain/" + "tools/",
+            "merv/brain/" + "transport/",
+            "merv/brain/" + "composition/",
+            "merv/brain/" + "control/",
+            "merv/brain/" + "services/",
+            "merv/brain/" + "config.py",
+            "merv/brain/" + "observability.py",
+            "merv/brain/" + "client_cli.py",
         )
         roots = (
             IMPORT_ROOT,
             IMPORT_ROOT.parent / "tests",
             IMPORT_ROOT.parent / "scripts",
+            IMPORT_ROOT.parent / "bin",
+            IMPORT_ROOT.parent / "deploy",
+            IMPORT_ROOT.parent / "clients",
+            IMPORT_ROOT.parent / "docs",
         )
         stale: list[str] = []
         for root in roots:
@@ -1116,7 +1151,11 @@ if loaded:
         # datetime.UTC was added in 3.11, so proxy modules must use
         # datetime.timezone.utc instead. merv.shared is statically imported by
         # the proxy, so it lives under the same floor.
-        for package, root in (("merv.proxy", PROXY_ROOT), ("merv.shared", SHARED_ROOT)):
+        for package, root in (
+            ("merv.proxy", PROXY_ROOT),
+            ("merv.shared", SHARED_ROOT),
+            ("merv.client", CLIENT_ROOT),
+        ):
             for path in sorted(root.rglob("*.py")):
                 if "__pycache__" in path.parts:
                     continue
@@ -1135,7 +1174,11 @@ if loaded:
         # The static net is the unambiguous None-operand shape — set/dict/int
         # `|` stays legal — and the system-python import test below is the
         # authoritative backstop for anything it cannot see.
-        for package, root in (("merv.proxy", PROXY_ROOT), ("merv.shared", SHARED_ROOT)):
+        for package, root in (
+            ("merv.proxy", PROXY_ROOT),
+            ("merv.shared", SHARED_ROOT),
+            ("merv.client", CLIENT_ROOT),
+        ):
             for path in sorted(root.rglob("*.py")):
                 if "__pycache__" in path.parts:
                     continue
@@ -1210,7 +1253,11 @@ if loaded:
                 f"system python3 is {version[0]}.{version[1]}; not below the packaged floor"
             )
         modules: list[str] = []
-        for package, root in (("merv.proxy", PROXY_ROOT), ("merv.shared", SHARED_ROOT)):
+        for package, root in (
+            ("merv.proxy", PROXY_ROOT),
+            ("merv.shared", SHARED_ROOT),
+            ("merv.client", CLIENT_ROOT),
+        ):
             for path in sorted(root.rglob("*.py")):
                 if "__pycache__" in path.parts:
                     continue

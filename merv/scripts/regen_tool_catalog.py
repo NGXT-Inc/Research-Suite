@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """Regenerate src/merv/proxy/_tool_catalog.json from the live tool contracts.
 
-Run after changing src/merv/brain/tools/contracts.py; the surface test
+Run after changing src/merv/brain/surface/tools/contracts.py; the surface test
 tests/surface/test_static_tool_catalog.py fails until the checked-in file
 matches the live render.
 """

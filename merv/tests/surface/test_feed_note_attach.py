@@ -4,7 +4,7 @@ feed.py owns the posts table and the dedupe decision (feed_note_for); this
 module owns *attaching* that note to the responses of tools an agent already
 calls for other reasons — experiment.transition (into a terminal state),
 mlflow.finalize_run, and review.status. These are lightweight stub-based unit
-tests of that wiring in src/merv/brain/tools/tool_handlers.py: they build the
+tests of that wiring in src/merv/brain/surface/tools/tool_handlers.py: they build the
 handler dict directly (the same helper tests/surface/test_tool_contracts.py
 uses) with tiny recording stubs, so the terminal-status/verdict/finalize
 branching and the "never raise" contract can be checked without a full

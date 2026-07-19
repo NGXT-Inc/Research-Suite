@@ -15,6 +15,9 @@ FEED_ROOT = BACKEND_ROOT / "feed"
 PORTS_ROOT = BACKEND_ROOT / "kernel" / "ports"
 RESEARCH_CORE_ROOT = BACKEND_ROOT / "research_core"
 DOMAIN_ROOT = RESEARCH_CORE_ROOT / "domain"
+# Post-fold alias: the glue services live flat in surface/. Never rglob this
+# root for "service" sweeps — surface/ also holds tools/transport/composition;
+# pin file lists explicitly (see GLUE_SERVICE_FILES in the structure tests).
 SERVICES_ROOT = BACKEND_ROOT / "surface"
 SURFACE_ROOT = BACKEND_ROOT / "surface"
 CLIENT_ROOT = IMPORT_ROOT / "merv" / "client"

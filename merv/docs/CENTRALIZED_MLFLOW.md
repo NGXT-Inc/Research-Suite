@@ -242,3 +242,11 @@ MLflow is best-effort in the experiment workflow:
   when `TRACKING_URI` is absent.
 - A quantitative run without usable MLflow should retain fallback result files
   in the experiment folder and explain the gap in its report.
+
+## Legacy `rp/` namespace
+
+Deployments that predate the Merv rename may still hold experiments under the
+MLflow `rp/` folder. `scripts/migrate_mlflow_namespace.py` renames them to
+`merv/` in place; it supports `--dry-run`, and a second live run is a no-op
+(idempotent), so it is safe to re-run after partial migrations. Production ran
+this migration on 2026-07-18.
