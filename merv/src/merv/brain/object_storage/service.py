@@ -108,40 +108,24 @@ class StorageLedgerService:
             version = self._next_version(conn=conn, project_id=project_id, name=name)
             stat = self.objects.stat(namespace=namespace, sha256=sha256)
             if stat is not None:
-                row = self._insert_object(
-                    conn=conn,
-                    project_id=project_id,
-                    name=name,
-                    version=version,
-                    kind=kind,
-                    sha256=sha256,
-                    size_bytes=int(stat.size_bytes),
-                    content_type=str(stat.content_type or content_type),
+                registered_size = int(stat.size_bytes)
+                registered_content_type = str(stat.content_type or content_type)
+                status = "available"
+                upload_id = None
+                expires_at = iso_after(seconds=STORAGE_DEFAULT_TTL_SECONDS)
+            else:
+                upload = self.objects.presign_upload(
                     namespace=namespace,
-                    status="available",
-                    upload_id=None,
-                    expires_at=iso_after(seconds=STORAGE_DEFAULT_TTL_SECONDS),
-                    created_by=created_by,
-                    producing_experiment_id=producing_experiment_id,
-                    producing_run=producing_run,
-                    source_uri=source_uri,
-                    notes=notes,
+                    sha256=sha256,
+                    size_bytes=int(size_bytes),
+                    content_type=content_type,
+                    expires_in=PRESIGN_TTL_SECONDS,
                 )
-                self._record(
-                    conn=conn,
-                    project_id=project_id,
-                    event_type="storage.registered",
-                    row=row,
-                )
-                return {"deduped": True, "object": self._hydrate(row=row)}
-
-            upload = self.objects.presign_upload(
-                namespace=namespace,
-                sha256=sha256,
-                size_bytes=int(size_bytes),
-                content_type=content_type,
-                expires_in=PRESIGN_TTL_SECONDS,
-            )
+                registered_size = int(size_bytes)
+                registered_content_type = content_type
+                status = "uploading"
+                upload_id = str(upload["upload_id"])
+                expires_at = None
             row = self._insert_object(
                 conn=conn,
                 project_id=project_id,
@@ -149,12 +133,12 @@ class StorageLedgerService:
                 version=version,
                 kind=kind,
                 sha256=sha256,
-                size_bytes=int(size_bytes),
-                content_type=content_type,
+                size_bytes=registered_size,
+                content_type=registered_content_type,
                 namespace=namespace,
-                status="uploading",
-                upload_id=str(upload["upload_id"]),
-                expires_at=None,
+                status=status,
+                upload_id=upload_id,
+                expires_at=expires_at,
                 created_by=created_by,
                 producing_experiment_id=producing_experiment_id,
                 producing_run=producing_run,
@@ -167,6 +151,8 @@ class StorageLedgerService:
                 event_type="storage.registered",
                 row=row,
             )
+            if stat is not None:
+                return {"deduped": True, "object": self._hydrate(row=row)}
             return {"object": self._hydrate(row=row), "upload": upload}
 
     def upload_file(
