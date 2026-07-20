@@ -608,6 +608,83 @@ class ResearchPluginHttpApiTest(unittest.TestCase):
         )
         self.assertNotIn("MLFLOW_EXPERIMENT_NAME", project_ctx["mlflow"]["env"])
 
+    def test_transition_credential_audiences_and_telemetry_redaction(self) -> None:
+        project_id = self.request(
+            "POST", "/api/projects", {"name": "MLflow Credential Audiences"}
+        )["id"]
+        experiment_ids = [
+            self.request(
+                "POST",
+                f"/api/projects/{project_id}/experiments",
+                {"name": f"credential-{index}", "intent": "Characterize credentials"},
+            )["id"]
+            for index in range(3)
+        ]
+        self.configure_mlflow(
+            CentralMlflowService(
+                mode="external",
+                tracking_uri="https://mlflow.test",
+                server_uri="http://mlflow.internal:5000",
+                agent_key="rr_sk_agent",
+            )
+        )
+        self.app.mlflow_tracking.agent_key = "rr_sk_agent"
+        with self.app.store.transaction() as conn:
+            conn.execute(
+                "UPDATE experiments SET status = 'ready_to_run' WHERE id IN (?, ?)",
+                tuple(experiment_ids[:2]),
+            )
+            conn.execute(
+                "UPDATE experiments SET status = 'running' WHERE id = ?",
+                (experiment_ids[2],),
+            )
+
+        with patch.object(
+            CentralMlflowService,
+            "create_run",
+            return_value={"created": False, "configured": True},
+        ):
+            mcp_response = self.client.post(
+                "/mcp/call",
+                json={
+                    "name": "experiment.transition",
+                    "arguments": {
+                        "project_id": project_id,
+                        "experiment_id": experiment_ids[0],
+                        "transition": "start_running",
+                    },
+                },
+            )
+            self.assertEqual(mcp_response.status_code, 200, mcp_response.text)
+            mcp_result = mcp_response.json()["result"]
+            rest_result = self.request(
+                "POST",
+                f"/api/projects/{project_id}/experiments/{experiment_ids[1]}/transition",
+                {"transition": "start_running"},
+            )
+
+        for result in (mcp_result, rest_result):
+            self.assertEqual(
+                result["mlflow"]["env"]["MLFLOW_TRACKING_PASSWORD"],
+                "rr_sk_agent",
+            )
+
+        ui_state = self.request(
+            "GET", f"/api/projects/{project_id}/experiments/{experiment_ids[2]}"
+        )
+        self.assertNotIn("MLFLOW_TRACKING_PASSWORD", ui_state["mlflow"]["env"])
+
+        activity_text = json.dumps(self.app.activity.recent(limit=100), sort_keys=True)
+        tool_calls = self.app.tool_calls.stats(tool="experiment.transition")
+        tool_call_details = [
+            self.app.tool_calls.get(call_id=call["id"])
+            for call in tool_calls["calls"]
+        ]
+        self.assertNotIn("rr_sk_agent", activity_text)
+        self.assertNotIn("rr_sk_agent", json.dumps(tool_call_details, sort_keys=True))
+        self.assertIn("[redacted]", activity_text)
+        self.assertIn("[redacted]", json.dumps(tool_call_details, sort_keys=True))
+
     def test_attempt_revision_and_retry_rotate_the_mlflow_run(self) -> None:
         project = self.request("POST", "/api/projects", {"name": "ML Rotate Project"})
         project_id = project["id"]

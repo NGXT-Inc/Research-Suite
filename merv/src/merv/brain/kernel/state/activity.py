@@ -33,7 +33,11 @@ TAIL_READ_BYTES = 16 * 1024 * 1024
 # multi-hundred-MB/day growth. The log is a visibility feed, not an archive.
 RESULT_LOG_MAX_BYTES = 16 * 1024
 
-SENSITIVE_KEYS = {"reviewer_capability", "capability"}
+SENSITIVE_KEYS = {
+    "reviewer_capability",
+    "capability",
+    "MLFLOW_TRACKING_PASSWORD",
+}
 LOCAL_DATA_PLANE_KEYS = {"repo_root", "local_sync_dir", "local_experiment_dir"}
 ID_KEYS = {
     "project_id",

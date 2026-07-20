@@ -121,7 +121,10 @@ class ToolCallStoreTest(unittest.TestCase):
             },
             result={
                 "reviewer_capability": "rp_result",
-                "nested": {"capability": "rp_result_nested"},
+                "nested": {
+                    "capability": "rp_result_nested",
+                    "env": {"MLFLOW_TRACKING_PASSWORD": "rr_sk_agent"},
+                },
             },
         )
 
@@ -130,6 +133,28 @@ class ToolCallStoreTest(unittest.TestCase):
         self.assertEqual(detail["args"]["nested"]["capability"], "[redacted]")
         self.assertEqual(detail["result"]["reviewer_capability"], "[redacted]")
         self.assertEqual(detail["result"]["nested"]["capability"], "[redacted]")
+        self.assertEqual(
+            detail["result"]["nested"]["env"]["MLFLOW_TRACKING_PASSWORD"],
+            "[redacted]",
+        )
+
+    def test_control_sink_redacts_mlflow_password_in_nested_result(self) -> None:
+        sink = ControlToolCallSink()
+        sink.record(
+            tool="experiment.transition",
+            source="mcp",
+            status="ok",
+            duration_ms=1,
+            arguments={"project_id": "p"},
+            result={"mlflow": {"env": {"MLFLOW_TRACKING_PASSWORD": "rr_sk_agent"}}},
+        )
+        summary = sink.stats()["calls"][0]
+        call = sink.get(call_id=summary["id"])
+        self.assertIsNotNone(call)
+        self.assertEqual(
+            call["result"]["mlflow"]["env"]["MLFLOW_TRACKING_PASSWORD"],
+            "[redacted]",
+        )
 
     def test_sort_calls(self) -> None:
         self._seed()

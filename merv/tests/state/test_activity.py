@@ -23,13 +23,19 @@ class CapResultTest(unittest.TestCase):
         value = {
             "reviewer_capability": "rp_secret",
             "repo_root": "/private/repo",
-            "nested": {"capability": "rp_nested"},
+            "nested": {
+                "capability": "rp_nested",
+                "env": {"MLFLOW_TRACKING_PASSWORD": "rr_sk_agent"},
+            },
         }
         self.assertEqual(
             cap_result(value=value),
             {
                 "reviewer_capability": "[redacted]",
-                "nested": {"capability": "[redacted]"},
+                "nested": {
+                    "capability": "[redacted]",
+                    "env": {"MLFLOW_TRACKING_PASSWORD": "[redacted]"},
+                },
             },
         )
         self.assertNotIn("repo_root", cap_result(value=value))
