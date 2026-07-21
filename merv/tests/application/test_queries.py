@@ -3,9 +3,11 @@ from __future__ import annotations
 import unittest
 
 from merv.brain.application.queries import (
+    ComputeCostQuery,
     ExperimentFigureQuery,
-    HomeQuery,
+    LogicGraphQuery,
     MlflowOverviewQuery,
+    TenantCountersQuery,
 )
 
 
@@ -45,109 +47,137 @@ class RecordingTracking:
         ]
 
 
-class ApplicationQueryTest(unittest.TestCase):
-    def test_home_assembles_the_exact_cross_component_read_model(self) -> None:
-        project = {
-            "id": "proj_1",
-            "active_claims": [{"id": "claim_1"}],
-            "active_experiments": [{"id": "exp_1"}],
+class GraphResearch:
+    def __init__(self) -> None:
+        self.resolved = []
+
+    def experiment_state(self, **_kwargs):
+        return {
+            "id": "exp_1",
+            "status": "running",
+            "attempt_index": 2,
+            "resources": [
+                {
+                    "id": "res_old",
+                    "path": "old.json",
+                    "association_role": "graph",
+                    "association_attempt_index": 1,
+                    "association_rowid": 1,
+                    "association_version_id": "ver_old",
+                },
+                {
+                    "id": "res_new",
+                    "path": "new.json",
+                    "association_role": "graph",
+                    "association_attempt_index": 2,
+                    "association_rowid": 2,
+                    "association_version_id": "ver_new",
+                },
+            ],
         }
-        experiment = {"id": "exp_1", "name": "Test", "status": "running"}
-        active = {**experiment, "workflow": {"next_action": "retain_results"}}
-        status = RecordingQuery({"project": project, "workflow": {"next_action": "fallback"}})
-        experiment_state = RecordingQuery(experiment)
-        resources = RecordingQuery({"resources": [{"id": "res_1"}]})
-        reviews = RecordingQuery({"requests": [{"id": "rr_1"}], "reviews": []})
-        events = RecordingQuery({"events": [{"id": 9}]})
-        work = RecordingQuery(
-            {"active_experiments": [active], "active_processes": [{"id": "sbx_1"}]}
-        )
-        query = HomeQuery(
-            experiment_state=experiment_state,
-            resources=resources,
-            status_and_next=status,
-            active_work=work,
-            review_queue=reviews,
-            recent_events=events,
-            health=lambda: {"configured": True},
+
+    def reflection_state(self, **_kwargs):
+        return {"id": "syn_1", "attempt_index": 1, "resources": []}
+
+    def reflection_overview(self, **_kwargs):
+        return {"reflections": [{"id": "syn_1"}]}
+
+    def project_logic_graph_selection(self, **_kwargs):
+        return {"reflection": None, "graph_resource": None, "signal": "stale"}
+
+    def resolve_graph_refs(self, **kwargs):
+        self.resolved.append(kwargs)
+        return {"claim_1": {"resolved": True}}
+
+
+class GraphArtifacts:
+    def submitted_text_for_version(self, *, version_id):
+        if version_id == "ver_new":
+            return '{"version":1,"nodes":[{"id":"n","label":"New","refs":["claim_1"]}]}'
+        return None
+
+
+class ApplicationQueryTest(unittest.TestCase):
+    def test_tenant_counters_join_kernel_and_sandbox_readers(self) -> None:
+        events = RecordingQuery(4)
+        generations = RecordingQuery(
+            {"sandbox_generations": 2, "sandbox_hours": 3.5}
         )
 
-        result = query(project_id="proj_1")
+        result = TenantCountersQuery(
+            event_count=events,
+            generation_counters=generations,
+        )(tenant_id="tenant_1")
 
         self.assertEqual(
             result,
             {
-                "project": project,
-                "claims": project["active_claims"],
-                "experiments": [experiment],
-                "active_experiments": [active],
-                "active_processes": [{"id": "sbx_1"}],
-                "resources": [{"id": "res_1"}],
-                "reviews": reviews.result,
-                "pending_change_sets": [],
-                "recent_events": [{"id": 9}],
-                "stats": {
-                    "claims": 1,
-                    "experiments": 1,
-                    "active_experiments": 1,
-                    "active_processes": 1,
-                    "resources": 1,
-                    "open_reviews": 1,
-                },
-                "workflow": active["workflow"],
-                "active_experiment": active,
-                "mlflow": {"configured": True},
+                "tenant_id": "tenant_1",
+                "tool_calls": 4,
+                "sandbox_generations": 2,
+                "sandbox_hours": 3.5,
             },
         )
-        self.assertEqual(status.calls, [{"project_id": "proj_1"}])
-        self.assertEqual(
-            experiment_state.calls,
-            [{"experiment_id": "exp_1", "project_id": "proj_1"}],
+        self.assertEqual(events.calls, [{"tenant_id": "tenant_1"}])
+        self.assertEqual(generations.calls, [{"tenant_id": "tenant_1"}])
+
+    def test_compute_cost_hydrates_experiment_names(self) -> None:
+        spend = RecordingQuery(
+            {
+                "total_usd": 3.5,
+                "by_experiment": [
+                    {"experiment_id": "exp_1"},
+                    {"experiment_id": "exp_missing"},
+                ],
+            }
         )
-        self.assertEqual(events.calls, [{"project_id": "proj_1", "limit": 25}])
-
-    def test_home_hydrates_only_active_experiments_in_status_order(self) -> None:
-        project = {
-            "id": "proj_1",
-            "active_claims": [],
-            "active_experiments": [{"id": "exp_2"}, {"id": "exp_1"}],
-        }
-        states = {
-            "exp_1": {"id": "exp_1", "status": "planned"},
-            "exp_2": {"id": "exp_2", "status": "running"},
-            "exp_done": {"id": "exp_done", "status": "complete"},
-        }
-        calls = []
-
-        def experiment_state(**kwargs):
-            calls.append(kwargs)
-            return states[kwargs["experiment_id"]]
-
-        query = HomeQuery(
-            experiment_state=experiment_state,
-            resources=RecordingQuery({"resources": []}),
-            status_and_next=RecordingQuery(
-                {"project": project, "workflow": {"next_action": "fallback"}}
-            ),
-            active_work=RecordingQuery(
-                {"active_experiments": [], "active_processes": []}
-            ),
-            review_queue=RecordingQuery({"requests": [], "reviews": []}),
-            recent_events=RecordingQuery({"events": []}),
-            health=lambda: {"configured": False},
+        experiments = RecordingQuery(
+            [{"id": "exp_1", "name": "First"}, {"id": "exp_2", "name": "Second"}]
         )
 
-        result = query(project_id="proj_1")
+        result = ComputeCostQuery(
+            project_spend=spend, experiments=experiments
+        )(project_id="proj_1")
 
-        self.assertEqual(result["experiments"], [states["exp_2"], states["exp_1"]])
-        self.assertEqual(result["stats"]["experiments"], 2)
-        self.assertNotIn(states["exp_done"], result["experiments"])
         self.assertEqual(
-            calls,
+            result["by_experiment"],
             [
-                {"experiment_id": "exp_2", "project_id": "proj_1"},
-                {"experiment_id": "exp_1", "project_id": "proj_1"},
+                {"experiment_id": "exp_1", "experiment_name": "First"},
+                {"experiment_id": "exp_missing", "experiment_name": ""},
             ],
+        )
+
+    def test_logic_graph_query_owns_selection_parsing_lint_and_ref_resolution(self) -> None:
+        research = GraphResearch()
+        query = LogicGraphQuery(research=research, artifacts=GraphArtifacts())
+
+        result = query.experiment(project_id="proj_1", experiment_id="exp_1")
+
+        self.assertTrue(result["available"])
+        self.assertEqual(result["resource_id"], "res_new")
+        self.assertEqual(result["graph"]["nodes"][0]["label"], "New")
+        self.assertEqual(result["problems"], [])
+        self.assertEqual(result["ref_index"], {"claim_1": {"resolved": True}})
+        self.assertEqual(
+            research.resolved,
+            [{"project_id": "proj_1", "graph": result["graph"]}],
+        )
+
+    def test_project_graph_keeps_signal_when_no_reflection_exists(self) -> None:
+        result = LogicGraphQuery(
+            research=GraphResearch(), artifacts=GraphArtifacts()
+        ).project(project_id="proj_1")
+
+        self.assertEqual(
+            result,
+            {
+                "max_nodes": 16,
+                "signal": "stale",
+                "available": False,
+                "reflection": None,
+                "graph": None,
+                "problems": [],
+            },
         )
 
     def test_mlflow_overview_preserves_mapping_and_history_policy(self) -> None:

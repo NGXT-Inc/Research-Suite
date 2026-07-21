@@ -1,4 +1,4 @@
-"""The checked-in tool catalog is the proxy's sole runtime registry.
+"""Checked-in proxy projections stay byte-identical to the live manifest.
 
 src/merv/proxy/_tool_catalog.json serves tools/list on client machines with no
 pip installs. Two guarantees pin it:
@@ -10,10 +10,14 @@ catalog when pydantic cannot be imported.
 from __future__ import annotations
 
 import contextlib
+import importlib.util
 import os
+import shutil
+import subprocess
 import sys
 import tempfile
 import unittest
+import zipfile
 from pathlib import Path
 from unittest.mock import patch
 
@@ -21,12 +25,13 @@ from merv.brain.surface.tools.contracts import STORAGE_TOOL_NAMES, TOOL_CONTRACT
 from merv.proxy.local_data_plane import LocalDataPlane, LocalDataPlaneError
 from merv.proxy.proxy import (
     _STATIC_CATALOG_PATH,
+    _PROXY_MANIFEST_PATH,
     _storage_feature_enabled,
     HttpProxyMcpServer,
     ProxyConfig,
 )
 from merv.shared.errors import ValidationError
-from scripts.regen_tool_catalog import render_static_catalog_text
+from scripts.regen_tool_catalog import render_proxy_manifest_text, render_static_catalog_text
 
 
 class _BlockBrainAndPydantic:
@@ -35,9 +40,7 @@ class _BlockBrainAndPydantic:
     _BLOCKED = ("merv.brain", "pydantic", "pydantic_core")
 
     def find_spec(self, name, path=None, target=None):  # noqa: ANN001, ARG002
-        if any(
-            name == prefix or name.startswith(prefix + ".") for prefix in self._BLOCKED
-        ):
+        if any(name == prefix or name.startswith(prefix + ".") for prefix in self._BLOCKED):
             raise ImportError(f"blocked for bare-python test: {name}")
         return None
 
@@ -53,9 +56,7 @@ def _without_brain_or_pydantic():
     prefixes = ("merv.brain", "pydantic", "pydantic_core")
 
     def _matches(name: str) -> bool:
-        return any(
-            name == prefix or name.startswith(prefix + ".") for prefix in prefixes
-        )
+        return any(name == prefix or name.startswith(prefix + ".") for prefix in prefixes)
 
     saved = {name: module for name, module in sys.modules.items() if _matches(name)}
     for name in saved:
@@ -79,21 +80,101 @@ class StaticCatalogParityTest(unittest.TestCase):
             "src/merv/proxy/_tool_catalog.json is stale — run "
             "scripts/regen_tool_catalog.py after changing tool contracts.",
         )
+        self.assertEqual(
+            _PROXY_MANIFEST_PATH.read_text(encoding="utf-8"),
+            render_proxy_manifest_text(),
+            "src/merv/proxy/_tool_manifest.json is stale — run "
+            "scripts/regen_tool_catalog.py after changing tool contracts.",
+        )
 
-    def test_storage_tools_are_exactly_the_storage_prefix(self) -> None:
-        # The static catalog reader drops storage tools by name prefix;
-        # pin the prefix convention so the two filters cannot diverge.
+    def test_storage_feature_set_is_manifest_derived(self) -> None:
         self.assertEqual(
             STORAGE_TOOL_NAMES,
-            {name for name in TOOL_CONTRACTS if name.startswith("storage.")},
+            {
+                name
+                for name, contract in TOOL_CONTRACTS.items()
+                if "storage" in contract.feature_requirements
+            },
         )
+
+    def test_proxy_filters_features_without_tool_name_conventions(self) -> None:
+        tools = (
+            {
+                "name": "blob.transfer",
+                "description": "feature gated without a storage prefix",
+                "inputSchema": {"type": "object"},
+                "plane": "data",
+                "executionStrategy": "local",
+                "featureRequirements": ["storage"],
+            },
+            {
+                "name": "storage.always",
+                "description": "ungated despite a storage prefix",
+                "inputSchema": {"type": "object"},
+                "plane": "data",
+                "executionStrategy": "local",
+                "featureRequirements": [],
+            },
+        )
+        proxy = HttpProxyMcpServer(
+            config=ProxyConfig(repo_root=Path.cwd(), control_url="http://127.0.0.1:1")
+        )
+        with (
+            patch("merv.proxy.tool_gateway.shipped_manifest", return_value=tools),
+            patch("merv.proxy.tool_gateway.storage_feature_enabled", return_value=False),
+        ):
+            names = {tool["name"] for tool in proxy._local_tool_catalog()}
+        self.assertEqual(names, {"storage.always"})
+
+    def test_built_wheel_contains_both_proxy_manifests(self) -> None:
+        package_root = Path(__file__).resolve().parents[2]
+        with tempfile.TemporaryDirectory() as tmp:
+            staging = Path(tmp) / "package"
+            wheel_dir = Path(tmp) / "wheel"
+            staging.mkdir()
+            wheel_dir.mkdir()
+            for name in ("pyproject.toml", "README.md"):
+                shutil.copy2(package_root / name, staging / name)
+            shutil.copytree(
+                package_root / "src",
+                staging / "src",
+                ignore=shutil.ignore_patterns("__pycache__", "*.pyc"),
+            )
+            env = dict(os.environ)
+            setuptools_spec = importlib.util.find_spec("setuptools")
+            if setuptools_spec is not None and setuptools_spec.origin:
+                vendor = Path(setuptools_spec.origin).parent / "_vendor"
+                if vendor.is_dir():
+                    env["PYTHONPATH"] = os.pathsep.join((str(vendor), env.get("PYTHONPATH", "")))
+            built = subprocess.run(
+                [
+                    sys.executable,
+                    "-m",
+                    "pip",
+                    "wheel",
+                    "--no-deps",
+                    "--no-build-isolation",
+                    "--wheel-dir",
+                    str(wheel_dir),
+                    ".",
+                ],
+                cwd=staging,
+                capture_output=True,
+                text=True,
+                env=env,
+            )
+            self.assertEqual(built.returncode, 0, built.stderr or built.stdout)
+            wheels = list(wheel_dir.glob("*.whl"))
+            self.assertEqual(len(wheels), 1)
+            with zipfile.ZipFile(wheels[0]) as wheel:
+                members = set(wheel.namelist())
+        self.assertIn("merv/proxy/_tool_catalog.json", members)
+        self.assertIn("merv/proxy/_tool_manifest.json", members)
 
     def test_proxy_storage_gate_matches_brain_dual_env_semantics(self) -> None:
         with patch.dict(os.environ, {}, clear=True):
             self.assertFalse(_storage_feature_enabled())
-        with patch.dict(
-            os.environ, {"RESEARCH_PLUGIN_STORAGE_PROVIDER": " S3 "}, clear=True
-        ):
+        with patch.dict(os.environ, {"RESEARCH_PLUGIN_STORAGE_PROVIDER": " S3 "}, clear=True):
             self.assertTrue(_storage_feature_enabled())
         with patch.dict(
             os.environ,

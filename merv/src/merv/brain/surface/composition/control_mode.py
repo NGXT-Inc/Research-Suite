@@ -17,6 +17,7 @@ from typing import Any
 
 from fastapi import FastAPI
 
+from ...application.maintenance import CleanupService
 from ..config import (
     ALLOWED_ORIGINS_ENV_VAR,
     BLOB_BUCKET_ENV_VAR,
@@ -49,7 +50,6 @@ from ..auth import (
     SUPABASE_URL_ENV_VAR,
     SupabaseVerifier,
 )
-from ..cleanup import CleanupService
 from ...mlflow import CentralMlflowService
 from ...mlflow.config import MLFLOW_TRACKING_URI_ENV_VAR
 from ...object_storage.service import StorageLedgerService
@@ -84,7 +84,8 @@ class ControlPlaneServer:
         self.task_channel = task_channel
         # Broader cleanup sweeps are built but NOT scheduled here — a managed
         # cron or sidecar tick calls ``cleanup.run_all(now=...)``. The owned
-        # expiry reaper lives in SandboxService; this is broader housekeeping.
+        # expiry reaper lives in the composition-owned SandboxRuntime; this is
+        # broader housekeeping.
         self.cleanup = cleanup
         self.fastapi_app = fastapi_app
 
@@ -159,8 +160,8 @@ def build_control_app(
         # forces the expiry reaper on in both deployment presets.
         force_expiry_reaper=True,
     )
-    # A brain restart with live VMs must re-acquire reaping. SandboxService has
-    # already started the thread; this reconciles rows left running.
+    # A brain restart with live VMs must re-acquire reaping. ControlApp has
+    # already started its SandboxRuntime; this reconciles rows left running.
     _resume_active_sandboxes(app=app)
     return app, task_channel
 
@@ -213,6 +214,7 @@ def build_control_server(
         app=app,
         allowed_origins=origins,
         cleanup=cleanup,
+        tenant_counters=app.tenant_counters_query,
         surface_policy=surface,
         auth=auth,
         ui_base_url=resolve_ui_base_url(env),
@@ -257,6 +259,7 @@ def build_local_server(
         app=app,
         allowed_origins=allowed_origins or [],
         cleanup=cleanup,
+        tenant_counters=app.tenant_counters_query,
         surface_policy=_local_http_surface(),
     )
     return ControlPlaneServer(
@@ -382,7 +385,7 @@ def _validate_sandbox_backend_requirement(
 def _resume_active_sandboxes(*, app: ControlApp) -> None:
     """Reconcile rows left running/provisioning after a control restart.
 
-    The reaper thread is already running (SandboxService.__init__ started it);
+    The reaper thread is already running (ControlApp started SandboxRuntime);
     a one-shot reconcile pass on startup makes the resumed reaper truthful
     about rows that may have expired while the control plane was down.
     Best-effort — a reconcile failure must not block startup or the reaper.
@@ -393,8 +396,8 @@ def _resume_active_sandboxes(*, app: ControlApp) -> None:
         if had_running:
             # Kick the resumed reaper once so anything already past its deadline
             # is reaped promptly instead of waiting a full interval. Off-thread:
-            # startup must not block on cleanup. The reaper thread the
-            # SandboxService already started also catches it on its next tick.
+            # startup must not block on cleanup. The composition-started runtime
+            # reaper also catches it on its next tick.
             import threading
 
             threading.Thread(

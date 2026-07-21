@@ -16,7 +16,7 @@ from .sandbox_backend import SandboxBackend
 from ..kernel.env import env_bool, env_float, env_raw
 from ..kernel.ports.sandbox_lifecycle import ProvisionReaper
 from .sandbox_lifecycle import SandboxLifecycle
-from .sandbox_registry import SandboxRegistry
+from .repository import SandboxRepository
 from .sandbox_support import (
     DEFAULT_REAPER_INTERVAL_SECONDS,
     DEFAULT_SANDBOX_IDLE_SECONDS,
@@ -31,7 +31,7 @@ class SandboxDaemons:
     def __init__(
         self,
         *,
-        registry: SandboxRegistry,
+        registry: SandboxRepository,
         backend: SandboxBackend,
         provisioner: ProvisionReaper,
         lifecycle: SandboxLifecycle,
@@ -147,4 +147,3 @@ class SandboxDaemons:
                 else float(threshold_seconds)
             ),
         )
-

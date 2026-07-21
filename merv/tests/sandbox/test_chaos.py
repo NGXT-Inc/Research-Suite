@@ -22,7 +22,7 @@ from tests.support.brain import TestBrain
 from merv.brain.surface.config import MGMT_KEY_PATH_ENV_VAR, MGMT_PUBLIC_KEY_ENV_VAR
 from merv.brain.sandbox.execution.backends.fake import FakeSandboxBackend
 from merv.brain.sandbox.sandbox_backend import BackendCapabilities
-from merv.brain.surface.cleanup import CleanupService
+from merv.brain.application.maintenance import CleanupService
 
 
 def _mounted_mgmt_key_env(root: Path) -> dict[str, str]:

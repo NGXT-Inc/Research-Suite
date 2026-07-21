@@ -1,0 +1,572 @@
+"""Application-owned workflow and project dashboard read models."""
+
+from __future__ import annotations
+
+import json
+from collections.abc import Callable
+from dataclasses import dataclass
+from typing import Any, Protocol
+
+from merv.shared.artifact_roles import PROJECT_GRAPH_ROLES
+
+from ..research_core.facade import (
+    EXPERIMENT_ACTIVE_PROCESS_STATUSES,
+    EXPERIMENT_TERMINAL_STATUSES,
+    ResearchSnapshot,
+    ResearchSnapshots,
+    ReviewGateSnapshot,
+)
+from ..sandbox.facade import SandboxReads
+
+Record = dict[str, Any]
+RecordQuery = Callable[..., Record]
+
+_EXPERIMENT_PRIORITY = {
+    "running": 0,
+    "experiment_review": 1,
+    "design_review": 2,
+    "ready_to_run": 3,
+    "planned": 4,
+}
+_PROCESS_PRIORITY = {"running": 0, "provisioning": 1}
+_STATUS_EXPERIMENT_FIELDS = ("id", "name", "intent", "status", "attempt_index")
+_SLIM_RESOURCE_FIELDS = (
+    "id",
+    "association_role",
+    "association_version_id",
+    "path",
+    "kind",
+    "missing",
+    "size_bytes",
+)
+_SLIM_REVIEW_FIELDS = ("id", "role", "verdict", "created_at", "synopsis")
+_SANDBOX_SUMMARY_FIELDS = (
+    "sandbox_id",
+    "status",
+    "gpu",
+    "cpu",
+    "memory",
+    "ssh_host",
+    "ssh_port",
+    "ssh_user",
+    "workdir",
+    "sandbox_data_dir",
+    "expires_at",
+)
+
+
+class NextActions(Protocol):
+    def project_setup(self) -> Record: ...
+    def experiment(
+        self,
+        *,
+        experiment: Record,
+        sandboxes: list[Record],
+        review_gates: dict[tuple[str, str, str], ReviewGateSnapshot],
+    ) -> Record: ...
+    def project_reflection(
+        self,
+        *,
+        open_wave: Record | None,
+        signal: Record,
+        idle: bool,
+        review_gates: dict[tuple[str, str, str], ReviewGateSnapshot],
+    ) -> Record | None: ...
+    def reflection_workflow_takeover(
+        self, *, reflection: Record | None
+    ) -> Record | None: ...
+    def live_experiments_takeover(
+        self, *, exp_rows: list[Record], reflection: Record | None
+    ) -> Record: ...
+
+
+@dataclass
+class WorkflowQuery:
+    """Join Research snapshots to Sandbox reads, then apply pure policy."""
+
+    snapshots: ResearchSnapshots
+    sandboxes: SandboxReads
+    policy: NextActions
+
+    def status_and_next(
+        self, *, project_id: str | None = None, experiment_id: str | None = None
+    ) -> Record:
+        snapshot = self.snapshots.read(
+            project_id=project_id, experiment_id=experiment_id
+        )
+        selected = snapshot.selected_experiment
+        sandbox_rows = (
+            self.sandboxes.for_experiment(
+                project_id=snapshot.project_id, experiment_id=str(selected["id"])
+            )
+            if selected is not None
+            else []
+        )
+        return self._status(snapshot=snapshot, sandboxes=sandbox_rows)
+
+    def status_and_next_agent(
+        self, *, project_id: str | None = None, experiment_id: str | None = None
+    ) -> Record:
+        return _slim_status(
+            self.status_and_next(project_id=project_id, experiment_id=experiment_id)
+        )
+
+    def active_work(self, *, project_id: str | None = None) -> Record:
+        snapshot = self.snapshots.read(
+            project_id=project_id, hydrate_all_experiments=True
+        )
+        sandboxes = self.sandboxes.for_project(project_id=snapshot.project_id)
+        return self._active_work(snapshot=snapshot, sandboxes=sandboxes)
+
+    def project_models(
+        self, *, snapshot: ResearchSnapshot, sandboxes: list[Record]
+    ) -> tuple[Record, Record]:
+        selected = snapshot.selected_experiment
+        selected_sandboxes = []
+        if selected is not None:
+            selected_id = str(selected["id"])
+            selected_sandboxes = [
+                {**sandbox, "experiment_id": selected_id}
+                for sandbox in sandboxes
+                if selected_id in (sandbox.get("active_experiment_ids") or [])
+            ]
+        return (
+            self._status(snapshot=snapshot, sandboxes=selected_sandboxes),
+            self._active_work(snapshot=snapshot, sandboxes=sandboxes),
+        )
+
+    def _status(self, *, snapshot: ResearchSnapshot, sandboxes: list[Record]) -> Record:
+        experiment = snapshot.selected_experiment
+        workflow = (
+            self.policy.experiment(
+                experiment=experiment,
+                sandboxes=sandboxes,
+                review_gates=snapshot.review_gates,
+            )
+            if experiment is not None
+            else self.policy.project_setup()
+        )
+        idle = all(
+            str(row["status"]) in EXPERIMENT_TERMINAL_STATUSES
+            for row in snapshot.experiments
+        )
+        reflection = self.policy.project_reflection(
+            open_wave=snapshot.open_reflection,
+            signal=snapshot.reflection_signal,
+            idle=idle,
+            review_gates=snapshot.review_gates,
+        )
+        if snapshot.requested_experiment_id is None and idle:
+            workflow = (
+                self.policy.reflection_workflow_takeover(reflection=reflection)
+                or workflow
+            )
+        elif (
+            snapshot.requested_experiment_id is None
+            and experiment is not None
+            and str(experiment.get("status")) in EXPERIMENT_TERMINAL_STATUSES
+        ):
+            workflow = self.policy.live_experiments_takeover(
+                exp_rows=snapshot.experiments, reflection=reflection
+            )
+        result = {
+            "project": {
+                **snapshot.project,
+                "active_claims": snapshot.claims,
+                "active_experiments": [
+                    {field: row.get(field) for field in _STATUS_EXPERIMENT_FIELDS}
+                    for row in snapshot.experiments
+                ],
+            },
+            "experiment": experiment,
+            "sandboxes": sandboxes,
+            "workflow": workflow,
+        }
+        if reflection is not None:
+            result["project_reflection"] = reflection
+        return result
+
+    def _active_work(
+        self, *, snapshot: ResearchSnapshot, sandboxes: list[Record]
+    ) -> Record:
+        by_id = {str(item["id"]): item for item in snapshot.experiment_states}
+        processes = _sort_active(
+            [
+                _process_view(
+                    sandbox=sandbox,
+                    experiment=by_id.get(
+                        str((sandbox.get("active_experiment_ids") or [""])[0])
+                    ),
+                    experiments=[
+                        by_id[experiment_id]
+                        for experiment_id in sandbox.get("active_experiment_ids") or []
+                        if experiment_id in by_id
+                    ],
+                )
+                for sandbox in sandboxes
+                if sandbox.get("status") in EXPERIMENT_ACTIVE_PROCESS_STATUSES
+            ],
+            _PROCESS_PRIORITY,
+        )
+        active = []
+        for experiment in snapshot.experiment_states:
+            if experiment["status"] in EXPERIMENT_TERMINAL_STATUSES:
+                continue
+            experiment_sandboxes = [
+                sandbox
+                for sandbox in sandboxes
+                if experiment["id"] in (sandbox.get("active_experiment_ids") or [])
+            ]
+            active.append(
+                {
+                    **experiment,
+                    "workflow": self.policy.experiment(
+                        experiment=experiment,
+                        sandboxes=experiment_sandboxes,
+                        review_gates=snapshot.review_gates,
+                    ),
+                    "sandboxes": experiment_sandboxes,
+                    "active_processes": [
+                        process
+                        for process in processes
+                        if experiment["id"]
+                        in (process.get("active_experiment_ids") or [])
+                    ],
+                }
+            )
+        return {
+            "active_experiments": _sort_active(active, _EXPERIMENT_PRIORITY),
+            "active_processes": processes,
+        }
+
+
+@dataclass(slots=True)
+class ProjectDashboardQuery:
+    """One project snapshot backs both the rich Home and compact orientation."""
+
+    snapshots: ResearchSnapshots
+    workflow: WorkflowQuery
+    resources: RecordQuery
+    review_queue: RecordQuery
+    recent_events: RecordQuery
+    health: Callable[[], dict[str, object]]
+    current: RecordQuery
+
+    def __call__(self, *, project_id: str) -> Record:
+        snapshot = self.snapshots.read(
+            project_id=project_id, hydrate_all_experiments=True
+        )
+        status, work = self.workflow.project_models(
+            snapshot=snapshot,
+            sandboxes=self.workflow.sandboxes.for_project(project_id=project_id),
+        )
+        resources = self.resources(project_id=project_id)["resources"]
+        reviews = self.review_queue(project_id=project_id)
+        events = self.recent_events(project_id=project_id, limit=25)["events"]
+        claims = status["project"]["active_claims"]
+        active_experiments = work["active_experiments"]
+        active_processes = work["active_processes"]
+        active_experiment = active_experiments[0] if active_experiments else None
+        return {
+            "project": status["project"],
+            "claims": claims,
+            "experiments": snapshot.experiment_states,
+            "active_experiments": active_experiments,
+            "active_processes": active_processes,
+            "resources": resources,
+            "reviews": reviews,
+            "pending_change_sets": [],
+            "recent_events": events,
+            "stats": {
+                "claims": len(claims),
+                "experiments": len(snapshot.experiment_states),
+                "active_experiments": len(active_experiments),
+                "active_processes": len(active_processes),
+                "resources": len(resources),
+                "open_reviews": len(reviews["requests"]),
+            },
+            "workflow": (
+                active_experiment.get("workflow")
+                if active_experiment
+                else status["workflow"]
+            ),
+            "active_experiment": active_experiment,
+            "mlflow": self.health(),
+        }
+
+    def current_project(self, *, tenant_id: str | None = None) -> Record:
+        result = self.current(tenant_id=tenant_id)
+        project = result.get("project") or {}
+        project_id = str(project.get("id") or "")
+        if not result.get("exists") or not project_id:
+            return result
+        snapshot = self.snapshots.read(
+            project_id=project_id,
+            dashboard_facts=True,
+            hydrate_selected_experiment=False,
+        )
+        return {**result, "at_a_glance": self._at_a_glance(snapshot)}
+
+    def _at_a_glance(self, snapshot: ResearchSnapshot) -> Record:
+        latest = snapshot.latest_published_reflection
+        terminal = [
+            item
+            for item in snapshot.experiments
+            if str(item.get("status")) in EXPERIMENT_TERMINAL_STATUSES
+        ]
+        active = [
+            item
+            for item in snapshot.experiments
+            if str(item.get("status")) not in EXPERIMENT_TERMINAL_STATUSES
+        ]
+        covered = {
+            str(item.get("id"))
+            for item in ((latest or {}).get("corpus") or {}).get(
+                "terminal_experiments", []
+            )
+            if isinstance(item, dict)
+        }
+        since = [item for item in terminal if str(item.get("id")) not in covered]
+        changed: list[str] = []
+        for event in snapshot.claim_events_since_reflection:
+            claim_id = str(event.get("target_id") or "")
+            if (
+                claim_id
+                and claim_id not in changed
+                and _event_payload(event).get("source_reflection_id")
+                != (latest or {}).get("id")
+            ):
+                changed.append(claim_id)
+        reflection = None
+        if latest is not None:
+            graph = _resource_link(latest, PROJECT_GRAPH_ROLES, "project_graph")
+            document = _resource_link(
+                latest, ("reflection_doc", "synthesis_doc"), "reflection_doc"
+            )
+            reflection = {
+                "reflection_id": latest.get("id"),
+                "time": latest.get("published_at"),
+                "reflection_doc_resource_id": (
+                    document.get("resource_id") if document else None
+                ),
+                "project_graph_resource_id": (
+                    graph.get("resource_id") if graph else None
+                ),
+            }
+        covered_count = len(covered & {str(item.get("id")) for item in terminal})
+        return {
+            "summary": _glance_summary(
+                latest=latest,
+                terminal_count=len(terminal),
+                covered_count=covered_count,
+                experiments_since=len(since),
+                claims_changed=len(changed),
+            ),
+            "recent": {
+                "experiments": [
+                    {key: item.get(key) for key in ("id", "name", "status")}
+                    for item in sorted(
+                        snapshot.experiments,
+                        key=lambda row: str(
+                            row.get("updated_at") or row.get("created_at") or ""
+                        ),
+                        reverse=True,
+                    )[:5]
+                ],
+                "claims": [
+                    {
+                        key: claim.get(key)
+                        for key in ("id", "status", "confidence", "statement")
+                    }
+                    for claim in snapshot.recent_claims
+                ],
+            },
+            "project_reflection": reflection,
+            "since_reflection": {
+                "finished_experiment_ids": [str(item.get("id")) for item in since],
+                "changed_claim_ids": changed,
+                "active_experiment_ids": [str(item.get("id")) for item in active],
+            },
+            "open_reflection_id": (
+                snapshot.open_reflection.get("id") if snapshot.open_reflection else None
+            ),
+        }
+
+
+def _sort_active(items: list[Record], priority: dict[str, int]) -> list[Record]:
+    recency = sorted(
+        items,
+        key=lambda item: item.get("updated_at") or item.get("created_at") or "",
+        reverse=True,
+    )
+    return sorted(recency, key=lambda item: priority.get(str(item.get("status")), 99))
+
+
+def _process_view(
+    *, sandbox: Record, experiment: Record | None, experiments: list[Record]
+) -> Record:
+    result = {**sandbox, "process_type": "sandbox"}
+    if experiment is not None:
+        result["experiment"] = {
+            key: experiment[key] for key in ("id", "intent", "status", "attempt_index")
+        }
+    if experiments:
+        result["active_experiments"] = [
+            {key: item[key] for key in ("id", "intent", "status", "attempt_index")}
+            for item in experiments
+        ]
+    return result
+
+
+def _slim_status(full: Record) -> Record:
+    workflow = full.get("workflow") or {}
+    project = full.get("project") or {}
+    experiment = full.get("experiment")
+    if experiment is None:
+        result: Record = {
+            "scope": "project",
+            "experiment": None,
+            "workflow": workflow,
+            "project": {
+                "id": project.get("id"),
+                "name": project.get("name"),
+                "summary": project.get("summary"),
+                "claims": [
+                    {
+                        key: claim.get(key)
+                        for key in ("id", "status", "confidence", "statement")
+                    }
+                    for claim in project.get("active_claims", [])
+                ],
+            },
+        }
+    else:
+        result = {
+            "scope": "experiment",
+            "workflow": workflow,
+            "experiment": {
+                "id": experiment.get("id"),
+                "name": experiment.get("name"),
+                "status": experiment.get("status"),
+                "attempt_index": experiment.get("attempt_index"),
+                "intent": experiment.get("intent"),
+                "conclusion": experiment.get("conclusion"),
+                "updated_at": experiment.get("updated_at"),
+                "tested_claim_ids": [
+                    claim.get("id") for claim in experiment.get("tested_claims", [])
+                ],
+                "current_attempt_resources": [
+                    {field: resource.get(field) for field in _SLIM_RESOURCE_FIELDS}
+                    for resource in experiment.get("current_attempt_resources", [])
+                ],
+                "reviews": [
+                    {field: review.get(field) for field in _SLIM_REVIEW_FIELDS}
+                    for review in experiment.get("reviews", [])
+                ],
+            },
+            "sandbox": _sandbox_summary(full.get("sandboxes", [])),
+            "project": {"id": project.get("id"), "name": project.get("name")},
+        }
+        if full.get("resource_refresh"):
+            result["resource_refresh"] = full["resource_refresh"]
+    if full.get("project_reflection"):
+        result["project_reflection"] = full["project_reflection"]
+    return result
+
+
+def _sandbox_summary(sandboxes: list[Record]) -> Record:
+    active = next(
+        (
+            sandbox
+            for sandbox in sandboxes
+            if sandbox.get("status") in EXPERIMENT_ACTIVE_PROCESS_STATUSES
+        ),
+        None,
+    )
+    if active is not None:
+        return {
+            "active": True,
+            **{field: active.get(field) for field in _SANDBOX_SUMMARY_FIELDS},
+        }
+    last = sandboxes[0] if sandboxes else None
+    return {
+        "active": False,
+        "last_status": last.get("status") if last else None,
+        "note": "No active sandbox for this experiment — call sandbox.request to create or reuse one.",
+    }
+
+
+def _event_payload(event: Record) -> Record:
+    try:
+        payload = json.loads(str(event.get("payload_json") or "{}"))
+    except json.JSONDecodeError:
+        return {}
+    return payload if isinstance(payload, dict) else {}
+
+
+def _resource_link(
+    reflection: Record, roles: tuple[str, ...], canonical_role: str
+) -> Record | None:
+    attempt = reflection.get("attempt_index")
+    candidates = [
+        resource
+        for resource in reflection.get("resources", [])
+        if resource.get("association_role") in roles
+        and resource.get("association_attempt_index") == attempt
+    ]
+    if not candidates:
+        return None
+    rank = {role: index for index, role in enumerate(roles)}
+    resource = min(
+        candidates,
+        key=lambda item: (
+            rank.get(str(item.get("association_role")), len(roles)),
+            -(item.get("association_rowid") or 0),
+        ),
+    )
+    return {
+        "label": (
+            "Current project graph"
+            if canonical_role == "project_graph"
+            else "Latest reflection doc"
+        ),
+        "kind": "resource",
+        "role": canonical_role,
+        "legacy_role": (
+            resource.get("association_role")
+            if resource.get("association_role") != canonical_role
+            else None
+        ),
+        "resource_id": resource.get("id"),
+        "path": resource.get("path"),
+        "version_id": resource.get("association_version_id"),
+        "read_with": "resource.find",
+        "read_args": {"resource_id": resource.get("id"), "include_history": True},
+    }
+
+
+def _glance_summary(
+    *,
+    latest: Record | None,
+    terminal_count: int,
+    covered_count: int,
+    experiments_since: int,
+    claims_changed: int,
+) -> str:
+    if latest is None:
+        summary = f"No published reflection; 0/{terminal_count} finished experiments covered; {terminal_count} finished experiments since."
+        return summary + (" New reflection recommended." if terminal_count >= 3 else "")
+    pieces = [
+        f"Latest reflection covers {covered_count}/{terminal_count} finished experiments"
+    ]
+    if experiments_since:
+        pieces.append(f"{experiments_since} finished experiments since")
+    if claims_changed:
+        pieces.append(f"{claims_changed} claims changed since")
+    if len(pieces) == 1:
+        pieces.append("no newer experiment or claim changes detected")
+    summary = "; ".join(pieces) + "."
+    return summary + (" New reflection recommended." if experiments_since >= 3 else "")
+
+
+__all__ = ["ProjectDashboardQuery", "WorkflowQuery"]

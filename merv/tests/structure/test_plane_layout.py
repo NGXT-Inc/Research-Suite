@@ -42,10 +42,10 @@ from tests.paths import (
 )
 
 
-# The four cross-module glue services, flat in surface/ since the fold.
-GLUE_SERVICE_FILES = tuple(
-    SERVICES_ROOT / name
-    for name in ("auth.py", "cleanup.py", "identity.py", "permissions.py")
+# Service-shaped glue that must remain cloud-safe and process-free.
+GLUE_SERVICE_FILES = (
+    *(SERVICES_ROOT / name for name in ("auth.py", "identity.py", "permissions.py")),
+    BACKEND_ROOT / "application" / "maintenance.py",
 )
 
 # Record halves that must be servable from a cloud control plane: no local
@@ -67,11 +67,12 @@ CONTROL_MODULES = (
     RESEARCH_CORE_ROOT / "experiments.py",
     RESEARCH_CORE_ROOT / "reflections.py",
     RESEARCH_CORE_ROOT / "reviews.py",
-    RESEARCH_CORE_ROOT / "workflow.py",
-    RESEARCH_CORE_ROOT / "workflow_views.py",
+    RESEARCH_CORE_ROOT / "next_action.py",
+    RESEARCH_CORE_ROOT / "snapshots.py",
     RESEARCH_CORE_ROOT / "experiment_views.py",
     SERVICES_ROOT / "permissions.py",
-    RESEARCH_CORE_ROOT / "project_overview.py",
+    BACKEND_ROOT / "application" / "workflow.py",
+    BACKEND_ROOT / "sandbox" / "facade.py",
     RESEARCH_CORE_ROOT / "reflection_tools.py",
     FEED_ROOT / "feed.py",
     FEED_ROOT / "feed_policy.py",
@@ -381,24 +382,45 @@ class ToolPlanePartitionTest(unittest.TestCase):
         local_data_plane = PROXY_ROOT / "local_data_plane.py"
         source = proxy.read_text(encoding="utf-8")
 
-        catalog = json.loads(
-            (PROXY_ROOT / "_tool_catalog.json").read_text(encoding="utf-8")
+        manifest = json.loads(
+            (PROXY_ROOT / "_tool_manifest.json").read_text(encoding="utf-8")
         )["tools"]
         self.assertEqual(
-            {tool["name"] for tool in catalog},
-            DATA_PLANE_TOOL_NAMES | {"sandbox.get", "sandbox.health"},
+            {tool["name"] for tool in manifest},
+            set(TOOL_CONTRACTS),
         )
-        self.assertIn("_STATIC_CATALOG_PATH", source)
+        local = {
+            tool["name"]
+            for tool in manifest
+            if tool["plane"] == "data"
+            or tool["executionStrategy"] == "control-plus-local-enrichment"
+        }
+        self.assertEqual(local, DATA_PLANE_TOOL_NAMES | {"sandbox.get", "sandbox.health"})
+        self.assertIn("_PROXY_MANIFEST_PATH", source)
         self.assertNotIn("merv.brain.surface.tools.contracts", source)
-        self.assertIn("_LOCAL_ENRICHED_CONTROL_TOOLS", source)
-        self.assertTrue(
-            DATA_PLANE_TOOL_NAMES
-            <= _method_name_literal_branches(
+        self.assertIn("local_handler_identity(name)", local_data_plane.read_text(encoding="utf-8"))
+        self.assertFalse(
+            _method_name_literal_branches(
                 local_data_plane,
                 class_name="LocalDataPlane",
                 method_name="call_tool",
             )
         )
+
+    def test_proxy_responsibilities_stay_split_and_composition_stays_small(self) -> None:
+        proxy = (PROXY_ROOT / "proxy.py").read_text(encoding="utf-8")
+        shell = (PROXY_ROOT / "mcp_shell.py").read_text(encoding="utf-8")
+        gateway = (PROXY_ROOT / "tool_gateway.py").read_text(encoding="utf-8")
+        self.assertLessEqual(len(proxy.splitlines()), 100)
+        self.assertLessEqual(len(shell.splitlines()), 120)
+        self.assertLessEqual(len(gateway.splitlines()), 350)
+        for leaked in (
+            "def _call_tool(",
+            "def _send(",
+            "def _refresh_login_session(",
+            "def _connect_project(",
+        ):
+            self.assertNotIn(leaked, proxy)
 
 
 class PlaneImportLintTest(unittest.TestCase):
@@ -587,86 +609,38 @@ if loaded:
         self.assertFalse((BACKEND_ROOT / "dataplane").exists())
         self.assertFalse((BACKEND_ROOT / "workspace.py").exists())
 
-    def test_project_overview_uses_direct_concrete_collaborators(self) -> None:
-        # The project tool's current action has one consumer and one
-        # implementation pair today.
-        # Keep it lean by avoiding a single-impl reader port until a real
-        # ControlApp composition gives that port a second implementation.
-        imports = _import_segments(RESEARCH_CORE_ROOT / "project_overview.py")
-        self.assertIn("projects", imports)
-        self.assertIn("reflections", imports)
-        self.assertNotIn("project_readers", imports)
-        source = (RESEARCH_CORE_ROOT / "project_overview.py").read_text(
+    def test_workflow_reads_have_explicit_application_boundaries(self) -> None:
+        source = (BACKEND_ROOT / "application" / "workflow.py").read_text(
             encoding="utf-8"
         )
-        self.assertIn("projects: ProjectService", source)
-        self.assertIn("reflections: ReflectionService", source)
-        self.assertNotIn("class ProjectCurrentReader", source)
-        self.assertNotIn("class SynthesisOverviewReader", source)
-        from merv.brain.research_core.project_overview import ProjectOverviewService
-        from merv.brain.research_core.projects import ProjectService
-        from merv.brain.research_core.reflections import ReflectionService
+        imports = _import_segments(BACKEND_ROOT / "application" / "workflow.py")
+        self.assertIn("facade", imports)
+        self.assertNotIn("experiments", imports)
+        self.assertNotIn("reviews", imports)
+        self.assertNotIn("sandboxes", imports)
+        self.assertIn("snapshots: ResearchSnapshots", source)
+        self.assertIn("sandboxes: SandboxReads", source)
+        self.assertIn("policy: NextActions", source)
+        for obsolete in ("workflow.py", "workflow_views.py", "project_overview.py"):
+            self.assertFalse((RESEARCH_CORE_ROOT / obsolete).exists())
 
-        hints = get_type_hints(ProjectOverviewService.__init__)
-        self.assertIs(hints["projects"], ProjectService)
-        self.assertIs(hints["reflections"], ReflectionService)
-
-        tree = ast.parse(source)
-
-        def collaborator_calls(name: str) -> set[str]:
-            calls: set[str] = set()
-            for node in ast.walk(tree):
-                if not isinstance(node, ast.Call):
-                    continue
-                func = node.func
-                if not isinstance(func, ast.Attribute):
-                    continue
-                owner = func.value
-                if (
-                    isinstance(owner, ast.Attribute)
-                    and owner.attr == name
-                    and isinstance(owner.value, ast.Name)
-                    and owner.value.id == "self"
-                ):
-                    calls.add(func.attr)
-            return calls
-
-        self.assertEqual(collaborator_calls("projects"), {"current"})
-        self.assertEqual(
-            collaborator_calls("reflections"), {"latest_published", "open_reflection"}
-        )
-
-    def test_workflow_service_uses_reader_ports(self) -> None:
-        # workflow.status_and_next is a control-safe orientation view. It
-        # should compose against narrow read ports instead of redeclaring
-        # collaborator protocols inside the workflow service module.
-        imports = _import_segments(RESEARCH_CORE_ROOT / "workflow.py")
-        self.assertFalse(
-            {"experiments", "reviews", "sandboxes", "reflections"} & imports
-        )
-        self.assertIn("workflow_readers", imports)
-        source = (RESEARCH_CORE_ROOT / "workflow.py").read_text(encoding="utf-8")
-        self.assertIn("experiments: ExperimentWorkflowReader", source)
-        self.assertNotIn("class ExperimentWorkflowReader", source)
-        self.assertNotIn("class ReviewWorkflowReader", source)
-        self.assertNotIn("class SandboxWorkflowReader", source)
-        self.assertNotIn("class ReflectionWorkflowReader", source)
-
-    def test_resource_service_uses_record_ports(self) -> None:
+    def test_resource_service_owns_association_policy(self) -> None:
         # ResourceService is the control-safe record half. Local observation
         # belongs to the local composition edge, not to the record service.
         imports = _import_segments(ARTIFACTS_ROOT / "resources.py")
-        self.assertIn("resource_records", imports)
+        self.assertIn("association_policy", imports)
         self.assertNotIn("permissions", imports)
         source = (ARTIFACTS_ROOT / "resources.py").read_text(encoding="utf-8")
-        self.assertIn("permissions: ResourceAssociationPolicy", source)
+        self.assertNotIn("permissions:", source)
+        self.assertNotIn("self.permissions", source)
         self.assertNotIn("observer: ResourceObserver", source)
         self.assertNotIn("self.observer", source)
         self.assertNotIn("def register_file(", source)
         self.assertNotIn("class ResourceObserver", source)
-        self.assertNotIn("class ResourceAssociationPolicy", source)
         proxy_source = (PROXY_ROOT / "local_data_plane.py").read_text(encoding="utf-8")
-        self.assertIn('name == "resource.register"', proxy_source)
+        contracts_source = (SERVICES_ROOT / "tools" / "contracts.py").read_text(encoding="utf-8")
+        self.assertIn('handler_identity="local.register_resource"', contracts_source)
+        self.assertIn("def _register_resource(", proxy_source)
         self.assertIn("LocalResourceObserver", proxy_source)
         self.assertIn("observe_file(", proxy_source)
 
@@ -783,7 +757,6 @@ if loaded:
             "FeedService(",
             "GraphRefResolver(",
             "PermissionService(",
-            "ProjectOverviewService(",
             "ProjectService(",
             "QuotaService(",
             "ResourceService(",
@@ -1145,6 +1118,18 @@ if loaded:
             self.assertIn("name", tool)
             self.assertIn("inputSchema", tool)
             self.assertIn("plane", tool)
+        manifest_path = PROXY_ROOT / "_tool_manifest.json"
+        self.assertTrue(manifest_path.is_file())
+        routed = json.loads(manifest_path.read_text(encoding="utf-8"))["tools"]
+        self.assertEqual({tool["name"] for tool in routed}, set(TOOL_CONTRACTS))
+        for tool in routed:
+            self.assertIn("executionStrategy", tool)
+            self.assertIn("scopeStrategy", tool)
+            self.assertIn("handlerIdentity", tool)
+        package_config = (IMPORT_ROOT.parent / "pyproject.toml").read_text(
+            encoding="utf-8"
+        )
+        self.assertIn('"_tool_catalog.json", "_tool_manifest.json"', package_config)
 
     def test_proxy_does_not_require_datetime_utc_alias(self) -> None:
         # Codex may launch the stdio proxy with Apple CLT Python 3.9.

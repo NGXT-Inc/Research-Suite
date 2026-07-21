@@ -21,9 +21,10 @@ Adopt these classifications as architectural facts:
   business module.
 - `kernel` remains the dependency floor.
 
-This migration establishes the boundary with two complete vertical slices:
-`experiment.transition` and the producer-facing `review.status` advisory. It
-preserves all public routes, tool schemas,
+This migration establishes the boundary across experiment transitions,
+tracking finalization/context, review reactions, composite UI queries,
+resource-content presentation, operator maintenance, permission vocabulary,
+and merged tool operations. It preserves all public routes, tool schemas,
 responses, event rows, transaction cuts, and best-effort failure behavior.
 The only intentional behavior change is redacting the already-returned MLflow
 password from internal telemetry; public responses remain unchanged.
@@ -114,7 +115,7 @@ The initial layer table is explicit about mixed packages:
 | `surface/**` | delivery |
 | `surface/composition/**`, `surface/config.py`, `surface/control/{control_app,record_core}.py` | bootstrap |
 | `surface/control/{control_client,control_runtime}.py` | adapter |
-| `surface/{cleanup}.py`, `surface/tools/{exhibits,tool_handlers}.py` | application (legacy, ratcheting inward) |
+| `surface/tools/tool_handlers.py` | delivery |
 
 `Sandbox`, `Feed`, and the other names above are **components**, not claims
 that every file in their current package is domain-layer code. In particular,
@@ -159,14 +160,11 @@ removed.
 
 Two exact-pair exception sets make the transition honest and monotonic:
 
-- `LAYER_EXCEPTIONS` freezes existing delivery/application deep imports that
-  are outside this vertical slice. The known owners are
-  `surface/{auth,identity,permissions}.py`,
-  `surface/tools/{contracts,tool_handlers}.py`,
-  `surface/transport/{data_plane_http,api/views}.py`, and
-  `surface/cleanup.py`. The implementation records exact importer/target file
-  pairs, not wildcard exemptions; fixed pairs must be deleted and new pairs
-  fail.
+- `LAYER_EXCEPTIONS` freezes the remaining delivery/bootstrap deep imports.
+  The Surface owners are `surface/{auth,identity,observability}.py` and
+  `surface/tools/contracts.py`. The implementation records exact
+  importer/target file pairs, not wildcard exemptions; fixed pairs must be
+  deleted and new pairs fail.
 - `feed/feed.py -> feed/feed_unfurl.py` is a named application-to-network-adapter
   exception. A later Feed use case will introduce and inject `LinkUnfurlPort`.
 
@@ -738,15 +736,15 @@ Instead, a whole-tree reachability audit removed an equal amount of stranded
 backfill, reflection-lint, request-helper, HTTP-helper, activity-producer, and
 contract-projection code whose callers or routes had already been retired.
 
-After integrating tracking, the shared reaction registry, and the composite
-query slice, the implemented tree is **40,845 brain lines**, five below the
-pre-tracking tree. The MLflow
-compatibility wrapper remains 13 lines, `tool_handlers.py` is 232 lines (down
-from 1,022 before the migration), and `views.py` is 763 lines. The uncalled
+After integrating tracking, the shared reaction registry, and the final
+Surface-ownership slices, the implemented tree is **40,848 brain lines**, two
+below that slice's fixed 40,850 ceiling and three above the branch starting point. The MLflow compatibility wrapper remains 13
+lines, `tool_handlers.py` is 94 lines (down from 1,022 before the migration),
+and `views.py` is 452 lines (down from 763 before the final extraction). The uncalled
 `build_local_tool_handlers` factory is gone; live local composition uses the
 Control dispatcher plus proxy-owned `LocalDataPlane`, as its split-mode tests
-prove. Executable ratchets enforce the 40,850 brain ceiling and the 232-line
-Surface-handler ceiling.
+prove. At that checkpoint executable ratchets enforced the 40,850 brain ceiling, a 100-line
+Surface-handler ceiling, and a 470-line HTTP-view ceiling.
 
 ### Tracking follow-up slice
 
@@ -767,6 +765,27 @@ then removed the obsolete local factory, shared reaction registration through
 composition, and moved composite reads inward. Characterization covers exact
 responses, credential audience, failures, foreign runs, durable event identity,
 and direct/MCP ledger parity.
+
+### Final Surface ownership slice
+
+The completion pass moved the remaining immediately actionable policy inward:
+
+- `application/queries.py` now owns compute-cost hydration and experiment,
+  project, and reflection logic-graph selection/parsing/lint/ref resolution;
+- `ArtifactsFacade` owns submitted resource-version and figure presentation,
+  while HTTP retains only MIME/header serialization;
+- `application/tool_commands.py` owns merged project, experiment-list,
+  resource-find, and storage action decisions; the tool handler is a registry;
+- `application/maintenance.py` owns cross-component cleanup, while an
+  application query joins a Kernel event count to Sandbox-owned generation
+  accounting for tenant counters;
+- Research and Artifacts own their review/resource vocabulary validation;
+- project membership validation/mutation moved from HTTP into `ProjectService`.
+
+Surface no longer carries an application-layer file override. The only
+remaining exact Surface layer exceptions are authentication/configuration and
+tool-contract vocabulary seams; the separate Feed-to-unfurl exception is also
+unchanged. These are explicit future seams, not hidden orchestration paths.
 
 ## Verification gates
 
@@ -804,6 +823,13 @@ The following compatibility matrix is mandatory, not illustrative:
 | shared delivery | REST and MCP invoke the same use-case instance and have equivalent command/ledger effects |
 | catalog | `_tool_catalog.json` remains byte-identical to baseline SHA-256 `45e46fac9ea0a4d97fa12d1fc9b111e1088f862992288ffca01a735b70ee2420` |
 
+The follow-on consolidation replaced independently authored plane, hidden,
+feature, and handler registries with `TOOL_MANIFEST`. Its generated private
+proxy projection carries routing metadata without changing the public catalog
+bytes. The stdio proxy now separates pure routing, HTTP transport, credentials,
+and project-link resolution; local enrichment reuses the already-fetched
+control facts rather than issuing a second `sandbox.get`.
+
 Focused tests additionally cover:
 
 - `record_event` returns exactly the persisted row on SQLite and Postgres;
@@ -818,12 +844,7 @@ Focused tests additionally cover:
 Final gates:
 
 ```text
-cd merv && python3 -m pytest tests/structure -q
-cd merv && python3 scripts/regen_tool_catalog.py --check
-cd merv && shasum -a 256 src/merv/proxy/_tool_catalog.json
-cd merv && /usr/bin/python3 -m pytest tests/structure/test_plane_layout.py -q
-cd merv && MERV_REQUIRE_POSTGRES_TESTS=1 python3 -m pytest tests/state/test_postgres_dialect.py -q
-cd merv && python3 -m pytest -q
+cd merv && MERV_VERIFY_PYTHON=python ./scripts/verify_application_architecture.sh
 ```
 
 `MERV_REQUIRE_POSTGRES_TESTS=1` is added as a fail-closed mode: Docker/Postgres
@@ -834,9 +855,67 @@ script suitable for the project runner and treats its successful execution as a
 merge gate. A skipped Docker test in the ordinary suite does not satisfy this
 gate.
 
+The verification interpreter can be overridden with `MERV_VERIFY_PYTHON`; it
+must have the project test dependencies installed. The plane-layout test itself
+also launches `/usr/bin/python3` to prove that local client/proxy/shared modules
+remain usable below the brain's packaged Python floor; that interpreter does
+not need pytest.
+
 The complete suite must run outside filesystem/network confinement if tmux or
 loopback tests fail only because of sandbox permissions. `git diff --check`, a
 cross-module import inventory, and a clean worktree/commit audit close the work.
+
+## Workflow/read-side consolidation
+
+Workflow orientation is now an Application read model rather than a
+Research-owned orchestration service. `WorkflowQuery` joins the stable
+`ResearchSnapshots` and `SandboxReads` contracts, while
+`ProjectDashboardQuery` reuses that same project snapshot for Home and the
+compact project orientation. `ResearchSnapshotReader` hydrates each requested
+experiment at most once per query and gathers reflection/review facts in the
+same Research transaction. `NextActionPolicy` is pure: it receives captured
+records and emits the byte-compatible workflow payload without SQL, service
+calls, or side effects.
+
+The superseded `research_core/workflow.py`, `workflow_views.py`,
+`project_overview.py`, and Kernel workflow-reader protocols were deleted.
+Characterization covers the rich HTTP shape, slim MCP projection, reflection
+takeovers, review gates, active Sandbox summaries, exact legacy parity, and the
+one-hydration dashboard invariant.
+
+## Four-module consolidation rewrite
+
+The follow-on rewrite makes four formerly implicit boundaries executable:
+
+- Workflow and dashboard reads now use the Application-owned query, bulk
+  Research snapshot, pure next-action policy, and Sandbox read facade described
+  above.
+- `TOOL_MANIFEST` is the one source for schema, visibility, project scope,
+  execution strategy, features, and handler identity. The stdlib proxy is split
+  into a 79-line composition edge, MCP shell, manifest router/gateway, HTTP
+  transport, credential provider, and project resolver.
+- HTTP authentication, project authorization, and tool invocation live in an
+  explicit gateway; the formatter-clean FastAPI factory is 122 lines and route
+  modules remain delivery-only. URL scope is bound after body parsing and a
+  contradictory body scope is rejected, so authorized path identifiers cannot
+  be replaced before gateway invocation.
+- Sandbox now exposes a 294-line stable facade over typed command/query values
+  and cohesive handlers. `SandboxRepository` owns every row read/write; the
+  pure lifecycle reducer returns event facts and side-effect intents for
+  reconcile, reap, and explicit release; and the composition root owns
+  provisioners and daemons. Provisioner settle paths still invoke
+  `SandboxLifecycle` directly. Provider drivers, including Modal's explicit
+  non-VM path, are unchanged.
+
+Formatter-clean structure has a real size cost: the tree is **41,389 brain lines**, 541
+above the 40,848 pre-consolidation checkpoint. The old orchestration hubs still
+shrank by more than 500 lines in aggregate; the increase is the explicit DTO,
+port, reducer, and runtime structure that replaced hidden coupling. The new
+41,389 landed-checkpoint ceiling bounds that cost, while tighter per-hub ratchets cap the
+workflow group at 1,600 lines, the Sandbox facade at 300, its handlers at 1,050,
+the HTTP factory/gateway pair at 500, and the proxy composition/gateway/shell at
+100/350/120. This avoids rewarding line compression while preventing policy
+from growing back into the delivery facades.
 
 ## Non-goals and follow-up queue
 
@@ -845,13 +924,12 @@ cross-module import inventory, and a clean worktree/commit audit close the work.
 - no automatic feed publication;
 - no change to the metrics-exhibit gate or transaction cuts;
 - no wholesale wrapper around every method in every service;
-- no declaration of a stable Sandbox component facade before a narrow sandbox
-  use case supplies its real contract;
 - no physical relocation of MLflow/object-storage files merely for taxonomy;
-- no migration of unrelated Surface orchestration in this slice.
+- no asynchronous conversion of HTTP/MCP reads or sandbox lifecycle calls that
+  already delegate to one owning service.
 
 No additional use case is required to close this migration. Remaining exact
-layer exceptions, a future Sandbox facade, and any further resource or UI work
+layer exceptions and any further resource or UI work
 are optional targeted improvements; each should begin only when a concrete use
 case justifies the smallest new facade verb or port operation.
 

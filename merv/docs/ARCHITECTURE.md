@@ -202,7 +202,8 @@ the design is flawed.
 The same gate table drives:
 
 - enforcement in `ExperimentService`;
-- next-action guidance in `WorkflowService`;
+- next-action guidance in the pure `NextActionPolicy`, fed by the
+  application-owned `WorkflowQuery`;
 - transition discovery and gate checklists returned to agents and the UI.
 
 Reflection transitions are declared in

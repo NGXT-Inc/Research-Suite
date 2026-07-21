@@ -27,8 +27,9 @@ from typing import Any, Callable
 from ..kernel.ports.mgmt_keys import MgmtKeyStore
 from ..kernel.ports.task_channel import TaskChannel
 from .sandbox_backend import SandboxBackend
+from .lifecycle_reducer import LifecycleDecision, reap_decision, reconcile_decision
 from .sandbox_support import ACTIVE_SANDBOX_STATUSES, parse_iso
-from .sandbox_registry import SandboxRegistry
+from .repository import SandboxRepository
 
 
 # Probe for an in-process provisioning job thread; wired to
@@ -42,7 +43,7 @@ class SandboxLifecycle:
     def __init__(
         self,
         *,
-        registry: SandboxRegistry,
+        registry: SandboxRepository,
         backend: SandboxBackend,
         mgmt_keys: MgmtKeyStore,
         tasks: TaskChannel,
@@ -202,6 +203,44 @@ class SandboxLifecycle:
             return "maybe_alive"
         return "gone"
 
+    def apply(
+        self, *, row: dict[str, Any], decision: LifecycleDecision
+    ) -> dict[str, Any]:
+        """Execute one reducer result in its declared order."""
+        experiment_id = str(row.get("experiment_id") or "")
+        sandbox_uid = str(row.get("sandbox_uid") or "")
+        current = row
+        for intent in decision.intents:
+            if intent.kind == "cleanup_orphan":
+                self.cleanup_orphan(experiment_id=experiment_id, row=current)
+            elif intent.kind == "mark_failed":
+                self.mark_failed(
+                    experiment_id=experiment_id,
+                    sandbox_uid=sandbox_uid,
+                    error=str(intent.payload.get("error") or "sandbox failed"),
+                )
+                current = self.registry.get_by_uid(sandbox_uid=sandbox_uid)
+            elif intent.kind == "mark_terminated":
+                self.mark_terminated(
+                    experiment_id=experiment_id, sandbox_uid=sandbox_uid
+                )
+                current = self.registry.get_by_uid(sandbox_uid=sandbox_uid)
+            elif intent.kind == "touch_alive":
+                self.registry.touch_alive(
+                    experiment_id=experiment_id, sandbox_uid=sandbox_uid
+                )
+                current = self.registry.get_by_uid(sandbox_uid=sandbox_uid)
+            elif intent.kind == "refresh_endpoint":
+                current = self.refresh_endpoint(row=current)
+        if decision.event is not None:
+            self.registry.emit_event(
+                project_id=str(row.get("project_id") or ""),
+                event_type=decision.event.type,
+                experiment_id=experiment_id,
+                payload=dict(decision.event.payload),
+            )
+        return current
+
     # ---------- reconcile ----------
 
     def reconcile(self, *, row: dict[str, Any]) -> dict[str, Any]:
@@ -217,48 +256,31 @@ class SandboxLifecycle:
           reaches a terminal state.
         """
         status = row.get("status")
-        exp = str(row.get("experiment_id") or "")
         sandbox_uid = str(row.get("sandbox_uid") or "")
         if status in ACTIVE_SANDBOX_STATUSES and row.get("sandbox_id"):
-            alive = self.liveness(sandbox_id=str(row["sandbox_id"]))
-            if alive is None:
-                return row  # provider unreachable — defer judgment to the next poll
-            if alive:
-                self.registry.touch_alive(experiment_id=exp, sandbox_uid=sandbox_uid)
-                return self.refresh_endpoint(
-                    row=self.registry.get_by_uid(sandbox_uid=sandbox_uid)
-                )
-            self.mark_terminated(experiment_id=exp, sandbox_uid=sandbox_uid)
-            self.registry.emit_event(
-                project_id=str(row["project_id"]),
-                event_type="sandbox.expired",
-                experiment_id=exp,
-                payload={
-                    "sandbox_id": row.get("sandbox_id", ""),
-                    "sandbox_uid": sandbox_uid,
-                },
+            return self.apply(
+                row=row,
+                decision=reconcile_decision(
+                    row=row,
+                    alive=self.liveness(sandbox_id=str(row["sandbox_id"])),
+                ),
             )
-            return self.registry.get_by_uid(sandbox_uid=sandbox_uid)
         if status == "provisioning":
-            if self._job_is_live(experiment_id=exp, sandbox_uid=sandbox_uid):
+            experiment_id = str(row.get("experiment_id") or "")
+            if self._job_is_live(
+                experiment_id=experiment_id, sandbox_uid=sandbox_uid
+            ):
                 return row  # genuinely in flight — keep polling
             # The job may have JUST settled; re-read before declaring failure.
             fresh = self.registry.get_by_uid(sandbox_uid=sandbox_uid)
             if fresh.get("status") != "provisioning":
                 return self.reconcile(row=fresh)
-            self.cleanup_orphan(experiment_id=exp, row=fresh)
-            self.mark_failed(
-                experiment_id=exp,
-                error="provisioning interrupted; call sandbox.request again",
-                sandbox_uid=sandbox_uid,
+            return self.apply(
+                row=fresh,
+                decision=reconcile_decision(
+                    row=fresh, alive=None, job_live=False
+                ),
             )
-            self.registry.emit_event(
-                project_id=str(row["project_id"]),
-                event_type="sandbox.failed",
-                experiment_id=exp,
-                payload={"error": "provisioning interrupted"},
-            )
-            return self.registry.get_by_uid(sandbox_uid=sandbox_uid)
         return row
 
     def refresh_endpoint(self, *, row: dict[str, Any]) -> dict[str, Any]:
@@ -366,38 +388,14 @@ class SandboxLifecycle:
         Returns False — leaving the row running so the next sweep retries —
         when the VM could not be confirmed gone.
         """
-        experiment_id = str(row.get("experiment_id") or "")
-        sandbox_id = str(row.get("sandbox_id") or "")
-        sandbox_uid = str(row.get("sandbox_uid") or "")
         outcome = self.terminate_vm(row=row)
-        if outcome == "maybe_alive":
-            self.registry.emit_event(
-                project_id=str(row.get("project_id")),
+        self.apply(
+            row=row,
+            decision=reap_decision(
+                row=row,
+                outcome=outcome,
                 event_type=event_type,
-                experiment_id=experiment_id,
-                payload={
-                    "sandbox_id": sandbox_id,
-                    "sandbox_uid": sandbox_uid,
-                    "reaped": False,
-                    "reason": "terminate failed; instance may still be alive",
-                    **(payload_extra or {}),
-                },
-            )
-            return False
-        self.mark_terminated(experiment_id=experiment_id, sandbox_uid=sandbox_uid)
-        payload = {
-            "sandbox_id": sandbox_id,
-            "sandbox_uid": sandbox_uid,
-            "reaped": True,
-            "expires_at": row.get("expires_at"),
-            "stopped": outcome == "stopped",
-        }
-        if payload_extra:
-            payload.update(payload_extra)
-        self.registry.emit_event(
-            project_id=str(row.get("project_id")),
-            event_type=event_type,
-            experiment_id=experiment_id,
-            payload=payload,
+                payload_extra=payload_extra,
+            ),
         )
-        return True
+        return outcome != "maybe_alive"

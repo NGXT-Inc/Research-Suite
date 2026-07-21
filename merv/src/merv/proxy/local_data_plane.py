@@ -14,6 +14,8 @@ from contextlib import suppress
 from pathlib import Path
 from typing import Any, Callable, Optional
 
+from .routing import local_handler_identity
+
 
 RSYNC_PULL_OUTPUTS_HINT = (
     "rsync -az --itemize-changes --no-links --no-devices --no-specials "
@@ -58,32 +60,29 @@ class LocalDataPlane:
         self._control_api_post = control_api_post
         self._control_tool_call = control_tool_call
 
-    def call_tool(self, *, name: str, arguments: dict[str, Any]) -> dict[str, Any]:
+    def call_tool(
+        self,
+        *,
+        name: str,
+        arguments: dict[str, Any],
+        control_facts: Optional[dict[str, Any]] = None,
+    ) -> dict[str, Any]:
         arguments = dict(arguments or {})
-        if name == "sandbox.health":
-            return {"ok": True, "mode": "proxy"}
-        if name == "resource.register":
-            return self._register_resource(arguments=arguments)
-        if name == "experiment.materialize_folders":
-            return self._materialize_experiment_folders(arguments=arguments)
-        if name == "feed.post":
-            return self._post_feed(arguments=arguments)
-        if name == "storage.upload_file":
-            return self._upload_storage_file(arguments=arguments)
-        if name == "storage.download_file":
-            return self._download_storage_file(arguments=arguments)
-        if name == "sandbox.request":
-            return self._request_sandbox(arguments=arguments)
-        if name == "sandbox.attach":
-            return self._attach_sandbox(arguments=arguments)
-        if name == "sandbox.pull_outputs":
-            return self._pull_sandbox_outputs(arguments=arguments)
-        if name == "sandbox.get":
-            return self._sandbox_get_enrichment(arguments=arguments)
+        identity = local_handler_identity(name)
+        if identity.startswith("local."):
+            handler = getattr(self, f"_{identity.split('.', 1)[1]}", None)
+            if handler is not None:
+                if control_facts is not None:
+                    return handler(arguments=arguments, control_facts=control_facts)
+                return handler(arguments=arguments)
         raise LocalDataPlaneError(
             f"tool is not served by the proxy data plane: {name}",
             details={"tool": name},
         )
+
+    def _health(self, *, arguments: dict[str, Any]) -> dict[str, Any]:
+        del arguments
+        return {"ok": True, "mode": "proxy"}
 
     def _request_sandbox(self, *, arguments: dict[str, Any]) -> dict[str, Any]:
         project_id = self._project_id()
@@ -107,10 +106,17 @@ class LocalDataPlane:
         payload.setdefault("public_key", "")
         return self._control_api_post("/api/data-plane/sandboxes/attach", payload)
 
-    def _sandbox_get_enrichment(self, *, arguments: dict[str, Any]) -> dict[str, Any]:
-        args = dict(arguments)
-        args["project_id"] = self._project_id()
-        facts = self._control_tool_call("sandbox.get", args)
+    def _sandbox_get_enrichment(
+        self,
+        *,
+        arguments: dict[str, Any],
+        control_facts: Optional[dict[str, Any]] = None,
+    ) -> dict[str, Any]:
+        facts = control_facts
+        if facts is None:
+            args = dict(arguments)
+            args["project_id"] = self._project_id()
+            facts = self._control_tool_call("sandbox.get", args)
         sandbox_uid = str(facts.get("sandbox_uid") or "")
         experiment_id = str(facts.get("experiment_id") or sandbox_uid)
         name = f"sandbox-{sandbox_uid[:12]}" if sandbox_uid else ""

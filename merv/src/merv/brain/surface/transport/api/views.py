@@ -2,19 +2,13 @@
 
 from __future__ import annotations
 
-import json
 import mimetypes
 from typing import Any
 
-from merv.shared.artifact_roles import GATED_ROLES, PROJECT_GRAPH_ROLES
-
-from ....artifacts.resource_selection import preferred_associated_resource
-from ....research_core.domain.graph_lint import MAX_GRAPH_NODES, graph_problems
 from ....kernel.state.activity import effective_source, is_event_ok
 from ....kernel.utils import (
     ContentUnavailableError,
     NotFoundError,
-    WorkflowError,
 )
 
 
@@ -57,22 +51,6 @@ class ResearchHttpApi:
 
     def __init__(self, *, app: Any) -> None:
         self.app = app
-
-    def call_tool(
-        self,
-        *,
-        name: str,
-        arguments: dict[str, Any] | None = None,
-        internal_kwargs: dict[str, Any] | None = None,
-    ) -> dict[str, Any]:
-        return self._present(
-            self.app.call_tool(
-                name=name,
-                arguments=arguments,
-                activity_source="http",
-                internal_kwargs=internal_kwargs,
-            )
-        )
 
     def _present(self, value: Any) -> Any:
         return self._strip_local_data_plane(value)
@@ -200,200 +178,32 @@ class ResearchHttpApi:
         }
 
     def resources_tree(self, project_id: str) -> dict[str, Any]:
-        resources = self.call_tool(
-            name="resource.find", arguments={"project_id": project_id}
-        )["resources"]
+        resources = self.app.resources.list_resources(project_id=project_id)[
+            "resources"
+        ]
         by_kind: dict[str, list[dict[str, Any]]] = {}
         for resource in resources:
             by_kind.setdefault(resource.get("kind", "other"), []).append(resource)
         return {"resources": resources, "tree": by_kind}
 
-    def start_review(
-        self,
-        *,
-        project_id: str,
-        body: dict[str, Any],
-        tenant_id: str | None = None,
-    ) -> dict[str, Any]:
-        self.app.reviews.assert_request_in_project(
-            project_id=project_id, review_request_id=body.get("review_request_id")
-        )
-        return self._present(
-            self.app.call_tool(
-                name="review.start",
-                arguments=body,
-                activity_source="http",
-                internal_kwargs=(
-                    {"tenant_id": tenant_id} if tenant_id is not None else None
-                ),
-                telemetry_project_id=project_id,
-            )
-        )
-
-    def submit_review(self, *, project_id: str, body: dict[str, Any]) -> dict[str, Any]:
-        self.app.reviews.assert_session_in_project(
-            project_id=project_id, review_session_id=body.get("review_session_id")
-        )
-        return self.call_tool(name="review.submit", arguments=body)
-
-    def get_claim(self, project_id: str, claim_id: str) -> dict[str, Any]:
-        claims = self.call_tool(
-            name="claim.list", arguments={"project_id": project_id}
-        )["claims"]
-        for claim in claims:
-            if claim["id"] == claim_id:
-                return claim
-        raise NotFoundError(f"claim not found: {claim_id}")
-
     def resource_content(
         self, project_id: str, resource_id: str, version: str | None = None
     ) -> dict[str, Any]:
-        resource = self.call_tool(
-            name="resource.find",
-            arguments={"project_id": project_id, "resource_id": resource_id},
+        resource = self.app.resources.resolve(
+            project_id=project_id, resource_id=resource_id
         )
-        # An explicit version pins the EXACT submitted bytes of one resource
-        # version (used by the reflection-wave UI to render a past wave's
-        # graph, reflection doc, or change spec faithfully, not the latest
-        # living file).
-        if version:
-            return self._resource_content_at_version(
-                resource=resource, version_id=version
-            )
-        # Gated-role artifacts render their submitted bytes (the content the
-        # gates lint and reviewers grade). Other roles are metadata-only here;
-        # raw file reads live in the local MCP proxy.
-        pinned = self._pinned_gated_text(resource=resource)
-        if pinned is not None:
-            text, version_id = pinned
-            return {
-                "resource": resource,
-                "path": resource["path"],
-                "content": text,
-                "text": text,
-                "size_bytes": len(text.encode("utf-8")),
-                "source": "submitted",
-                "version_id": version_id,
-            }
-        return {
-            "resource": resource,
-            "path": resource.get("path"),
-            "content": None,
-            "text": None,
-            "available": False,
-            "source": "unavailable",
-            "reason": "content_unavailable_in_this_mode",
-            "detail": (
-                "this file's bytes live only on the local data plane; "
-                "result-role files are metadata-only in this mode"
-            ),
-        }
-
-    def _resource_content_at_version(
-        self, *, resource: dict[str, Any], version_id: str
-    ) -> dict[str, Any]:
-        """Serve the exact submitted bytes of one pinned resource version.
-
-        The version must belong to this resource — its current version or any
-        of its associations' versions — otherwise 404 (so a cross-resource
-        version_id can't be used to read arbitrary blobs). A missing/undecodable
-        blob degrades to the same {available: False} shape the control-mode and
-        live paths use, so the UI renders ContentUnavailable instead of a 500."""
-        valid = {
-            str(a.get("version_id"))
-            for a in resource.get("associations", [])
-            if a.get("version_id")
-        }
-        current_version = resource.get("current_version_id")
-        if current_version:
-            valid.add(str(current_version))
-        if version_id not in valid:
-            raise NotFoundError(
-                f"version {version_id} is not associated with resource {resource.get('id')}"
-            )
-        try:
-            text = self.app.resources.pinned_text_for_version(
-                version_id=version_id,
-                what="resource content",
-                role="",
-            )
-        except WorkflowError as exc:
-            return {
-                "resource": resource,
-                "path": resource.get("path"),
-                "content": None,
-                "text": None,
-                "available": False,
-                "source": "unavailable",
-                "reason": "version_unavailable",
-                "detail": str(exc),
-                "version_id": version_id,
-            }
-        return {
-            "resource": resource,
-            "path": resource.get("path"),
-            "content": text,
-            "text": text,
-            "size_bytes": len(text.encode("utf-8")),
-            "source": "submitted",
-            "version_id": version_id,
-            "available": True,
-        }
-
-    def _latest_gated_version_id(self, *, resource: dict[str, Any]) -> str | None:
-        best: tuple[int, str] | None = None
-        for assoc in resource.get("associations", []):
-            role = str(assoc.get("role") or "")
-            version_id = assoc.get("version_id")
-            if role not in GATED_ROLES or not version_id:
-                continue
-            attempt = int(assoc.get("attempt_index") or 0)
-            if best is None or attempt >= best[0]:
-                best = (attempt, str(version_id))
-        return best[1] if best else None
-
-    def _pinned_gated_text(self, *, resource: dict[str, Any]) -> tuple[str, str] | None:
-        """The latest submitted bytes for a gated-role resource (decoded) plus
-        the version id they came from, or None when the resource has no gated
-        association (the caller then reads the live file).
-
-        The documented no-version default is the *latest* submitted bytes, so
-        this resolves to the resource's ``current_version_id`` — the newest
-        observed version, whose bytes are captured into the blob store when it
-        is associated as a gated artifact. That keeps a living file pinned by
-        several targets (e.g. ``project/reflection.md`` associated by multiple
-        reflection waves) serving its newest version rather than whichever
-        association happens to carry the highest per-target attempt index. It
-        falls back to the latest gated association only when the current
-        version's own bytes were never submitted (a live edit observed but not
-        re-associated)."""
-        latest_assoc = self._latest_gated_version_id(resource=resource)
-        if latest_assoc is None:
-            return None
-        candidates: list[str] = []
-        current = resource.get("current_version_id")
-        if current:
-            candidates.append(str(current))
-        if latest_assoc not in candidates:
-            candidates.append(latest_assoc)
-        for version_id in candidates:
-            text = self.app.resources.submitted_text_for_version(version_id=version_id)
-            if text is not None:
-                return text, version_id
-        return None
+        return self.app.artifacts.resource_content(
+            resource=resource, version_id=version
+        )
 
     def resource_file(
         self, project_id: str, resource_id: str, rel: str | None = None
     ) -> tuple[bytes, dict[str, str]]:
-        resource = self.call_tool(
-            name="resource.find",
-            arguments={"project_id": project_id, "resource_id": resource_id},
+        resource = self.app.resources.resolve(
+            project_id=project_id, resource_id=resource_id
         )
         if rel:
-            # A file referenced by the resource, e.g. a markdown relative image
-            # link. Submitted figures serve from the blob store; uncaptured
-            # links are local data-plane only.
-            blob = self._submitted_figure(resource=resource, rel=rel)
+            blob = self.app.artifacts.submitted_figure(resource=resource, link_path=rel)
             if blob is not None:
                 data, name = blob
                 mime = mimetypes.guess_type(name)[0] or "application/octet-stream"
@@ -410,61 +220,6 @@ class ResearchHttpApi:
             details={"reason": "content_unavailable_in_this_mode"},
         )
 
-    def _submitted_figure(
-        self, *, resource: dict[str, Any], rel: str
-    ) -> tuple[bytes, str] | None:
-        version_id = self._latest_gated_version_id(resource=resource)
-        if version_id is None:
-            return None
-        data = self.app.resources.submitted_figure(version_id=version_id, link_path=rel)
-        if data is None:
-            return None
-        return data, rel.rsplit("/", 1)[-1]
-
-    def create_project(
-        self, body: dict[str, Any], *, tenant_id: str | None = None, user_id: str = ""
-    ) -> dict[str, Any]:
-        name = body.get("name") or body.get("title") or "Untitled Project"
-        summary = (
-            body.get("summary")
-            or body.get("description")
-            or body.get("research_goal")
-            or ""
-        )
-        # Route through call_tool (not the service directly) so HTTP-driven
-        # project creation emits the same activity/tool_calls telemetry the MCP
-        # path does — tenant_id/user_id ride in via internal_kwargs in hosted
-        # mode only (the creator becomes the project's first member).
-        internal: dict[str, Any] = {}
-        if tenant_id is not None:
-            internal["tenant_id"] = tenant_id
-        if user_id:
-            internal["user_id"] = user_id
-        return self._present(
-            self.app.call_tool(
-                name="project",
-                arguments={"action": "create", "name": name, "summary": summary},
-                activity_source="http",
-                internal_kwargs=internal or None,
-            )
-        )
-
-    def create_experiment(
-        self, project_id: str, body: dict[str, Any]
-    ) -> dict[str, Any]:
-        name = body.get("name") or ""
-        intent = body.get("intent") or body.get("title") or body.get("question") or ""
-        claim_ids = body.get("tested_claim_ids") or body.get("claim_ids") or []
-        return self.call_tool(
-            name="experiment.create",
-            arguments={
-                "project_id": project_id,
-                "name": name,
-                "intent": intent,
-                "tested_claim_ids": claim_ids,
-            },
-        )
-
     def filter_experiments(self, project_id: str, status: str | None) -> dict[str, Any]:
         # Full per-experiment state for the UI; the experiment.list tool stays slim.
         experiments = self.app.experiments.list_experiments(project_id=project_id)[
@@ -475,9 +230,9 @@ class ResearchHttpApi:
         return {"experiments": experiments}
 
     def filter_resources(self, project_id: str, kind: str | None) -> dict[str, Any]:
-        resources = self.call_tool(
-            name="resource.find", arguments={"project_id": project_id}
-        )["resources"]
+        resources = self.app.resources.list_resources(project_id=project_id)[
+            "resources"
+        ]
         if kind:
             resources = [res for res in resources if res.get("kind") == kind]
         return {"resources": resources}
@@ -516,21 +271,7 @@ class ResearchHttpApi:
         )
 
     def compute_cost_view(self, *, project_id: str) -> dict[str, Any]:
-        """Project compute spend for the UI, experiment names hydrated.
-
-        Sourced from the sandbox_generations ledger (not live sandbox rows),
-        so terminated fleets keep counting toward the total.
-        """
-        spend = self.app.quotas.project_spend(project_id=project_id)
-        experiments = self.app.experiments.list_experiments(project_id=project_id)[
-            "experiments"
-        ]
-        names = {
-            str(exp.get("id") or ""): str(exp.get("name") or "") for exp in experiments
-        }
-        for entry in spend["by_experiment"]:
-            entry["experiment_name"] = names.get(entry["experiment_id"], "")
-        return self._present(spend)
+        return self._present(self.app.compute_cost_query(project_id=project_id))
 
     def sandbox_metrics_view(
         self,
@@ -548,181 +289,28 @@ class ResearchHttpApi:
     def experiment_logic_graph(
         self, *, project_id: str, experiment_id: str
     ) -> dict[str, Any]:
-        """Agent-authored logic graph (role 'graph'), parsed + envelope-linted.
-
-        Prefers the current attempt's association; falls back to the latest
-        prior-attempt one so the story stays visible right after an attempt
-        bump, before the agent re-associates the file.
-        """
-        experiment = self.app.experiments.get_state(
-            experiment_id=experiment_id, project_id=project_id
-        )
-        attempt = experiment.get("attempt_index")
-        chosen = preferred_associated_resource(
-            resources=experiment.get("resources", []),
-            attempt=attempt,
-            roles=("graph",),
-        )
-        base = {
-            "experiment_id": experiment_id,
-            "max_nodes": MAX_GRAPH_NODES,
-            "experiment_status": experiment.get("status"),
-            "attempt_index": attempt,
-        }
-        if chosen is None:
-            return {**base, "available": False, "graph": None, "problems": []}
-        text = self._association_pinned_text(chosen)
-        if text is None:
-            # The association predates byte capture (or the blob is gone):
-            # degrade with re-associate guidance, never a 500.
-            return {
-                **base,
-                "available": False,
-                "graph": None,
-                "problems": [
-                    "graph has no submitted content — re-associate it (role 'graph')"
-                ],
-                "path": chosen.get("path"),
-            }
-        return self._graph_payload(
-            base=base, chosen=chosen, text=text, project_id=project_id
+        return self.app.logic_graph_query.experiment(
+            project_id=project_id, experiment_id=experiment_id
         )
 
     def reflections_view(self, *, project_id: str) -> dict[str, Any]:
-        """All reflection waves plus the staleness/coverage signal for the UI."""
-        return self.app.reflection_waves.overview(project_id=project_id)
+        return self.app.logic_graph_query.reflections(project_id=project_id)
 
     def reflection_detail(
         self, *, project_id: str, reflection_id: str
     ) -> dict[str, Any]:
-        return self.app.reflection_waves.get_state(
+        return self.app.logic_graph_query.reflection(
             reflection_id=reflection_id, project_id=project_id
         )
 
     def project_logic_graph(self, *, project_id: str) -> dict[str, Any]:
-        """The living project logic graph (role 'project_graph' on a reflection).
-
-        Chooses the open wave's graph when one exists (so the user can watch
-        the reflection being written), else the latest published one. The same
-        payload shape as the per-experiment graph endpoint so the UI renders
-        both through one component.
-        """
-        selection = self.app.reflection_waves.project_logic_graph_selection(
-            project_id=project_id
-        )
-        return self._graph_payload_for_reflection(
-            project_id=project_id,
-            reflection=selection.get("reflection"),
-            graph_resource=selection.get("graph_resource"),
-            extra_base={"signal": selection.get("signal")},
-        )
+        return self.app.logic_graph_query.project(project_id=project_id)
 
     def reflection_graph(
         self, *, project_id: str, reflection_id: str
     ) -> dict[str, Any]:
-        """The logic graph of one specific reflection wave, rendered from the
-        bytes that wave pinned (role 'project_graph'). Lets the UI show a past
-        wave's graph faithfully even though project/logic_graph.json is a
-        living file the next wave overwrites. Same payload shape as
-        project_logic_graph
-        (minus the project-wide staleness signal)."""
-        reflection = self.app.reflection_waves.get_state(
-            reflection_id=reflection_id, project_id=project_id
-        )
-        return self._graph_payload_for_reflection(
-            project_id=project_id, reflection=reflection
-        )
-
-    def _graph_payload_for_reflection(
-        self,
-        *,
-        project_id: str,
-        reflection: dict[str, Any] | None,
-        graph_resource: dict[str, Any] | None = None,
-        extra_base: dict[str, Any] | None = None,
-    ) -> dict[str, Any]:
-        """Shared graph shaping for the project-current and per-wave endpoints:
-        pick the reflection's graph association, load its pinned bytes, then
-        parse + lint + resolve refs into the common payload the LogicGraph
-        component renders. `extra_base` injects endpoint-specific fields (the
-        project-current endpoint adds the staleness `signal`)."""
-        base: dict[str, Any] = {"max_nodes": MAX_GRAPH_NODES, **(extra_base or {})}
-        # Prefer the current-attempt association, with prior-attempt fallback.
-        chosen = graph_resource or (
-            preferred_associated_resource(
-                resources=reflection.get("resources", []),
-                attempt=reflection.get("attempt_index"),
-                roles=PROJECT_GRAPH_ROLES,
-            )
-            if reflection
-            else None
-        )
-        if reflection is None or chosen is None:
-            return {
-                **base,
-                "available": False,
-                "reflection": None,
-                "graph": None,
-                "problems": [],
-            }
-        base["reflection"] = {
-            "id": reflection.get("id"),
-            "title": reflection.get("title"),
-            "status": reflection.get("status"),
-            "attempt_index": reflection.get("attempt_index"),
-            "published_at": reflection.get("published_at"),
-        }
-        text = self._association_pinned_text(chosen)
-        if text is None:
-            return {
-                **base,
-                "available": False,
-                "graph": None,
-                "problems": [
-                    "graph has no submitted content — re-associate it "
-                    "(role 'project_graph')"
-                ],
-                "path": chosen.get("path"),
-            }
-        return self._graph_payload(
-            base=base, chosen=chosen, text=text, project_id=project_id
-        )
-
-    def _graph_payload(
-        self,
-        *,
-        base: dict[str, Any],
-        chosen: dict[str, Any],
-        text: str,
-        project_id: str,
-    ) -> dict[str, Any]:
-        """Parse + lint + resolve-refs the available-graph tail shared by the
-        experiment and reflection graph endpoints (byte-identical payload)."""
-        graph: dict[str, Any] | None = None
-        try:
-            parsed = json.loads(text)
-            if isinstance(parsed, dict):
-                graph = parsed
-        except json.JSONDecodeError:
-            graph = None
-        return {
-            **base,
-            "available": True,
-            "resource_id": chosen.get("id"),
-            "path": chosen.get("path"),
-            "association_attempt_index": chosen.get("association_attempt_index"),
-            "graph": graph,
-            "problems": graph_problems(text),
-            "ref_index": self.app.graph_refs.resolve_index(
-                project_id=project_id, graph=graph
-            ),
-        }
-
-    def _association_pinned_text(self, resource: dict[str, Any]) -> str | None:
-        """The submitted bytes behind a resources_for_target row (associated
-        version → blob), or None when nothing was submitted."""
-        return self.app.resources.submitted_text_for_version(
-            version_id=resource.get("association_version_id")
+        return self.app.logic_graph_query.reflection_graph(
+            project_id=project_id, reflection_id=reflection_id
         )
 
     def _experiment_view_model(self, *, exp: dict[str, Any]) -> dict[str, Any]:

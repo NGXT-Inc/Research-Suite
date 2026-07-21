@@ -14,7 +14,7 @@ keywords = ["research", "ml", "mcp", "experiments"]
 # Base deps are the common HTTP surface, needed only to run a brain. The stdio
 # proxy runs on bare python3 with no installs: static imports are pinned by
 # ProxyStdlibOnlyTest (tests/structure/test_plane_layout.py), and the checked-in
-# src/merv/proxy/_tool_catalog.json is its sole runtime registry, kept fresh and
+# src/merv/proxy/_tool_manifest.json is its runtime registry, kept fresh and
 # driven without pydantic or brain imports by
 # tests/surface/test_static_tool_catalog.py.
 # Provider SDKs (Modal) and Postgres/object-store deps live in the extras.
@@ -56,5 +56,5 @@ pythonpath = ["src"]
 where = ["src"]
 
 [tool.setuptools.package-data]
-# The stdio proxy's bare-python tools/list fallback must ship in the wheel.
-"merv.proxy" = ["_tool_catalog.json"]
+# The private routing manifest and byte-compatible legacy catalog ship together.
+"merv.proxy" = ["_tool_catalog.json", "_tool_manifest.json"]

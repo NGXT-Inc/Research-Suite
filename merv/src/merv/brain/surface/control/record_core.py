@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-from contextlib import closing
 from dataclasses import dataclass
 
 from ...artifacts.pinned import PinnedStore
@@ -13,7 +12,6 @@ from ...research_core.experiments import ExperimentService
 from ...feed.feed import FeedService
 from ...research_core.graph_refs import GraphRefResolver
 from ..permissions import PermissionService
-from ...research_core.project_overview import ProjectOverviewService
 from ...research_core.projects import ProjectService
 from ...sandbox.quotas import QuotaService
 from ...research_core.reflection_tools import ReflectionToolService
@@ -22,7 +20,6 @@ from ...research_core.reflections import ReflectionService
 from ...kernel.state import BaseStateStore
 from ...kernel.ports.blob_store import EvidenceBlobStore
 from ...object_storage.service import objects_for_experiment
-from ...kernel.utils import NotFoundError
 
 
 @dataclass(frozen=True)
@@ -36,7 +33,6 @@ class RecordCore:
     graph_refs: GraphRefResolver
     reflection_waves: ReflectionService
     reflection_tools: ReflectionToolService
-    project_overview: ProjectOverviewService
     reviews: ReviewService
     feed: FeedService
 
@@ -58,7 +54,6 @@ def build_record_core(*, store: BaseStateStore, blobs: EvidenceBlobStore) -> Rec
     )
     resources = ResourceService(
         store=store,
-        permissions=permissions,
         blobs=blobs,
         association_targets=AssociationTargets(),
     )
@@ -70,14 +65,8 @@ def build_record_core(*, store: BaseStateStore, blobs: EvidenceBlobStore) -> Rec
         pinned=pinned,
     )
     reflection_tools = ReflectionToolService(reflections=reflection_waves)
-    project_overview = ProjectOverviewService(
-        store=store,
-        projects=projects,
-        reflections=reflection_waves,
-    )
     reviews = ReviewService(
         store=store,
-        permissions=permissions,
         experiments=experiments,
         reflections=reflection_waves,
         pinned=pinned,
@@ -93,29 +82,6 @@ def build_record_core(*, store: BaseStateStore, blobs: EvidenceBlobStore) -> Rec
         graph_refs=graph_refs,
         reflection_waves=reflection_waves,
         reflection_tools=reflection_tools,
-        project_overview=project_overview,
         reviews=reviews,
         feed=feed,
     )
-
-
-def build_experiment_attachment_check(*, store: BaseStateStore):
-    """Surface-owned validator handed to ``SandboxService``.
-
-    The sandbox module treats attachment labels as opaque strings; only the
-    surface knows a label happens to be an experiment id, so the composition
-    injects the existence/scope check (docs/MODULE_BOUNDARIES.md, sandbox
-    de-domaining). Raises the same NotFoundError the sandbox service used to.
-    """
-
-    def check(*, attachment_id: str, project_id: str) -> None:
-        with closing(store.connect()) as conn:
-            row = conn.execute(
-                "SELECT project_id FROM experiments WHERE id = ?", (attachment_id,)
-            ).fetchone()
-        if row is None or row["project_id"] != project_id:
-            raise NotFoundError(
-                f"experiment not found in project {project_id}: {attachment_id}"
-            )
-
-    return check

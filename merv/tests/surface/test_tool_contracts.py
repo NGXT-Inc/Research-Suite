@@ -30,6 +30,7 @@ from merv.brain.surface.tools.contracts import (
     StorageUploadFileInput,
     STORAGE_TOOL_NAMES,
     TOOL_CONTRACTS,
+    TOOL_MANIFEST,
     TOOL_PLANE_REGISTRY,
     available_tool_names,
     static_tool_catalog,
@@ -74,6 +75,7 @@ def _handler_targets() -> dict[str, Any]:
         "tracking_context": target,
         "tracking_finalize": target,
         "review_status": target,
+        "operations": target,
     }
 
 
@@ -122,6 +124,25 @@ class ToolContractRegistryTest(unittest.TestCase):
     def test_plane_registry_classifies_every_tool(self) -> None:
         self.assertEqual(set(TOOL_PLANE_REGISTRY), set(TOOL_CONTRACTS))
         self.assertLessEqual(set(TOOL_PLANE_REGISTRY.values()), {"control", "data"})
+
+    def test_manifest_owns_all_routing_and_handler_metadata(self) -> None:
+        self.assertIs(TOOL_CONTRACTS, TOOL_MANIFEST)
+        for name, tool in TOOL_MANIFEST.items():
+            self.assertIn(tool.visibility, {"public", "internal"}, name)
+            self.assertIn(
+                tool.scope_strategy,
+                {"linked-project", "caller-selected", "capability", "none"},
+                name,
+            )
+            self.assertIn(
+                tool.execution_strategy,
+                {"control", "local", "control-plus-local-enrichment", "local-orchestration"},
+                name,
+            )
+            self.assertTrue(tool.handler_identity, name)
+            self.assertLessEqual(set(tool.feature_requirements), {"storage"}, name)
+        self.assertEqual(TOOL_MANIFEST["project"].execution_strategy, "local-orchestration")
+        self.assertEqual(TOOL_MANIFEST["project"].plane, "control")
 
     def test_hidden_tools_stay_in_catalog_with_hidden_flag(self) -> None:
         # UI/proxy-internal tools remain dispatchable and keep their catalog

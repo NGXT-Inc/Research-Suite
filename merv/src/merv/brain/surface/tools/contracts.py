@@ -28,13 +28,50 @@ class ContractModel(BaseModel):
 # "control" = record/gate/lifecycle work, cloud-servable. "data" = touches the
 # local filesystem or local processes, must run on the user's machine.
 ToolPlane = Literal["control", "data"]
+ToolVisibility = Literal["public", "internal"]
+ToolScopeStrategy = Literal["linked-project", "caller-selected", "capability", "none"]
+ToolExecutionStrategy = Literal[
+    "control",
+    "local",
+    "control-plus-local-enrichment",
+    "local-orchestration",
+]
+ToolFeature = Literal["storage"]
 
 
 @dataclass(frozen=True)
-class ToolContract:
+class ToolManifest:
+    """One tool's complete public contract and runtime placement metadata."""
+
     input_model: type[ContractModel]
     description: str
+    handler_identity: str
+    visibility: ToolVisibility = "public"
+    scope_strategy: ToolScopeStrategy | None = None
+    execution_strategy: ToolExecutionStrategy = "control"
+    catalog_plane: ToolPlane | None = None
+    feature_requirements: tuple[ToolFeature, ...] = ()
+    local_handler_identity: str | None = None
     hosted_control_sandbox_lookup: bool = False
+
+    def __post_init__(self) -> None:
+        if self.scope_strategy is None:
+            inferred: ToolScopeStrategy = (
+                "linked-project"
+                if issubclass(self.input_model, ProjectScopedInput)
+                else "none"
+            )
+            object.__setattr__(self, "scope_strategy", inferred)
+
+    @property
+    def plane(self) -> ToolPlane:
+        if self.catalog_plane is not None:
+            return self.catalog_plane
+        return "data" if self.execution_strategy in {"local", "local-orchestration"} else "control"
+
+
+# Compatibility name for code that describes only the schema/description half.
+ToolContract = ToolManifest
 
 
 class EmptyInput(ContractModel):
@@ -910,12 +947,19 @@ class SandboxTerminalInput(ProjectScopedInput):
     )
 
 
-TOOL_CONTRACTS: dict[str, ToolContract] = {
+TOOL_MANIFEST: dict[str, ToolManifest] = {
     "workflow.status_and_next": ToolContract(
+        handler_identity="workflow.status_and_next_agent",
         input_model=WorkflowStatusAndNextInput,
         description="Orient Codex from durable project/experiment state.",
     ),
     "project": ToolContract(
+        handler_identity="operations.project",
+        scope_strategy="caller-selected",
+        execution_strategy="local-orchestration",
+        # Preserve the legacy catalog plane: the brain still owns its schema
+        # and the create/overview actions, while the proxy dispatches by action.
+        catalog_plane="control",
         input_model=ProjectInput,
         description=(
             "Project identity for this folder, dispatched on 'action'. "
@@ -936,18 +980,25 @@ TOOL_CONTRACTS: dict[str, ToolContract] = {
         ),
     ),
     "project.update": ToolContract(
+        handler_identity="projects.update",
+        visibility="internal",
         input_model=ProjectUpdateInput,
         description="Update a project name, summary, policy knobs, or hidden state.",
     ),
     "project.get": ToolContract(
+        handler_identity="projects.get",
+        visibility="internal",
         input_model=ProjectGetInput,
         description="Get project metadata.",
     ),
     "project.list": ToolContract(
+        handler_identity="projects.list_projects",
+        visibility="internal",
         input_model=EmptyInput,
         description="List projects in the current tool scope.",
     ),
     "claim.create": ToolContract(
+        handler_identity="claims.create",
         input_model=ClaimCreateInput,
         description=(
             'Create a claim. Check the project tool with action="overview" '
@@ -955,10 +1006,13 @@ TOOL_CONTRACTS: dict[str, ToolContract] = {
         ),
     ),
     "claim.list": ToolContract(
+        handler_identity="claims.list_claims",
+        visibility="internal",
         input_model=ClaimListInput,
         description="List claims.",
     ),
     "claim.update": ToolContract(
+        handler_identity="claims.update",
         input_model=ClaimUpdateInput,
         description=(
             "Update a claim's status or confidence. The statement and scope "
@@ -969,6 +1023,7 @@ TOOL_CONTRACTS: dict[str, ToolContract] = {
         ),
     ),
     "experiment.create": ToolContract(
+        handler_identity="experiments.create",
         input_model=ExperimentCreateInput,
         description=(
             "Create a planned experiment. Requires an intent and a short "
@@ -977,10 +1032,13 @@ TOOL_CONTRACTS: dict[str, ToolContract] = {
         ),
     ),
     "experiment.list": ToolContract(
+        handler_identity="operations.experiment_list",
+        visibility="internal",
         input_model=ExperimentListInput,
         description="List experiments with state.",
     ),
     "experiment.get_state": ToolContract(
+        handler_identity="tracking_context.experiment",
         input_model=ExperimentGetStateInput,
         description=(
             "Get one experiment state. Includes 'allowed_transitions': the "
@@ -991,6 +1049,8 @@ TOOL_CONTRACTS: dict[str, ToolContract] = {
         ),
     ),
     "experiment.materialize_folders": ToolContract(
+        handler_identity="local.materialize_experiment_folders",
+        execution_strategy="local-orchestration",
         input_model=ExperimentMaterializeFoldersInput,
         description=(
             "Create canonical local experiment folders under experiments/<name>/ "
@@ -1000,6 +1060,7 @@ TOOL_CONTRACTS: dict[str, ToolContract] = {
         ),
     ),
     "experiment.transition": ToolContract(
+        handler_identity="experiment_transition.agent",
         input_model=ExperimentTransitionInput,
         description=(
             "Apply an allowed experiment transition. See "
@@ -1021,6 +1082,7 @@ TOOL_CONTRACTS: dict[str, ToolContract] = {
         ),
     ),
     "experiment.exhibit": ToolContract(
+        handler_identity="experiment_exhibit.preview",
         input_model=ExperimentExhibitInput,
         description=(
             "Read-only preview of the system-generated metrics exhibit for a "
@@ -1036,6 +1098,7 @@ TOOL_CONTRACTS: dict[str, ToolContract] = {
         ),
     ),
     "mlflow.context": ToolContract(
+        handler_identity="tracking_context.execute",
         input_model=MlflowContextInput,
         description=(
             "Central MLflow bridge context. With no experiment_id, returns the "
@@ -1049,6 +1112,7 @@ TOOL_CONTRACTS: dict[str, ToolContract] = {
         ),
     ),
     "mlflow.finalize_run": ToolContract(
+        handler_identity="tracking_finalize.execute",
         input_model=MlflowFinalizeRunInput,
         description=(
             "Finalize a plugin experiment's MLflow run and read it back through "
@@ -1059,6 +1123,7 @@ TOOL_CONTRACTS: dict[str, ToolContract] = {
         ),
     ),
     "reflection.create": ToolContract(
+        handler_identity="reflection_tools.create",
         input_model=ReflectionCreateInput,
         description=(
             "Open a project reflection wave. "
@@ -1072,6 +1137,7 @@ TOOL_CONTRACTS: dict[str, ToolContract] = {
         ),
     ),
     "reflection.get": ToolContract(
+        handler_identity="reflection_tools.get",
         input_model=ReflectionGetInput,
         description=(
             "Get one reflection wave state: roster, per-lens "
@@ -1083,10 +1149,13 @@ TOOL_CONTRACTS: dict[str, ToolContract] = {
         ),
     ),
     "reflection.list": ToolContract(
+        handler_identity="reflection_tools.list",
+        visibility="internal",
         input_model=ReflectionListInput,
         description="List the project's reflection waves with state.",
     ),
     "reflection.transition": ToolContract(
+        handler_identity="reflection_tools.transition",
         input_model=ReflectionTransitionInput,
         description=(
             "Apply an allowed reflection transition (submit_reflections, "
@@ -1098,6 +1167,8 @@ TOOL_CONTRACTS: dict[str, ToolContract] = {
         ),
     ),
     "resource.register": ToolContract(
+        handler_identity="local.register_resource",
+        execution_strategy="local-orchestration",
         input_model=ResourceRegisterInput,
         description=(
             "Register repo file(s) as resources and, optionally, associate them "
@@ -1114,6 +1185,8 @@ TOOL_CONTRACTS: dict[str, ToolContract] = {
         ),
     ),
     "resource.delete": ToolContract(
+        handler_identity="resources.delete",
+        visibility="internal",
         input_model=ResourceDeleteInput,
         description=(
             "Delete a resource from active project tracking while preserving "
@@ -1121,6 +1194,7 @@ TOOL_CONTRACTS: dict[str, ToolContract] = {
         ),
     ),
     "resource.find": ToolContract(
+        handler_identity="operations.resource_find",
         input_model=ResourceFindInput,
         description=(
             "Find registered resources. Pass 'resource_id' (with optional "
@@ -1132,6 +1206,9 @@ TOOL_CONTRACTS: dict[str, ToolContract] = {
         ),
     ),
     "storage.put_object": ToolContract(
+        handler_identity="storage.put_object",
+        visibility="internal",
+        feature_requirements=("storage",),
         input_model=StoragePutObjectInput,
         description=(
             "Register a heavy storage object intent. Returns a presigned upload "
@@ -1140,6 +1217,9 @@ TOOL_CONTRACTS: dict[str, ToolContract] = {
         ),
     ),
     "storage.upload_file": ToolContract(
+        handler_identity="local.upload_storage_file",
+        execution_strategy="local-orchestration",
+        feature_requirements=("storage",),
         input_model=StorageUploadFileInput,
         description=(
             "Upload a local file to durable storage and complete the ledger "
@@ -1149,10 +1229,15 @@ TOOL_CONTRACTS: dict[str, ToolContract] = {
         ),
     ),
     "storage.complete_upload": ToolContract(
+        handler_identity="storage.complete_upload",
+        visibility="internal",
+        feature_requirements=("storage",),
         input_model=StorageCompleteUploadInput,
         description="Complete a storage upload and mark the ledger object available.",
     ),
     "storage.find": ToolContract(
+        handler_identity="operations.storage_find",
+        feature_requirements=("storage",),
         input_model=StorageFindInput,
         description=(
             "Find project storage objects. Pass object_id or name (with optional "
@@ -1164,6 +1249,9 @@ TOOL_CONTRACTS: dict[str, ToolContract] = {
         ),
     ),
     "storage.download_file": ToolContract(
+        handler_identity="local.download_storage_file",
+        execution_strategy="local-orchestration",
+        feature_requirements=("storage",),
         input_model=StorageDownloadFileInput,
         description=(
             "Resolve a storage object and download it to a local file, verifying "
@@ -1171,6 +1259,8 @@ TOOL_CONTRACTS: dict[str, ToolContract] = {
         ),
     ),
     "storage.object": ToolContract(
+        handler_identity="operations.storage_object",
+        feature_requirements=("storage",),
         input_model=StorageObjectInput,
         description=(
             "Apply a lifecycle action to one storage object by object_id: pin "
@@ -1180,6 +1270,7 @@ TOOL_CONTRACTS: dict[str, ToolContract] = {
         ),
     ),
     "review.request": ToolContract(
+        handler_identity="reviews.request",
         input_model=ReviewRequestInput,
         description=(
             "Create a review request and request-scoped reviewer capability; "
@@ -1191,6 +1282,8 @@ TOOL_CONTRACTS: dict[str, ToolContract] = {
         ),
     ),
     "review.start": ToolContract(
+        handler_identity="reviews.start",
+        scope_strategy="capability",
         input_model=ReviewStartInput,
         description=(
             "Start a reviewer session for the pinned request snapshot. The "
@@ -1198,6 +1291,8 @@ TOOL_CONTRACTS: dict[str, ToolContract] = {
         ),
     ),
     "review.submit": ToolContract(
+        handler_identity="reviews.submit",
+        scope_strategy="capability",
         input_model=ReviewSubmitInput,
         description=(
             "Submit a review from a reviewer session. Accepts ONLY: "
@@ -1214,6 +1309,8 @@ TOOL_CONTRACTS: dict[str, ToolContract] = {
         ),
     ),
     "review.status": ToolContract(
+        handler_identity="review_status.execute",
+        visibility="internal",
         input_model=ReviewStatusInput,
         description=(
             "Inspect review requests and submissions for a target, including "
@@ -1221,6 +1318,8 @@ TOOL_CONTRACTS: dict[str, ToolContract] = {
         ),
     ),
     "sandbox.request": ToolContract(
+        handler_identity="local.request_sandbox",
+        execution_strategy="local-orchestration",
         input_model=SandboxRequestInput,
         description=(
             "Procure (reuse or create) a project sandbox, optionally attached to "
@@ -1245,6 +1344,7 @@ TOOL_CONTRACTS: dict[str, ToolContract] = {
         ),
     ),
     "sandbox.options": ToolContract(
+        handler_identity="sandboxes.options",
         input_model=SandboxOptionsInput,
         description=(
             "List the hardware the active backend can provision right now "
@@ -1252,6 +1352,9 @@ TOOL_CONTRACTS: dict[str, ToolContract] = {
         ),
     ),
     "sandbox.get": ToolContract(
+        handler_identity="sandboxes.get",
+        local_handler_identity="local.sandbox_get_enrichment",
+        execution_strategy="control-plus-local-enrichment",
         input_model=SandboxGetInput,
         description=(
             "Get sandbox status, SSH details, expiry, and polling/runtime "
@@ -1264,6 +1367,8 @@ TOOL_CONTRACTS: dict[str, ToolContract] = {
         hosted_control_sandbox_lookup=True,
     ),
     "sandbox.attach": ToolContract(
+        handler_identity="local.attach_sandbox",
+        execution_strategy="local-orchestration",
         input_model=SandboxAttachInput,
         description=(
             "Associate an existing running sandbox with an experiment without "
@@ -1272,6 +1377,8 @@ TOOL_CONTRACTS: dict[str, ToolContract] = {
         ),
     ),
     "sandbox.pull_outputs": ToolContract(
+        handler_identity="local.pull_sandbox_outputs",
+        execution_strategy="local-orchestration",
         input_model=SandboxPullOutputsInput,
         description=(
             "Copy selected files or directories from a running sandbox's remote "
@@ -1289,10 +1396,13 @@ TOOL_CONTRACTS: dict[str, ToolContract] = {
         ),
     ),
     "sandbox.list": ToolContract(
+        handler_identity="sandboxes.list_sandboxes",
+        visibility="internal",
         input_model=SandboxListInput,
         description="List sandboxes for the project.",
     ),
     "sandbox.release": ToolContract(
+        handler_identity="sandboxes.release",
         input_model=SandboxReleaseInput,
         description=(
             "Terminate a sandbox by experiment_id or sandbox_uid (permanently "
@@ -1307,6 +1417,7 @@ TOOL_CONTRACTS: dict[str, ToolContract] = {
         ),
     ),
     "sandbox.extend": ToolContract(
+        handler_identity="sandboxes.extend",
         input_model=SandboxExtendInput,
         description=(
             "Extend a running sandbox's expiry by at most one 30-minute "
@@ -1316,6 +1427,7 @@ TOOL_CONTRACTS: dict[str, ToolContract] = {
         ),
     ),
     "sandbox.runs": ToolContract(
+        handler_identity="sandboxes.runs",
         input_model=SandboxRunsInput,
         description=(
             "List merv_run launches for a sandbox or experiment: label, status "
@@ -1330,6 +1442,7 @@ TOOL_CONTRACTS: dict[str, ToolContract] = {
         ),
     ),
     "sandbox.terminal": ToolContract(
+        handler_identity="sandboxes.terminal",
         input_model=SandboxTerminalInput,
         description=(
             "Read a sandbox terminal transcript by experiment_id or sandbox_uid. "
@@ -1349,6 +1462,10 @@ TOOL_CONTRACTS: dict[str, ToolContract] = {
         ),
     ),
     "sandbox.health": ToolContract(
+        handler_identity="sandboxes.health",
+        local_handler_identity="local.health",
+        visibility="internal",
+        execution_strategy="control-plus-local-enrichment",
         input_model=EmptyInput,
         description="Check the execution backend is reachable.",
     ),
@@ -1361,122 +1478,20 @@ TOOL_CONTRACTS: dict[str, ToolContract] = {
 # bottom-of-section import is safe because they are already defined.)
 from .feed_contracts import FEED_TOOL_CONTRACTS  # noqa: E402
 
-TOOL_CONTRACTS.update(FEED_TOOL_CONTRACTS)
+TOOL_MANIFEST.update(FEED_TOOL_CONTRACTS)
 
+# Compatibility projections. New code reads TOOL_MANIFEST; these names keep
+# older adapters and SDK imports source-compatible without duplicating policy.
+TOOL_CONTRACTS = TOOL_MANIFEST
 STORAGE_TOOL_NAMES = {
-    "storage.put_object",
-    "storage.upload_file",
-    "storage.complete_upload",
-    "storage.download_file",
-    "storage.find",
-    "storage.object",
+    name for name, tool in TOOL_MANIFEST.items() if "storage" in tool.feature_requirements
 }
-
 TOOL_PLANE_REGISTRY: dict[str, ToolPlane] = {
-    "workflow.status_and_next": "control",
-    # The merged agent-facing project tool. action=current/connect are served
-    # by the local proxy (it owns the folder→project link store); action=create
-    # forwards to the brain. Control-plane so the brain carries its schema and
-    # serves create; the proxy intercepts current/connect before dispatch.
-    "project": "control",
-    "project.update": "control",
-    "project.get": "control",
-    "project.list": "control",
-    "claim.create": "control",
-    "claim.list": "control",
-    "claim.update": "control",
-    "experiment.create": "control",
-    "experiment.list": "control",
-    "experiment.get_state": "control",
-    "experiment.materialize_folders": "data",
-    "experiment.transition": "control",
-    "experiment.exhibit": "control",
-    "mlflow.context": "control",
-    "mlflow.finalize_run": "control",
-    "reflection.create": "control",
-    "reflection.get": "control",
-    "reflection.list": "control",
-    "reflection.transition": "control",
-    "resource.register": "data",
-    "resource.delete": "control",
-    "resource.find": "control",
-    "storage.put_object": "control",
-    "storage.upload_file": "data",
-    "storage.complete_upload": "control",
-    "storage.download_file": "data",
-    "storage.find": "control",
-    "storage.object": "control",
-    "review.request": "control",
-    "review.start": "control",
-    "review.submit": "control",
-    "review.status": "control",
-    "sandbox.request": "data",
-    "sandbox.options": "control",
-    "sandbox.get": "control",
-    "sandbox.attach": "data",
-    "sandbox.pull_outputs": "data",
-    "sandbox.list": "control",
-    "sandbox.release": "control",
-    "sandbox.extend": "control",
-    "sandbox.terminal": "control",
-    "sandbox.runs": "control",
-    "sandbox.health": "control",
-    "feed.register": "control",
-    "feed.post": "data",
-    "feed.list": "control",
+    name: tool.plane for name, tool in TOOL_MANIFEST.items()
 }
-
-_PLANE_REGISTRY_MISMATCH = set(TOOL_CONTRACTS) ^ set(TOOL_PLANE_REGISTRY)
-if _PLANE_REGISTRY_MISMATCH:  # pragma: no cover - import-time contract guard
-    raise RuntimeError(
-        "TOOL_PLANE_REGISTRY must classify every tool exactly once: "
-        f"{sorted(_PLANE_REGISTRY_MISMATCH)}"
-    )
-
-# Implemented and dispatchable (REST/UI reads, proxy-internal calls) but not
-# advertised to agents. Hidden tools STAY in the served catalog carrying a
-# ``hidden`` flag — the stdio proxy needs their plane/schema to route internal
-# calls (e.g. the project tool's current action dials project.get upstream) —
-# and the proxy drops them from the client-facing tools/list.
-MCP_HIDDEN_TOOL_NAMES: frozenset[str] = frozenset(
-    {
-        "project.get",
-        "project.update",
-        # UI project picker only; the merged `project` tool (action=current)
-        # is how agents orient. The proxy also hides it by literal for older
-        # brains whose catalog predates the hidden flag.
-        "project.list",
-        # workflow.status_and_next already re-reports review state on every
-        # poll, so the agent never needs a standalone review poll. Keep the
-        # tool for REST/UI reads and internal dispatch; hide it from agents.
-        "review.status",
-        # Manual presign path: storage.upload_file's data plane composes these
-        # by tool name (control_tool_call), so they stay dispatchable but are
-        # dropped from the agent-facing tools/list.
-        "storage.put_object",
-        "storage.complete_upload",
-        # UI-convenience delete: kept dispatchable for the REST/UI resource
-        # panel, but dropped from the agent-facing tools/list.
-        "resource.delete",
-        # Enumeration readers whose payloads the agent already gets elsewhere:
-        # workflow.status_and_next embeds active claims/experiments and the
-        # live sandbox, reflection.get covers the open wave, and sandbox.get
-        # supersets sandbox.list. They keep serving the REST/UI routes and
-        # proxy-internal calls (materialize_folders lists experiments by tool
-        # name; the doctor probes sandbox.health).
-        "claim.list",
-        "experiment.list",
-        "reflection.list",
-        "sandbox.list",
-        "sandbox.health",
-    }
+MCP_HIDDEN_TOOL_NAMES = frozenset(
+    name for name, tool in TOOL_MANIFEST.items() if tool.visibility == "internal"
 )
-
-_HIDDEN_UNKNOWN = MCP_HIDDEN_TOOL_NAMES - set(TOOL_CONTRACTS)
-if _HIDDEN_UNKNOWN:  # pragma: no cover - import-time contract guard
-    raise RuntimeError(
-        f"MCP_HIDDEN_TOOL_NAMES references unknown tools: {sorted(_HIDDEN_UNKNOWN)}"
-    )
 
 
 def available_tool_names(*, storage_enabled: bool | None = None) -> set[str]:
@@ -1486,7 +1501,7 @@ def available_tool_names(*, storage_enabled: bool | None = None) -> set[str]:
     storage tools entirely rather than advertising a feature that will fail.
     """
     enabled = storage_feature_enabled() if storage_enabled is None else storage_enabled
-    names = set(TOOL_CONTRACTS)
+    names = set(TOOL_MANIFEST)
     if not enabled:
         names -= STORAGE_TOOL_NAMES
     return names
@@ -1494,22 +1509,22 @@ def available_tool_names(*, storage_enabled: bool | None = None) -> set[str]:
 
 PROJECT_SCOPED_TOOL_NAMES = {
     name
-    for name, contract in TOOL_CONTRACTS.items()
-    if issubclass(contract.input_model, ProjectScopedInput)
+    for name, tool in TOOL_MANIFEST.items()
+    if tool.scope_strategy == "linked-project"
 }
 
 
 def tool_plane(name: str) -> ToolPlane:
-    return TOOL_PLANE_REGISTRY[name]
+    return TOOL_MANIFEST[name].plane
 
 
 # Plane route sets, derived so the routing table and registry cannot drift.
 # The proxy uses these to keep brain calls separate from checkout-local calls.
 CONTROL_PLANE_TOOL_NAMES = frozenset(
-    name for name, plane in TOOL_PLANE_REGISTRY.items() if plane == "control"
+    name for name, tool in TOOL_MANIFEST.items() if tool.plane == "control"
 )
 DATA_PLANE_TOOL_NAMES = frozenset(
-    name for name, plane in TOOL_PLANE_REGISTRY.items() if plane == "data"
+    name for name, tool in TOOL_MANIFEST.items() if tool.plane == "data"
 )
 
 
@@ -1528,7 +1543,7 @@ def static_tool_catalog(
         else set(tool_names)
     )
     catalog: list[dict[str, Any]] = []
-    for name, contract in TOOL_CONTRACTS.items():
+    for name, contract in TOOL_MANIFEST.items():
         if name not in selected:
             continue
         schema = contract.input_model.model_json_schema()
@@ -1540,9 +1555,28 @@ def static_tool_catalog(
             # The routing source of truth: the stdlib-only proxy reads this
             # from the served catalog to route brain versus checkout-local
             # calls, without importing the pydantic-bound contracts module.
-            "plane": tool_plane(name),
+            "plane": contract.plane,
         }
-        if name in MCP_HIDDEN_TOOL_NAMES:
+        if contract.visibility == "internal":
             tool["hidden"] = True
         catalog.append(tool)
     return catalog
+
+
+def proxy_tool_manifest() -> list[dict[str, Any]]:
+    """Stdlib-client projection used for routing and offline tool listing."""
+    catalog = {
+        tool["name"]: tool for tool in static_tool_catalog(storage_enabled=True)
+    }
+    return [
+        {
+            **catalog[name],
+            "visibility": tool.visibility,
+            "scopeStrategy": tool.scope_strategy,
+            "executionStrategy": tool.execution_strategy,
+            "featureRequirements": list(tool.feature_requirements),
+            "handlerIdentity": tool.handler_identity,
+            "localHandlerIdentity": tool.local_handler_identity,
+        }
+        for name, tool in TOOL_MANIFEST.items()
+    ]

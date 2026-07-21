@@ -341,7 +341,7 @@ class PrivateSplitProxyTest(unittest.TestCase):
                 captured.update(kwargs["payload"])
                 return {"result": {"claims": []}}
 
-            proxy._http_post = capture_post  # type: ignore[method-assign]
+            proxy._http.post = capture_post  # type: ignore[method-assign]
             proxy._tool_meta = lambda **_: type(  # type: ignore[method-assign]
                 "Meta", (), {"project_scoped": True, "plane": "control"}
             )()
@@ -374,8 +374,8 @@ class SplitModeSmokeTest(unittest.TestCase):
                 project_links_path=self.links_path,
             )
         )
-        self.proxy._http_get = self.control.http_get  # type: ignore[method-assign]
-        self.proxy._http_post = self.control.http_post  # type: ignore[method-assign]
+        self.proxy._http.get = self.control.http_get  # type: ignore[method-assign]
+        self.proxy._http.post = self.control.http_post  # type: ignore[method-assign]
 
     def tearDown(self) -> None:
         self.app.shutdown()

@@ -22,7 +22,10 @@ from pathlib import Path
 from typing import get_type_hints
 
 from tests.support.brain import TestBrain
-from merv.brain.surface.control.control_runtime import ControlSandboxWorker, ControlTaskChannel
+from merv.brain.surface.control.control_runtime import (
+    ControlSandboxWorker,
+    ControlTaskChannel,
+)
 from merv.brain.sandbox.execution.backends.fake import FakeSandboxBackend
 from merv.brain.sandbox.sandbox_daemons import SandboxDaemons
 from merv.brain.sandbox.sandbox_heartbeat import (
@@ -103,7 +106,12 @@ class SandboxDecompositionTest(unittest.TestCase):
         )
         self.assertIn("registry.mark_terminated", lifecycle_src)
         self.assertIn("registry.mark_failed", lifecycle_src)
-        for module in ("sandboxes.py", "sandbox_provisioner.py", "sandbox_daemons.py"):
+        for module in (
+            "sandboxes.py",
+            "commands.py",
+            "sandbox_provisioner.py",
+            "sandbox_daemons.py",
+        ):
             source = (FACADE.parent / module).read_text(encoding="utf-8")
             self.assertNotIn("registry.mark_terminated", source, module)
             self.assertNotIn("registry.mark_failed", source, module)
@@ -120,35 +128,17 @@ class SandboxDecompositionTest(unittest.TestCase):
         # hosted control; conn-file mutation is not in-process anymore.
         service = self.app.sandboxes
         self.assertIsInstance(service.tasks, ControlTaskChannel)
+        self.assertIs(service.tasks, service.runtime.lifecycle.tasks)
+        self.assertIs(service.store, service.runtime.repository.store)
+        self.assertIs(service.backend, service.runtime.lifecycle.backend)
+        self.assertIs(service.mgmt_keys, service.runtime.lifecycle.mgmt_keys)
         self.assertIs(service.quotas, self.app.quotas)
-
-    def test_facade_requires_explicit_task_channel(self) -> None:
-        with self.assertRaisesRegex(ValidationError, "task_channel is required"):
-            SandboxService(
-                store=self.app.store,
-                sandbox_backend=self.app.execution_backend,
-                worker=self.app.worker,
-                mgmt_keys=self.app.sandboxes.mgmt_keys,
-            )
-
-    def test_facade_requires_task_channel_submit(self) -> None:
-        with self.assertRaisesRegex(ValidationError, "task_channel.submit is required"):
-            SandboxService(
-                store=self.app.store,
-                sandbox_backend=self.app.execution_backend,
-                worker=self.app.worker,
-                mgmt_keys=self.app.sandboxes.mgmt_keys,
-                task_channel=object(),
-            )
 
     def test_facade_requires_explicit_quota_admission(self) -> None:
         with self.assertRaisesRegex(ValidationError, "quotas is required"):
             SandboxService(
-                store=self.app.store,
-                sandbox_backend=self.app.execution_backend,
                 worker=self.app.worker,
-                mgmt_keys=self.app.sandboxes.mgmt_keys,
-                task_channel=self.app.sandboxes.tasks,
+                runtime=self.app.sandbox_runtime,
             )
 
     def test_facade_requires_quota_admission_port(self) -> None:
@@ -156,11 +146,8 @@ class SandboxDecompositionTest(unittest.TestCase):
             ValidationError, "quotas.check_admission is required"
         ):
             SandboxService(
-                store=self.app.store,
-                sandbox_backend=self.app.execution_backend,
                 worker=self.app.worker,
-                mgmt_keys=self.app.sandboxes.mgmt_keys,
-                task_channel=self.app.sandboxes.tasks,
+                runtime=self.app.sandbox_runtime,
                 quotas=object(),
             )
 
@@ -173,11 +160,8 @@ class SandboxDecompositionTest(unittest.TestCase):
             ValidationError, "quotas.check_lifetime_extension is required"
         ):
             SandboxService(
-                store=self.app.store,
-                sandbox_backend=self.app.execution_backend,
                 worker=self.app.worker,
-                mgmt_keys=self.app.sandboxes.mgmt_keys,
-                task_channel=self.app.sandboxes.tasks,
+                runtime=self.app.sandbox_runtime,
                 quotas=PartialQuota(),
             )
 
@@ -226,11 +210,57 @@ class SandboxDecompositionTest(unittest.TestCase):
         self.assertNotIn("run_parachute", source)
         self.assertNotIn("PARACHUTE_", source)
         self.assertNotIn("self.parachute", source)
-        # Row SQL lives in SandboxRegistry. The conn-scoped view helper for the
-        # workflow layer is the only SELECT allowed to remain.
+        # All row SQL, including conn-scoped workflow reads, belongs to the
+        # repository rather than the stable facade or query handler.
         self.assertNotIn("UPDATE sandboxes", source)
         self.assertNotIn("INSERT INTO sandboxes", source)
-        self.assertEqual(source.count("SELECT * FROM sandboxes"), 1)
+        self.assertEqual(source.count("SELECT * FROM sandboxes"), 0)
+        query_source = (FACADE.parent / "queries.py").read_text(encoding="utf-8")
+        self.assertNotIn("SELECT ", query_source)
+        self.assertNotIn(".execute(", query_source)
+
+    def test_facade_delegates_typed_commands_queries_and_maintenance(self) -> None:
+        source = FACADE.read_text(encoding="utf-8")
+        # Keep the public signatures readable while preventing orchestration
+        # policy from accumulating in the stable entry point again.
+        self.assertLessEqual(len(source.splitlines()), 300)
+        for binding in (
+            "self.commands = SandboxCommandHandler(self)",
+            "self.queries = SandboxQueryHandler(self)",
+            "self.maintenance = SandboxMaintenanceHandler(self)",
+            "return self.commands.execute_request(_message(RequestSandboxCommand, locals()))",
+            "return self.queries.execute_get(_message(GetSandboxQuery, locals()))",
+            "return self.maintenance.reconcile_running_rows()",
+        ):
+            self.assertIn(binding, source)
+        for policy in (
+            "validate_request_inputs",
+            "read_transcript",
+            "release_decision",
+            "run_records_view",
+            "conn.execute(",
+        ):
+            self.assertNotIn(policy, source)
+        for attribute in (
+            "registry",
+            "repository",
+            "lifecycle",
+            "provisioner",
+            "metrics",
+            "daemons",
+            "runs_ledger",
+            "transcript_cache",
+            "tasks",
+        ):
+            self.assertIn(f"self.{attribute} =", source)
+
+    def test_repository_owns_workflow_row_reads(self) -> None:
+        repository = (FACADE.parent / "sandbox_registry.py").read_text(encoding="utf-8")
+        queries = (FACADE.parent / "queries.py").read_text(encoding="utf-8")
+        self.assertIn("def rows_for_experiment(", repository)
+        self.assertIn("def rows_for_project(", repository)
+        self.assertIn("self.repository.rows_for_experiment(", queries)
+        self.assertIn("self.repository.rows_for_project(", queries)
 
     def test_facade_import_does_not_load_proxy_modules(self) -> None:
         code = """

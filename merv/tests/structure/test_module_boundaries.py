@@ -73,6 +73,7 @@ ALLOWED_COMPONENT_EDGES = (
             APPLICATION_COMPONENT,
             RESEARCH_CORE,
             ARTIFACTS,
+            SANDBOX,
             FEED,
             KERNEL,
         )
@@ -124,6 +125,7 @@ FILE_LAYERS = {
     "__init__.py": FOUNDATION,
     "kernel/state/dialects.py": ADAPTER,
     "artifacts/figure_view.py": DOMAIN,
+    "artifacts/association_policy.py": DOMAIN,
     "artifacts/resource_selection.py": DOMAIN,
     "feed/feed_policy.py": DOMAIN,
     "feed/feed_unfurl.py": ADAPTER,
@@ -142,8 +144,6 @@ FILE_LAYERS = {
     "surface/control/record_core.py": BOOTSTRAP,
     "surface/control/control_client.py": ADAPTER,
     "surface/control/control_runtime.py": ADAPTER,
-    "surface/cleanup.py": APPLICATION_LAYER,
-    "surface/tools/tool_handlers.py": APPLICATION_LAYER,
 }
 
 ALLOWED_LAYER_EDGES = (
@@ -178,11 +178,8 @@ LAYER_EXCEPTIONS: frozenset[tuple[str, str]] = frozenset(
         ("surface/auth.py", "research_core/domain/vocabulary.py"),
         ("surface/identity.py", "research_core/domain/vocabulary.py"),
         ("surface/observability.py", "surface/config.py"),
-        ("surface/permissions.py", "research_core/domain/vocabulary.py"),
         ("surface/tools/contracts.py", "research_core/domain/vocabulary.py"),
         ("surface/tools/contracts.py", "surface/config.py"),
-        ("surface/transport/api/views.py", "artifacts/resource_selection.py"),
-        ("surface/transport/api/views.py", "research_core/domain/graph_lint.py"),
     }
 )
 
@@ -329,6 +326,9 @@ def _layer_violations() -> set[tuple[str, str]]:
 
 
 class ModuleBoundaryTest(unittest.TestCase):
+    def test_tool_handler_registry_is_delivery(self) -> None:
+        self.assertEqual(_layer("surface/tools/tool_handlers.py"), DELIVERY)
+
     def test_every_backend_file_is_classified_by_component_and_layer(self) -> None:
         for label, classifier in (("component", _component), ("layer", _layer)):
             with self.subTest(classification=label):
@@ -435,7 +435,7 @@ class ModuleBoundaryTest(unittest.TestCase):
     def test_application_uses_declared_component_entrypoints(self) -> None:
         """Cross-component application imports use a facade or explicit port."""
         offenders: list[str] = []
-        public_components = (RESEARCH_CORE, ARTIFACTS, FEED)
+        public_components = (RESEARCH_CORE, ARTIFACTS, SANDBOX, FEED)
         for importer, target in sorted(_import_pairs()):
             if _component(importer) != APPLICATION_COMPONENT:
                 continue
@@ -455,6 +455,7 @@ class ModuleBoundaryTest(unittest.TestCase):
 
     def test_composite_reads_are_application_owned_and_surface_delegates(self) -> None:
         queries = (BACKEND_ROOT / "application/queries.py").read_text(encoding="utf-8")
+        workflow = (BACKEND_ROOT / "application/workflow.py").read_text(encoding="utf-8")
         control = (BACKEND_ROOT / "surface/control/control_app.py").read_text(
             encoding="utf-8"
         )
@@ -467,9 +468,13 @@ class ModuleBoundaryTest(unittest.TestCase):
             )
             for name in ("experiments", "projects")
         )
-        for query in ("HomeQuery", "MlflowOverviewQuery", "ExperimentFigureQuery"):
+        for query in ("MlflowOverviewQuery", "ExperimentFigureQuery"):
             with self.subTest(query=query):
                 self.assertIn(f"class {query}:", queries)
+                self.assertIn(query, control)
+        for query in ("WorkflowQuery", "ProjectDashboardQuery"):
+            with self.subTest(query=query):
+                self.assertIn(f"class {query}:", workflow)
                 self.assertIn(query, control)
         for escaped_policy in (
             "build_experiment_figure",

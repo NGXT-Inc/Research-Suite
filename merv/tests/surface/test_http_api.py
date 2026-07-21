@@ -1236,6 +1236,9 @@ class ResearchPluginHttpApiTest(unittest.TestCase):
         (self.repo / "notes.md").write_text("unregistered scratch notes\n")
         graph_body = {
             "version": 1,
+            # Agent-authored fields are opaque data, even when a key matches a
+            # local control-plane redaction name.
+            "repo_root": "keep-in-authored-graph",
             "nodes": [
                 {"id": "obj", "kind": "objective", "label": "Warmup sweep",
                  "refs": [claim["id"], exp_id]},
@@ -1260,6 +1263,7 @@ class ResearchPluginHttpApiTest(unittest.TestCase):
         self.assertTrue(payload["available"])
         self.assertEqual(payload["problems"], [])
         self.assertEqual(len(payload["graph"]["nodes"]), 3)
+        self.assertEqual(payload["graph"]["repo_root"], "keep-in-authored-graph")
         refs = payload["ref_index"]
         # Repo-relative path of a registered resource → resource link.
         self.assertEqual(refs["results.json"]["type"], "resource")

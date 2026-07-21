@@ -11,6 +11,7 @@ from pathlib import Path
 from unittest import mock
 
 from merv.client.cli import configure_client, main
+from merv.proxy import __version__ as PROXY_VERSION
 from merv.proxy.proxy import HttpProxyMcpServer, ProxyConfig
 
 
@@ -21,6 +22,13 @@ def _response(payload: dict) -> mock.MagicMock:
     ctx.__enter__ = mock.Mock(return_value=ctx)
     ctx.__exit__ = mock.Mock(return_value=False)
     return ctx
+
+
+def _proxy_headers(proxy: HttpProxyMcpServer, *, is_cloud: bool) -> dict[str, str]:
+    return proxy._credentials.headers(
+        is_cloud=is_cloud,
+        client_version=PROXY_VERSION,
+    )
 
 
 class DeviceFlowLoginTest(unittest.TestCase):
@@ -113,7 +121,7 @@ class ProxySessionRefreshTest(unittest.TestCase):
                     {"access_token": "jwt-new", "refresh_token": "refresh-2", "expires_in": 3600}
                 ),
             ) as opened:
-                headers = proxy._headers(is_cloud=True)
+                headers = _proxy_headers(proxy, is_cloud=True)
             self.assertEqual(headers["Authorization"], "Bearer jwt-new")
             refresh_request = opened.call_args[0][0]
             self.assertEqual(
@@ -144,7 +152,7 @@ class ProxySessionRefreshTest(unittest.TestCase):
             )
             with mock.patch("merv.proxy.proxy.urlopen") as opened:
                 self.assertEqual(
-                    proxy._headers(is_cloud=True)["Authorization"], "Bearer jwt-live"
+                    _proxy_headers(proxy, is_cloud=True)["Authorization"], "Bearer jwt-live"
                 )
                 keyed = HttpProxyMcpServer(
                     config=ProxyConfig(
@@ -155,7 +163,7 @@ class ProxySessionRefreshTest(unittest.TestCase):
                     )
                 )
                 self.assertEqual(
-                    keyed._headers(is_cloud=True)["Authorization"], "Bearer rr_sk_k"
+                    _proxy_headers(keyed, is_cloud=True)["Authorization"], "Bearer rr_sk_k"
                 )
             opened.assert_not_called()
 
@@ -164,7 +172,7 @@ class ProxySessionRefreshTest(unittest.TestCase):
             proxy = HttpProxyMcpServer(
                 config=ProxyConfig(repo_root=Path(tmp), control_url="http://127.0.0.1:8787")
             )
-            self.assertNotIn("Authorization", proxy._headers(is_cloud=False))
+            self.assertNotIn("Authorization", _proxy_headers(proxy, is_cloud=False))
 
 
 if __name__ == "__main__":

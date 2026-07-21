@@ -18,7 +18,7 @@ reflection artifacts (graph + reflection doc + change spec) are revised.
 
 The same three consumers as ``domain.workflow_gates.GATE_TABLE`` read this table —
 enforcement (``ReflectionService._next_status``), guidance
-(``WorkflowService._reflection_workflow_for``), and discovery
+(``NextActionPolicy._reflection_workflow_for``), and discovery
 (``allowed_reflection_transitions_for``) — reusing the same gate contract
 dataclasses so the two workflows cannot drift in shape.
 

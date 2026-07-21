@@ -4,14 +4,12 @@ from __future__ import annotations
 
 from typing import Any
 
-from ..observability import TenantCounters
-
 
 def register_admin_routes(
     http: Any,
     *,
-    store: Any | None,
     cleanup: Any | None,
+    tenant_counters: Any | None,
 ) -> None:
     if cleanup is None:
         return
@@ -22,5 +20,5 @@ def register_admin_routes(
 
     @http.get("/api/admin/tenants/{tenant_id}/counters")
     def admin_tenant_counters(tenant_id: str) -> dict[str, Any]:
-        assert store is not None
-        return TenantCounters(store=store).for_tenant(tenant_id=tenant_id)
+        assert tenant_counters is not None
+        return tenant_counters(tenant_id=tenant_id)

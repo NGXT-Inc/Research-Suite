@@ -106,6 +106,7 @@ class FeedListInput(ProjectScopedInput):
 
 FEED_TOOL_CONTRACTS: dict[str, ToolContract] = {
     "feed.register": ToolContract(
+        handler_identity="feed.register",
         input_model=FeedRegisterInput,
         description=(
             "Register your self-chosen sci-fi handle for the project feed. Do "
@@ -113,6 +114,8 @@ FEED_TOOL_CONTRACTS: dict[str, ToolContract] = {
         ),
     ),
     "feed.post": ToolContract(
+        handler_identity="local.post_feed",
+        execution_strategy="local-orchestration",
         input_model=FeedPostInput,
         description=(
             "Post a brief, high-signal aha-moment to the project's social feed "
@@ -124,6 +127,7 @@ FEED_TOOL_CONTRACTS: dict[str, ToolContract] = {
         ),
     ),
     "feed.list": ToolContract(
+        handler_identity="feed.list_posts",
         input_model=FeedListInput,
         description=(
             "Read recent feed posts (reverse-chronological). The first page also "

@@ -2,9 +2,13 @@
 
 from __future__ import annotations
 
-from typing import Protocol, TypedDict, cast, runtime_checkable
+from typing import Any, Protocol, TypedDict, cast, runtime_checkable
 
+from merv.shared.artifact_roles import GATED_ROLES
+
+from ..kernel.utils import NotFoundError, WorkflowError
 from .figure_view import build_experiment_figure
+from .resource_selection import preferred_associated_resource
 from .resources import ResourceService
 
 
@@ -34,6 +38,16 @@ class Artifacts(Protocol):
         kind: str,
         project_id: str,
     ) -> None: ...
+
+    def resource_content(
+        self, *, resource: dict[str, Any], version_id: str | None = None
+    ) -> dict[str, Any]: ...
+
+    def submitted_figure(
+        self, *, resource: dict[str, Any], link_path: str
+    ) -> tuple[bytes, str] | None: ...
+
+    def submitted_text_for_version(self, *, version_id: str | None) -> str | None: ...
 
 
 class ArtifactsFacade:
@@ -78,5 +92,125 @@ class ArtifactsFacade:
             project_id=project_id,
         )
 
+    def resource_content(
+        self, *, resource: dict[str, Any], version_id: str | None = None
+    ) -> dict[str, Any]:
+        """Return hosted-safe content for a hydrated resource record."""
+        if version_id:
+            return self._resource_content_at_version(
+                resource=resource, version_id=version_id
+            )
+        pinned = self._pinned_gated_text(resource=resource)
+        if pinned is not None:
+            text, pinned_version_id = pinned
+            return {
+                "resource": resource,
+                "path": resource["path"],
+                "content": text,
+                "text": text,
+                "size_bytes": len(text.encode("utf-8")),
+                "source": "submitted",
+                "version_id": pinned_version_id,
+            }
+        return {
+            "resource": resource,
+            "path": resource.get("path"),
+            "content": None,
+            "text": None,
+            "available": False,
+            "source": "unavailable",
+            "reason": "content_unavailable_in_this_mode",
+            "detail": (
+                "this file's bytes live only on the local data plane; "
+                "result-role files are metadata-only in this mode"
+            ),
+        }
 
-__all__ = ["Artifacts", "ArtifactsFacade", "MetricFileSource", "build_experiment_figure"]
+    def submitted_figure(
+        self, *, resource: dict[str, Any], link_path: str
+    ) -> tuple[bytes, str] | None:
+        version_id = self._latest_gated_version_id(resource=resource)
+        if version_id is None:
+            return None
+        data = self._resources.submitted_figure(
+            version_id=version_id, link_path=link_path
+        )
+        return (data, link_path.rsplit("/", 1)[-1]) if data is not None else None
+
+    def submitted_text_for_version(self, *, version_id: str | None) -> str | None:
+        return self._resources.submitted_text_for_version(version_id=version_id)
+
+    def _resource_content_at_version(
+        self, *, resource: dict[str, Any], version_id: str
+    ) -> dict[str, Any]:
+        valid = {
+            str(association.get("version_id"))
+            for association in resource.get("associations", [])
+            if association.get("version_id")
+        }
+        current_version = resource.get("current_version_id")
+        if current_version:
+            valid.add(str(current_version))
+        if version_id not in valid:
+            raise NotFoundError(
+                f"version {version_id} is not associated with resource {resource.get('id')}"
+            )
+        try:
+            text = self._resources.pinned_text_for_version(
+                version_id=version_id, what="resource content", role=""
+            )
+        except WorkflowError as exc:
+            return {
+                "resource": resource,
+                "path": resource.get("path"),
+                "content": None,
+                "text": None,
+                "available": False,
+                "source": "unavailable",
+                "reason": "version_unavailable",
+                "detail": str(exc),
+                "version_id": version_id,
+            }
+        return {
+            "resource": resource,
+            "path": resource.get("path"),
+            "content": text,
+            "text": text,
+            "size_bytes": len(text.encode("utf-8")),
+            "source": "submitted",
+            "version_id": version_id,
+            "available": True,
+        }
+
+    @staticmethod
+    def _latest_gated_version_id(*, resource: dict[str, Any]) -> str | None:
+        best: tuple[int, str] | None = None
+        for association in resource.get("associations", []):
+            role = str(association.get("role") or "")
+            version_id = association.get("version_id")
+            if role not in GATED_ROLES or not version_id:
+                continue
+            candidate = (int(association.get("attempt_index") or 0), str(version_id))
+            if best is None or candidate[0] >= best[0]:
+                best = candidate
+        return best[1] if best else None
+
+    def _pinned_gated_text(
+        self, *, resource: dict[str, Any]
+    ) -> tuple[str, str] | None:
+        latest_association = self._latest_gated_version_id(resource=resource)
+        if latest_association is None:
+            return None
+        candidates = [str(resource["current_version_id"])] if resource.get(
+            "current_version_id"
+        ) else []
+        if latest_association not in candidates:
+            candidates.append(latest_association)
+        for version_id in candidates:
+            text = self._resources.submitted_text_for_version(version_id=version_id)
+            if text is not None:
+                return text, version_id
+        return None
+
+
+__all__ = ["Artifacts", "ArtifactsFacade", "MetricFileSource", "build_experiment_figure", "preferred_associated_resource"]

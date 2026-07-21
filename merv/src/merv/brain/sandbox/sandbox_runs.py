@@ -19,7 +19,7 @@ from .sandbox_support import ACTIVE_SANDBOX_STATUSES
 from ..kernel.ports.mgmt_keys import MgmtKeyStore
 from ..kernel.state.store import BaseStateStore, row_to_dict
 from ..kernel.utils import now_iso, parse_iso
-from .sandbox_registry import SandboxRegistry
+from .repository import SandboxRepository
 
 
 class SandboxRunLedger:
@@ -29,7 +29,7 @@ class SandboxRunLedger:
         self,
         *,
         store: BaseStateStore,
-        registry: SandboxRegistry,
+        registry: SandboxRepository,
         backend: SandboxBackend,
         mgmt_keys: MgmtKeyStore,
     ) -> None:

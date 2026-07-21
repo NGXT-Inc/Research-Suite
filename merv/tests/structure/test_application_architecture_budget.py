@@ -11,10 +11,16 @@ ROOT = Path(__file__).resolve().parents[2]
 BRAIN = ROOT / "src" / "merv" / "brain"
 BASELINE_BRAIN_LOC = 39_924
 PRE_TRACKING_SLICE_LOC = 40_850
-MAX_BRAIN_LOC = 40_850
+PRE_CONSOLIDATION_LOC = 40_848
+# Explicit contracts, typed messages, and the pure Sandbox reducer add a small
+# amount of distributed structure while the former orchestration hubs shrink.
+# Keep that cost bounded instead of encouraging unreadable line compression.
+MAX_BRAIN_LOC = 41_389
 BASELINE_SURFACE_ORCHESTRATION_LOC = 1_022
 PRE_TRACKING_SURFACE_LOC = 549
-MAX_SURFACE_ORCHESTRATION_LOC = 232
+MAX_SURFACE_ORCHESTRATION_LOC = 100
+PRE_APPLICATION_HTTP_VIEWS_LOC = 763
+MAX_HTTP_VIEWS_LOC = 470
 
 
 class ApplicationArchitectureBudgetTest(unittest.TestCase):
@@ -24,8 +30,33 @@ class ApplicationArchitectureBudgetTest(unittest.TestCase):
             for path in BRAIN.rglob("*.py")
         )
         self.assertLessEqual(current, MAX_BRAIN_LOC)
-        self.assertEqual(MAX_BRAIN_LOC - PRE_TRACKING_SLICE_LOC, 0)
-        self.assertEqual(MAX_BRAIN_LOC - BASELINE_BRAIN_LOC, 926)
+        self.assertEqual(MAX_BRAIN_LOC - PRE_CONSOLIDATION_LOC, 541)
+        self.assertEqual(MAX_BRAIN_LOC - PRE_TRACKING_SLICE_LOC, 539)
+
+    def test_rewritten_orchestration_hubs_stay_small(self) -> None:
+        def lines(relative: str) -> int:
+            return len((BRAIN / relative).read_text(encoding="utf-8").splitlines())
+
+        workflow = sum(
+            lines(path)
+            for path in (
+                "application/workflow.py",
+                "research_core/next_action.py",
+                "research_core/snapshots.py",
+            )
+        )
+        sandbox_handlers = sum(
+            lines(f"sandbox/{name}")
+            for name in ("commands.py", "queries.py", "handler.py", "maintenance_handler.py")
+        )
+        self.assertLessEqual(workflow, 1_600)
+        self.assertLessEqual(lines("sandbox/sandboxes.py"), 300)
+        self.assertLessEqual(sandbox_handlers, 1_050)
+        self.assertLessEqual(
+            lines("surface/transport/api/app.py")
+            + lines("surface/transport/api/gateway.py"),
+            500,
+        )
 
     def test_surface_orchestration_shrank_by_at_least_120_lines(self) -> None:
         current = len(
@@ -34,10 +65,10 @@ class ApplicationArchitectureBudgetTest(unittest.TestCase):
             .splitlines()
         )
         self.assertLessEqual(current, MAX_SURFACE_ORCHESTRATION_LOC)
-        self.assertEqual(PRE_TRACKING_SURFACE_LOC - MAX_SURFACE_ORCHESTRATION_LOC, 317)
+        self.assertEqual(PRE_TRACKING_SURFACE_LOC - MAX_SURFACE_ORCHESTRATION_LOC, 449)
         self.assertEqual(
             BASELINE_SURFACE_ORCHESTRATION_LOC - MAX_SURFACE_ORCHESTRATION_LOC,
-            790,
+            922,
         )
         self.assertFalse((BRAIN / "surface/tools/exhibits.py").exists())
 
@@ -57,6 +88,18 @@ class ApplicationArchitectureBudgetTest(unittest.TestCase):
                 for node in tree.body
             ),
             "compatibility wrapper may contain only its docstring and imports",
+        )
+
+    def test_http_views_stay_delivery_sized(self) -> None:
+        current = len(
+            (BRAIN / "surface/transport/api/views.py")
+            .read_text(encoding="utf-8")
+            .splitlines()
+        )
+        self.assertLessEqual(current, MAX_HTTP_VIEWS_LOC)
+        self.assertGreaterEqual(
+            PRE_APPLICATION_HTTP_VIEWS_LOC - MAX_HTTP_VIEWS_LOC,
+            293,
         )
 
     def test_review_and_reaction_orchestration_stays_out_of_surface(self) -> None:
@@ -82,7 +125,18 @@ class ApplicationArchitectureBudgetTest(unittest.TestCase):
             "build_local_tool_handlers",
         ):
             self.assertNotIn(removed, handlers)
-        self.assertIn('"review.status": review_status.execute', handlers)
+        manifest = (BRAIN / "surface/tools/contracts.py").read_text(encoding="utf-8")
+        self.assertIn('handler_identity="review_status.execute"', manifest)
+        self.assertIn("for name, tool in TOOL_MANIFEST.items()", handlers)
+        for application_decision in (
+            "slim_experiment_state",
+            "ValidationError",
+            "def project_control",
+            "def resource_find",
+            "def storage_find",
+            "def storage_object",
+        ):
+            self.assertNotIn(application_decision, handlers)
         for use_case in (transition, tracking):
             self.assertNotIn("EventDispatcher()", use_case)
             self.assertNotIn(".register(", use_case)
@@ -94,6 +148,20 @@ class ApplicationArchitectureBudgetTest(unittest.TestCase):
         self.assertNotIn("self.app.mlflow_tracking", views)
         self.assertNotIn("mlflow_visible_for_status", views)
         self.assertIn("self.app.tracking_context.experiment_detail", views)
+
+    def test_tool_operations_receive_narrow_callable_ports(self) -> None:
+        commands = (BRAIN / "application/tool_commands.py").read_text(encoding="utf-8")
+        composition = (BRAIN / "surface/control/control_app.py").read_text(
+            encoding="utf-8"
+        )
+        for raw_service in ("projects: Any", "claims: Any", "resources: Any", "storage: Any"):
+            self.assertNotIn(raw_service, commands)
+        for binding in (
+            "project_create=self.projects.create",
+            "claims_list=self.claims.list_claims",
+            "resource_resolve=self.resources.resolve",
+        ):
+            self.assertIn(binding, composition)
 
 
 if __name__ == "__main__":

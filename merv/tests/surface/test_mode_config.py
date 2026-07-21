@@ -332,11 +332,18 @@ class HostedControlSurfaceTest(unittest.TestCase):
                 return _Report()
 
         cleanup = _Cleanup()
+        counter_calls = []
+
+        def tenant_counters(*, tenant_id):  # noqa: ANN001
+            counter_calls.append(tenant_id)
+            return {"tenant_id": tenant_id, "tool_calls": 7}
+
         client = TestClient(
             create_fastapi_app(
                 self.app,
                 surface_policy=_hosted_surface(),
                 cleanup=cleanup,
+                tenant_counters=tenant_counters,
             ),
             raise_server_exceptions=False,
         )
@@ -345,6 +352,10 @@ class HostedControlSurfaceTest(unittest.TestCase):
         self.assertEqual(ok.status_code, 200, ok.text)
         self.assertEqual(ok.json()["cleaned"], {"ok": True})
         self.assertEqual(cleanup.calls, 1)
+        counters = client.get("/api/admin/tenants/acme/counters")
+        self.assertEqual(counters.status_code, 200, counters.text)
+        self.assertEqual(counters.json(), {"tenant_id": "acme", "tool_calls": 7})
+        self.assertEqual(counter_calls, ["acme"])
 
     def test_data_plane_submission_endpoint_is_private_but_not_token_gated(self) -> None:
         client = TestClient(
@@ -506,8 +517,10 @@ class VersionHandshakeTest(unittest.TestCase):
         from merv.brain.kernel.version import CLIENT_VERSION_HEADER
         from tests.paths import PROXY_ROOT
 
-        proxy_src = (PROXY_ROOT / "proxy.py").read_text(encoding="utf-8")
-        self.assertIn(f'"{CLIENT_VERSION_HEADER}"', proxy_src)
+        credential_src = (PROXY_ROOT / "credential_provider.py").read_text(
+            encoding="utf-8"
+        )
+        self.assertIn(f'"{CLIENT_VERSION_HEADER}"', credential_src)
 
 
 class ModeCompositionTest(unittest.TestCase):

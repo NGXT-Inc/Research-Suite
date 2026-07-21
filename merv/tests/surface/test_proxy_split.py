@@ -19,6 +19,7 @@ from fastapi.testclient import TestClient
 from tests.support.brain import TestBrain
 from merv.brain.sandbox.execution.backends.fake import FakeSandboxBackend
 from merv.brain.surface.transport.http_api import create_fastapi_app
+from merv.proxy.errors import UpstreamError
 from merv.proxy.project_links import ProjectLinks
 from merv.proxy.proxy import HttpProxyMcpServer, ProxyConfig
 
@@ -65,8 +66,8 @@ class SplitProxyLocalDataTest(unittest.TestCase):
                 project_links_path=self.links_path,
             )
         )
-        self.proxy._http_get = self.cloud.http_get  # type: ignore[method-assign]
-        self.proxy._http_post = self.cloud.http_post  # type: ignore[method-assign]
+        self.proxy._http.get = self.cloud.http_get  # type: ignore[method-assign]
+        self.proxy._http.post = self.cloud.http_post  # type: ignore[method-assign]
 
     def tearDown(self) -> None:
         self.app.shutdown()
@@ -85,9 +86,7 @@ class SplitProxyLocalDataTest(unittest.TestCase):
         return response["result"]["structuredContent"]
 
     def test_tools_list_merges_cloud_and_proxy_local_catalogs(self) -> None:
-        response = self.proxy.handle(
-            {"jsonrpc": "2.0", "id": 1, "method": "tools/list"}
-        )
+        response = self.proxy.handle({"jsonrpc": "2.0", "id": 1, "method": "tools/list"})
         names = {tool["name"] for tool in response["result"]["tools"]}
 
         self.assertIn("claim.create", names)
@@ -104,9 +103,7 @@ class SplitProxyLocalDataTest(unittest.TestCase):
                 # hidden repo context.
                 self.assertIn("project_id", tool["inputSchema"]["properties"])
             else:
-                self.assertNotIn(
-                    "project_id", tool["inputSchema"].get("properties", {})
-                )
+                self.assertNotIn("project_id", tool["inputSchema"].get("properties", {}))
 
     def test_control_tool_routes_to_cloud_with_project_id(self) -> None:
         claim = self._call(
@@ -123,9 +120,7 @@ class SplitProxyLocalDataTest(unittest.TestCase):
         # experiment must both appear, unlike the active-only workflow view.
         claim = self._call("claim.create", {"statement": "Overview claim."})
         self._call("claim.update", {"claim_id": claim["id"], "status": "abandoned"})
-        exp = self._call(
-            "experiment.create", {"name": "dead-end", "intent": "terminal"}
-        )
+        exp = self._call("experiment.create", {"name": "dead-end", "intent": "terminal"})
         self._call(
             "experiment.transition",
             {"experiment_id": exp["id"], "transition": "abandon"},
@@ -147,8 +142,8 @@ class SplitProxyLocalDataTest(unittest.TestCase):
                 project_links_path=self.repo / "empty_links.sqlite",
             )
         )
-        unlinked._http_get = self.cloud.http_get  # type: ignore[method-assign]
-        unlinked._http_post = self.cloud.http_post  # type: ignore[method-assign]
+        unlinked._http.get = self.cloud.http_get  # type: ignore[method-assign]
+        unlinked._http.post = self.cloud.http_post  # type: ignore[method-assign]
         response = unlinked.handle(
             {
                 "jsonrpc": "2.0",
@@ -258,8 +253,8 @@ class ProjectConnectToolTest(unittest.TestCase):
                 project_links_path=self.links_path,
             )
         )
-        self.proxy._http_get = self.cloud.http_get  # type: ignore[method-assign]
-        self.proxy._http_post = self.cloud.http_post  # type: ignore[method-assign]
+        self.proxy._http.get = self.cloud.http_get  # type: ignore[method-assign]
+        self.proxy._http.post = self.cloud.http_post  # type: ignore[method-assign]
 
     def tearDown(self) -> None:
         self.app.shutdown()
@@ -303,9 +298,7 @@ class ProjectConnectToolTest(unittest.TestCase):
     def test_connect_by_name_creates_project_and_links(self) -> None:
         before = self._brain_project_count()
 
-        result = self._connect(
-            {"name": "Connected Project", "summary": "Created through the MCP."}
-        )
+        result = self._connect({"name": "Connected Project", "summary": "Created through the MCP."})
 
         self.assertTrue(result["linked"])
         self.assertTrue(result["created"])
@@ -333,9 +326,7 @@ class ProjectConnectToolTest(unittest.TestCase):
         again = self._connect({"project_id": self.seeded_project["id"]})
         self.assertTrue(again["linked"])
 
-        relinked = self._connect(
-            {"name": "Replacement", "summary": "", "overwrite": True}
-        )
+        relinked = self._connect({"name": "Replacement", "summary": "", "overwrite": True})
         self.assertTrue(relinked["created"])
         self.assertEqual(self.proxy._resolve_project_id(), relinked["project"]["id"])
 
@@ -353,6 +344,58 @@ class ProjectConnectToolTest(unittest.TestCase):
 
 
 class LocalEnrichedControlMergeTest(unittest.TestCase):
+    def test_sandbox_get_reuses_the_single_control_read_for_local_enrichment(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            proxy = HttpProxyMcpServer(
+                config=ProxyConfig(
+                    repo_root=Path(tmp),
+                    control_url="http://control.invalid",
+                )
+            )
+            calls = 0
+
+            def control(**_kwargs):
+                nonlocal calls
+                calls += 1
+                return {
+                    "experiment_id": "exp_1",
+                    "sandbox_uid": "sbx_1234567890abcdef",
+                    "status": "running",
+                }
+
+            proxy._call_cloud = control  # type: ignore[method-assign]
+            merged = proxy._call_local_enriched_control(
+                name="sandbox.get", arguments={"experiment_id": "exp_1"}
+            )
+
+        self.assertEqual(calls, 1)
+        self.assertIn("local_experiment_dir", merged)
+
+    def test_sandbox_get_control_outage_preserves_both_legacy_error_fields(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            proxy = HttpProxyMcpServer(
+                config=ProxyConfig(
+                    repo_root=Path(tmp),
+                    control_url="http://control.invalid",
+                )
+            )
+            calls = 0
+
+            def unavailable(**_kwargs):
+                nonlocal calls
+                calls += 1
+                raise UpstreamError("control unavailable", error_code="cloud_unreachable")
+
+            proxy._resolve_project_id = lambda: "proj_1"  # type: ignore[method-assign]
+            proxy._call_cloud = unavailable  # type: ignore[method-assign]
+            merged = proxy._call_local_enriched_control(
+                name="sandbox.get", arguments={"experiment_id": "exp_1"}
+            )
+
+        error = {"error": "control unavailable", "error_code": "cloud_unreachable"}
+        self.assertEqual(calls, 2)
+        self.assertEqual(merged, {"control_plane": error, "data_plane": error})
+
     def test_sandbox_get_merges_proxy_local_experiment_dir_only(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             proxy = HttpProxyMcpServer(
@@ -427,7 +470,7 @@ class ProxyIdentityResolutionTest(unittest.TestCase):
             captured.update(kwargs.get("payload") or {})
             return {"result": {}}
 
-        proxy._http_post = _capture_post  # type: ignore[method-assign]
+        proxy._http.post = _capture_post  # type: ignore[method-assign]
         proxy._call_cloud(name="claim.list", arguments={"project_id": "proj_evil"})
 
         self.assertEqual(captured["arguments"]["project_id"], "proj_authoritative")
@@ -492,9 +535,7 @@ class ProxyIdentityResolutionTest(unittest.TestCase):
                 return {}
 
         proxy._local_data_plane = _Executor()  # type: ignore[assignment]
-        proxy._call_local_data(
-            name="resource.register", arguments={"project_id": "proj_evil"}
-        )
+        proxy._call_local_data(name="resource.register", arguments={"project_id": "proj_evil"})
 
         self.assertEqual(captured["name"], "resource.register")
         self.assertNotIn("project_id", captured["arguments"])

@@ -1266,6 +1266,20 @@ class BaseStateStore:
             )
             return f"{len(rows)}:{digest}"
 
+    def tenant_event_count(self, *, tenant_id: str) -> int:
+        """Count durable project events for one tenant."""
+        with closing(self.connect()) as conn:
+            row = conn.execute(
+                """
+                SELECT COUNT(*) AS n
+                FROM events e
+                JOIN projects p ON p.id = e.project_id
+                WHERE p.tenant_id = ?
+                """,
+                (tenant_id,),
+            ).fetchone()
+        return int(row["n"]) if row is not None else 0
+
     def recent_events(self, *, project_id: str | None, limit: int = 100) -> dict[str, Any]:
         with closing(self.connect()) as conn:
             project_id = self.require_project_id(conn=conn, project_id=project_id)

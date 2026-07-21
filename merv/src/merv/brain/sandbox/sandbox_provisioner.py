@@ -1,7 +1,7 @@
 """Background sandbox provisioning: job threads and cancellation.
 
 `SandboxProvisioner` owns the acquire mechanics — uid-keyed job threads and
-cooperative cancellation. It talks to persistence through `SandboxRegistry`;
+cooperative cancellation. It talks to persistence through `SandboxRepository`;
 every destructive decision (orphan cleanup, terminal marks + teardown) is the
 `SandboxLifecycle`'s, which this module calls but never re-implements. The
 lifecycle in turn asks back only one thing, through ``job_is_live``: whether a
@@ -31,7 +31,7 @@ from .sandbox_backend import (
 from .sandbox_paths import DEFAULT_DATA_DIR, remote_experiment_dir
 from ..kernel.utils import iso_after, now_iso
 from .sandbox_lifecycle import SandboxLifecycle
-from .sandbox_registry import SandboxRegistry
+from .repository import SandboxRepository
 from .sandbox_support import parse_iso
 
 
@@ -56,7 +56,7 @@ class SandboxProvisioner:
     def __init__(
         self,
         *,
-        registry: SandboxRegistry,
+        registry: SandboxRepository,
         backend: SandboxBackend,
         lifecycle: SandboxLifecycle,
         stale_provision_seconds: float,
@@ -218,14 +218,6 @@ class SandboxProvisioner:
             # Release may have arrived during the final, uninterruptible tunnel
             # wait (cancel isn't checked there). Honor it now rather than marking
             # a just-terminated sandbox `running`.
-            if cancel.is_set():
-                self.lifecycle.terminate_quietly(sandbox_id=provisioned.sandbox_id)
-                self._settle_canceled(
-                    experiment_id=experiment_id,
-                    project_id=project_id,
-                    sandbox_uid=sandbox_uid,
-                )
-                return
             if cancel.is_set():
                 self.lifecycle.terminate_quietly(sandbox_id=provisioned.sandbox_id)
                 self._settle_canceled(

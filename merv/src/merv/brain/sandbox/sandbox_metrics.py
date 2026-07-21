@@ -13,7 +13,7 @@ from .sandbox_support import (
     METRICS_CACHE_TTL_SECONDS,
 )
 from ..kernel.utils import NotFoundError, now_iso
-from .sandbox_registry import SandboxRegistry
+from .repository import SandboxRepository
 
 
 class SandboxMetrics:
@@ -22,7 +22,7 @@ class SandboxMetrics:
     def __init__(
         self,
         *,
-        registry: SandboxRegistry,
+        registry: SandboxRepository,
         backend: SandboxBackend,
         mgmt_keys: MgmtKeyStore,
     ) -> None:

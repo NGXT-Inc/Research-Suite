@@ -52,7 +52,7 @@ The exact component import matrix is:
 | Artifacts | Artifacts, Kernel |
 | Sandbox | Sandbox, Kernel |
 | Feed | Feed, Kernel |
-| Application | Application, Research, Artifacts, Feed, Kernel |
+| Application | Application, Research, Artifacts, Sandbox, Feed, Kernel |
 | Tracking integration | Tracking integration, Application, Kernel |
 | Storage | Storage, Kernel |
 | Surface | any component; its independent layer classification still applies |
@@ -60,8 +60,8 @@ The exact component import matrix is:
 Application code enters a business component only through its declared
 `facade.py` or `ports/**` entrypoint. This is the executable form of “one stable
 public facade”; it prevents a new use case from depending on internal services.
-Sandbox's stable component facade remains deliberately deferred until a narrow
-sandbox use case reveals its real contract.
+Workflow reads use `ResearchSnapshots` and `SandboxReads`; Sandbox commands use
+the separately declared `Sandbox` facade.
 
 ## Layer law
 
@@ -72,7 +72,7 @@ The initial layer mapping is deliberately honest about mixed directories:
 | foundation | `kernel/**` |
 | port | `kernel/ports/**`, `application/ports/**`, `sandbox/sandbox_backend.py` |
 | domain | `research_core/domain/**`, pure artifact/feed policy files |
-| application | component services, `application/**`, legacy Surface orchestration still being migrated |
+| application | component services and cross-component work under `application/**` |
 | adapter | `mlflow/**`, concrete storage/blob code, sandbox provider drivers, client/runtime adapters |
 | delivery | ordinary `surface/**` HTTP/MCP/auth/serialization code |
 | bootstrap | Surface composition/config/control wiring, the HTTP process launcher, sandbox driver registration |
@@ -95,8 +95,9 @@ Imports must point inward:
 
 Nothing except bootstrap may import bootstrap, and no non-delivery layer may
 import delivery. `LAYER_EXCEPTIONS` contains exact importer/target pairs for
-unrelated legacy Surface seams plus the named Feed-to-unfurl seam. It contains
-no wildcard. Fixed pairs must be deleted, while new pairs fail immediately.
+the remaining authentication/configuration/tool-contract seams plus the named
+Feed-to-unfurl seam. It contains no wildcard. Fixed pairs must be deleted, while
+new pairs fail immediately.
 
 ## Ports and adapters
 
@@ -117,6 +118,19 @@ Artifacts, Feed, cleanup, and storage-ledger policy depend on narrow blob/object
 ports owned by Kernel. Local and S3 implementations remain under
 `object_storage` as replaceable adapters. Old import paths may re-export the
 same symbols for compatibility, but do not own their definitions.
+
+Operator-triggered cleanup is a cross-component use case in
+`application/maintenance.py`; Surface only exposes its injected entry point.
+An Application query combines a Kernel-owned tenant event count with
+Sandbox-owned generation counters and injects the result into admin delivery.
+
+The declarative `TOOL_MANIFEST` owns tool schemas, visibility, scope, execution,
+features, and handler identities. Surface derives its control handlers from
+those identities; the proxy consumes a generated stdlib-only projection, so
+plane/hidden/handler routing is not separately maintained. The transition
+adapter still sets the agent credential audience. Merged project,
+experiment-list, resource-find, and storage decisions live in
+`application/tool_commands.py`.
 
 These are dependency changes, not service extraction: everything still runs in
 one brain process and shares the existing transaction/event ledger.
@@ -141,11 +155,18 @@ effect idempotency policy, before a worker is introduced.
 
 ## Composite query model
 
-The selected composite UI reads likewise belong to Application.
-`application/queries.py` assembles the project home, tracking overview, and
-experiment figure through narrow callable ports; Surface retains
-authentication, conditional HTTP caching, local-field redaction, and
-serialization only.
+Composite UI reads likewise belong to Application. `application/workflow.py`
+assembles workflow orientation and the project dashboard from one bulk Research
+snapshot plus Sandbox reads; `application/queries.py` owns tracking overview,
+experiment figure, hydrated compute costs, and experiment/project/reflection
+logic graphs. Artifacts owns
+submitted resource-content and figure selection behind `ArtifactsFacade`.
+Surface retains authentication, conditional HTTP caching, local-field
+redaction, MIME/header shaping, and serialization only.
+
+Review role/verdict validation is Research domain policy; resource association
+role/target validation is Artifacts domain policy. Project membership mutation
+is owned by `ProjectService`, not by an HTTP route.
 
 ## Cross-plane law
 
@@ -168,3 +189,12 @@ on provider-name literals. Capability flags and the typed `SandboxDriver` /
 `SandboxManagementTransport` contracts express provider differences; lazy
 provider descriptors form the composition registry; the shared offline driver
 conformance suite applies to every registered implementation.
+
+Sandbox's public facade accepts a composition-owned `SandboxRuntime` rather
+than reconstructing repositories, lifecycle services, provisioners, daemons,
+keys, or task channels. Public calls become typed commands/queries; command,
+query, projection, and maintenance handlers own their respective logic. The
+runtime owns thread start/shutdown and `SandboxRepository` owns SQL. The pure
+lifecycle reducer translates reconcile, reap, and explicit-release observations
+into terminal event facts and ordered side-effect intents. Provisioner settle
+paths continue to route terminal writes through `SandboxLifecycle` directly.

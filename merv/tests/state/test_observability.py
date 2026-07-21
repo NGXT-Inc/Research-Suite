@@ -15,7 +15,7 @@ from pathlib import Path
 
 from tests.support.brain import TestBrain
 from merv.brain.sandbox.execution.backends.fake import FakeSandboxBackend
-from merv.brain.surface.observability import StructuredLogger, TenantCounters
+from merv.brain.surface.observability import StructuredLogger
 
 
 class StructuredLoggerTest(unittest.TestCase):
@@ -92,7 +92,6 @@ class TenantCountersTest(unittest.TestCase):
             execution_backend=FakeSandboxBackend(),
         )
         self.store = self.app.store
-        self.counters = TenantCounters(store=self.store)
         self.project_id = self.app.call_tool("project", {"action": "create", "name": "Proj P"})["id"]
         with self.store.transaction() as conn:
             conn.execute(
@@ -130,14 +129,14 @@ class TenantCountersTest(unittest.TestCase):
                 target_id="exp",
                 payload={"k": "v"},
             )
-        counts = self.counters.for_tenant(tenant_id="tenant_x")
+        counts = self.app.tenant_counters_query(tenant_id="tenant_x")
         self.assertEqual(counts["tenant_id"], "tenant_x")
         self.assertEqual(counts["sandbox_generations"], 2)
         self.assertAlmostEqual(counts["sandbox_hours"], 3.0)
         self.assertGreaterEqual(counts["tool_calls"], 1)
 
     def test_other_tenant_sees_nothing(self) -> None:
-        counts = self.counters.for_tenant(tenant_id="tenant_none")
+        counts = self.app.tenant_counters_query(tenant_id="tenant_none")
         self.assertEqual(counts["sandbox_generations"], 0)
         self.assertEqual(counts["tool_calls"], 0)
         self.assertEqual(counts["sandbox_hours"], 0.0)

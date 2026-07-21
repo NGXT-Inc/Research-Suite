@@ -18,7 +18,7 @@ from pathlib import Path
 from tests.support.brain import TestBrain
 from merv.brain.sandbox.execution.backends.fake import FakeSandboxBackend
 from merv.brain.sandbox.sandbox_backend import BackendCapabilities
-from merv.brain.surface.cleanup import CleanupService
+from merv.brain.application.maintenance import CleanupService
 
 
 class CleanupSweepTest(unittest.TestCase):

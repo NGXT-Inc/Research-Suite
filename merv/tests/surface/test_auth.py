@@ -169,7 +169,9 @@ class AuthedSurfaceTest(unittest.TestCase):
         self.tmp.cleanup()
 
     def _create_project(self, name: str, headers: dict[str, str]) -> str:
-        response = self.client.post("/api/projects", json={"name": name}, headers=headers)
+        response = self.client.post(
+            "/api/projects", json={"name": name}, headers=headers
+        )
         self.assertEqual(response.status_code, 201, response.text)
         return response.json()["id"]
 
@@ -214,11 +216,15 @@ class AuthedSurfaceTest(unittest.TestCase):
         # Creator is a member: sees it in the list and can read project routes.
         listed = self.client.get("/api/projects", headers=_bearer(USER_A)).json()
         self.assertEqual([p["id"] for p in listed["projects"]], [project_id])
-        home = self.client.get(f"/api/projects/{project_id}/home", headers=_bearer(USER_A))
+        home = self.client.get(
+            f"/api/projects/{project_id}/home", headers=_bearer(USER_A)
+        )
         self.assertEqual(home.status_code, 200, home.text)
         # Non-member sees an empty list and 404s on direct reads.
         self.assertEqual(
-            self.client.get("/api/projects", headers=_bearer(USER_B)).json()["projects"],
+            self.client.get("/api/projects", headers=_bearer(USER_B)).json()[
+                "projects"
+            ],
             [],
         )
         denied = self.client.get(
@@ -226,6 +232,64 @@ class AuthedSurfaceTest(unittest.TestCase):
         )
         self.assertEqual(denied.status_code, 404, denied.text)
         self.assertEqual(denied.json()["error_code"], "not_found")
+
+    def test_path_scope_cannot_be_overridden_by_request_body(self) -> None:
+        project_a = self._create_project("Alpha", _bearer(USER_A))
+        project_b = self._create_project("Beta", _bearer(USER_B))
+
+        attempts = (
+            (
+                "post",
+                f"/api/projects/{project_a}/claims",
+                {"project_id": project_b, "statement": "must not cross scope"},
+                ["project_id"],
+            ),
+            (
+                "patch",
+                f"/api/projects/{project_a}",
+                {"project_id": project_b, "name": "Compromised"},
+                ["project_id"],
+            ),
+            (
+                "post",
+                f"/api/projects/{project_a}/reviews/request",
+                {"project_id": project_b},
+                ["project_id"],
+            ),
+            (
+                "post",
+                f"/api/projects/{project_a}/experiments",
+                {"project_id": project_b, "name": "foreign"},
+                ["project_id"],
+            ),
+            (
+                "post",
+                f"/api/projects/{project_a}/experiments/exp-a/transition",
+                {
+                    "project_id": project_b,
+                    "experiment_id": "exp-b",
+                    "transition": "submit_design",
+                },
+                ["project_id", "experiment_id"],
+            ),
+        )
+        for method, path, body, fields in attempts:
+            with self.subTest(path=path):
+                response = self.client.request(
+                    method, path, json=body, headers=_bearer(USER_A)
+                )
+                self.assertEqual(response.status_code, 400, response.text)
+                self.assertEqual(response.json()["error_code"], "validation_error")
+                self.assertEqual(response.json()["fields"], fields)
+
+        project = self.client.get(f"/api/projects/{project_b}", headers=_bearer(USER_B))
+        self.assertEqual(project.status_code, 200, project.text)
+        self.assertEqual(project.json()["name"], "Beta")
+        claims = self.client.get(
+            f"/api/projects/{project_b}/claims", headers=_bearer(USER_B)
+        )
+        self.assertEqual(claims.status_code, 200, claims.text)
+        self.assertEqual(claims.json()["claims"], [])
 
     def test_sharing_grants_and_revokes_access(self) -> None:
         project_id = self._create_project("Shared", _bearer(USER_A))
@@ -247,7 +311,9 @@ class AuthedSurfaceTest(unittest.TestCase):
         )
         self.assertEqual(removed.status_code, 200, removed.text)
         self.assertEqual(
-            self.client.get(f"/api/projects/{project_id}", headers=_bearer(USER_B)).status_code,
+            self.client.get(
+                f"/api/projects/{project_id}", headers=_bearer(USER_B)
+            ).status_code,
             404,
         )
 
@@ -301,7 +367,9 @@ class AuthedSurfaceTest(unittest.TestCase):
         self.assertEqual(created.status_code, 200, created.text)
         session_id = created.json()["session_id"]
         self.assertTrue(
-            created.json()["auth_url"].startswith("https://ui.example/auth/sdk?session=")
+            created.json()["auth_url"].startswith(
+                "https://ui.example/auth/sdk?session="
+            )
         )
         # Pending until the browser completes.
         pending = self.client.post(
@@ -384,7 +452,9 @@ class AuthedSurfaceTest(unittest.TestCase):
                 execution_backend=FakeSandboxBackend(),
             )
             try:
-                client = TestClient(create_fastapi_app(app), raise_server_exceptions=False)
+                client = TestClient(
+                    create_fastapi_app(app), raise_server_exceptions=False
+                )
                 self.assertEqual(client.post("/api/sdk/auth/session").status_code, 404)
             finally:
                 app.shutdown()

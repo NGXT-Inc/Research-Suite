@@ -18,9 +18,3 @@ class ResourceObserver(Protocol):
         title: str = "",
         created_by: str = "codex",
     ) -> ResourceObservation: ...
-
-
-class ResourceAssociationPolicy(Protocol):
-    """Resource association validation required by resource recording."""
-
-    def validate_resource_association(self, *, target_type: str, role: str) -> None: ...

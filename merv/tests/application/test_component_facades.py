@@ -143,12 +143,36 @@ class RecordingResearchCoreFake:
     def present_experiment(self, state):
         return state
 
+    def assert_experiment_in_project(self, **_kwargs):
+        return None
+
+    def reflection_state(self, **_kwargs):
+        return {}
+
+    def reflection_overview(self, **_kwargs):
+        return {}
+
+    def project_logic_graph_selection(self, **_kwargs):
+        return {}
+
+    def resolve_graph_refs(self, **_kwargs):
+        return {}
+
 
 class RecordingArtifactsFake:
     def metric_file_sources(self, **kwargs):
         return []
 
     def pin_system_artifact(self, **kwargs):
+        return None
+
+    def resource_content(self, **_kwargs):
+        return {}
+
+    def submitted_figure(self, **_kwargs):
+        return None
+
+    def submitted_text_for_version(self, **_kwargs):
         return None
 
 

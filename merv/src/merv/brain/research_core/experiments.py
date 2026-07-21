@@ -368,6 +368,13 @@ class ExperimentService:
             if owns_conn:
                 conn.close()
 
+    def assert_in_project(self, *, experiment_id: str, project_id: str) -> None:
+        """Verify experiment identity/scope without hydrating its child records."""
+        with closing(self.store.connect()) as conn:
+            row = conn.execute("SELECT 1 FROM experiments WHERE id = ? AND project_id = ?", (experiment_id, project_id)).fetchone()
+        if row is None:
+            raise NotFoundError(f"experiment not found in project {project_id}: {experiment_id}")
+
     def _mlflow_run_from_row(
         self, *, experiment: dict[str, Any]
     ) -> dict[str, Any] | None:

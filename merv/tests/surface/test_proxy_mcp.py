@@ -35,8 +35,8 @@ class _HttpHarness:
         )
 
     def bind(self, proxy: HttpProxyMcpServer) -> None:
-        proxy._http_get = self.http_get  # type: ignore[method-assign]
-        proxy._http_post = self.http_post  # type: ignore[method-assign]
+        proxy._http.get = self.http_get  # type: ignore[method-assign]
+        proxy._http.post = self.http_post  # type: ignore[method-assign]
 
     def http_get(self, *, url: str, is_cloud: bool) -> dict:  # noqa: ARG002
         response = self.client.get(urlsplit(url).path)

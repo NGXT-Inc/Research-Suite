@@ -1,6 +1,6 @@
-"""Durable sandbox-row persistence for the sandbox registry.
+"""Durable sandbox persistence.
 
-`SandboxRegistry` owns every read and write of the `sandboxes` table, the
+`SandboxRepository` owns every read and write of the `sandboxes` table, the
 active sandbox↔experiment attachment table, and the sandbox event stream. It
 knows nothing about backends, threads, tunnels, or rsync — callers hand it row
 dicts and field updates, and it never calls out. Terminal marks return the
@@ -20,7 +20,7 @@ from ..kernel.state.store import BaseStateStore, next_created_seq, row_to_dict
 from ..kernel.utils import NotFoundError, ValidationError, new_id, now_iso
 
 
-class SandboxRegistry:
+class SandboxRepository:
     """Owns sandbox-row persistence: upserts, scoping, status marks, events.
 
     Persistence only: terminal marks return the row facts (sandbox_id/uid) so
@@ -68,7 +68,11 @@ class SandboxRegistry:
             """,
             (sandbox_uid,),
         ).fetchone()
-        return str(row["experiment_id"]) if row is not None and row["experiment_id"] else ""
+        return (
+            str(row["experiment_id"])
+            if row is not None and row["experiment_id"]
+            else ""
+        )
 
     # ---------- reads ----------
 
@@ -207,6 +211,31 @@ class SandboxRegistry:
             ).fetchall()
             return [self._row_dict(row=row, conn=conn) for row in rows]
 
+    def rows_for_experiment(
+        self, *, conn: Any, experiment_id: str
+    ) -> list[dict[str, Any]]:
+        rows = conn.execute(
+            """
+            SELECT s.*
+            FROM sandboxes s
+            JOIN sandbox_attachments a ON a.sandbox_uid = s.sandbox_uid
+            WHERE a.experiment_id = ? AND a.detached_at IS NULL
+            ORDER BY s.created_seq DESC
+            """,
+            (experiment_id,),
+        ).fetchall()
+        return [
+            {**(row_to_dict(row=row) or {}), "experiment_id": experiment_id}
+            for row in rows
+        ]
+
+    def rows_for_project(self, *, conn: Any, project_id: str) -> list[dict[str, Any]]:
+        rows = conn.execute(
+            "SELECT * FROM sandboxes WHERE project_id = ? ORDER BY created_seq DESC",
+            (project_id,),
+        ).fetchall()
+        return [row_to_dict(row=row) or {} for row in rows]
+
     def list_running_rows(self) -> list[dict[str, Any]]:
         with closing(self.store.connect()) as conn:
             rows = conn.execute(
@@ -248,7 +277,9 @@ class SandboxRegistry:
             """,
             (experiment_id, *statuses),
         ).fetchone()
-        return str(row["sandbox_uid"]) if row is not None and row["sandbox_uid"] else None
+        return (
+            str(row["sandbox_uid"]) if row is not None and row["sandbox_uid"] else None
+        )
 
     def _latest_uid(self, *, conn: Any, experiment_id: str) -> str | None:
         """Newest non-terminal sandbox attached to the experiment."""
@@ -265,7 +296,9 @@ class SandboxRegistry:
             """,
             (experiment_id,),
         ).fetchone()
-        return str(row["sandbox_uid"]) if row is not None and row["sandbox_uid"] else None
+        return (
+            str(row["sandbox_uid"]) if row is not None and row["sandbox_uid"] else None
+        )
 
     def has_active_for_experiment(
         self, *, experiment_id: str, exclude_sandbox_uid: str | None = None
@@ -391,7 +424,9 @@ class SandboxRegistry:
             tenant_row = conn.execute(
                 "SELECT tenant_id FROM projects WHERE id = ?", (project_id,)
             ).fetchone()
-            tenant_id = str(tenant_row["tenant_id"]) if tenant_row is not None else "local"
+            tenant_id = (
+                str(tenant_row["tenant_id"]) if tenant_row is not None else "local"
+            )
             self._ensure_attachment(
                 conn=conn,
                 sandbox_uid=sandbox_uid,
@@ -442,7 +477,9 @@ class SandboxRegistry:
             tenant_row = conn.execute(
                 "SELECT tenant_id FROM projects WHERE id = ?", (project_id,)
             ).fetchone()
-            tenant_id = str(tenant_row["tenant_id"]) if tenant_row is not None else "local"
+            tenant_id = (
+                str(tenant_row["tenant_id"]) if tenant_row is not None else "local"
+            )
             conn.execute(
                 """
                 INSERT INTO sandbox_generations (
@@ -750,9 +787,7 @@ class SandboxRegistry:
         # (anonymous request, later attach) — an experiment_id filter here
         # leaves it open and billing "to now" forever.
         if sandbox_id:
-            self.close_generation(
-                experiment_id="", sandbox_id=sandbox_id, now=now
-            )
+            self.close_generation(experiment_id="", sandbox_id=sandbox_id, now=now)
         elif not row_uid:
             self.close_generation(experiment_id=experiment_id, now=now)
         # sandbox_id is "" when the row never recorded one, None when the row
@@ -846,3 +881,10 @@ class SandboxRegistry:
                 ).fetchone()
                 tenant = row["tenant_id"] if row is not None else None
         return str(tenant) if tenant else "local"
+
+
+# Compatibility name for integrations built before the repository boundary
+# became explicit. New code imports SandboxRepository.
+SandboxRegistry = SandboxRepository
+
+__all__ = ["SandboxRegistry", "SandboxRepository"]

@@ -133,8 +133,8 @@ class StorageImportBoundaryTest(unittest.TestCase):
 
     def test_bootstrap_types_do_not_come_from_blob_adapter(self) -> None:
         paths = (
+            SRC_ROOT / "application" / "maintenance.py",
             SRC_ROOT / "surface" / "config.py",
-            SRC_ROOT / "surface" / "cleanup.py",
             SRC_ROOT / "surface" / "composition" / "control_mode.py",
             SRC_ROOT / "surface" / "control" / "control_app.py",
             SRC_ROOT / "surface" / "control" / "record_core.py",

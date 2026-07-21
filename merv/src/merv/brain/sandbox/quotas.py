@@ -156,6 +156,21 @@ class QuotaService:
 
     # ---------- running-total spend accounting (cloud plan Phase 9) ----------
 
+    def tenant_generation_counters(self, *, tenant_id: str) -> dict[str, float | int]:
+        """Closed generation count and hours for the operator tenant view."""
+        with closing(self.store.connect()) as conn:
+            rows = conn.execute(
+                "SELECT started_at, ended_at FROM sandbox_generations WHERE tenant_id = ?",
+                (tenant_id,),
+            ).fetchall()
+        hours = 0.0
+        for row in rows:
+            data = row_to_dict(row=row) or {}
+            started, ended = parse_iso(data.get("started_at")), parse_iso(data.get("ended_at"))
+            if started is not None and ended is not None:
+                hours += max(0.0, (ended - started).total_seconds() / 3600.0)
+        return {"sandbox_generations": len(rows), "sandbox_hours": hours}
+
     def tenant_spend(
         self, *, tenant_id: str, now: datetime | None = None
     ) -> dict[str, float]:

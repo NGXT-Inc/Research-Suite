@@ -39,7 +39,7 @@ local upstream path.
 | Component | Modules | Why brain-side |
 |---|---|---|
 | Projects, claims, experiments, reviews, reflections | `research_core/*` | Durable records and workflow policy. |
-| Workflow gates | `research_core/workflow.py`, validators | Pure policy over submitted records/bytes. |
+| Workflow gates | `research_core/next_action.py`, validators | Pure policy over a bulk Research snapshot and Sandbox read facade. |
 | Sandbox lifecycle | `sandbox/*`, `sandbox/execution/backends/*` | Provider credentials, VM lifecycle, quotas, reapers. |
 | State and audit | `kernel/state/*` | SQLite locally, Postgres/durable stores hosted. |
 | Blob/storage records | `object_storage/*`, blob stores | Submitted artifacts and optional heavy objects sent explicitly through data-plane flows. |
@@ -87,6 +87,22 @@ facts or bytes to the brain:
   folder→project link to `project_links.sqlite`. The one call where `project_id`
   is caller-authoritative rather than link-resolved. (`action: "current"` is
   also proxy-served; `action: "create"` forwards to the brain.)
+
+`surface/tools/contracts.py::TOOL_MANIFEST` is the single authored registry for
+every tool. Each entry owns its schema and description, public/internal
+visibility, project-scope strategy, execution strategy, optional feature
+requirements, and handler identity. The legacy plane sets, hidden set, handler
+registry, public catalog, and the stdlib proxy's private routing manifest are
+derived projections. `scripts/regen_tool_catalog.py --check` prevents either
+checked-in JSON projection from drifting.
+
+The local proxy is split by responsibility: `routing.py` makes pure dispatch
+decisions, `http_client.py` owns JSON transport and error translation,
+`credential_provider.py` owns hosted session refresh, `project_scope.py` owns
+folder links, `mcp_shell.py` owns protocol framing, and `proxy.py` is the small
+composition edge. Composite
+`sandbox.get` performs one control read and passes those facts into its local
+enricher, so the merge does not repeat the brain lookup.
 
 `sandbox.pull_outputs` is proxy-local in every deployment. It asks the brain for
 the current sandbox record, uses the caller's private key path supplied by the

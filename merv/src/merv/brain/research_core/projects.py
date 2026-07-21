@@ -188,6 +188,24 @@ class ProjectService:
             )
         return {"exists": True, "project": projects[0]}
 
+    def members(self, *, project_id: str) -> dict[str, Any]:
+        return {"members": self.store.list_project_members(project_id=project_id)}
+
+    def is_member(self, *, project_id: str, user_id: str) -> bool:
+        return self.store.is_project_member(project_id=project_id, user_id=user_id)
+
+    def add_member(self, *, project_id: str, user_id: str) -> dict[str, Any]:
+        user_id = str(user_id or "").strip()
+        if not user_id:
+            raise ValidationError("user_id is required", details={"field": "user_id"})
+        self.get(project_id=project_id)
+        self.store.add_project_member(project_id=project_id, user_id=user_id)
+        return self.members(project_id=project_id)
+
+    def remove_member(self, *, project_id: str, user_id: str) -> dict[str, Any]:
+        self.store.remove_project_member(project_id=project_id, user_id=user_id)
+        return self.members(project_id=project_id)
+
     def _project_view(self, *, row) -> dict[str, Any]:
         data = row_to_dict(row=row) or {}
         view = {

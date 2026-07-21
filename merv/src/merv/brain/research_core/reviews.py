@@ -31,9 +31,9 @@ from .domain.review_returns import (
     revision_context_for_review_return,
 )
 from .domain.review_snapshot import snapshot_from_id
+from .domain.review_validation import validate_review_role, validate_review_verdict
 from .domain.synopsis import validate_synopsis
 from .domain.vocabulary import LOCAL_TENANT_ID
-from ..kernel.ports.review_policy import ReviewPolicy
 from ..kernel.state.store import BaseStateStore, next_created_seq, row_to_dict
 from .experiments import ExperimentService
 from .review_gate import review_gate_state
@@ -55,13 +55,11 @@ class ReviewService:
         self,
         *,
         store: BaseStateStore,
-        permissions: ReviewPolicy,
         experiments: ExperimentService,
         reflections: ReflectionService,
         pinned: PinnedStore | None = None,
     ) -> None:
         self.store = store
-        self.permissions = permissions
         self.experiments = experiments
         self.reflections = reflections
         self.pinned = pinned
@@ -76,7 +74,7 @@ class ReviewService:
         producer_session_id: str = "main",
         project_id: str | None = None,
     ) -> dict[str, Any]:
-        self.permissions.validate_review_role(role=role)
+        validate_review_role(role=role)
         if target_type not in {"experiment", "reflection"}:
             raise ValidationError("review targets must be 'experiment' or 'reflection'")
         with self.store.transaction() as conn:
@@ -353,7 +351,7 @@ class ReviewService:
         evidence: dict[str, Any] | None = None,
         return_to: str = "",
     ) -> dict[str, Any]:
-        self.permissions.validate_review_verdict(verdict=verdict)
+        validate_review_verdict(verdict=verdict)
         try:
             synopsis = validate_synopsis(synopsis)
         except ValueError as exc:

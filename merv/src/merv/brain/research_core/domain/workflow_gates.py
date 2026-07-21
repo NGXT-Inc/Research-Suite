@@ -7,7 +7,7 @@ three surfaces that used to hand-maintain parallel copies cannot drift:
 - ENFORCEMENT — ``ExperimentService._next_status`` walks ``requirements`` (and
   ``review``), raising ``WorkflowError`` with the entry's ``error`` text on the
   first unmet one.
-- GUIDANCE — ``WorkflowService._workflow_for`` walks the same ``requirements``;
+- GUIDANCE — ``NextActionPolicy.experiment`` walks the same ``requirements``;
   the first role missing from the current attempt yields that requirement's
   gate/action/allowed payload, and once all are present the transition's
   ``ready_*`` fields say "go transition". Review-gated statuses get their

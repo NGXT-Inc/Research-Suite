@@ -15,7 +15,11 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "src"))
 
-from merv.brain.surface.tools.contracts import DATA_PLANE_TOOL_NAMES, static_tool_catalog
+from merv.brain.surface.tools.contracts import (
+    DATA_PLANE_TOOL_NAMES,
+    proxy_tool_manifest,
+    static_tool_catalog,
+)
 
 
 _STATIC_CATALOG_PATH = (
@@ -25,18 +29,27 @@ _STATIC_CATALOG_PATH = (
     / "proxy"
     / "_tool_catalog.json"
 )
-_LOCAL_ENRICHED_CONTROL_TOOLS = frozenset({"sandbox.get", "sandbox.health"})
+_PROXY_MANIFEST_PATH = _STATIC_CATALOG_PATH.with_name("_tool_manifest.json")
 
 
 def render_static_catalog_text() -> str:
     """Render the full proxy catalog; runtime applies the storage filter."""
-    allowed = DATA_PLANE_TOOL_NAMES | _LOCAL_ENRICHED_CONTROL_TOOLS
+    allowed = DATA_PLANE_TOOL_NAMES | {
+        tool["name"]
+        for tool in proxy_tool_manifest()
+        if tool["executionStrategy"] == "control-plus-local-enrichment"
+    }
     tools = [
         tool
         for tool in static_tool_catalog(storage_enabled=True)
         if tool.get("name") in allowed
     ]
     return json.dumps({"tools": tools}, indent=2, sort_keys=True) + "\n"
+
+
+def render_proxy_manifest_text() -> str:
+    """Render the private all-tool routing manifest shipped with the client."""
+    return json.dumps({"tools": proxy_tool_manifest()}, indent=2, sort_keys=True) + "\n"
 
 
 def main(argv: list[str] | None = None) -> int:
@@ -47,19 +60,21 @@ def main(argv: list[str] | None = None) -> int:
         help="fail if the checked-in catalog differs without writing it",
     )
     args = parser.parse_args(argv)
-    rendered = render_static_catalog_text()
+    rendered = {
+        _STATIC_CATALOG_PATH: render_static_catalog_text(),
+        _PROXY_MANIFEST_PATH: render_proxy_manifest_text(),
+    }
     if args.check:
-        current = _STATIC_CATALOG_PATH.read_text(encoding="utf-8")
-        if current != rendered:
-            print(
-                f"stale {_STATIC_CATALOG_PATH}; run scripts/regen_tool_catalog.py",
-                file=sys.stderr,
-            )
+        stale = [path for path, text in rendered.items() if not path.exists() or path.read_text(encoding="utf-8") != text]
+        if stale:
+            print(f"stale {', '.join(map(str, stale))}; run scripts/regen_tool_catalog.py", file=sys.stderr)
             return 1
-        print(f"ok {_STATIC_CATALOG_PATH}")
+        for path in rendered:
+            print(f"ok {path}")
         return 0
-    _STATIC_CATALOG_PATH.write_text(rendered, encoding="utf-8")
-    print(f"wrote {_STATIC_CATALOG_PATH}")
+    for path, text in rendered.items():
+        path.write_text(text, encoding="utf-8")
+        print(f"wrote {path}")
     return 0
 
 

@@ -28,7 +28,6 @@ from ..kernel.utils import (
     new_id,
     now_iso,
 )
-from ..kernel.ports.resource_records import ResourceAssociationPolicy
 from ..kernel.ports.blob_store import EvidenceBlobStore
 from ..kernel.state.store import (
     BaseStateStore,
@@ -39,6 +38,7 @@ from ..kernel.state.store import (
     rows_to_dicts,
 )
 from .pinned import pinned_text_for_version as load_pinned_text_for_version
+from .association_policy import validate_resource_association
 
 
 class ResourceService:
@@ -48,12 +48,10 @@ class ResourceService:
         self,
         *,
         store: BaseStateStore,
-        permissions: ResourceAssociationPolicy,
         blobs: EvidenceBlobStore | None = None,
         association_targets: Any = None,
     ) -> None:
         self.store = store
-        self.permissions = permissions
         self.blobs = blobs
         # Research-core-owned target resolution (existence + attempt scoping),
         # injected at composition — artifacts must not name research-core
@@ -279,9 +277,7 @@ class ResourceService:
         MCP proxy submits the artifact bytes it just read locally; control
         checks them against the pinned version hash before storing blobs.
         """
-        self.permissions.validate_resource_association(
-            target_type=target_type, role=role
-        )
+        validate_resource_association(target_type=target_type, role=role)
         with self.store.transaction() as conn:
             project_id = self.store.require_project_id(conn=conn, project_id=project_id)
             resource = conn.execute(
@@ -327,9 +323,7 @@ class ResourceService:
         role: str,
         project_id: str | None = None,
     ) -> dict[str, Any]:
-        self.permissions.validate_resource_association(
-            target_type=target_type, role=role
-        )
+        validate_resource_association(target_type=target_type, role=role)
         with self.store.transaction() as conn:
             project_id = self.store.require_project_id(conn=conn, project_id=project_id)
             resource = conn.execute(
@@ -832,7 +826,7 @@ class ResourceService:
         Deliberately bypasses the agent role vocabulary: the roles the system
         pins (e.g. 'exhibit') are exactly the ones agents must not be able to
         author, replace, or delete — record_observation and delete refuse
-        system-owned resources, and PermissionService rejects the role."""
+        system-owned resources, and association policy rejects the role."""
         if self.blobs is None:
             raise WorkflowError("system artifacts require a configured blob store")
         rel_path = self._repo_relative_path(path=path)

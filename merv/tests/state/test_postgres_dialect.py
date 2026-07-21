@@ -41,7 +41,9 @@ from pathlib import Path
 
 from tests.support.brain import TestBrain
 from merv.brain.surface.config import build_state_store, resolve_db_url
+from merv.brain.application.queries import TenantCountersQuery
 from merv.brain.sandbox.execution.backends.fake import FakeSandboxBackend
+from merv.brain.sandbox.quotas import QuotaService
 from merv.brain.kernel.state.dialects import PostgresStateStore, translate_schema_to_postgres
 from merv.brain.kernel.state.store import (
     EXPERIMENT_MLFLOW_COLUMNS,
@@ -644,6 +646,39 @@ class PostgresStoreBehaviorTest(unittest.TestCase):
         self.assertEqual([e["payload"]["index"] for e in events], [2, 1, 0])
         ids = [int(e["id"]) for e in events]
         self.assertEqual(ids, sorted(ids, reverse=True))
+
+    def test_tenant_counters_use_dialect_neutral_state_query(self) -> None:
+        project_id = self._seed_project()
+        with self.store.transaction() as conn:
+            conn.execute(
+                "UPDATE projects SET tenant_id = ? WHERE id = ?",
+                ("tenant_pg", project_id),
+            )
+            conn.execute(
+                """
+                INSERT INTO sandbox_generations
+                  (id, experiment_id, project_id, tenant_id,
+                   price_usd_per_hour, started_at, ended_at, created_seq)
+                VALUES ('sbg_pg', 'exp', ?, 'tenant_pg', 1.0, ?, ?, 1)
+                """,
+                (project_id, "2026-01-01T00:00:00Z", "2026-01-01T02:30:00Z"),
+            )
+            self.store.record_event(
+                conn=conn,
+                project_id=project_id,
+                event_type="audit.tenant-counter",
+            )
+
+        counts = TenantCountersQuery(
+            event_count=self.store.tenant_event_count,
+            generation_counters=QuotaService(
+                store=self.store
+            ).tenant_generation_counters,
+        )(tenant_id="tenant_pg")
+        self.assertEqual(counts["tenant_id"], "tenant_pg")
+        self.assertEqual(counts["sandbox_generations"], 1)
+        self.assertEqual(counts["sandbox_hours"], 2.5)
+        self.assertGreaterEqual(counts["tool_calls"], 1)
 
     def test_record_event_returns_exact_persisted_postgres_row(self) -> None:
         project_id = self._seed_project()

@@ -14,11 +14,15 @@ from ...application.experiments.exhibits import ExperimentExhibits
 from ...application.experiments.reactions import ExperimentReactions
 from ...application.experiments.tracking import FinalizeTrackingRun, GetTrackingContext
 from ...application.experiments.transition import TransitionExperiment
-from ...application.queries import ExperimentFigureQuery, HomeQuery, MlflowOverviewQuery
+from ...application.queries import ComputeCostQuery, ExperimentFigureQuery, LogicGraphQuery, MlflowOverviewQuery, TenantCountersQuery
+from ...application.workflow import ProjectDashboardQuery, WorkflowQuery
 from ...application.reviews import ReadReviewStatus
+from ...application.tool_commands import ControlToolOperations
 from ...artifacts.facade import ArtifactsFacade
 from ...feed.facade import FeedFacade
 from ...research_core.facade import ResearchCoreFacade
+from ...research_core.next_action import NextActionPolicy
+from ...research_core.snapshots import ResearchSnapshotReader
 from ..tools.contracts import (
     CONTROL_PLANE_TOOL_NAMES,
     available_tool_names,
@@ -31,13 +35,13 @@ from .control_runtime import (
 from ..observability import StructuredLogger
 from ...kernel.ports.mgmt_keys import MgmtKeyStore
 from ...kernel.ports.blob_store import EvidenceBlobStore
-from .record_core import build_experiment_attachment_check, build_record_core
+from .record_core import build_record_core
 from ...sandbox.sandbox_backend import SandboxBackend
 from ...sandbox.sandbox_support import ACTIVE_SANDBOX_STATUSES
 from ...mlflow import CentralMlflowService
-from ...sandbox.sandboxes import SandboxService
+from ...sandbox.facade import SandboxFacade, SandboxReadFacade
+from ...sandbox.runtime import build_sandbox_runtime
 from ...object_storage.service import StorageLedgerService
-from ...research_core.workflow import WorkflowService
 from ...kernel.state import BaseStateStore
 from ..tools.tool_facade import ToolDispatcher
 from ..tools.tool_handlers import build_control_tool_handlers
@@ -84,13 +88,16 @@ class ControlApp:
         self.graph_refs = self.record_core.graph_refs
         self.reflection_waves = self.record_core.reflection_waves
         self.reflection_tools = self.record_core.reflection_tools
-        self.project_overview = self.record_core.project_overview
         self.reviews = self.record_core.reviews
         self.feed = self.record_core.feed
 
-        # Stable component entrypoints used by cross-component application
-        # commands. Legacy aliases above remain for unmigrated delivery paths.
-        self.research_core = ResearchCoreFacade(self.experiments)
+        # Stable entrypoints serve cross-component use cases; aliases above
+        # remain for deliberate single-owner delivery calls.
+        self.research_core = ResearchCoreFacade(
+            self.experiments,
+            reflections=self.reflection_waves,
+            graph_refs=self.graph_refs,
+        )
         self.artifacts = ArtifactsFacade(self.resources)
         self.feed_api = FeedFacade(self.feed)
         self.experiment_exhibits = ExperimentExhibits(
@@ -126,43 +133,65 @@ class ControlApp:
             tracking=self.mlflow_tracking,
             dispatcher=self.reaction_registry,
         )
+        self.control_tool_operations = ControlToolOperations(
+            project_create=self.projects.create,
+            project_get=self.projects.get,
+            claims_list=self.claims.list_claims,
+            research=self.research_core,
+            resource_resolve=self.resources.resolve,
+            resources_list=self.resources.list_resources,
+            storage_resolve=self.storage.resolve if self.storage is not None else None,
+            storage_list=self.storage.list_objects if self.storage is not None else None,
+            storage_actions={name: getattr(self.storage, name) for name in ("pin", "unpin", "renew", "delete")} if self.storage is not None else {},
+        )
 
-        self.sandboxes = SandboxService(
+        self.sandbox_runtime = build_sandbox_runtime(
             store=self.store,
-            sandbox_backend=self.execution_backend,
-            worker=self.worker,
-            activity=None,
+            backend=self.execution_backend,
             mgmt_keys=mgmt_keys,
-            quotas=self.quotas,
-            task_channel=task_channel,
-            storage_enabled=self.storage is not None,
-            # Guidance prose + the experiment-label check are surface-owned;
-            # the sandbox module embeds/calls what it is handed.
-            storage_hint=STORAGE_RULE_OF_THUMB,
-            attachment_check=build_experiment_attachment_check(store=self.store),
-            # Hosted control pays the provider bill; the composition root
-            # (composition/control_mode.py) passes True so the env off-switch
-            # cannot leave billing VMs unreaped.
+            tasks=task_channel,
             force_expiry_reaper=force_expiry_reaper,
         )
-        self.workflow = WorkflowService(
+        self.sandboxes = SandboxFacade(
+            worker=self.worker,
+            runtime=self.sandbox_runtime,
+            quotas=self.quotas,
+            storage_enabled=self.storage is not None,
+            # The sandbox module embeds/calls the component-owned values it is handed.
+            storage_hint=STORAGE_RULE_OF_THUMB,
+            attachment_check=self.research_core.assert_experiment_in_project,
+        )
+        self.sandbox_runtime.start()
+        self.research_snapshots = ResearchSnapshotReader(
             store=self.store,
             experiments=self.experiments,
             reviews=self.reviews,
-            sandboxes=self.sandboxes,
             reflections=self.reflection_waves,
+        )
+        self.sandbox_reads = SandboxReadFacade(
+            store=self.store,
+            reader=self.sandboxes,
+        )
+        self.next_action_policy = NextActionPolicy(
             storage_enabled=self.storage is not None,
             storage_guidance=storage_guidance(enabled=self.storage is not None),
         )
-        self.home_query = HomeQuery(
-            experiment_state=self.experiments.get_state,
+        self.workflow = WorkflowQuery(
+            snapshots=self.research_snapshots,
+            sandboxes=self.sandbox_reads,
+            policy=self.next_action_policy,
+        )
+        self.project_dashboard_query = ProjectDashboardQuery(
+            snapshots=self.research_snapshots,
+            workflow=self.workflow,
             resources=self.resources.list_resources,
-            status_and_next=self.workflow.status_and_next,
-            active_work=self.workflow.active_work,
             review_queue=self.reviews.queue,
             recent_events=self.store.recent_events,
             health=lambda: self.mlflow_tracking.health(),
+            current=self.projects.current,
         )
+        self.home_query = self.project_dashboard_query
+        self.project_overview = self.project_dashboard_query
         self.mlflow_overview_query = MlflowOverviewQuery(
             experiments=self.experiments.list_experiments,
             tracking=self.mlflow_tracking,
@@ -174,6 +203,18 @@ class ControlApp:
             sandbox_row=self.sandboxes.get_row,
             sandbox_view=self.sandboxes.row_view,
             sandbox_status_active=ACTIVE_SANDBOX_STATUSES.__contains__,
+        )
+        self.compute_cost_query = ComputeCostQuery(
+            project_spend=self.quotas.project_spend,
+            experiments=self.research_core.project_experiments,
+        )
+        self.tenant_counters_query = TenantCountersQuery(
+            event_count=self.store.tenant_event_count,
+            generation_counters=self.quotas.tenant_generation_counters,
+        )
+        self.logic_graph_query = LogicGraphQuery(
+            research=self.research_core,
+            artifacts=self.artifacts,
         )
         control_tool_names = set(CONTROL_PLANE_TOOL_NAMES)
         control_tool_names &= available_tool_names(storage_enabled=self.storage is not None)
@@ -194,6 +235,7 @@ class ControlApp:
                 tracking_context=self.tracking_context,
                 tracking_finalize=self.finalize_tracking_run,
                 review_status=self.read_review_status,
+                operations=self.control_tool_operations,
             ),
             permissions=self.permissions,
             activity=self.activity,
@@ -226,6 +268,6 @@ class ControlApp:
 
     def shutdown(self) -> None:
         with suppress(Exception):
-            self.sandboxes.shutdown()
+            self.sandbox_runtime.shutdown()
         with suppress(Exception):
             self.execution_backend.shutdown()

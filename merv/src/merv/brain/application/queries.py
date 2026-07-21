@@ -2,11 +2,15 @@
 
 from __future__ import annotations
 
+import json
 from collections.abc import Callable
 from dataclasses import dataclass
 from typing import Any, Protocol
 
-from ..artifacts.facade import build_experiment_figure
+from merv.shared.artifact_roles import PROJECT_GRAPH_ROLES
+
+from ..artifacts.facade import Artifacts, build_experiment_figure, preferred_associated_resource
+from ..research_core.facade import MAX_GRAPH_NODES, ResearchCore, graph_problems
 from .experiments.tracking_policy import mlflow_experiment_name
 
 Record = dict[str, Any]
@@ -22,58 +26,6 @@ class TrackingOverview(Protocol):
     ) -> Record: ...
 
     def namespace_experiments(self, *, project_id: str) -> list[Record]: ...
-
-
-@dataclass(slots=True)
-class HomeQuery:
-    """Assemble the project home read model without a delivery dependency."""
-
-    experiment_state: RecordQuery
-    resources: RecordQuery
-    status_and_next: RecordQuery
-    active_work: RecordQuery
-    review_queue: RecordQuery
-    recent_events: RecordQuery
-    health: Callable[[], dict[str, object]]
-
-    def __call__(self, *, project_id: str) -> Record:
-        status = self.status_and_next(project_id=project_id)
-        resources = self.resources(project_id=project_id)["resources"]
-        reviews = self.review_queue(project_id=project_id)
-        events = self.recent_events(project_id=project_id, limit=25)["events"]
-        claims = status["project"]["active_claims"]
-        experiments = [
-            self.experiment_state(
-                experiment_id=experiment["id"], project_id=project_id
-            )
-            for experiment in status["project"]["active_experiments"]
-        ]
-        work = self.active_work(project_id=project_id)
-        active_experiments = work["active_experiments"]
-        active_processes = work["active_processes"]
-        active_experiment = active_experiments[0] if active_experiments else None
-        return {
-            "project": status["project"],
-            "claims": claims,
-            "experiments": experiments,
-            "active_experiments": active_experiments,
-            "active_processes": active_processes,
-            "resources": resources,
-            "reviews": reviews,
-            "pending_change_sets": [],
-            "recent_events": events,
-            "stats": {
-                "claims": len(claims),
-                "experiments": len(experiments),
-                "active_experiments": len(active_experiments),
-                "active_processes": len(active_processes),
-                "resources": len(resources),
-                "open_reviews": len(reviews["requests"]),
-            },
-            "workflow": active_experiment.get("workflow") if active_experiment else status["workflow"],
-            "active_experiment": active_experiment,
-            "mlflow": self.health(),
-        }
 
 
 @dataclass(slots=True)
@@ -172,4 +124,185 @@ class ExperimentFigureQuery:
                 sandbox
                 and self.sandbox_status_active(str(sandbox.get("status") or ""))
             ),
+        )
+
+
+@dataclass(slots=True)
+class TenantCountersQuery:
+    """Join Kernel audit counts to Sandbox generation accounting."""
+
+    event_count: Callable[..., int]
+    generation_counters: RecordQuery
+
+    def __call__(self, *, tenant_id: str) -> Record:
+        return {
+            "tenant_id": tenant_id,
+            "tool_calls": self.event_count(tenant_id=tenant_id),
+            **self.generation_counters(tenant_id=tenant_id),
+        }
+
+
+@dataclass(slots=True)
+class ComputeCostQuery:
+    """Hydrate the Sandbox spend ledger with Research experiment names."""
+
+    project_spend: RecordQuery
+    experiments: RecordsQuery
+
+    def __call__(self, *, project_id: str) -> Record:
+        spend = self.project_spend(project_id=project_id)
+        names = {
+            str(experiment.get("id") or ""): str(experiment.get("name") or "")
+            for experiment in self.experiments(project_id=project_id)
+        }
+        for entry in spend["by_experiment"]:
+            entry["experiment_name"] = names.get(entry["experiment_id"], "")
+        return spend
+
+
+@dataclass(slots=True)
+class LogicGraphQuery:
+    """Build the common logic-graph view from Research and Artifacts facts."""
+
+    research: ResearchCore
+    artifacts: Artifacts
+
+    def experiment(self, *, project_id: str, experiment_id: str) -> Record:
+        experiment = self.research.experiment_state(
+            experiment_id=experiment_id, project_id=project_id
+        )
+        attempt = experiment.get("attempt_index")
+        chosen = preferred_associated_resource(
+            resources=experiment.get("resources", []),
+            attempt=attempt,
+            roles=("graph",),
+        )
+        base = {
+            "experiment_id": experiment_id,
+            "max_nodes": MAX_GRAPH_NODES,
+            "experiment_status": experiment.get("status"),
+            "attempt_index": attempt,
+        }
+        if chosen is None:
+            return {**base, "available": False, "graph": None, "problems": []}
+        text = self._associated_text(chosen)
+        if text is None:
+            return {
+                **base,
+                "available": False,
+                "graph": None,
+                "problems": [
+                    "graph has no submitted content — re-associate it (role 'graph')"
+                ],
+                "path": chosen.get("path"),
+            }
+        return self._payload(
+            base=base, chosen=chosen, text=text, project_id=project_id
+        )
+
+    def reflections(self, *, project_id: str) -> Record:
+        return self.research.reflection_overview(project_id=project_id)
+
+    def reflection(self, *, project_id: str, reflection_id: str) -> Record:
+        return self.research.reflection_state(
+            reflection_id=reflection_id, project_id=project_id
+        )
+
+    def project(self, *, project_id: str) -> Record:
+        selection = self.research.project_logic_graph_selection(project_id=project_id)
+        return self._for_reflection(
+            project_id=project_id,
+            reflection=selection.get("reflection"),
+            graph_resource=selection.get("graph_resource"),
+            extra_base={"signal": selection.get("signal")},
+        )
+
+    def reflection_graph(self, *, project_id: str, reflection_id: str) -> Record:
+        return self._for_reflection(
+            project_id=project_id,
+            reflection=self.reflection(
+                project_id=project_id, reflection_id=reflection_id
+            ),
+        )
+
+    def _for_reflection(
+        self,
+        *,
+        project_id: str,
+        reflection: Record | None,
+        graph_resource: Record | None = None,
+        extra_base: Record | None = None,
+    ) -> Record:
+        base: Record = {"max_nodes": MAX_GRAPH_NODES, **(extra_base or {})}
+        chosen = graph_resource or (
+            preferred_associated_resource(
+                resources=reflection.get("resources", []),
+                attempt=reflection.get("attempt_index"),
+                roles=PROJECT_GRAPH_ROLES,
+            )
+            if reflection
+            else None
+        )
+        if reflection is None or chosen is None:
+            return {
+                **base,
+                "available": False,
+                "reflection": None,
+                "graph": None,
+                "problems": [],
+            }
+        base["reflection"] = {
+            "id": reflection.get("id"),
+            "title": reflection.get("title"),
+            "status": reflection.get("status"),
+            "attempt_index": reflection.get("attempt_index"),
+            "published_at": reflection.get("published_at"),
+        }
+        text = self._associated_text(chosen)
+        if text is None:
+            return {
+                **base,
+                "available": False,
+                "graph": None,
+                "problems": [
+                    "graph has no submitted content — re-associate it "
+                    "(role 'project_graph')"
+                ],
+                "path": chosen.get("path"),
+            }
+        return self._payload(
+            base=base, chosen=chosen, text=text, project_id=project_id
+        )
+
+    def _payload(
+        self,
+        *,
+        base: Record,
+        chosen: Record,
+        text: str,
+        project_id: str,
+    ) -> Record:
+        graph: Record | None = None
+        try:
+            parsed = json.loads(text)
+            if isinstance(parsed, dict):
+                graph = parsed
+        except json.JSONDecodeError:
+            pass
+        return {
+            **base,
+            "available": True,
+            "resource_id": chosen.get("id"),
+            "path": chosen.get("path"),
+            "association_attempt_index": chosen.get("association_attempt_index"),
+            "graph": graph,
+            "problems": graph_problems(text),
+            "ref_index": self.research.resolve_graph_refs(
+                project_id=project_id, graph=graph
+            ),
+        }
+
+    def _associated_text(self, resource: Record) -> str | None:
+        return self.artifacts.submitted_text_for_version(
+            version_id=resource.get("association_version_id")
         )

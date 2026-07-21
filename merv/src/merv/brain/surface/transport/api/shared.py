@@ -12,16 +12,44 @@ from fastapi import Request
 from fastapi.encoders import jsonable_encoder
 from fastapi.responses import Response
 
+from ....kernel.utils import ValidationError
+
 JsonBody = dict[str, Any] | None
-UI_CORS_HEADERS = ["Content-Type", "Accept", "Authorization", "X-RP-Client-Version", "If-None-Match"]
+UI_CORS_HEADERS = [
+    "Content-Type",
+    "Accept",
+    "Authorization",
+    "X-RP-Client-Version",
+    "If-None-Match",
+]
 # ETag is not CORS-safelisted; expose it so a cross-origin dev UI can echo it back.
 UI_CORS_EXPOSE_HEADERS = ["ETag"]
+
+
+def path_scoped_body(body: JsonBody, **scope: str) -> dict[str, Any]:
+    """Bind route identifiers after parsing a body, rejecting contradictions."""
+    payload = dict(body or {})
+    conflicts = [
+        field
+        for field, value in scope.items()
+        if field in payload and payload[field] != value
+    ]
+    if conflicts:
+        raise ValidationError(
+            "request body scope does not match route",
+            details={"fields": conflicts},
+        )
+    payload.update(scope)
+    return payload
 
 
 def _json_body(payload: Any) -> bytes:
     """Serialize exactly like FastAPI's default JSON path for these handlers."""
     body = json.dumps(
-        jsonable_encoder(payload), ensure_ascii=False, allow_nan=False, separators=(",", ":")
+        jsonable_encoder(payload),
+        ensure_ascii=False,
+        allow_nan=False,
+        separators=(",", ":"),
     ).encode("utf-8")
     return body
 
@@ -62,7 +90,9 @@ def conditional_json_from_signal(
     headers = {"ETag": etag, "Cache-Control": "no-cache"}
     if _matches(request, etag=etag):
         return Response(status_code=304, headers=headers)
-    return Response(content=_json_body(payload()), media_type="application/json", headers=headers)
+    return Response(
+        content=_json_body(payload()), media_type="application/json", headers=headers
+    )
 
 
 def is_local_origin(origin: str) -> bool:

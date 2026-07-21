@@ -1,8 +1,7 @@
-"""Workflow orientation and next-action logic."""
+"""Pure next-action policy over captured Research and Sandbox facts."""
 
 from __future__ import annotations
 
-from contextlib import closing
 from typing import Any
 
 from merv.shared.artifact_roles import (
@@ -24,48 +23,29 @@ from .domain.workflow_gates import (
     GATE_TABLE,
     TERMINAL_STATUSES,
 )
-from ..kernel.ports.workflow_readers import (
-    ExperimentWorkflowReader,
-    ReflectionWorkflowReader,
-    ReviewWorkflowReader,
-    SandboxWorkflowReader,
+from .facade import ReviewGateSnapshot
+
+_SLIM_RESOURCE_FIELDS = (
+    "id",
+    "association_role",
+    "association_version_id",
+    "path",
+    "kind",
+    "missing",
+    "size_bytes",
 )
-from .workflow_views import slim_status_and_next, slim_reflection
-from ..kernel.state.store import BaseStateStore, row_to_dict, rows_to_dicts
+_SLIM_REVIEW_FIELDS = ("id", "role", "verdict", "created_at", "synopsis")
 
 
-EXPERIMENT_STATUS_PRIORITY = {
-    "running": 0,
-    "experiment_review": 1,
-    "design_review": 2,
-    "ready_to_run": 3,
-    "planned": 4,
-}
-PROCESS_STATUS_PRIORITY = {
-    "running": 0,
-    "provisioning": 1,
-}
-
-
-class WorkflowService:
-    """Computes status and next actions from durable state."""
+class NextActionPolicy:
+    """Compute guidance from immutable facts without reads or side effects."""
 
     def __init__(
         self,
         *,
-        store: BaseStateStore,
-        experiments: ExperimentWorkflowReader,
-        reviews: ReviewWorkflowReader,
-        sandboxes: SandboxWorkflowReader,
-        reflections: ReflectionWorkflowReader,
         storage_enabled: bool = False,
         storage_guidance: dict[str, Any] | None = None,
     ) -> None:
-        self.store = store
-        self.experiments = experiments
-        self.reviews = reviews
-        self.sandboxes = sandboxes
-        self.reflections = reflections
         self.storage_enabled = bool(storage_enabled)
         # Composition-injected storage guidance block (object_storage prose).
         # The workflow embeds the dict it is handed instead of importing the
@@ -74,197 +54,20 @@ class WorkflowService:
             storage_guidance or {"enabled": self.storage_enabled}
         )
 
-    def status_and_next(
-        self, *, project_id: str | None = None, experiment_id: str | None = None
-    ) -> dict[str, Any]:
-        # Whether the caller scoped to an experiment explicitly: only the
-        # auto-resolved (project-level) orientation call is eligible for the
-        # idle reflection takeover below.
-        requested_experiment_id = experiment_id
-        project_id, experiment_id = self._resolve_scope(
-            project_id=project_id,
-            experiment_id=experiment_id,
+    def project_setup(self) -> dict[str, Any]:
+        return self._next(
+            gate="project_setup",
+            action="create_claim_or_experiment",
+            allowed=["claim.create", "experiment.create"],
         )
 
-        with self.store.transaction() as conn:
-            project = row_to_dict(
-                row=conn.execute(
-                    "SELECT * FROM projects WHERE id = ?",
-                    (project_id,),
-                ).fetchone()
-            )
-            claim_rows = conn.execute(
-                "SELECT id, statement, scope, status, confidence, created_at FROM claims WHERE project_id = ? ORDER BY created_at, id",
-                (project_id,),
-            ).fetchall()
-            exp_rows = conn.execute(
-                "SELECT id, name, intent, status, attempt_index FROM experiments WHERE project_id = ? ORDER BY created_at, id",
-                (project_id,),
-            ).fetchall()
-            experiment = (
-                self.experiments.get_state(
-                    experiment_id=experiment_id,
-                    project_id=project_id,
-                    conn=conn,
-                )
-                if experiment_id
-                else None
-            )
-            sandboxes = (
-                self.sandboxes.sandboxes_for_experiment(
-                    conn=conn, experiment_id=experiment_id
-                )
-                if experiment_id
-                else []
-            )
-            workflow = (
-                self._workflow_for(conn=conn, experiment=experiment)
-                if experiment
-                else self._next(
-                    gate="project_setup",
-                    action="create_claim_or_experiment",
-                    allowed=["claim.create", "experiment.create"],
-                )
-            )
-            idle = all(str(row["status"]) in TERMINAL_STATUSES for row in exp_rows)
-            reflection = self._project_reflection(
-                conn=conn, project_id=project_id, idle=idle
-            )
-            if requested_experiment_id is None and idle:
-                takeover = self._reflection_workflow_takeover(reflection=reflection)
-                if takeover is not None:
-                    workflow = takeover
-            elif (
-                requested_experiment_id is None
-                and experiment is not None
-                and str(experiment.get("status")) in TERMINAL_STATUSES
-            ):
-                workflow = self._live_experiments_takeover(
-                    exp_rows=exp_rows, reflection=reflection
-                )
-            result = {
-                "project": {
-                    **(project or {}),
-                    "active_claims": rows_to_dicts(rows=claim_rows),
-                    "active_experiments": rows_to_dicts(rows=exp_rows),
-                },
-                "experiment": experiment,
-                "sandboxes": sandboxes,
-                "workflow": workflow,
-            }
-            if reflection is not None:
-                result["project_reflection"] = reflection
-            return result
-
-    def status_and_next_agent(
-        self, *, project_id: str | None = None, experiment_id: str | None = None
+    def experiment(
+        self,
+        *,
+        experiment: dict[str, Any],
+        sandboxes: list[dict[str, Any]],
+        review_gates: dict[tuple[str, str, str], ReviewGateSnapshot],
     ) -> dict[str, Any]:
-        """Agent/MCP-facing status_and_next: the full computation, slim output.
-
-        Backs the `workflow.status_and_next` tool. The UI calls
-        `status_and_next` directly for the rich shape; agents get this
-        projection so a constantly-polled orientation call stops flooding the
-        context window.
-        """
-        return slim_status_and_next(
-            self.status_and_next(project_id=project_id, experiment_id=experiment_id)
-        )
-
-    def active_work(self, *, project_id: str | None = None) -> dict[str, Any]:
-        with self.store.transaction() as conn:
-            project_id = self.store.require_project_id(
-                conn=conn,
-                project_id=project_id,
-            )
-            rows = conn.execute(
-                "SELECT id FROM experiments WHERE project_id = ? ORDER BY created_at, id",
-                (project_id,),
-            ).fetchall()
-            experiments: list[dict[str, Any]] = []
-            for row in rows:
-                experiment = self.experiments.get_state(
-                    experiment_id=row["id"],
-                    project_id=project_id,
-                    conn=conn,
-                )
-                experiments.append(experiment)
-
-            experiments_by_id = {
-                experiment["id"]: experiment for experiment in experiments
-            }
-            sandboxes = self.sandboxes.sandboxes_for_project(
-                conn=conn, project_id=project_id
-            )
-            active_processes = self._sort_active(
-                items=[
-                    self._process_view(
-                        sandbox=sandbox,
-                        experiment=experiments_by_id.get(
-                            str((sandbox.get("active_experiment_ids") or [""])[0])
-                        ),
-                        experiments=[
-                            experiments_by_id[exp_id]
-                            for exp_id in sandbox.get("active_experiment_ids") or []
-                            if exp_id in experiments_by_id
-                        ],
-                    )
-                    for sandbox in sandboxes
-                    if sandbox.get("status") in ACTIVE_PROCESS_STATUSES
-                ],
-                status_priority=PROCESS_STATUS_PRIORITY,
-            )
-
-            active_experiments: list[dict[str, Any]] = []
-            for experiment in experiments:
-                if experiment["status"] in TERMINAL_STATUSES:
-                    continue
-                experiment_sandboxes = [
-                    sandbox
-                    for sandbox in sandboxes
-                    if experiment["id"] in (sandbox.get("active_experiment_ids") or [])
-                ]
-                experiment_active_processes = [
-                    process
-                    for process in active_processes
-                    if experiment["id"] in (process.get("active_experiment_ids") or [])
-                ]
-                active_experiments.append(
-                    {
-                        **experiment,
-                        "workflow": self._workflow_for(
-                            conn=conn,
-                            experiment=experiment,
-                        ),
-                        "sandboxes": experiment_sandboxes,
-                        "active_processes": experiment_active_processes,
-                    }
-                )
-
-            return {
-                "active_experiments": self._sort_active(
-                    items=active_experiments,
-                    status_priority=EXPERIMENT_STATUS_PRIORITY,
-                ),
-                "active_processes": active_processes,
-            }
-
-    def _resolve_scope(
-        self, *, project_id: str | None, experiment_id: str | None
-    ) -> tuple[str, str | None]:
-        with closing(self.store.connect()) as conn:
-            project_id = self.store.require_project_id(
-                conn=conn,
-                project_id=project_id,
-            )
-            if experiment_id is None:
-                row = conn.execute(
-                    "SELECT id FROM experiments WHERE project_id = ? ORDER BY created_at DESC, id DESC LIMIT 1",
-                    (project_id,),
-                ).fetchone()
-                experiment_id = row["id"] if row else None
-            return project_id, experiment_id
-
-    def _workflow_for(self, *, conn, experiment: dict[str, Any]) -> dict[str, Any]:
         """Guidance derived from the same GATE_TABLE that enforces transitions.
 
         Walk the status's forward transition: a review requirement delegates to
@@ -293,10 +96,12 @@ class WorkflowService:
             )
         if forward.review is not None:
             return self._review_next(
-                conn=conn,
                 target_type="experiment",
                 target=experiment,
                 review=forward.review,
+                gate=review_gates[
+                    ("experiment", str(experiment["id"]), forward.review.role)
+                ],
             )
         roles = {
             res.get("association_role")
@@ -308,7 +113,9 @@ class WorkflowService:
                 continue
             return self._next(
                 gate=self._requirement_gate(
-                    conn=conn, experiment=experiment, requirement=requirement
+                    experiment=experiment,
+                    requirement=requirement,
+                    sandboxes=sandboxes,
                 ),
                 action=requirement.action,
                 allowed=list(requirement.allowed),
@@ -325,9 +132,17 @@ class WorkflowService:
         for requirement in forward.requirements:
             if not requirement.validator:
                 continue
-            problems = self.experiments.validator_problems(
-                conn=conn, experiment_id=experiment["id"], name=requirement.validator
+            checklist = experiment.get("gate_checklist") or {}
+            item = next(
+                (
+                    entry
+                    for entry in checklist.get("items", [])
+                    if entry.get("kind") == "resource"
+                    and entry.get("role") == requirement.role
+                ),
+                {},
             )
+            problems = list(item.get("problems") or [])
             if problems:
                 return self._next(
                     gate=f"{requirement.role}_invalid",
@@ -351,14 +166,15 @@ class WorkflowService:
         )
 
     def _requirement_gate(
-        self, *, conn, experiment: dict[str, Any], requirement: RoleRequirement
+        self,
+        *,
+        experiment: dict[str, Any],
+        requirement: RoleRequirement,
+        sandboxes: list[dict[str, Any]],
     ) -> str:
         """A requirement's gate name, with the one dynamic case: the running
         status's execution gate reflects whether a sandbox is actually live."""
         if experiment["status"] == "running" and requirement.gate == "execution_ready":
-            sandboxes = self.sandboxes.sandboxes_for_experiment(
-                conn=conn, experiment_id=experiment["id"]
-            )
             if any(sb.get("status") in ACTIVE_PROCESS_STATUSES for sb in sandboxes):
                 return "execution_active"
         return requirement.gate
@@ -385,77 +201,55 @@ class WorkflowService:
     def _review_next(
         self,
         *,
-        conn,
         target_type: str,
         target: dict[str, Any],
         review: ReviewRequirement,
+        gate: ReviewGateSnapshot,
     ) -> dict[str, Any]:
         target_id = target["id"]
-        gate = target["status"]
+        status = target["status"]
         role, skill, action_name = review.role, review.skill, review.action_name
         transition_tool = (
             "reflection.transition"
             if target_type == "reflection"
             else "experiment.transition"
         )
-        gate_state = self.reviews.gate_state(
-            conn=conn,
-            target_type=target_type,
-            target_id=target_id,
-            role=role,
-        )
-        if gate_state["satisfied"]:
+        if gate.satisfied:
             return self._next(
                 gate=f"{action_name}_passed",
                 action=review.pass_action,
                 allowed=[transition_tool],
             )
 
-        request = self.reviews.open_request(
-            conn=conn,
-            target_type=target_type,
-            target_id=target_id,
-            role=role,
-        )
+        request = gate.request
         if request is None:
             # An attested-only pass under require_verified_reviews lands here
             # (its request is already submitted): say why the gate still blocks.
-            blocked_reason = gate_state.get("blocked_reason")
-            return self._next(
-                gate=gate,
-                action=f"launch_{action_name}er",
-                allowed=["review.request"],
-                missing=[blocked_reason] if blocked_reason else [],
-                review_gate=self._review_gate(
-                    role=role,
-                    skill=skill,
-                    status="attested_blocked" if blocked_reason else "none",
-                    target_type=target_type,
-                    target_id=target_id,
-                ),
-            )
-        if request["status"] == "requested":
-            return self._next(
-                gate=gate,
-                action=f"launch_{action_name}er",
-                allowed=["workflow.status_and_next", "review.request"],
-                review_gate=self._review_gate(
-                    role=role,
-                    skill=skill,
-                    status="requested",
-                    target_type=target_type,
-                    target_id=target_id,
-                    request=request,
-                ),
-            )
+            blocked_reason = gate.blocked_reason
+            review_status = "attested_blocked" if blocked_reason else "none"
+            action = f"launch_{action_name}er"
+            allowed = ["review.request"]
+            missing = [blocked_reason] if blocked_reason else []
+        elif request["status"] == "requested":
+            review_status = "requested"
+            action = f"launch_{action_name}er"
+            allowed = ["workflow.status_and_next", "review.request"]
+            missing = []
+        else:
+            review_status = str(request["status"])
+            action = f"wait_for_{action_name}"
+            allowed = ["workflow.status_and_next"]
+            missing = []
+
         return self._next(
-            gate=gate,
-            action=f"wait_for_{action_name}",
-            allowed=["workflow.status_and_next"],
+            gate=status,
+            action=action,
+            allowed=allowed,
+            missing=missing,
             review_gate=self._review_gate(
                 role=role,
                 skill=skill,
-                status=str(request["status"]),
+                status=review_status,
                 target_type=target_type,
                 target_id=target_id,
                 request=request,
@@ -492,8 +286,13 @@ class WorkflowService:
             gate["expires_at"] = request["expires_at"]
         return gate
 
-    def _project_reflection(
-        self, *, conn, project_id: str, idle: bool
+    def project_reflection(
+        self,
+        *,
+        open_wave: dict[str, Any] | None,
+        signal: dict[str, Any],
+        idle: bool,
+        review_gates: dict[tuple[str, str, str], ReviewGateSnapshot],
     ) -> dict[str, Any] | None:
         """Project-level reflection orientation, surfaced only when relevant.
 
@@ -518,22 +317,19 @@ class WorkflowService:
         Before that threshold, whether new developments change the project's
         logic state stays the agent's call.
         """
-        open_wave = self.reflections.open_reflection(conn=conn, project_id=project_id)
         if open_wave is not None:
-            signal = self.reflections.reflection_signal(
-                project_id=project_id, conn=conn
+            workflow = self._reflection_workflow_for(
+                reflection=open_wave, review_gates=review_gates
             )
-            workflow = self._reflection_workflow_for(conn=conn, reflection=open_wave)
             if signal.get("experiment_create_blocked"):
                 workflow = self._with_experiment_create_block(
                     workflow=workflow, signal=signal
                 )
             return {
-                "reflection": slim_reflection(open_wave),
+                "reflection": self._slim_reflection(open_wave),
                 "workflow": workflow,
                 "signal": signal,
             }
-        signal = self.reflections.reflection_signal(project_id=project_id, conn=conn)
         has_new_material = (
             signal["new_terminal_since_publish"] >= 1 or signal["contradicted_flip"]
         )
@@ -550,7 +346,7 @@ class WorkflowService:
             block["recommended"] = True
         return block
 
-    def _reflection_workflow_takeover(
+    def reflection_workflow_takeover(
         self, *, reflection: dict[str, Any] | None
     ) -> dict[str, Any] | None:
         """The workflow block for an idle, project-level orientation call.
@@ -598,7 +394,7 @@ class WorkflowService:
             missing=[reflection["hint"]] if reflection.get("hint") else [],
         )
 
-    def _live_experiments_takeover(
+    def live_experiments_takeover(
         self, *, exp_rows, reflection: dict[str, Any] | None
     ) -> dict[str, Any]:
         """The workflow block when the auto-resolved (newest-created)
@@ -664,7 +460,10 @@ class WorkflowService:
         }
 
     def _reflection_workflow_for(
-        self, *, conn, reflection: dict[str, Any]
+        self,
+        *,
+        reflection: dict[str, Any],
+        review_gates: dict[tuple[str, str, str], ReviewGateSnapshot],
     ) -> dict[str, Any]:
         """Guidance for a reflection wave, derived from REFLECTION_GATE_TABLE —
         the same walk as _workflow_for, with the roster-coverage requirement
@@ -675,10 +474,12 @@ class WorkflowService:
             return self._next(gate="terminal", action="none", allowed=[])
         if forward.review is not None:
             return self._review_next(
-                conn=conn,
                 target_type="reflection",
                 target=reflection,
                 review=forward.review,
+                gate=review_gates[
+                    ("reflection", str(reflection["id"]), forward.review.role)
+                ],
             )
         if status == "reflecting":
             coverage = reflection.get("reflection_coverage", {})
@@ -747,6 +548,29 @@ class WorkflowService:
                 "associates it with role 'reflection_lens_doc' for this "
                 "reflection wave. See the project-reflection skill for the lens briefs."
             ),
+        }
+
+    def _slim_reflection(self, reflection: dict[str, Any]) -> dict[str, Any]:
+        return {
+            "id": reflection.get("id"),
+            "title": reflection.get("title"),
+            "status": reflection.get("status"),
+            "attempt_index": reflection.get("attempt_index"),
+            "revision_context": reflection.get("revision_context"),
+            "roster": [
+                {key: lens.get(key) for key in ("id", "title", "core")}
+                for lens in reflection.get("roster", [])
+            ],
+            "reflection_coverage": reflection.get("reflection_coverage"),
+            "current_attempt_resources": [
+                {field: resource.get(field) for field in _SLIM_RESOURCE_FIELDS}
+                for resource in reflection.get("current_attempt_resources", [])
+            ],
+            "reviews": [
+                {field: review.get(field) for field in _SLIM_REVIEW_FIELDS}
+                for review in reflection.get("reviews", [])
+            ],
+            "allowed_transitions": reflection.get("allowed_transitions", []),
         }
 
     def _synthesizing_resource_guidance(self, *, key: str) -> dict[str, Any] | None:
@@ -954,48 +778,5 @@ class WorkflowService:
             result["live_experiments"] = live_experiments
         return result
 
-    def _sort_active(
-        self,
-        *,
-        items: list[dict[str, Any]],
-        status_priority: dict[str, int],
-    ) -> list[dict[str, Any]]:
-        items = sorted(
-            items,
-            key=lambda item: item.get("updated_at") or item.get("created_at") or "",
-            reverse=True,
-        )
-        return sorted(
-            items,
-            key=lambda item: status_priority.get(str(item.get("status")), 99),
-        )
 
-    def _process_view(
-        self,
-        *,
-        sandbox: dict[str, Any],
-        experiment: dict[str, Any] | None,
-        experiments: list[dict[str, Any]] | None = None,
-    ) -> dict[str, Any]:
-        process = {
-            **sandbox,
-            "process_type": "sandbox",
-        }
-        if experiment is not None:
-            process["experiment"] = {
-                "id": experiment["id"],
-                "intent": experiment["intent"],
-                "status": experiment["status"],
-                "attempt_index": experiment["attempt_index"],
-            }
-        if experiments:
-            process["active_experiments"] = [
-                {
-                    "id": item["id"],
-                    "intent": item["intent"],
-                    "status": item["status"],
-                    "attempt_index": item["attempt_index"],
-                }
-                for item in experiments
-            ]
-        return process
+__all__ = ["NextActionPolicy"]
