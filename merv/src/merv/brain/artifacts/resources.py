@@ -304,7 +304,7 @@ class ResourceService:
                     "resource must be observed before it can be associated",
                     details={"resource_id": resource_id},
                 )
-            self._capture_submitted_gated_blob(
+            self._capture_submitted_blob(
                 conn=conn,
                 resource=resource,
                 role=role,
@@ -788,7 +788,7 @@ class ResourceService:
                 "content_sha256 must be a lowercase sha256 hex digest"
             )
 
-    def _capture_submitted_gated_blob(
+    def _capture_submitted_blob(
         self,
         *,
         conn: Connection,
@@ -799,35 +799,37 @@ class ResourceService:
         content_bytes: bytes | None,
         figures: list[dict[str, Any]],
     ) -> None:
-        cap = GATED_ROLE_BYTE_CAPS.get(role)
+        """Pin required evidence or eligible small metric-result bytes."""
         if self.blobs is None:
             return
-        if cap is None:
-            self._capture_metric_result_bytes(
-                conn=conn,
-                resource=resource,
-                role=role,
-                version_id=version_id,
-                project_id=project_id,
-                content_bytes=content_bytes,
-            )
-            return
+        gated_cap = GATED_ROLE_BYTE_CAPS.get(role)
         if content_bytes is None:
+            if gated_cap is None:
+                return
             raise ValidationError(
                 f"role-{role!r} associations require artifact bytes from the data plane",
                 details={"resource_id": resource["id"], "role": role},
             )
+        capture_cap = gated_cap
+        if capture_cap is None:
+            capture_cap = metric_result_capture_cap(
+                role=role, path=str(resource["path"])
+            )
+        if capture_cap is None:
+            return
         size = len(content_bytes)
-        if size > cap:
+        if size > capture_cap:
+            if gated_cap is None:
+                return
             raise ValidationError(
                 f"{resource['path']} is {size} bytes; the maximum for a role-{role!r} "
-                f"artifact is {cap} bytes — slim the file before associating "
+                f"artifact is {capture_cap} bytes — slim the file before associating "
                 "(move raw data/outputs elsewhere and reference them)",
                 details={
                     "path": resource["path"],
                     "role": role,
                     "size_bytes": size,
-                    "max_bytes": cap,
+                    "max_bytes": capture_cap,
                 },
             )
         version = conn.execute(
@@ -847,7 +849,7 @@ class ResourceService:
             data=content_bytes,
             content_type=str(version["content_type"]),
         )
-        if role in MARKDOWN_FIGURE_ROLES:
+        if gated_cap is not None and role in MARKDOWN_FIGURE_ROLES:
             self._capture_submitted_markdown_figures(
                 conn=conn,
                 version_id=version_id,
@@ -855,39 +857,6 @@ class ResourceService:
                 markdown_text=content_bytes.decode("utf-8", errors="replace"),
                 figures=figures,
             )
-
-    def _capture_metric_result_bytes(
-        self,
-        *,
-        conn: Connection,
-        resource: Row,
-        role: str,
-        version_id: str,
-        project_id: str,
-        content_bytes: bytes | None,
-    ) -> None:
-        """Pin small JSON metric files at role-'result' associate so the
-        metrics exhibit can ingest their numbers. Opportunistic by contract:
-        no bytes (older proxy, over-cap file) associates exactly as before."""
-        cap = metric_result_capture_cap(role=role, path=str(resource["path"]))
-        if cap is None or content_bytes is None or len(content_bytes) > cap:
-            return
-        version = conn.execute(
-            "SELECT content_sha256, content_type FROM resource_versions WHERE id = ?",
-            (version_id,),
-        ).fetchone()
-        if version is None:
-            raise NotFoundError(f"resource version not found: {version_id}")
-        if hashlib.sha256(content_bytes).hexdigest() != str(version["content_sha256"]):
-            raise ValidationError(
-                f"{resource['path']} changed while associating — retry the call",
-                details={"path": resource["path"], "role": role},
-            )
-        self.blobs.put(
-            namespace=project_id,
-            data=content_bytes,
-            content_type=str(version["content_type"]),
-        )
 
     def metric_file_sources(
         self,
