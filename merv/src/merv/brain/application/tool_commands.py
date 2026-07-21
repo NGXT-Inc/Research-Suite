@@ -4,12 +4,17 @@ from __future__ import annotations
 
 from collections.abc import Callable
 from dataclasses import dataclass
-from typing import Any
+from typing import Any, Protocol
 
 from ..kernel.utils import ValidationError
-from ..research_core.facade import ResearchCore
 
 Command = Callable[..., dict[str, Any]]
+
+
+class AgentExperimentList(Protocol):
+    def __call__(
+        self, *, project_id: str | None = None
+    ) -> dict[str, Any]: ...
 
 
 @dataclass(kw_only=True, slots=True)
@@ -17,7 +22,7 @@ class ControlToolOperations:
     project_create: Command
     project_get: Command
     claims_list: Command
-    research: ResearchCore
+    list_agent_experiments: AgentExperimentList
     resource_resolve: Command
     resources_list: Command
     storage_resolve: Command | None
@@ -25,8 +30,7 @@ class ControlToolOperations:
     storage_actions: dict[str, Command]
 
     def experiment_list(self, *, project_id: str | None = None) -> dict[str, Any]:
-        experiments = self.research.project_experiments(project_id=project_id)
-        return {"experiments": [self.research.present_experiment(e) for e in experiments]}
+        return self.list_agent_experiments(project_id=project_id)
 
     def project(
         self,

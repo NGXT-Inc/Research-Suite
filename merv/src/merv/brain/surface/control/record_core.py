@@ -13,12 +13,10 @@ from ...research_core.graph_refs import GraphRefResolver
 from ..permissions import PermissionService
 from ...research_core.projects import ProjectService
 from ...sandbox.quotas import QuotaService
-from ...research_core.reflection_tools import ReflectionToolService
 from ...research_core.reviews import ReviewService
 from ...research_core.reflections import ReflectionService
 from ...kernel.state import BaseStateStore
 from ...kernel.ports.blob_store import EvidenceBlobStore
-from ...object_storage.service import objects_for_experiment
 
 
 @dataclass(frozen=True)
@@ -31,7 +29,6 @@ class RecordCore:
     resources: ResourceService
     graph_refs: GraphRefResolver
     reflection_waves: ReflectionService
-    reflection_tools: ReflectionToolService
     reviews: ReviewService
     feed: FeedService
 
@@ -42,9 +39,7 @@ def build_record_core(*, store: BaseStateStore, blobs: EvidenceBlobStore) -> Rec
     quotas = QuotaService(store=store)
     projects = ProjectService(store=store)
     claims = ClaimService(store=store)
-    # Cross-module reads the import law forbids as direct edges are injected
-    # here instead: research_core gets the object-storage ledger query;
-    # artifacts gets research-core target resolution.
+    # Artifacts receives the narrow Research-owned association target resolver.
     resources = ResourceService(
         store=store,
         blobs=blobs,
@@ -53,16 +48,14 @@ def build_record_core(*, store: BaseStateStore, blobs: EvidenceBlobStore) -> Rec
     experiments = ExperimentService(
         store=store,
         evidence_reader=resources,
-        storage_objects_reader=objects_for_experiment,
     )
-    graph_refs = GraphRefResolver(store=store, evidence_reader=resources)
+    graph_refs = GraphRefResolver(store=store)
     reflection_waves = ReflectionService(
         store=store,
         claims=claims,
         experiment_writer=experiments,
         evidence_reader=resources,
     )
-    reflection_tools = ReflectionToolService(reflections=reflection_waves)
     reviews = ReviewService(
         store=store,
         experiments=experiments,
@@ -79,7 +72,6 @@ def build_record_core(*, store: BaseStateStore, blobs: EvidenceBlobStore) -> Rec
         resources=resources,
         graph_refs=graph_refs,
         reflection_waves=reflection_waves,
-        reflection_tools=reflection_tools,
         reviews=reviews,
         feed=feed,
     )

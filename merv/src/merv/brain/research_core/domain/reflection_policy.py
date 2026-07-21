@@ -63,7 +63,7 @@ def reflection_signal_state(
         len(new_terminal) >= REFLECTION_NUDGE_NEW_TERMINAL_THRESHOLD
         or contradicted_flip
     )
-    signal: dict[str, Any] = {
+    return {
         "terminal_experiments": len(current_terminal),
         "covered_terminal_experiments": len(covered_ids & set(current_terminal)),
         "new_terminal_since_publish": len(new_terminal),
@@ -77,74 +77,6 @@ def reflection_signal_state(
         "nudge_new_terminal_threshold": REFLECTION_NUDGE_NEW_TERMINAL_THRESHOLD,
         "block_new_terminal_threshold": REFLECTION_BLOCK_NEW_TERMINAL_THRESHOLD,
     }
-    signal["hint"] = reflection_staleness_hint(
-        signal=signal, published_exists=published is not None
-    )
-    return signal
-
-
-def reflection_staleness_hint(
-    *, signal: Mapping[str, Any], published_exists: bool
-) -> str:
-    if not signal["stale"]:
-        return ""
-    if signal.get("experiment_create_blocked"):
-        if not published_exists:
-            return (
-                "Project reflection required before creating another "
-                "experiment — "
-                f"{signal['terminal_experiments']} experiments have finished "
-                "and no project reflection exists yet. Use the "
-                "project-reflection skill (reflection.create) and publish the "
-                "wave before creating another experiment."
-            )
-        pieces = [
-            "Project reflection required before creating another experiment — "
-            f"{signal['new_terminal_since_publish']} experiments have finished "
-            "since the last published reflection"
-        ]
-        if signal["claims_changed_since_publish"]:
-            changed = f"{signal['claims_changed_since_publish']} claims have changed"
-            if signal["contradicted_flip"]:
-                changed += " (including a claim now contradicted)"
-            pieces.append(changed)
-        pieces.append(
-            "the current reflection covers "
-            f"{signal['covered_terminal_experiments']} of "
-            f"{signal['terminal_experiments']} finished experiments"
-        )
-        return (
-            "; ".join(pieces)
-            + ". Publish a project reflection wave before creating another "
-            "experiment."
-        )
-    if not published_exists:
-        return (
-            "Consider running the project's first reflection — "
-            f"{signal['terminal_experiments']} experiments have finished and "
-            "no project reflection exists yet. Use the project-reflection "
-            "skill (reflection.create) when you judge the time is right."
-        )
-    pieces = [
-        "Consider running a project reflection — "
-        f"{signal['new_terminal_since_publish']} experiments have finished "
-        "since the last published reflection"
-    ]
-    if signal["claims_changed_since_publish"]:
-        changed = f"{signal['claims_changed_since_publish']} claims have changed"
-        if signal["contradicted_flip"]:
-            changed += " (including a claim now contradicted)"
-        pieces.append(changed)
-    pieces.append(
-        "the current reflection covers "
-        f"{signal['covered_terminal_experiments']} of "
-        f"{signal['terminal_experiments']} finished experiments"
-    )
-    return (
-        "; ".join(pieces)
-        + ". Whether these developments change the project's logic state is "
-        "your call (project-reflection skill, reflection.create)."
-    )
 
 
 def reflection_create_block_message(
@@ -175,82 +107,3 @@ def reflection_create_block_message(
         "Start a reflection wave with reflection.create and publish it before "
         "creating another experiment."
     )
-
-
-def reflection_create_block_reason(*, signal: Mapping[str, Any]) -> str:
-    count = signal.get("new_terminal_since_publish", 0)
-    threshold = signal.get("block_new_terminal_threshold", 5)
-    open_id = signal.get("open_reflection_id")
-    if open_id:
-        return (
-            f"{count} experiments have finished since the last published "
-            f"reflection (threshold {threshold}); finish and publish open "
-            f"reflection wave {open_id} before creating another experiment."
-        )
-    if signal.get("last_published_reflection_id"):
-        since = "since the last published reflection"
-    else:
-        since = "and no project reflection has been published yet"
-    return (
-        f"{count} experiments have finished {since} (threshold {threshold}); "
-        "publish a project reflection wave before creating another experiment."
-    )
-
-
-
-def idle_reflection_hint(*, signal: Mapping[str, Any]) -> str:
-    """Hint for the idle recommended tier below the staleness threshold."""
-    new = signal["new_terminal_since_publish"]
-    finished = f"{new} experiment{'s have' if new != 1 else ' has'} finished"
-    if signal["last_published_reflection_id"]:
-        drift = f"{finished} since the last published reflection"
-        if signal["claims_changed_since_publish"]:
-            drift += (
-                f" and {signal['claims_changed_since_publish']} claims "
-                "have changed"
-            )
-    else:
-        drift = f"{finished} and no project reflection exists yet"
-    return (
-        f"No experiments are active and {drift} — a good moment for a "
-        "project reflection (reflection.create, project-reflection "
-        "skill), or start the next experiment if the logic state is "
-        "current."
-    )
-
-
-def post_publish_guidance(
-    *, materialized_experiments: list[Mapping[str, Any]]
-) -> dict[str, Any]:
-    experiments = [
-        {
-            "experiment_id": row.get("experiment_id"),
-            "name": row.get("name"),
-            "status": row.get("status"),
-            "folder": f"experiments/{row.get('name')}/",
-            "intent": row.get("intent"),
-        }
-        for row in materialized_experiments
-    ]
-    count = len(experiments)
-    noun = "experiment" if count == 1 else "experiments"
-    return {
-        "summary": (
-            f"Reflection publish created {count} planned {noun}. "
-            "Materialize their local folders before editing files, then "
-            "call workflow.status_and_next for the experiment you start."
-        ),
-        "experiments": experiments,
-        "recommended_actions": [
-            {
-                "tool": "experiment.materialize_folders",
-                "arguments": {"status": "planned"},
-                "why": "Create local folders for the newly planned experiment wave.",
-            },
-            {
-                "tool": "workflow.status_and_next",
-                "arguments": {"experiment_id": experiments[0]["experiment_id"]},
-                "why": "Start with the first newly planned experiment.",
-            },
-        ],
-    }

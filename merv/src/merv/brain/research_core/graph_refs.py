@@ -1,4 +1,4 @@
-"""Best-effort project graph reference resolution."""
+"""Best-effort resolution of Research-owned graph references."""
 
 from __future__ import annotations
 
@@ -6,7 +6,6 @@ from contextlib import closing
 from dataclasses import dataclass
 from typing import Any
 
-from ..artifacts.ports import EvidenceReader
 from ..kernel.state.store import BaseStateStore
 
 
@@ -64,63 +63,29 @@ GRAPH_REF_TYPES: tuple[GraphRefType, ...] = (
 
 
 class GraphRefResolver:
-    """Resolves graph node refs against control-plane records."""
+    """Resolve only graph references owned by Research."""
 
-    def __init__(
-        self, *, store: BaseStateStore, evidence_reader: EvidenceReader
-    ) -> None:
+    def __init__(self, *, store: BaseStateStore) -> None:
         self.store = store
-        self.evidence_reader = evidence_reader
 
     def resolve_index(
-        self, *, project_id: str, graph: dict[str, Any] | None
+        self, *, project_id: str, refs: tuple[str, ...]
     ) -> dict[str, Any]:
-        refs = self._refs_from_graph(graph=graph)
         if not refs:
             return {}
         with closing(self.store.connect()) as conn:
-            return {
-                ref: self._resolve_one(conn=conn, project_id=project_id, ref=ref)
-                for ref in refs
-            }
-
-    @staticmethod
-    def _refs_from_graph(*, graph: dict[str, Any] | None) -> list[str]:
-        refs: list[str] = []
-        seen: set[str] = set()
-        for node in (graph or {}).get("nodes") or []:
-            if not isinstance(node, dict):
-                continue
-            node_refs = node.get("refs")
-            if not isinstance(node_refs, list):
-                continue
-            for ref in node_refs:
-                if isinstance(ref, str) and ref.strip() and ref not in seen:
-                    seen.add(ref)
-                    refs.append(ref)
-        return refs
-
-    def _resolve_one(self, *, conn, project_id: str, ref: str) -> dict[str, Any]:
-        ref_type = _type_for_ref(ref)
-        if ref_type is not None:
-            row = conn.execute(ref_type.query, (ref, project_id)).fetchone()
-            return (
-                _record_ref(ref_type=ref_type, row=row)
-                if row
-                else {"type": "unknown", "resolved": False}
-            )
-        resource = self.evidence_reader.resolve_resource_reference(
-            project_id=project_id, ref=ref
-        )
-        if resource is not None:
-            return resource
-        if ref.startswith("res_"):
-            return {"type": "unknown", "resolved": False}
-        return {
-            "type": "unknown",
-            "resolved": False,
-            "hint": "not a registered resource path; register the file to make this ref resolvable",
-        }
+            result: dict[str, Any] = {}
+            for ref in refs:
+                ref_type = _type_for_ref(ref)
+                if ref_type is None:
+                    continue
+                row = conn.execute(ref_type.query, (ref, project_id)).fetchone()
+                result[ref] = (
+                    _record_ref(ref_type=ref_type, row=row)
+                    if row
+                    else {"type": "unknown", "resolved": False}
+                )
+            return result
 
 
 def _type_for_ref(ref: str) -> GraphRefType | None:
@@ -137,6 +102,5 @@ def _record_ref(*, ref_type: GraphRefType, row: Any) -> dict[str, Any]:
         ref_type.id_key: row["id"],
     }
     for field in ref_type.fields:
-        value = row[field]
-        result[field] = bool(value) if field == "missing" else value
+        result[field] = row[field]
     return result

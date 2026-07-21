@@ -8,7 +8,7 @@ from unittest.mock import Mock
 from tests.support.brain import TestBrain
 
 
-class WorkflowQueryIntegrationTest(unittest.TestCase):
+class StatusAndNextQueryIntegrationTest(unittest.TestCase):
     def setUp(self) -> None:
         self.tmp = tempfile.TemporaryDirectory()
         root = Path(self.tmp.name)

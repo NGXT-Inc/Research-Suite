@@ -1,4 +1,4 @@
-"""Pure next-action policy over captured Research and Sandbox facts."""
+"""Application-owned agent guidance over Research and Sandbox facts."""
 
 from __future__ import annotations
 
@@ -10,19 +10,26 @@ from merv.shared.artifact_roles import (
     RESOURCE_ROLES,
 )
 
-from .domain.gates import ReviewRequirement, RoleRequirement
-from .domain.paths import experiment_folder_rel
-from .domain.reflection_policy import (
+from ..research_core.facade import (
+    EXPERIMENT_ACTIVE_PROCESS_STATUSES,
+    EXPERIMENT_TERMINAL_STATUSES,
+    GateEvaluation,
+    RequirementEvaluation,
+    experiment_folder_rel,
+)
+from .guidance_catalog import (
+    EXPERIMENT_READY,
+    EXPERIMENT_REQUIREMENTS,
+    REFLECTION_READY,
+    REFLECTION_REQUIREMENTS,
+    REVIEWS,
+)
+from .experiments.presentation import project_rows
+from .reflection_guidance import (
     idle_reflection_hint,
+    present_reflection_signal,
     reflection_create_block_reason,
 )
-from .domain.reflection_gates import REFLECTION_GATE_TABLE
-from .domain.workflow_gates import (
-    ACTIVE_PROCESS_STATUSES,
-    GATE_TABLE,
-    TERMINAL_STATUSES,
-)
-from .gate_evaluation import GateEvaluation, RequirementEvaluation
 
 _SLIM_RESOURCE_FIELDS = (
     "id",
@@ -36,7 +43,7 @@ _SLIM_RESOURCE_FIELDS = (
 _SLIM_REVIEW_FIELDS = ("id", "role", "verdict", "created_at", "synopsis")
 
 
-class NextActionPolicy:
+class StatusGuidancePolicy:
     """Compute guidance from immutable facts without reads or side effects."""
 
     def __init__(
@@ -45,12 +52,8 @@ class NextActionPolicy:
         storage_enabled: bool = False,
         storage_guidance: dict[str, Any] | None = None,
     ) -> None:
-        self.storage_enabled = bool(storage_enabled)
-        # Composition-injected storage guidance block (object_storage prose).
-        # The workflow embeds the dict it is handed instead of importing the
-        # storage module; compositions pass storage_guidance(enabled=...).
         self.storage_guidance = dict(
-            storage_guidance or {"enabled": self.storage_enabled}
+            storage_guidance or {"enabled": bool(storage_enabled)}
         )
 
     def project_setup(self) -> dict[str, Any]:
@@ -67,16 +70,9 @@ class NextActionPolicy:
         sandboxes: list[dict[str, Any]],
         evaluation: GateEvaluation,
     ) -> dict[str, Any]:
-        """Guidance derived from the same GATE_TABLE that enforces transitions.
-
-        Walk the status's forward transition: a review requirement delegates to
-        the review flow; the first resource role missing from the current
-        attempt yields that requirement's gate payload; all requirements met
-        yields the transition's ready payload.
-        """
         status = evaluation.status
-        forward = GATE_TABLE.get(status)
-        if forward is None:
+        transition = evaluation.transition
+        if transition is None:
             if status == "complete":
                 return self._next(
                     gate="terminal",
@@ -93,49 +89,44 @@ class NextActionPolicy:
                 action="inspect_experiment",
                 allowed=["experiment.get_state"],
             )
-        if forward.review is not None:
-            if evaluation.review is None:
-                raise RuntimeError("review gate evaluation is missing")
+        if evaluation.review is not None:
             return self._review_next(
                 target_type="experiment",
                 target=experiment,
-                review=forward.review,
                 gate=evaluation.review,
             )
-        paired = tuple(zip(forward.requirements, evaluation.requirements, strict=True))
-        for requirement, current in paired:
-            if current.status != "missing":
-                continue
+        current = self._advisory_requirement(evaluation.requirements)
+        if current is not None:
+            guidance = EXPERIMENT_REQUIREMENTS[current.role]
+            gate = current.blocker_code
+            if gate == "execution_ready" and any(
+                row.get("status") in EXPERIMENT_ACTIVE_PROCESS_STATUSES
+                for row in sandboxes
+            ):
+                gate = "execution_active"
             return self._next(
-                gate=self._requirement_gate(
-                    experiment=experiment,
-                    requirement=requirement,
-                    sandboxes=sandboxes,
+                gate=gate,
+                action=(
+                    guidance.action
+                    if current.status == "missing"
+                    else f"fix_{current.role}_resource"
                 ),
-                action=requirement.action,
-                allowed=list(requirement.allowed),
-                missing=[requirement.missing],
+                allowed=list(guidance.allowed),
+                missing=(
+                    self._missing_items(current)
+                    if current.status == "missing"
+                    else list(current.problems)
+                ),
                 resource_guidance=self._resource_guidance(
-                    key=requirement.guidance_key, experiment=experiment
+                    key=guidance.resource_key, experiment=experiment
                 ),
                 revision=experiment.get("revision_context", ""),
             )
-        for requirement, current in paired:
-            if current.status == "invalid":
-                return self._next(
-                    gate=f"{requirement.role}_invalid",
-                    action=f"fix_{requirement.role}_resource",
-                    allowed=list(requirement.allowed),
-                    missing=list(current.problems),
-                    resource_guidance=self._resource_guidance(
-                        key=requirement.guidance_key, experiment=experiment
-                    ),
-                    revision=experiment.get("revision_context", ""),
-                )
+        ready = EXPERIMENT_READY[transition]
         return self._next(
-            gate=forward.ready_gate,
-            action=forward.ready_action,
-            allowed=list(forward.ready_allowed),
+            gate=ready.gate,
+            action=ready.action,
+            allowed=list(ready.allowed),
             revision=(
                 experiment.get("revision_context", "")
                 if status != "ready_to_run"
@@ -143,25 +134,9 @@ class NextActionPolicy:
             ),
         )
 
-    def _requirement_gate(
-        self,
-        *,
-        experiment: dict[str, Any],
-        requirement: RoleRequirement,
-        sandboxes: list[dict[str, Any]],
-    ) -> str:
-        """A requirement's gate name, with the one dynamic case: the running
-        status's execution gate reflects whether a sandbox is actually live."""
-        if experiment["status"] == "running" and requirement.gate == "execution_ready":
-            if any(sb.get("status") in ACTIVE_PROCESS_STATUSES for sb in sandboxes):
-                return "execution_active"
-        return requirement.gate
-
     def _resource_guidance(
         self, *, key: str, experiment: dict[str, Any]
     ) -> dict[str, Any] | None:
-        # Guidance names the experiment's actual folder (experiments/<name>/)
-        # so the agent is told exactly where the artifact lives.
         folder = experiment_folder_rel(
             experiment_id=str(experiment.get("id") or ""),
             name=str(experiment.get("name") or ""),
@@ -181,12 +156,13 @@ class NextActionPolicy:
         *,
         target_type: str,
         target: dict[str, Any],
-        review: ReviewRequirement,
         gate: RequirementEvaluation,
     ) -> dict[str, Any]:
         target_id = target["id"]
         status = target["status"]
-        role, skill, action_name = review.role, review.skill, review.action_name
+        role = gate.role
+        review = REVIEWS[role]
+        skill, action_name = review.skill, review.action_name
         transition_tool = (
             "reflection.transition"
             if target_type == "reflection"
@@ -209,30 +185,25 @@ class NextActionPolicy:
             if gate.status in {"requested", "started"}
             else None
         )
-        if request is None:
-            # An attested-only pass under require_verified_reviews lands here
-            # (its request is already submitted): say why the gate still blocks.
-            blocked_reason = gate.problems[0] if gate.problems else ""
-            review_status = "attested_blocked" if blocked_reason else "none"
-            action = f"launch_{action_name}er"
-            allowed = ["review.request"]
-            missing = [blocked_reason] if blocked_reason else []
-        elif request["status"] == "requested":
-            review_status = "requested"
-            action = f"launch_{action_name}er"
-            allowed = ["workflow.status_and_next", "review.request"]
-            missing = []
-        else:
-            review_status = str(request["status"])
-            action = f"wait_for_{action_name}"
-            allowed = ["workflow.status_and_next"]
-            missing = []
+        blocked_reason = gate.problems[0] if gate.problems and request is None else ""
+        review_status = (
+            str(request["status"])
+            if request is not None
+            else "attested_blocked" if blocked_reason else "none"
+        )
+        launch = review_status in {"none", "attested_blocked", "requested"}
+        action = f"launch_{action_name}er" if launch else f"wait_for_{action_name}"
+        allowed = (
+            ["workflow.status_and_next", "review.request"]
+            if review_status == "requested"
+            else ["review.request"] if launch else ["workflow.status_and_next"]
+        )
 
         return self._next(
             gate=status,
             action=action,
             allowed=allowed,
-            missing=missing,
+            missing=[blocked_reason] if blocked_reason else [],
             review_gate=self._review_gate(
                 role=role,
                 skill=skill,
@@ -281,29 +252,7 @@ class NextActionPolicy:
         signal: dict[str, Any],
         idle: bool,
     ) -> dict[str, Any] | None:
-        """Project-level reflection orientation, surfaced only when relevant.
-
-        While a reflection wave is open: the wave's slim state plus the same
-        gate-table-derived guidance experiments get. Otherwise the drift
-        signal decides, with an advisory nudge before a hard create block:
-
-        - stale (>= 3 newly-terminal experiments since the last published
-          reflection, or a claim flipped to contradicted): the soft
-          "Consider…" hint, whatever else is in flight.
-        - recommended (the project is idle AND at least one experiment has
-          finished since the last published reflection): nothing is running
-          and there is something new to reflect on, so reflection is worth
-          suggesting as the next action (_reflection_workflow_takeover).
-        - blocked (>= 5 newly-terminal experiments since the last published
-          reflection): experiment.create is rejected until a project reflection
-          is published; a published change spec can still materialize the next
-          experiment wave.
-
-        Nothing at all when there is nothing to say, so the constantly-polled
-        orientation call stays lean until the hard threshold is reached.
-        Before that threshold, whether new developments change the project's
-        logic state stays the agent's call.
-        """
+        presented_signal = present_reflection_signal(signal) or {}
         if open_wave is not None:
             if evaluation is None:
                 raise RuntimeError("reflection gate evaluation is missing")
@@ -317,7 +266,7 @@ class NextActionPolicy:
             return {
                 "reflection": self._slim_reflection(open_wave),
                 "workflow": workflow,
-                "signal": signal,
+                "signal": presented_signal,
             }
         has_new_material = (
             signal["new_terminal_since_publish"] >= 1 or signal["contradicted_flip"]
@@ -327,8 +276,10 @@ class NextActionPolicy:
             return None
         block: dict[str, Any] = {
             "reflection": None,
-            "hint": signal["hint"] or idle_reflection_hint(signal=signal),
-            "signal": signal,
+            "hint": (
+                presented_signal.get("hint") or idle_reflection_hint(signal=signal)
+            ),
+            "signal": presented_signal,
             "experiment_create_blocked": bool(signal.get("experiment_create_blocked")),
         }
         if recommended:
@@ -338,16 +289,6 @@ class NextActionPolicy:
     def reflection_workflow_takeover(
         self, *, reflection: dict[str, Any] | None
     ) -> dict[str, Any] | None:
-        """The workflow block for an idle, project-level orientation call.
-
-        An idle project's auto-resolved experiment is terminal, so its gate
-        answers "none" — exactly the moment the agent is deciding what to do
-        next. An open reflection wave's gate guidance takes the slot;
-        otherwise the 'recommended' tier suggests starting one. The hard
-        create-block tier removes experiment.create until a reflection is
-        published. Explicit experiment-scoped calls never reach this (the
-        project_reflection side block still carries the signal there).
-        """
         if reflection is None:
             return None
         if reflection.get("reflection") is not None:
@@ -386,15 +327,6 @@ class NextActionPolicy:
     def live_experiments_takeover(
         self, *, exp_rows, reflection: dict[str, Any] | None
     ) -> dict[str, Any]:
-        """The workflow block when the auto-resolved (newest-created)
-        experiment is terminal while sibling experiments are still live.
-
-        The project-level "what now?" call must never answer 'none' over live
-        work: the slim projection drops the project's experiment list and the
-        reflection takeover only covers the idle project, so this lists the
-        live siblings in the guidance payload for the agent to re-orient onto
-        — or start the next experiment. Explicit experiment-scoped calls
-        never reach this (the resolved experiment's terminal gate stands)."""
         live = [
             {
                 "id": row["id"],
@@ -404,13 +336,15 @@ class NextActionPolicy:
                 "intent": row["intent"],
             }
             for row in exp_rows
-            if str(row["status"]) not in TERMINAL_STATUSES
+            if str(row["status"]) not in EXPERIMENT_TERMINAL_STATUSES
         ]
         signal = (reflection or {}).get("signal") or {}
         allowed = ["workflow.status_and_next"]
         blocked: list[dict[str, str]] = []
         if signal.get("experiment_create_blocked"):
-            reason = (reflection or {}).get("hint") or reflection_create_block_reason(
+            reason = (reflection or {}).get(
+                "hint"
+            ) or reflection_create_block_reason(
                 signal=signal
             )
             blocked.append({"action": "experiment.create", "reason": reason})
@@ -454,89 +388,65 @@ class NextActionPolicy:
         reflection: dict[str, Any],
         evaluation: GateEvaluation,
     ) -> dict[str, Any]:
-        """Guidance for a reflection wave, derived from REFLECTION_GATE_TABLE —
-        the same walk as _workflow_for, with the roster-coverage requirement
-        reported per missing lens."""
         status = evaluation.status
-        forward = REFLECTION_GATE_TABLE.get(status)
-        if forward is None:
+        transition = evaluation.transition
+        if transition is None:
             return self._next(gate="terminal", action="none", allowed=[])
-        if forward.review is not None:
-            if evaluation.review is None:
-                raise RuntimeError("review gate evaluation is missing")
+        if evaluation.review is not None:
             return self._review_next(
                 target_type="reflection",
                 target=reflection,
-                review=forward.review,
                 gate=evaluation.review,
             )
-        paired = tuple(zip(forward.requirements, evaluation.requirements, strict=True))
-        if status == "reflecting":
-            requirement, current = paired[0]
-            if not current.satisfied:
-                missing = (
-                    [
-                        str(item["missing"])
-                        for item in current.items
-                        if item.get("status") == "missing" and item.get("missing")
-                    ]
-                    or list(current.problems)
-                    or [current.explanation]
-                )
-                return self._next(
-                    gate=(
-                        requirement.gate
-                        if current.status == "missing"
-                        else f"{requirement.role}_invalid"
-                    ),
-                    action=(
-                        requirement.action
-                        if current.status == "missing"
-                        else f"fix_{requirement.role}_resource"
-                    ),
-                    allowed=list(requirement.allowed),
-                    missing=missing,
-                    resource_guidance=self._reflection_resource_guidance(),
-                    revision=reflection.get("revision_context", ""),
-                )
+        current = self._advisory_requirement(evaluation.requirements)
+        if current is not None:
+            guidance = REFLECTION_REQUIREMENTS[current.role]
             return self._next(
-                gate=forward.ready_gate,
-                action=forward.ready_action,
-                allowed=list(forward.ready_allowed),
-                revision=reflection.get("revision_context", ""),
-            )
-        for requirement, current in paired:
-            if current.status != "missing":
-                continue
-            return self._next(
-                gate=requirement.gate,
-                action=requirement.action,
-                allowed=list(requirement.allowed),
-                missing=[requirement.missing],
-                resource_guidance=self._synthesizing_resource_guidance(
-                    key=requirement.guidance_key
+                gate=current.blocker_code,
+                action=(
+                    guidance.action
+                    if current.status == "missing"
+                    else f"fix_{current.role}_resource"
+                ),
+                allowed=list(guidance.allowed),
+                missing=(
+                    self._missing_items(current)
+                    if current.status == "missing"
+                    else list(current.problems)
+                    or ([current.explanation] if status == "reflecting" else [])
+                ),
+                resource_guidance=(
+                    self._reflection_resource_guidance()
+                    if status == "reflecting"
+                    else self._synthesizing_resource_guidance(
+                        key=guidance.resource_key
+                    )
                 ),
                 revision=reflection.get("revision_context", ""),
             )
-        for requirement, current in paired:
-            if current.status != "invalid":
-                continue
-            return self._next(
-                gate=f"{requirement.role}_invalid",
-                action=f"fix_{requirement.role}_resource",
-                allowed=list(requirement.allowed),
-                missing=list(current.problems),
-                resource_guidance=self._synthesizing_resource_guidance(
-                    key=requirement.guidance_key
-                ),
-                revision=reflection.get("revision_context", ""),
-            )
+        ready = REFLECTION_READY[transition]
         return self._next(
-            gate=forward.ready_gate,
-            action=forward.ready_action,
-            allowed=list(forward.ready_allowed),
+            gate=ready.gate,
+            action=ready.action,
+            allowed=list(ready.allowed),
             revision=reflection.get("revision_context", ""),
         )
+
+    @staticmethod
+    def _advisory_requirement(
+        evaluations: tuple[RequirementEvaluation, ...],
+    ) -> RequirementEvaluation | None:
+        return next(
+            (item for item in evaluations if item.status == "missing"), None
+        ) or next((item for item in evaluations if item.status == "invalid"), None)
+
+    @staticmethod
+    def _missing_items(evaluation: RequirementEvaluation) -> list[str]:
+        return [
+            str(item["missing"])
+            for item in evaluation.items
+            if item.get("status") == "missing" and item.get("missing")
+        ] or [evaluation.explanation]
 
     def _reflection_resource_guidance(self) -> dict[str, Any]:
         return {
@@ -560,19 +470,12 @@ class NextActionPolicy:
             "status": reflection.get("status"),
             "attempt_index": reflection.get("attempt_index"),
             "revision_context": reflection.get("revision_context"),
-            "roster": [
-                {key: lens.get(key) for key in ("id", "title", "core")}
-                for lens in reflection.get("roster", [])
-            ],
+            "roster": project_rows(reflection.get("roster", []), ("id", "title", "core")),
             "reflection_coverage": reflection.get("reflection_coverage"),
-            "current_attempt_resources": [
-                {field: resource.get(field) for field in _SLIM_RESOURCE_FIELDS}
-                for resource in reflection.get("current_attempt_resources", [])
-            ],
-            "reviews": [
-                {field: review.get(field) for field in _SLIM_REVIEW_FIELDS}
-                for review in reflection.get("reviews", [])
-            ],
+            "current_attempt_resources": project_rows(
+                reflection.get("current_attempt_resources", []), _SLIM_RESOURCE_FIELDS
+            ),
+            "reviews": project_rows(reflection.get("reviews", []), _SLIM_REVIEW_FIELDS),
             "allowed_transitions": reflection.get("allowed_transitions", []),
         }
 
@@ -656,7 +559,7 @@ class NextActionPolicy:
             "copy light files out over SSH into the local experiment folder "
             "or upload heavy files with storage.upload_file, then register "
             "those retained files."
-            if self.storage_enabled
+            if self.storage_guidance.get("enabled")
             else (
                 "copy retained files out over SSH into the local experiment folder, "
                 "then register those retained files. Heavy-file storage is not "
@@ -782,4 +685,4 @@ class NextActionPolicy:
         return result
 
 
-__all__ = ["NextActionPolicy"]
+__all__ = ["StatusGuidancePolicy"]

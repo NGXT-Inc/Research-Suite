@@ -9,7 +9,7 @@ from typing import Any, Protocol
 
 from merv.shared.artifact_roles import PROJECT_GRAPH_ROLES
 
-from ..artifacts.facade import Artifacts, build_experiment_figure
+from ..artifacts.facade import Artifacts
 from ..research_core.facade import (
     MAX_GRAPH_NODES,
     ResearchCore,
@@ -17,6 +17,9 @@ from ..research_core.facade import (
     preferred_associated_resource,
 )
 from .experiments.tracking_policy import mlflow_experiment_name
+from .experiment_figure import build_experiment_figure
+from .reflection_guidance import present_reflection_signal
+from .reflections import present_reflection_overview, present_reflection_state
 
 Record = dict[str, Any]
 RecordQuery = Callable[..., Record]
@@ -206,11 +209,15 @@ class LogicGraphQuery:
         )
 
     def reflections(self, *, project_id: str) -> Record:
-        return self.research.reflection_overview(project_id=project_id)
+        return present_reflection_overview(
+            self.research.reflection_overview(project_id=project_id)
+        )
 
     def reflection(self, *, project_id: str, reflection_id: str) -> Record:
-        return self.research.reflection_state(
-            reflection_id=reflection_id, project_id=project_id
+        return present_reflection_state(
+            self.research.reflection_state(
+                reflection_id=reflection_id, project_id=project_id
+            )
         )
 
     def project(self, *, project_id: str) -> Record:
@@ -219,7 +226,7 @@ class LogicGraphQuery:
             project_id=project_id,
             reflection=selection.get("reflection"),
             graph_resource=selection.get("graph_resource"),
-            extra_base={"signal": selection.get("signal")},
+            extra_base={"signal": present_reflection_signal(selection.get("signal"))},
         )
 
     def reflection_graph(self, *, project_id: str, reflection_id: str) -> Record:
@@ -302,7 +309,7 @@ class LogicGraphQuery:
             "association_attempt_index": chosen.get("association_attempt_index"),
             "graph": graph,
             "problems": graph_problems(text),
-            "ref_index": self.research.resolve_graph_refs(
+            "ref_index": self._resolve_graph_refs(
                 project_id=project_id, graph=graph
             ),
         }
@@ -311,3 +318,48 @@ class LogicGraphQuery:
         return self.artifacts.submitted_text_for_version(
             version_id=resource.get("association_version_id")
         )
+
+    def _resolve_graph_refs(
+        self, *, project_id: str, graph: Record | None
+    ) -> Record:
+        refs = _refs_from_graph(graph)
+        if not refs:
+            return {}
+        research = self.research.resolve_research_graph_refs(
+            project_id=project_id, refs=tuple(refs)
+        )
+        resolved: Record = {}
+        for ref in refs:
+            if ref in research:
+                resolved[ref] = research[ref]
+                continue
+            resource = self.artifacts.resolve_resource_reference(
+                project_id=project_id, ref=ref
+            )
+            if resource is not None:
+                resolved[ref] = resource
+            elif ref.startswith("res_"):
+                resolved[ref] = {"type": "unknown", "resolved": False}
+            else:
+                resolved[ref] = {
+                    "type": "unknown",
+                    "resolved": False,
+                    "hint": (
+                        "not a registered resource path; register the file to make "
+                        "this ref resolvable"
+                    ),
+                }
+        return resolved
+
+
+def _refs_from_graph(graph: Record | None) -> list[str]:
+    refs: list[str] = []
+    seen: set[str] = set()
+    for node in (graph or {}).get("nodes") or []:
+        if not isinstance(node, dict) or not isinstance(node.get("refs"), list):
+            continue
+        for ref in node["refs"]:
+            if isinstance(ref, str) and ref.strip() and ref not in seen:
+                seen.add(ref)
+                refs.append(ref)
+    return refs

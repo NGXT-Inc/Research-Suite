@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from dataclasses import dataclass
 from typing import Any, TypedDict, cast
 
 from ...feed.facade import Feed
@@ -9,7 +10,6 @@ from ...research_core.facade import (
     ExperimentState,
     PersistedRunState,
     ResearchCore,
-    SlimExperimentState,
 )
 from ..events import EventDispatcher
 from ..ports.tracking import (
@@ -17,7 +17,13 @@ from ..ports.tracking import (
     FinalizeRunResult,
     TrackingContextPayload,
 )
+from ..ports.storage import ProducedObjectCatalog
 from .tracking_policy import mlflow_experiment_name, mlflow_visible_for_status
+from .presentation import (
+    SlimExperimentState,
+    rich_experiment_state,
+    slim_experiment_state,
+)
 from .tracking_presentation import (
     tracking_connection,
     tracking_context_response,
@@ -48,7 +54,7 @@ class ExperimentDetailResponse(ExperimentState, total=False):
 
 
 class GetTrackingContext:
-    """Build project or experiment tracking context behind one application API."""
+    """Build project or experiment tracking connection context."""
 
     def __init__(
         self, *, research: ResearchCore, tracking: ExperimentTracking | None
@@ -109,35 +115,68 @@ class GetTrackingContext:
             ),
         )
 
-    def experiment(
+@dataclass(slots=True)
+class AgentExperimentQuery:
+    """Agent-facing experiment state, including credential-bearing tracking."""
+
+    research: ResearchCore
+    objects: ProducedObjectCatalog
+    tracking: ExperimentTracking | None
+
+    def __call__(
         self, *, experiment_id: str, project_id: str | None = None
     ) -> SlimExperimentState:
         state = self.research.experiment_state(
             experiment_id=experiment_id, project_id=project_id
         )
-        response = dict(self.research.present_experiment(state))
+        resolved_project_id = str(state.get("project_id") or project_id or "")
+        storage_objects = self.objects.by_experiment(
+            project_id=resolved_project_id, experiment_ids=(experiment_id,)
+        )[experiment_id]
+        response = dict(
+            slim_experiment_state(state, storage_objects=storage_objects)
+        )
         return cast(
             SlimExperimentState,
             with_tracking_if_visible(
                 state=response,
                 tracking=self.tracking,
-                project_id=str(state.get("project_id") or project_id or ""),
+                project_id=resolved_project_id,
                 experiment_id=experiment_id,
                 include_credentials=True,
             ),
         )
 
-    def experiment_detail(
+
+@dataclass(slots=True)
+class ExperimentDetailQuery:
+    """UI experiment detail with redacted tracking connection data."""
+
+    research: ResearchCore
+    objects: ProducedObjectCatalog
+    tracking: ExperimentTracking | None
+
+    def __call__(
         self, *, experiment_id: str, project_id: str | None = None
     ) -> ExperimentDetailResponse:
         state = self.research.experiment_state(
             experiment_id=experiment_id, project_id=project_id
         )
-        response = cast(ExperimentDetailResponse, dict(state))
+        resolved_project_id = str(state.get("project_id") or project_id or "")
+        response = cast(
+            ExperimentDetailResponse,
+            rich_experiment_state(
+                state,
+                storage_objects=self.objects.by_experiment(
+                    project_id=resolved_project_id,
+                    experiment_ids=(experiment_id,),
+                )[experiment_id],
+            ),
+        )
         if mlflow_visible_for_status(state.get("status")):
             response["mlflow"] = tracking_connection(
                 tracking=self.tracking,
-                project_id=str(state.get("project_id") or project_id or ""),
+                project_id=resolved_project_id,
                 experiment_id=experiment_id,
                 include_credentials=False,
                 run=state.get("mlflow_run"),
@@ -155,9 +194,11 @@ class FinalizeTrackingRun:
         feed: Feed,
         tracking: ExperimentTracking | None,
         dispatcher: EventDispatcher,
+        objects: ProducedObjectCatalog,
     ) -> None:
         self.research, self.feed, self.tracking = research, feed, tracking
         self.dispatcher = dispatcher
+        self.objects = objects
 
     def execute(
         self,
@@ -182,6 +223,9 @@ class FinalizeTrackingRun:
                 "run_id": resolved_run_id,
                 "error": "MLflow tracking is not configured on this backend.",
             }
+        storage_objects = self.objects.by_experiment(
+            project_id=resolved_project_id, experiment_ids=(experiment_id,)
+        )[experiment_id]
         result = self.tracking.finalize_run(
             project_id=resolved_project_id,
             experiment_id=experiment_id,
@@ -203,7 +247,9 @@ class FinalizeTrackingRun:
                 run=cast(PersistedRunState, run),
             )
             state = committed.state
-        experiment = dict(self.research.present_experiment(state))
+        experiment = dict(
+            slim_experiment_state(state, storage_objects=storage_objects)
+        )
         with_tracking_if_visible(
             state=experiment,
             tracking=self.tracking,
@@ -244,7 +290,9 @@ class FinalizeTrackingRun:
 
 
 __all__ = [
+    "AgentExperimentQuery",
     "ExperimentDetailResponse",
+    "ExperimentDetailQuery",
     "FinalizeTrackingResponse",
     "FinalizeTrackingRun",
     "GetTrackingContext",

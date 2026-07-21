@@ -21,7 +21,9 @@ from merv.brain.application.experiments.tracking import (
     FinalizeTrackingResponse,
     TrackingContextResponse,
 )
+from merv.brain.application.experiments.presentation import SlimExperimentState
 from merv.brain.application.experiments.transition import TransitionResponse
+from merv.brain.application.ports.storage import ProducedObject
 from merv.brain.application.ports.tracking import (
     CreateRunResult,
     FinalizeRunResult,
@@ -53,7 +55,7 @@ from merv.brain.kernel.ports.object_store import (
     UploadTarget,
 )
 from merv.brain.kernel.ports.quota_admission import AdmissionRequest
-from merv.brain.research_core.facade import ResearchSnapshot
+from merv.brain.research_core.facade import ExperimentCreateArgs, ResearchSnapshot
 from merv.brain.research_core.gate_evaluation import (
     GateEvaluation,
     RequirementEvaluation,
@@ -63,7 +65,6 @@ from merv.brain.research_core.transition_types import (
     ExhibitVerdict,
     ExperimentState,
     PersistedRunState,
-    SlimExperimentState,
 )
 from merv.brain.sandbox.messages import (
     AttachSandboxCommand,
@@ -81,11 +82,17 @@ from tests.paths import BACKEND_ROOT
 
 APPLICATION_DATACLASS_EXCLUSIONS = frozenset(
     {
+        "merv.brain.application.experiments.create.CreateExperiment",
+        "merv.brain.application.experiments.queries.ExperimentCollectionQuery",
         "merv.brain.application.experiments.reactions.ExperimentReactions",
+        "merv.brain.application.experiments.tracking.AgentExperimentQuery",
+        "merv.brain.application.experiments.tracking.ExperimentDetailQuery",
         "merv.brain.application.experiments.transition.TransitionExperiment",
+        "merv.brain.application.resource_content.HostedResourceContentQuery",
+        "merv.brain.application.reflections.ReflectionCommands",
         "merv.brain.application.reviews.ReadReviewStatus",
         "merv.brain.application.workflow.ProjectDashboardQuery",
-        "merv.brain.application.workflow.WorkflowQuery",
+        "merv.brain.application.workflow.StatusAndNextQuery",
     }
 )
 
@@ -98,6 +105,7 @@ def _boundary_types() -> dict[str, type]:
     """Discover public DTOs in stable entrypoints and their value modules."""
     result: dict[str, type] = {}
     value_modules = {
+        "application/experiments/presentation.py",
         "kernel/events.py",
         "research_core/gate_evaluation.py",
         "research_core/transition_types.py",
@@ -230,6 +238,23 @@ SAMPLES: dict[type, object] = {
         "available": True,
         "experiments": [{"name": "proj_1.exp_1", "runs": []}],
     },
+    ProducedObject: {
+        "id": "so_1",
+        "name": "models/checkpoint.bin",
+        "version": 1,
+        "kind": "model",
+        "content_sha256": "c" * 64,
+        "size_bytes": 12,
+        "content_type": "application/octet-stream",
+        "status": "available",
+        "expires_at": None,
+        "producing_run": "run_1",
+        "source_uri": "",
+        "notes": "retained",
+        "created_at": "2026-07-21T12:00:00Z",
+        "updated_at": "2026-07-21T12:00:00Z",
+        "last_accessed_at": None,
+    },
     MetricFileSource: {
         "path": "experiments/example/results.json",
         "version_id": "rver_1",
@@ -317,6 +342,20 @@ SAMPLES: dict[type, object] = {
     DownloadTarget: {"url": "https://download.example"},
     AdmissionRequest: AdmissionRequest("tenant_1", 3600, 1.25),
     PersistedRunState: RUN,
+    ExperimentCreateArgs: {
+        "name": "example",
+        "intent": "Test one claim",
+        "tested_claim_ids": ["claim_1"],
+        "claim_id": None,
+        "claim_ids": None,
+        "title": "",
+        "hypothesis": "",
+        "design": "",
+        "success_criteria": "",
+        "risks": "",
+        "status": "planned",
+        "project_id": "proj_1",
+    },
     ExperimentState: {
         "id": "exp_1",
         "project_id": "proj_1",

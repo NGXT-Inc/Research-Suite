@@ -85,15 +85,26 @@ class GraphResearch:
     def project_logic_graph_selection(self, **_kwargs):
         return {"reflection": None, "graph_resource": None, "signal": "stale"}
 
-    def resolve_graph_refs(self, **kwargs):
+    def resolve_research_graph_refs(self, **kwargs):
         self.resolved.append(kwargs)
-        return {"claim_1": {"resolved": True}}
+        return {
+            ref: {"type": "claim", "resolved": True}
+            for ref in kwargs["refs"]
+            if ref == "claim_1"
+        }
 
 
 class GraphArtifacts:
+    def __init__(self) -> None:
+        self.resolved = []
+
     def submitted_text_for_version(self, *, version_id):
         if version_id == "ver_new":
             return '{"version":1,"nodes":[{"id":"n","label":"New","refs":["claim_1"]}]}'
+        return None
+
+    def resolve_resource_reference(self, *, project_id, ref):
+        self.resolved.append({"project_id": project_id, "ref": ref})
         return None
 
 
@@ -149,7 +160,8 @@ class ApplicationQueryTest(unittest.TestCase):
 
     def test_logic_graph_query_owns_selection_parsing_lint_and_ref_resolution(self) -> None:
         research = GraphResearch()
-        query = LogicGraphQuery(research=research, artifacts=GraphArtifacts())
+        artifacts = GraphArtifacts()
+        query = LogicGraphQuery(research=research, artifacts=artifacts)
 
         result = query.experiment(project_id="proj_1", experiment_id="exp_1")
 
@@ -157,10 +169,99 @@ class ApplicationQueryTest(unittest.TestCase):
         self.assertEqual(result["resource_id"], "res_new")
         self.assertEqual(result["graph"]["nodes"][0]["label"], "New")
         self.assertEqual(result["problems"], [])
-        self.assertEqual(result["ref_index"], {"claim_1": {"resolved": True}})
+        self.assertEqual(
+            result["ref_index"],
+            {"claim_1": {"type": "claim", "resolved": True}},
+        )
         self.assertEqual(
             research.resolved,
-            [{"project_id": "proj_1", "graph": result["graph"]}],
+            [{"project_id": "proj_1", "refs": ("claim_1",)}],
+        )
+        self.assertEqual(artifacts.resolved, [])
+
+    def test_logic_graph_query_composes_refs_in_first_seen_order(self) -> None:
+        class MixedResearch(GraphResearch):
+            def experiment_state(self, **_kwargs):
+                state = super().experiment_state()
+                state["resources"][-1]["association_version_id"] = "ver_mixed"
+                return state
+
+            def resolve_research_graph_refs(self, **kwargs):
+                self.resolved.append(kwargs)
+                return {
+                    "claim_1": {"type": "claim", "resolved": True},
+                    "exp_missing": {"type": "unknown", "resolved": False},
+                }
+
+        class MixedArtifacts(GraphArtifacts):
+            def submitted_text_for_version(self, *, version_id):
+                if version_id == "ver_mixed":
+                    return (
+                        '{"version":1,"nodes":['
+                        '{"id":"a","label":"A","refs":'
+                        '["claim_1","results.json","claim_1","exp_missing"]},'
+                        '{"id":"b","label":"B","refs":'
+                        '["res_missing","ghost.json"," ",7]}]}'
+                    )
+                return None
+
+            def resolve_resource_reference(self, *, project_id, ref):
+                self.resolved.append({"project_id": project_id, "ref": ref})
+                if ref == "results.json":
+                    return {
+                        "type": "resource",
+                        "resolved": True,
+                        "resource_id": "res_results",
+                    }
+                return None
+
+        research = MixedResearch()
+        artifacts = MixedArtifacts()
+
+        result = LogicGraphQuery(research=research, artifacts=artifacts).experiment(
+            project_id="proj_1", experiment_id="exp_1"
+        )
+
+        self.assertEqual(
+            list(result["ref_index"]),
+            [
+                "claim_1",
+                "results.json",
+                "exp_missing",
+                "res_missing",
+                "ghost.json",
+            ],
+        )
+        self.assertEqual(
+            result["ref_index"]["exp_missing"],
+            {"type": "unknown", "resolved": False},
+        )
+        self.assertEqual(
+            result["ref_index"]["res_missing"],
+            {"type": "unknown", "resolved": False},
+        )
+        self.assertIn(
+            "not a registered resource",
+            result["ref_index"]["ghost.json"]["hint"],
+        )
+        self.assertEqual(
+            research.resolved,
+            [
+                {
+                    "project_id": "proj_1",
+                    "refs": (
+                        "claim_1",
+                        "results.json",
+                        "exp_missing",
+                        "res_missing",
+                        "ghost.json",
+                    ),
+                }
+            ],
+        )
+        self.assertEqual(
+            [call["ref"] for call in artifacts.resolved],
+            ["results.json", "res_missing", "ghost.json"],
         )
 
     def test_project_graph_keeps_signal_when_no_reflection_exists(self) -> None:
@@ -179,6 +280,31 @@ class ApplicationQueryTest(unittest.TestCase):
                 "problems": [],
             },
         )
+
+    def test_project_graph_presents_semantic_reflection_signal(self) -> None:
+        class SemanticSignalResearch(GraphResearch):
+            def project_logic_graph_selection(self, **_kwargs):
+                return {
+                    "reflection": None,
+                    "graph_resource": None,
+                    "signal": {
+                        "terminal_experiments": 3,
+                        "covered_terminal_experiments": 0,
+                        "new_terminal_since_publish": 3,
+                        "claims_changed_since_publish": 0,
+                        "contradicted_flip": False,
+                        "last_published_reflection_id": None,
+                        "stale": True,
+                        "experiment_create_blocked": False,
+                    },
+                }
+
+        result = LogicGraphQuery(
+            research=SemanticSignalResearch(), artifacts=GraphArtifacts()
+        ).project(project_id="proj_1")
+
+        self.assertEqual(list(result["signal"])[-1], "hint")
+        self.assertIn("first reflection", result["signal"]["hint"])
 
     def test_mlflow_overview_preserves_mapping_and_history_policy(self) -> None:
         tracking = RecordingTracking()

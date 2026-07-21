@@ -1,4 +1,4 @@
-"""Derived experiment-figure projection (Phase 0 of the figure feature).
+"""Application-owned derived experiment-figure projection.
 
 Builds a graph document — typed nodes + edges — for one experiment from state
 the backend already owns: the attempt chain, resource associations (with
@@ -7,7 +7,7 @@ claims. Nothing here is agent-authored; every node is derived and therefore
 true by construction. A later phase merges an agent-authored overlay (arms,
 decisions, metrics, lessons) into the same document shape.
 
-Pure projection logic — no DB or backend calls. The HTTP layer gathers the
+Pure projection logic — no DB or backend calls. The Application query gathers the
 inputs (experiment state, review snapshots, open review requests, sandbox
 view) and hands them in.
 

@@ -54,7 +54,7 @@ The exact component import matrix is:
 | Feed | Feed, Kernel |
 | Application | Application, Research, Artifacts, Sandbox, Feed, Kernel |
 | Tracking integration | Tracking integration, Application, Kernel |
-| Storage | Storage, Kernel |
+| Storage | Storage, Application, Kernel |
 | Surface | any component; its independent layer classification still applies |
 
 Outside bootstrap, code enters another component only through its declared
@@ -125,7 +125,10 @@ an explicit foreign run keeps the old advisory response but writes no event and
 never changes the experiment's canonical run identity.
 
 Artifacts, Feed, cleanup, and storage-ledger policy depend on narrow blob/object
-ports owned by Kernel. Local and S3 implementations remain under
+ports owned by Kernel. Application response composition depends on its batch
+`ProducedObjectCatalog` port; the provider-independent SQL catalog under
+`object_storage` implements that port so historical ledger rows remain readable
+when no byte provider is enabled. Local and S3 implementations remain under
 `object_storage` as replaceable adapters. Old import paths may re-export the
 same symbols for compatibility, but do not own their definitions.
 
@@ -170,18 +173,30 @@ assembles workflow orientation and the project dashboard from one bulk Research
 snapshot plus Sandbox reads; `application/queries.py` owns tracking overview,
 experiment figure, hydrated compute costs, and experiment/project/reflection
 logic graphs. Artifacts owns
-submitted resource-content and figure selection behind `ArtifactsFacade`.
+submitted resource-content and figure selection behind `ArtifactsFacade`;
+Application owns hosted content-response and experiment/figure presentation.
 Surface retains authentication, conditional HTTP caching, local-field
 redaction, MIME/header shaping, and serialization only.
 
 Research evaluates each experiment or reflection gate once per hydration. The
 typed, JSON-safe evaluation carries requirement, validation, current-snapshot
 review-request, blocker, and legal-transition facts. That same value enforces
-transitions, projects the existing checklist, travels in `ResearchSnapshot`,
+transitions, supplies the semantic checklist, travels in `ResearchSnapshot`,
 and drives workflow guidance. Application may combine those facts with live
 Sandbox state for presentation, but it cannot reconstruct transition legality.
 Review requests likewise read their expected role from the current evaluation;
 there is no parallel status-to-review-role map.
+
+Research gate contracts contain semantic roles, evidence status, domain
+enforcement errors, human-readable transition preconditions, blocker codes,
+and legal transitions. They do not choose an executable next action.
+Application owns the tool names, skills, ready actions, templates, and recovery
+wording exposed by `status_and_next`, plus the compatibility projection that
+adds those fields to experiment and reflection checklists at the public
+response boundary. Reflection drift signals likewise contain facts only;
+Application derives their agent hint and post-publish actions.
+`StatusAndNextQuery` joins one Research snapshot with Sandbox and
+produced-object facts before applying that pure guidance policy.
 
 Review role/verdict validation is Research domain policy; resource association
 role/target validation is Artifacts domain policy. Project membership mutation

@@ -6,7 +6,9 @@ from typing import Any, get_type_hints
 from unittest.mock import patch
 
 from merv.brain.application.experiments.tracking import (
+    AgentExperimentQuery,
     ExperimentDetailResponse,
+    ExperimentDetailQuery,
     FinalizeTrackingResponse,
     FinalizeTrackingRun,
     GetTrackingContext,
@@ -82,7 +84,6 @@ class RecordingResearch:
         self.refresh_error = refresh_error
         self.refresh_calls: list[dict[str, Any]] = []
         self.project_calls: list[str] = []
-        self.present_calls: list[dict[str, Any]] = []
         self.event = _event()
 
     def experiment_state(self, **kwargs: Any) -> dict[str, Any]:
@@ -102,11 +103,6 @@ class RecordingResearch:
         return CommittedTrackingRunRefresh(
             state=deepcopy(self.refreshed), event=self.event
         )
-
-    def present_experiment(self, state: dict[str, Any]) -> dict[str, Any]:
-        self.order.append("research.present")
-        self.present_calls.append(deepcopy(state))
-        return deepcopy(state)
 
 
 class RecordingTracking:
@@ -182,6 +178,30 @@ class RecordingFeed:
         return self.note
 
 
+class RecordingObjects:
+    def __init__(
+        self,
+        order: list[str],
+        *,
+        error: Exception | None = None,
+        rows: list[dict[str, Any]] | None = None,
+    ) -> None:
+        self.order = order
+        self.error = error
+        self.rows = rows or []
+        self.calls: list[dict[str, Any]] = []
+
+    def by_experiment(self, **kwargs: Any) -> dict[str, list[dict[str, Any]]]:
+        self.order.append("objects.by_experiment")
+        self.calls.append(kwargs)
+        if self.error is not None:
+            raise self.error
+        return {
+            experiment_id: deepcopy(self.rows)
+            for experiment_id in kwargs["experiment_ids"]
+        }
+
+
 class TrackingContextQueryTest(unittest.TestCase):
     def test_use_cases_expose_typed_public_results(self) -> None:
         self.assertIs(
@@ -193,8 +213,12 @@ class TrackingContextQueryTest(unittest.TestCase):
             FinalizeTrackingResponse,
         )
         self.assertIs(
-            get_type_hints(GetTrackingContext.experiment_detail)["return"],
+            get_type_hints(ExperimentDetailQuery.__call__)["return"],
             ExperimentDetailResponse,
+        )
+        self.assertEqual(
+            get_type_hints(AgentExperimentQuery.__call__)["return"].__name__,
+            "SlimExperimentState",
         )
 
     def test_project_context_uses_port_and_research_namespace_map(self) -> None:
@@ -266,9 +290,11 @@ class TrackingContextQueryTest(unittest.TestCase):
         research = RecordingResearch(order)
         tracking = RecordingTracking(order)
 
-        result = GetTrackingContext(
-            research=research, tracking=tracking
-        ).experiment_detail(experiment_id=EXPERIMENT_ID, project_id=PROJECT_ID)
+        result = ExperimentDetailQuery(
+            research=research,
+            objects=RecordingObjects(order),
+            tracking=tracking,
+        )(experiment_id=EXPERIMENT_ID, project_id=PROJECT_ID)
 
         self.assertEqual(result["mlflow"]["run"]["run_id"], "run_mine")
         self.assertEqual(result["mlflow"]["env"]["MLFLOW_RUN_ID"], "run_mine")
@@ -288,9 +314,11 @@ class TrackingContextQueryTest(unittest.TestCase):
         research = RecordingResearch(order, state={**_state(), "status": "planned"})
         tracking = RecordingTracking(order)
 
-        result = GetTrackingContext(
-            research=research, tracking=tracking
-        ).experiment_detail(experiment_id=EXPERIMENT_ID, project_id=PROJECT_ID)
+        result = ExperimentDetailQuery(
+            research=research,
+            objects=RecordingObjects(order),
+            tracking=tracking,
+        )(experiment_id=EXPERIMENT_ID, project_id=PROJECT_ID)
 
         self.assertNotIn("mlflow", result)
         self.assertEqual(tracking.context_calls, [])
@@ -303,6 +331,7 @@ class FinalizeTrackingRunTest(unittest.TestCase):
         research: RecordingResearch,
         tracking: RecordingTracking | None,
         feed: RecordingFeed,
+        objects: RecordingObjects | None = None,
     ) -> FinalizeTrackingRun:
         dispatcher = EventDispatcher()
         ExperimentReactions(
@@ -313,6 +342,7 @@ class FinalizeTrackingRunTest(unittest.TestCase):
             tracking=tracking,
             feed=feed,
             dispatcher=dispatcher,
+            objects=objects or RecordingObjects(research.order),
         )
 
     def test_unconfigured_response_remains_exact(self) -> None:
@@ -387,13 +417,61 @@ class FinalizeTrackingRunTest(unittest.TestCase):
             order,
             [
                 "research.state",
+                "objects.by_experiment",
                 "tracking.finalize",
                 "research.refresh",
-                "research.present",
                 "tracking.context",
                 "feed.advisory",
             ],
         )
+
+    def test_catalog_failure_prevents_tracking_and_research_side_effects(self) -> None:
+        order: list[str] = []
+        research = RecordingResearch(order)
+        tracking = RecordingTracking(order)
+        feed = RecordingFeed(order)
+        command = self._command(
+            research=research,
+            tracking=tracking,
+            feed=feed,
+            objects=RecordingObjects(order, error=RuntimeError("catalog down")),
+        )
+
+        with self.assertRaisesRegex(RuntimeError, "catalog down"):
+            command.execute(project_id=PROJECT_ID, experiment_id=EXPERIMENT_ID)
+
+        self.assertEqual(order, ["research.state", "objects.by_experiment"])
+        self.assertEqual(tracking.finalize_calls, [])
+        self.assertEqual(research.refresh_calls, [])
+        self.assertEqual(feed.calls, [])
+
+    def test_finalize_response_retains_produced_objects(self) -> None:
+        order: list[str] = []
+        research = RecordingResearch(order)
+        tracking = RecordingTracking(order)
+        feed = RecordingFeed(order)
+        command = self._command(
+            research=research,
+            tracking=tracking,
+            feed=feed,
+            objects=RecordingObjects(
+                order,
+                rows=[
+                    {
+                        "id": "so_1",
+                        "name": "models/checkpoint.bin",
+                        "kind": "model",
+                        "status": "available",
+                    }
+                ],
+            ),
+        )
+
+        result = command.execute(
+            project_id=PROJECT_ID, experiment_id=EXPERIMENT_ID
+        )
+
+        self.assertEqual(result["experiment"]["storage_objects"][0]["id"], "so_1")
 
     def test_foreign_readback_keeps_canonical_identity_and_current_feed_response(self) -> None:
         order: list[str] = []
@@ -460,7 +538,15 @@ class FinalizeTrackingRunTest(unittest.TestCase):
         with self.assertRaisesRegex(RuntimeError, "db down"):
             command.execute(project_id=PROJECT_ID, experiment_id=EXPERIMENT_ID)
 
-        self.assertEqual(order, ["research.state", "tracking.finalize", "research.refresh"])
+        self.assertEqual(
+            order,
+            [
+                "research.state",
+                "objects.by_experiment",
+                "tracking.finalize",
+                "research.refresh",
+            ],
+        )
 
     def test_tracking_failure_propagates_without_persistence_or_feed(self) -> None:
         order: list[str] = []
@@ -474,7 +560,10 @@ class FinalizeTrackingRunTest(unittest.TestCase):
         with self.assertRaisesRegex(RuntimeError, "tracking down"):
             command.execute(project_id=PROJECT_ID, experiment_id=EXPERIMENT_ID)
 
-        self.assertEqual(order, ["research.state", "tracking.finalize"])
+        self.assertEqual(
+            order,
+            ["research.state", "objects.by_experiment", "tracking.finalize"],
+        )
 
 
 if __name__ == "__main__":

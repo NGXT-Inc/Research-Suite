@@ -18,8 +18,7 @@ reflection artifacts (graph + reflection doc + change spec) are revised.
 
 The same three consumers as ``domain.workflow_gates.GATE_TABLE`` read this table —
 enforcement (``ReflectionService._evaluate_gate`` and
-``GateEvaluation.require_transition``), guidance
-(``NextActionPolicy._reflection_workflow_for``), and discovery
+``GateEvaluation.require_transition``), Application guidance, and discovery
 (``allowed_reflection_transitions_for``) — reusing the same gate contract
 dataclasses so the two workflows cannot drift in shape.
 
@@ -105,19 +104,13 @@ REFLECTION_GATE_TABLE: dict[str, ForwardTransition] = {
                 ),
                 validator="roster",
                 gate="reflection_roster_incomplete",
-                action="fan_out_reflection_subagents",
-                allowed=("resource.register",),
                 missing=(
                     "one reflection document per roster lens "
                     "(role 'reflection_lens_doc')"
                 ),
-                guidance_key="reflection",
                 label="Per-lens reflections submitted",
             ),
         ),
-        ready_gate="reflections_complete",
-        ready_action="submit_reflections",
-        ready_allowed=("reflection.transition",),
     ),
     "synthesizing": ForwardTransition(
         name="submit_reflection_artifacts",
@@ -143,10 +136,7 @@ REFLECTION_GATE_TABLE: dict[str, ForwardTransition] = {
                 ),
                 validator="graph",
                 gate="project_graph_required",
-                action="update_and_associate_project_graph",
-                allowed=("resource.register",),
                 missing="project logic graph resource (role 'project_graph')",
-                guidance_key="project_graph",
                 label="Project graph present and valid",
             ),
             RoleRequirement(
@@ -160,10 +150,7 @@ REFLECTION_GATE_TABLE: dict[str, ForwardTransition] = {
                 ),
                 validator="reflection_doc",
                 gate="reflection_doc_required",
-                action="write_and_associate_reflection_doc",
-                allowed=("resource.register",),
                 missing="reflection document resource (role 'reflection_doc')",
-                guidance_key="reflection_doc",
                 label="Reflection document present and valid",
             ),
             RoleRequirement(
@@ -177,23 +164,10 @@ REFLECTION_GATE_TABLE: dict[str, ForwardTransition] = {
                 ),
                 validator="change_spec",
                 gate="change_spec_required",
-                action="write_and_associate_change_spec",
-                allowed=("resource.register",),
                 missing="change spec resource (role 'change_spec')",
-                guidance_key="change_spec",
                 label="Change spec present and materializable",
             ),
         ),
-        ready_gate="reflection_review_required",
-        ready_action=(
-            "submit_reflection_artifacts (call only once the project graph reflects the "
-            "reconciled reasoning state, the reflection doc explains the "
-            "scientific argument concisely, and the change spec represents the "
-            "intended belief-state update; if revision_context is present, the "
-            "last review rejected this attempt — address it "
-            "before resubmitting)"
-        ),
-        ready_allowed=("reflection.transition",),
     ),
     "reflection_review": ForwardTransition(
         name="publish",
@@ -201,10 +175,8 @@ REFLECTION_GATE_TABLE: dict[str, ForwardTransition] = {
         requires_prose="a passing reflection_reviewer review",
         review=ReviewRequirement(
             role="reflection_reviewer",
-            skill="project-reflection-review",
-            action_name="reflection_review",
             error="reflection review must pass before publish",
-            pass_action="publish_reflection",
+            blocker_code="reflection_review_required",
             label="Reflection review passed",
         ),
     ),

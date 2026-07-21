@@ -14,12 +14,10 @@ from .domain.experiment_policy import (
     ACTIVE_EXPERIMENT_CAP,
     active_experiment_cap_reached_message,
     compose_experiment_intent,
-    infer_claim_status_from_conclusion,
     normalize_claim_ids,
 )
 from .domain.experiment_names import validate_experiment_name
 from .domain.graph_lint import graph_problems
-from .domain.paths import experiment_folder_rel
 from .domain.reflection_policy import (
     covered_terminal_ids,
     reflection_create_block_message,
@@ -49,7 +47,6 @@ from ..kernel.utils import NotFoundError, ValidationError, WorkflowError
 from ..kernel.utils import new_id
 from ..kernel.utils import now_iso
 from .review_gate import evaluate_review_gate
-from .storage_objects import StorageObjectsReader
 from .transition_types import (
     CommittedExperimentTransition,
     CommittedTrackingRunRefresh,
@@ -62,13 +59,9 @@ class ExperimentService:
         *,
         store: BaseStateStore,
         evidence_reader: EvidenceReader,
-        storage_objects_reader: StorageObjectsReader | None = None,
     ) -> None:
         self.store = store
         self.evidence_reader = evidence_reader
-        # Object-storage-owned query, injected at composition — research_core
-        # has no import (or SQL) edge to object_storage.
-        self.storage_objects_reader = storage_objects_reader
 
     def create(
         self,
@@ -159,19 +152,6 @@ class ExperimentService:
                 payload={"name": name, "intent": intent},
             )
             state = self.get_state(experiment_id=experiment_id, conn=conn)
-            state["folder"] = experiment_folder_rel(
-                experiment_id=experiment_id, name=name
-            )
-            state["folder_guidance"] = (
-                f"Use {state['folder']} as the experiment's one local folder. "
-                "Data-plane actions create it on demand; work in it from the "
-                "start: plan.md, scripts, configs, retained results, report, "
-                "and graph all live there. This local folder is not uploaded to "
-                "a sandbox automatically: create, fetch, or explicitly transfer "
-                "sandbox inputs after provisioning. Pull selected light outputs "
-                "back with sandbox.pull_outputs, or upload heavy outputs to "
-                "configured object storage, before the sandbox is released."
-            )
             return state
 
     def _active_experiment_count(self, *, conn, project_id: str) -> int:
@@ -342,15 +322,6 @@ class ExperimentService:
                 for res in data["resources"]
                 if res.get("association_attempt_index") == data["attempt_index"]
             ]
-            data["storage_objects"] = (
-                self.storage_objects_reader(
-                    conn=conn,
-                    project_id=str(data["project_id"]),
-                    experiment_id=experiment_id,
-                )
-                if self.storage_objects_reader is not None
-                else []
-            )
             data["mlflow_run"] = self._mlflow_run_from_row(experiment=data)
             review_rows = conn.execute(
                 """
@@ -370,9 +341,6 @@ class ExperimentService:
                 dict(item) for item in evaluation.legal_transitions
             ]
             data["gate_checklist"] = evaluation.checklist()
-            data["claim_update_suggestions"] = self._claim_update_suggestions(
-                experiment=data
-            )
             return data, evaluation
         finally:
             if owns_conn:
@@ -502,55 +470,6 @@ class ExperimentService:
             )
             state = self.get_state(experiment_id=experiment_id, conn=conn)
             return result(state, event)
-
-    def _claim_update_suggestions(
-        self, *, experiment: dict[str, Any]
-    ) -> list[dict[str, Any]]:
-        if experiment.get("status") != "complete":
-            return []
-        conclusion = str(experiment.get("conclusion") or "").strip()
-        if not conclusion:
-            return []
-        suggested_status = infer_claim_status_from_conclusion(conclusion)
-        # No inferable direction → no prefilled tool call. A claim.update
-        # skeleton with nothing to update is malformed guidance.
-        if suggested_status is None:
-            return []
-        suggestions: list[dict[str, Any]] = []
-        for claim in experiment.get("tested_claims") or []:
-            claim_id = str(claim.get("id") or "")
-            if not claim_id:
-                continue
-            if str(claim.get("status") or "") == suggested_status:
-                # Already applied (or already true) — resurfacing an
-                # actionable update forever invites double-application.
-                continue
-            suggestions.append(
-                {
-                    "tool": "claim.update",
-                    "arguments": {
-                        "project_id": experiment.get("project_id"),
-                        "claim_id": claim_id,
-                        "status": suggested_status,
-                    },
-                    "claim": {
-                        "id": claim_id,
-                        "statement": claim.get("statement"),
-                        "status": claim.get("status"),
-                        "confidence": claim.get("confidence"),
-                        "scope": claim.get("scope"),
-                    },
-                    "suggested_status": suggested_status,
-                    "reason": (
-                        "Experiment completed with a passing review; apply a "
-                        "scoped claim.update if this conclusion changes the "
-                        "claim's standing."
-                    ),
-                    "conclusion": conclusion,
-                    "requires_confirmation": True,
-                }
-            )
-        return suggestions
 
     def _evaluate_gate(self, *, conn, experiment: dict[str, Any]) -> GateEvaluation:
         """Collect current facts once for enforcement, state, and guidance."""

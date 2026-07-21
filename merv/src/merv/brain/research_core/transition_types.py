@@ -36,10 +36,6 @@ class ExhibitVerdict(TypedDict, total=False):
     pinned: bool
 
 
-class SlimExperimentState(ExperimentState, total=False):
-    pass
-
-
 @dataclass(frozen=True, slots=True)
 class CommittedExperimentUpdate:
     state: ExperimentState
@@ -57,5 +53,4 @@ __all__ = [
     "ExhibitVerdict",
     "ExperimentState",
     "PersistedRunState",
-    "SlimExperimentState",
 ]

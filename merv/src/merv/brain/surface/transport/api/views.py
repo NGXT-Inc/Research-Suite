@@ -58,7 +58,7 @@ class ResearchHttpApi:
     def experiment_state_view(
         self, *, project_id: str, experiment_id: str
     ) -> dict[str, Any]:
-        detail = self.app.tracking_context.experiment_detail(
+        detail = self.app.experiment_detail_query(
             project_id=project_id,
             experiment_id=experiment_id,
         )
@@ -165,9 +165,9 @@ class ResearchHttpApi:
 
     def experiments_view(self, project_id: str) -> dict[str, Any]:
         # Full per-experiment state for the UI; the experiment.list tool stays slim.
-        experiments = self.app.experiments.list_experiments(project_id=project_id)[
-            "experiments"
-        ]
+        experiments = self.app.experiment_collection_query.rich(
+            project_id=project_id
+        )
         return {
             "experiments": [
                 self._experiment_view_model(exp=exp) for exp in experiments
@@ -189,11 +189,10 @@ class ResearchHttpApi:
     def resource_content(
         self, project_id: str, resource_id: str, version: str | None = None
     ) -> dict[str, Any]:
-        resource = self.app.resources.resolve(
-            project_id=project_id, resource_id=resource_id
-        )
-        return self.app.artifacts.resource_content(
-            resource=resource, version_id=version
+        return self.app.hosted_resource_content_query(
+            project_id=project_id,
+            resource_id=resource_id,
+            version_id=version,
         )
 
     def resource_file(
@@ -222,9 +221,9 @@ class ResearchHttpApi:
 
     def filter_experiments(self, project_id: str, status: str | None) -> dict[str, Any]:
         # Full per-experiment state for the UI; the experiment.list tool stays slim.
-        experiments = self.app.experiments.list_experiments(project_id=project_id)[
-            "experiments"
-        ]
+        experiments = self.app.experiment_collection_query.rich(
+            project_id=project_id
+        )
         if status:
             experiments = [exp for exp in experiments if exp.get("status") == status]
         return {"experiments": experiments}

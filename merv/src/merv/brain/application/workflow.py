@@ -5,7 +5,7 @@ from __future__ import annotations
 import json
 from collections.abc import Callable
 from dataclasses import dataclass
-from typing import Any, Protocol
+from typing import Any
 
 from merv.shared.artifact_roles import PROJECT_GRAPH_ROLES
 
@@ -17,6 +17,9 @@ from ..research_core.facade import (
     ResearchSnapshots,
 )
 from ..sandbox.facade import SandboxReads
+from .experiments.presentation import project_fields, project_rows, rich_experiment_state
+from .ports.storage import ProducedObjectCatalog
+from .status_guidance import StatusGuidancePolicy
 
 Record = dict[str, Any]
 RecordQuery = Callable[..., Record]
@@ -55,38 +58,14 @@ _SANDBOX_SUMMARY_FIELDS = (
 )
 
 
-class NextActions(Protocol):
-    def project_setup(self) -> Record: ...
-    def experiment(
-        self,
-        *,
-        experiment: Record,
-        sandboxes: list[Record],
-        evaluation: GateEvaluation,
-    ) -> Record: ...
-    def project_reflection(
-        self,
-        *,
-        open_wave: Record | None,
-        evaluation: GateEvaluation | None,
-        signal: Record,
-        idle: bool,
-    ) -> Record | None: ...
-    def reflection_workflow_takeover(
-        self, *, reflection: Record | None
-    ) -> Record | None: ...
-    def live_experiments_takeover(
-        self, *, exp_rows: list[Record], reflection: Record | None
-    ) -> Record: ...
-
-
 @dataclass
-class WorkflowQuery:
+class StatusAndNextQuery:
     """Join Research snapshots to Sandbox reads, then apply pure policy."""
 
     snapshots: ResearchSnapshots
     sandboxes: SandboxReads
-    policy: NextActions
+    policy: StatusGuidancePolicy
+    objects: ProducedObjectCatalog
 
     def status_and_next(
         self, *, project_id: str | None = None, experiment_id: str | None = None
@@ -102,7 +81,16 @@ class WorkflowQuery:
             if selected is not None
             else []
         )
-        return self._status(snapshot=snapshot, sandboxes=sandbox_rows)
+        experiment = (
+            self._enrich(
+                project_id=snapshot.project_id, experiments=[selected]
+            )[0]
+            if selected is not None
+            else None
+        )
+        return self._status(
+            snapshot=snapshot, experiment=experiment, sandboxes=sandbox_rows
+        )
 
     def status_and_next_agent(
         self, *, project_id: str | None = None, experiment_id: str | None = None
@@ -111,17 +99,19 @@ class WorkflowQuery:
             self.status_and_next(project_id=project_id, experiment_id=experiment_id)
         )
 
-    def active_work(self, *, project_id: str | None = None) -> Record:
-        snapshot = self.snapshots.read(
-            project_id=project_id, hydrate_all_experiments=True
-        )
-        sandboxes = self.sandboxes.for_project(project_id=snapshot.project_id)
-        return self._active_work(snapshot=snapshot, sandboxes=sandboxes)
-
     def project_models(
         self, *, snapshot: ResearchSnapshot, sandboxes: list[Record]
-    ) -> tuple[Record, Record]:
-        selected = snapshot.selected_experiment
+    ) -> tuple[Record, Record, list[Record]]:
+        experiments = self._enrich(
+            project_id=snapshot.project_id,
+            experiments=snapshot.experiment_states,
+        )
+        by_id = {str(item["id"]): item for item in experiments}
+        selected = (
+            by_id.get(str(snapshot.selected_experiment["id"]))
+            if snapshot.selected_experiment is not None
+            else None
+        )
         selected_sandboxes = []
         if selected is not None:
             selected_id = str(selected["id"])
@@ -131,12 +121,26 @@ class WorkflowQuery:
                 if selected_id in (sandbox.get("active_experiment_ids") or [])
             ]
         return (
-            self._status(snapshot=snapshot, sandboxes=selected_sandboxes),
-            self._active_work(snapshot=snapshot, sandboxes=sandboxes),
+            self._status(
+                snapshot=snapshot,
+                experiment=selected,
+                sandboxes=selected_sandboxes,
+            ),
+            self._active_work(
+                snapshot=snapshot,
+                experiments=experiments,
+                sandboxes=sandboxes,
+            ),
+            experiments,
         )
 
-    def _status(self, *, snapshot: ResearchSnapshot, sandboxes: list[Record]) -> Record:
-        experiment = snapshot.selected_experiment
+    def _status(
+        self,
+        *,
+        snapshot: ResearchSnapshot,
+        experiment: Record | None,
+        sandboxes: list[Record],
+    ) -> Record:
         workflow = (
             self.policy.experiment(
                 experiment=experiment,
@@ -177,10 +181,9 @@ class WorkflowQuery:
             "project": {
                 **snapshot.project,
                 "active_claims": snapshot.claims,
-                "active_experiments": [
-                    {field: row.get(field) for field in _STATUS_EXPERIMENT_FIELDS}
-                    for row in snapshot.experiments
-                ],
+                "active_experiments": project_rows(
+                    snapshot.experiments, _STATUS_EXPERIMENT_FIELDS
+                ),
             },
             "experiment": experiment,
             "sandboxes": sandboxes,
@@ -191,9 +194,13 @@ class WorkflowQuery:
         return result
 
     def _active_work(
-        self, *, snapshot: ResearchSnapshot, sandboxes: list[Record]
+        self,
+        *,
+        snapshot: ResearchSnapshot,
+        experiments: list[Record],
+        sandboxes: list[Record],
     ) -> Record:
-        by_id = {str(item["id"]): item for item in snapshot.experiment_states}
+        by_id = {str(item["id"]): item for item in experiments}
         processes = _sort_active(
             [
                 _process_view(
@@ -213,7 +220,7 @@ class WorkflowQuery:
             _PROCESS_PRIORITY,
         )
         active = []
-        for experiment in snapshot.experiment_states:
+        for experiment in experiments:
             if experiment["status"] in EXPERIMENT_TERMINAL_STATUSES:
                 continue
             experiment_sandboxes = [
@@ -243,13 +250,34 @@ class WorkflowQuery:
             "active_processes": processes,
         }
 
+    def _enrich(
+        self, *, project_id: str, experiments: list[Record]
+    ) -> list[Record]:
+        ids = tuple(
+            str(experiment.get("id") or "")
+            for experiment in experiments
+            if experiment.get("id")
+        )
+        by_experiment = self.objects.by_experiment(
+            project_id=project_id, experiment_ids=ids
+        )
+        return [
+            rich_experiment_state(
+                experiment,
+                storage_objects=by_experiment.get(
+                    str(experiment.get("id") or ""), []
+                ),
+            )
+            for experiment in experiments
+        ]
+
 
 @dataclass(slots=True)
 class ProjectDashboardQuery:
     """One project snapshot backs both the rich Home and compact orientation."""
 
     snapshots: ResearchSnapshots
-    workflow: WorkflowQuery
+    workflow: StatusAndNextQuery
     resources: RecordQuery
     review_queue: RecordQuery
     recent_events: RecordQuery
@@ -260,7 +288,7 @@ class ProjectDashboardQuery:
         snapshot = self.snapshots.read(
             project_id=project_id, hydrate_all_experiments=True
         )
-        status, work = self.workflow.project_models(
+        status, work, experiments = self.workflow.project_models(
             snapshot=snapshot,
             sandboxes=self.workflow.sandboxes.for_project(project_id=project_id),
         )
@@ -274,7 +302,7 @@ class ProjectDashboardQuery:
         return {
             "project": status["project"],
             "claims": claims,
-            "experiments": snapshot.experiment_states,
+            "experiments": experiments,
             "active_experiments": active_experiments,
             "active_processes": active_processes,
             "resources": resources,
@@ -283,7 +311,7 @@ class ProjectDashboardQuery:
             "recent_events": events,
             "stats": {
                 "claims": len(claims),
-                "experiments": len(snapshot.experiment_states),
+                "experiments": len(experiments),
                 "active_experiments": len(active_experiments),
                 "active_processes": len(active_processes),
                 "resources": len(resources),
@@ -367,23 +395,20 @@ class ProjectDashboardQuery:
                 claims_changed=len(changed),
             ),
             "recent": {
-                "experiments": [
-                    {key: item.get(key) for key in ("id", "name", "status")}
-                    for item in sorted(
+                "experiments": project_rows(
+                    sorted(
                         snapshot.experiments,
                         key=lambda row: str(
                             row.get("updated_at") or row.get("created_at") or ""
                         ),
                         reverse=True,
-                    )[:5]
-                ],
-                "claims": [
-                    {
-                        key: claim.get(key)
-                        for key in ("id", "status", "confidence", "statement")
-                    }
-                    for claim in snapshot.recent_claims
-                ],
+                    )[:5],
+                    ("id", "name", "status"),
+                ),
+                "claims": project_rows(
+                    snapshot.recent_claims,
+                    ("id", "status", "confidence", "statement"),
+                ),
             },
             "project_reflection": reflection,
             "since_reflection": {
@@ -435,13 +460,10 @@ def _slim_status(full: Record) -> Record:
                 "id": project.get("id"),
                 "name": project.get("name"),
                 "summary": project.get("summary"),
-                "claims": [
-                    {
-                        key: claim.get(key)
-                        for key in ("id", "status", "confidence", "statement")
-                    }
-                    for claim in project.get("active_claims", [])
-                ],
+                "claims": project_rows(
+                    project.get("active_claims", []),
+                    ("id", "status", "confidence", "statement"),
+                ),
             },
         }
     else:
@@ -459,14 +481,13 @@ def _slim_status(full: Record) -> Record:
                 "tested_claim_ids": [
                     claim.get("id") for claim in experiment.get("tested_claims", [])
                 ],
-                "current_attempt_resources": [
-                    {field: resource.get(field) for field in _SLIM_RESOURCE_FIELDS}
-                    for resource in experiment.get("current_attempt_resources", [])
-                ],
-                "reviews": [
-                    {field: review.get(field) for field in _SLIM_REVIEW_FIELDS}
-                    for review in experiment.get("reviews", [])
-                ],
+                "current_attempt_resources": project_rows(
+                    experiment.get("current_attempt_resources", []),
+                    _SLIM_RESOURCE_FIELDS,
+                ),
+                "reviews": project_rows(
+                    experiment.get("reviews", []), _SLIM_REVIEW_FIELDS
+                ),
             },
             "sandbox": _sandbox_summary(full.get("sandboxes", [])),
             "project": {"id": project.get("id"), "name": project.get("name")},
@@ -490,7 +511,7 @@ def _sandbox_summary(sandboxes: list[Record]) -> Record:
     if active is not None:
         return {
             "active": True,
-            **{field: active.get(field) for field in _SANDBOX_SUMMARY_FIELDS},
+            **project_fields(active, _SANDBOX_SUMMARY_FIELDS),
         }
     last = sandboxes[0] if sandboxes else None
     return {
@@ -573,4 +594,4 @@ def _glance_summary(
     return summary + (" New reflection recommended." if experiments_since >= 3 else "")
 
 
-__all__ = ["ProjectDashboardQuery", "WorkflowQuery"]
+__all__ = ["ProjectDashboardQuery", "StatusAndNextQuery"]

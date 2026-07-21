@@ -6,6 +6,7 @@ from collections.abc import Callable
 from types import SimpleNamespace
 from typing import Any
 
+from ...application.facade import ReflectionCommands
 from .contracts import TOOL_MANIFEST, available_tool_names
 
 
@@ -15,7 +16,7 @@ def build_control_tool_handlers(
     projects: Any,
     claims: Any,
     experiments: Any,
-    reflection_tools: Any,
+    reflection_tools: ReflectionCommands,
     resources: Any,
     storage: Any | None,
     reviews: Any,

@@ -6,8 +6,7 @@ from typing import Any, Protocol, TypedDict, cast, runtime_checkable
 
 from merv.shared.artifact_roles import GATED_ROLES
 
-from ..kernel.utils import NotFoundError, WorkflowError
-from .figure_view import build_experiment_figure
+from ..kernel.utils import NotFoundError
 from .resources import ResourceService
 
 
@@ -38,15 +37,23 @@ class Artifacts(Protocol):
         project_id: str,
     ) -> None: ...
 
-    def resource_content(
-        self, *, resource: dict[str, Any], version_id: str | None = None
+    def resolve_resource(
+        self, *, project_id: str, resource_id: str
     ) -> dict[str, Any]: ...
+
+    def select_resource_text(
+        self, *, resource: dict[str, Any], version_id: str | None = None
+    ) -> tuple[str, str] | None: ...
 
     def submitted_figure(
         self, *, resource: dict[str, Any], link_path: str
     ) -> tuple[bytes, str] | None: ...
 
     def submitted_text_for_version(self, *, version_id: str | None) -> str | None: ...
+
+    def resolve_resource_reference(
+        self, *, project_id: str, ref: str
+    ) -> dict[str, Any] | None: ...
 
 
 class ArtifactsFacade:
@@ -91,39 +98,38 @@ class ArtifactsFacade:
             project_id=project_id,
         )
 
-    def resource_content(
-        self, *, resource: dict[str, Any], version_id: str | None = None
+    def resolve_resource(
+        self, *, project_id: str, resource_id: str
     ) -> dict[str, Any]:
-        """Return hosted-safe content for a hydrated resource record."""
+        return self._resources.resolve(
+            project_id=project_id, resource_id=resource_id
+        )
+
+    def select_resource_text(
+        self, *, resource: dict[str, Any], version_id: str | None = None
+    ) -> tuple[str, str] | None:
+        """Authorize and select submitted text without shaping a response."""
         if version_id:
-            return self._resource_content_at_version(
-                resource=resource, version_id=version_id
-            )
-        pinned = self._pinned_gated_text(resource=resource)
-        if pinned is not None:
-            text, pinned_version_id = pinned
-            return {
-                "resource": resource,
-                "path": resource["path"],
-                "content": text,
-                "text": text,
-                "size_bytes": len(text.encode("utf-8")),
-                "source": "submitted",
-                "version_id": pinned_version_id,
+            valid = {
+                str(association.get("version_id"))
+                for association in resource.get("associations", [])
+                if association.get("version_id")
             }
-        return {
-            "resource": resource,
-            "path": resource.get("path"),
-            "content": None,
-            "text": None,
-            "available": False,
-            "source": "unavailable",
-            "reason": "content_unavailable_in_this_mode",
-            "detail": (
-                "this file's bytes live only on the local data plane; "
-                "result-role files are metadata-only in this mode"
-            ),
-        }
+            current_version = resource.get("current_version_id")
+            if current_version:
+                valid.add(str(current_version))
+            if version_id not in valid:
+                raise NotFoundError(
+                    f"version {version_id} is not associated with resource "
+                    f"{resource.get('id')}"
+                )
+            return (
+                self._resources.pinned_text_for_version(
+                    version_id=version_id, what="resource content", role=""
+                ),
+                version_id,
+            )
+        return self._pinned_gated_text(resource=resource)
 
     def submitted_figure(
         self, *, resource: dict[str, Any], link_path: str
@@ -139,47 +145,12 @@ class ArtifactsFacade:
     def submitted_text_for_version(self, *, version_id: str | None) -> str | None:
         return self._resources.submitted_text_for_version(version_id=version_id)
 
-    def _resource_content_at_version(
-        self, *, resource: dict[str, Any], version_id: str
-    ) -> dict[str, Any]:
-        valid = {
-            str(association.get("version_id"))
-            for association in resource.get("associations", [])
-            if association.get("version_id")
-        }
-        current_version = resource.get("current_version_id")
-        if current_version:
-            valid.add(str(current_version))
-        if version_id not in valid:
-            raise NotFoundError(
-                f"version {version_id} is not associated with resource {resource.get('id')}"
-            )
-        try:
-            text = self._resources.pinned_text_for_version(
-                version_id=version_id, what="resource content", role=""
-            )
-        except WorkflowError as exc:
-            return {
-                "resource": resource,
-                "path": resource.get("path"),
-                "content": None,
-                "text": None,
-                "available": False,
-                "source": "unavailable",
-                "reason": "version_unavailable",
-                "detail": str(exc),
-                "version_id": version_id,
-            }
-        return {
-            "resource": resource,
-            "path": resource.get("path"),
-            "content": text,
-            "text": text,
-            "size_bytes": len(text.encode("utf-8")),
-            "source": "submitted",
-            "version_id": version_id,
-            "available": True,
-        }
+    def resolve_resource_reference(
+        self, *, project_id: str, ref: str
+    ) -> dict[str, Any] | None:
+        return self._resources.resolve_resource_reference(
+            project_id=project_id, ref=ref
+        )
 
     @staticmethod
     def _latest_gated_version_id(*, resource: dict[str, Any]) -> str | None:
@@ -212,4 +183,4 @@ class ArtifactsFacade:
         return None
 
 
-__all__ = ["Artifacts", "ArtifactsFacade", "MetricFileSource", "build_experiment_figure"]
+__all__ = ["Artifacts", "ArtifactsFacade", "MetricFileSource"]

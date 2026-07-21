@@ -1,4 +1,4 @@
-"""Focused guards for the submitted-byte and research storage seams."""
+"""Focused guards for submitted bytes and produced-object boundaries."""
 
 from __future__ import annotations
 
@@ -6,7 +6,9 @@ import ast
 import inspect
 import unittest
 from pathlib import Path
-from typing import Any, get_type_hints, is_typeddict
+from typing import get_type_hints, is_typeddict
+
+from merv.brain.application.ports.storage import ProducedObject, ProducedObjectCatalog
 
 from merv.brain.kernel.ports.blob_store import (
     BlobDownloadTarget,
@@ -19,13 +21,11 @@ from merv.brain.kernel.ports.blob_store import (
     validate_blob_keys,
 )
 from merv.brain.kernel.ports.object_store import DownloadTarget, ObjectStore, UploadTarget
-from merv.brain.kernel.state.store import Connection
 from merv.brain.kernel.utils import ValidationError
 from merv.brain.object_storage import blobs as local_adapter
 from merv.brain.object_storage import s3_blobs as s3_adapter
 from merv.brain.object_storage import s3_object_store as heavy_s3_adapter
 from merv.brain.research_core.experiments import ExperimentService
-from merv.brain.research_core.storage_objects import StorageObjectsReader
 
 
 SRC_ROOT = Path(__file__).resolve().parents[2] / "src" / "merv" / "brain"
@@ -145,21 +145,25 @@ class StorageImportBoundaryTest(unittest.TestCase):
                 self.assertNotIn("..object_storage.blobs", imports)
 
 
-class ResearchStorageObjectsReaderTest(unittest.TestCase):
-    def test_experiment_service_uses_named_transaction_aware_protocol(self) -> None:
+class ProducedObjectCatalogBoundaryTest(unittest.TestCase):
+    def test_application_owns_batch_catalog_and_research_has_no_storage_seam(self) -> None:
         init_hints = get_type_hints(ExperimentService.__init__)
-        self.assertEqual(
-            init_hints["storage_objects_reader"], StorageObjectsReader | None
+        self.assertNotIn("storage_objects_reader", init_hints)
+        self.assertFalse((SRC_ROOT / "research_core" / "storage_objects.py").exists())
+        self.assertNotIn(
+            "storage_objects",
+            (SRC_ROOT / "research_core" / "experiments.py").read_text(
+                encoding="utf-8"
+            ),
         )
 
-        call_hints = get_type_hints(StorageObjectsReader.__call__)
-        self.assertIs(call_hints["conn"], Connection)
+        call_hints = get_type_hints(ProducedObjectCatalog.by_experiment)
         self.assertEqual(call_hints["project_id"], str)
-        self.assertEqual(call_hints["experiment_id"], str)
-        self.assertEqual(call_hints["return"], list[dict[str, Any]])
+        self.assertEqual(call_hints["experiment_ids"], tuple[str, ...])
+        self.assertEqual(call_hints["return"], dict[str, list[ProducedObject]])
         self.assertEqual(
-            list(inspect.signature(StorageObjectsReader.__call__).parameters),
-            ["self", "conn", "project_id", "experiment_id"],
+            list(inspect.signature(ProducedObjectCatalog.by_experiment).parameters),
+            ["self", "project_id", "experiment_ids"],
         )
 
 

@@ -16,13 +16,9 @@ class RoleRequirement:
     # ("plan" | "report" | ""). The lint reads the SUBMITTED bytes pinned at
     # resource.register - never the live file (fix-and-resubmit semantics).
     validator: str = ""
-    # Guidance while unmet: current_gate / next_action / allowed_actions /
-    # missing_evidence entry / resource_guidance payload key.
+    # Stable semantic facts used by enforcement and the public checklist.
     gate: str = ""
-    action: str = ""
-    allowed: tuple[str, ...] = ()
     missing: str = ""
-    guidance_key: str = ""
     label: str = ""
 
 
@@ -31,10 +27,8 @@ class ReviewRequirement:
     """A passing review the forward transition needs."""
 
     role: str
-    skill: str
-    action_name: str
     error: str
-    pass_action: str
+    blocker_code: str
     label: str = ""
 
 
@@ -47,7 +41,3 @@ class ForwardTransition:
     requires_prose: str = ""
     requirements: tuple[RoleRequirement, ...] = ()
     review: ReviewRequirement | None = None
-    # Guidance once every requirement is met: "go transition".
-    ready_gate: str = ""
-    ready_action: str = ""
-    ready_allowed: tuple[str, ...] = ()

@@ -79,8 +79,6 @@ def evaluate_review_gate(
         "satisfied": bool(passed),
         "status": review_status,
         "gate": str(target["status"]),
-        "action": review.pass_action if passed else f"launch_{review.action_name}er",
-        "skill": review.skill,
     }
     if blocked_reason:
         item["problems"] = [blocked_reason]
@@ -89,7 +87,7 @@ def evaluate_review_gate(
     return RequirementEvaluation(
         role=review.role,
         status=review_status,
-        blocker_code=f"{review.action_name}_required" if not passed else "",
+        blocker_code=review.blocker_code if not passed else "",
         enforcement_error=error,
         problems=(blocked_reason,) if blocked_reason else (),
         items=(item,),

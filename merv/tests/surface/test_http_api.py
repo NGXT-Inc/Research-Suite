@@ -1383,6 +1383,18 @@ class ResearchPluginHttpApiTest(unittest.TestCase):
         self.assertEqual(len(listing["reflections"]), 1)
         self.assertEqual(listing["open_reflection"]["id"], syn_id)
         self.assertIn("signal", listing)
+        checklist_item = listing["reflections"][0]["gate_checklist"]["items"][0]
+        self.assertEqual(checklist_item["action"], "fan_out_reflection_subagents")
+        self.assertLess(
+            list(checklist_item).index("lens_id"),
+            list(checklist_item).index("label"),
+        )
+        self.assertEqual(
+            self.request("GET", f"/api/projects/{pid}/reflections/{syn_id}")[
+                "gate_checklist"
+            ]["items"][0]["action"],
+            "fan_out_reflection_subagents",
+        )
 
         # No graph yet: the project-graph endpoint degrades, not errors.
         empty = self.request("GET", f"/api/projects/{pid}/reflections/current/graph")
@@ -1815,7 +1827,10 @@ class ResourceRelFileTest(unittest.TestCase):
 
 class FigureViewTest(unittest.TestCase):
     def test_resource_fanout_rolls_up_past_cap(self) -> None:
-        from merv.brain.artifacts.figure_view import RESOURCE_FANOUT_CAP, build_experiment_figure
+        from merv.brain.application.experiment_figure import (
+            RESOURCE_FANOUT_CAP,
+            build_experiment_figure,
+        )
 
         experiment = {
             "id": "exp_x",

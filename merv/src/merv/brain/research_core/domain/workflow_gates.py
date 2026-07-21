@@ -7,11 +7,8 @@ three surfaces that used to hand-maintain parallel copies cannot drift:
 - ENFORCEMENT — ``ExperimentService._evaluate_gate`` evaluates the contract and
   ``GateEvaluation.require_transition`` raises ``WorkflowError`` with the
   entry's ``error`` text on the first unmet requirement.
-- GUIDANCE — ``NextActionPolicy.experiment`` walks the same ``requirements``;
-  the first role missing from the current attempt yields that requirement's
-  gate/action/allowed payload, and once all are present the transition's
-  ``ready_*`` fields say "go transition". Review-gated statuses get their
-  guidance from ``review`` (role, skill, action stem).
+- GUIDANCE — Research exposes the evaluated requirements through its facade;
+  Application maps those authoritative facts to agent-facing advice.
 - DISCOVERY — ``experiment.get_state.allowed_transitions`` surfaces
   ``requires_prose`` so the agent learns preconditions before trial-and-error.
 
@@ -47,16 +44,10 @@ GATE_TABLE: dict[str, ForwardTransition] = {
                 error="an experiment plan resource must be registered before design review",
                 validator="plan",
                 gate="plan_required",
-                action="write_and_associate_plan_resource",
-                allowed=("resource.register",),
                 missing="experiment plan resource",
-                guidance_key="plan",
                 label="Plan associated and valid",
             ),
         ),
-        ready_gate="design_review_required",
-        ready_action="submit_design_for_review",
-        ready_allowed=("experiment.transition",),
     ),
     "design_review": ForwardTransition(
         name="mark_ready_to_run",
@@ -64,19 +55,14 @@ GATE_TABLE: dict[str, ForwardTransition] = {
         requires_prose="a passing design_reviewer review",
         review=ReviewRequirement(
             role="design_reviewer",
-            skill="experiment-design-review",
-            action_name="design_review",
             error="design review must pass before ready_to_run",
-            pass_action="mark_ready_to_run",
+            blocker_code="design_review_required",
             label="Design review passed",
         ),
     ),
     "ready_to_run": ForwardTransition(
         name="start_running",
         to_status="running",
-        ready_gate="execution_ready",
-        ready_action="start_running",
-        ready_allowed=("sandbox.request", "sandbox.attach", "experiment.transition"),
     ),
     "running": ForwardTransition(
         name="submit_results",
@@ -97,17 +83,7 @@ GATE_TABLE: dict[str, ForwardTransition] = {
                 # The workflow layer upgrades this to execution_active while a
                 # sandbox is live for the experiment.
                 gate="execution_ready",
-                action="run_experiment_and_retain_results",
-                allowed=(
-                    "sandbox.request",
-                    "sandbox.attach",
-                    "sandbox.terminal",
-                    "sandbox.get",
-                    "experiment.transition",
-                    "resource.register",
-                ),
                 missing="result resource",
-                guidance_key="result",
                 label="Result resource present",
             ),
             RoleRequirement(
@@ -123,12 +99,7 @@ GATE_TABLE: dict[str, ForwardTransition] = {
                 ),
                 validator="report",
                 gate="results_report_required",
-                action="write_and_associate_results_report",
-                allowed=(
-                    "resource.register",
-                ),
                 missing="results report resource (role 'report')",
-                guidance_key="report",
                 label="Results report present and valid",
             ),
             RoleRequirement(
@@ -144,28 +115,10 @@ GATE_TABLE: dict[str, ForwardTransition] = {
                 ),
                 validator="graph",
                 gate="logic_graph_required",
-                action="write_and_associate_logic_graph",
-                allowed=(
-                    "resource.register",
-                ),
                 missing="logic graph resource (role 'graph')",
-                guidance_key="graph",
                 label="Logic graph present and valid",
             ),
         ),
-        ready_gate="experiment_review_required",
-        ready_action=(
-            "submit_results_for_review (call only once the experiment "
-            "is fully complete and every success criterion in the "
-            "experiment intent is satisfied; do NOT call if the "
-            "experiment should continue running; continue with "
-            "sandbox.* and resource.* calls instead and only "
-            "transition once the work is truly done; if revision_context "
-            "is present, the last review rejected this attempt or an "
-            "infrastructure retry was requested — address it before "
-            "resubmitting)"
-        ),
-        ready_allowed=("experiment.transition",),
     ),
     "experiment_review": ForwardTransition(
         name="complete",
@@ -173,10 +126,8 @@ GATE_TABLE: dict[str, ForwardTransition] = {
         requires_prose="a passing experiment_reviewer review",
         review=ReviewRequirement(
             role="experiment_reviewer",
-            skill="experiment-attempt-review",
-            action_name="experiment_review",
             error="experiment review must pass before complete",
-            pass_action="complete_experiment",
+            blocker_code="experiment_review_required",
             label="Experiment review passed",
         ),
     ),

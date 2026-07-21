@@ -128,9 +128,8 @@ class GateTableConsistencyTest(SystemTransitionTestBase):
             self.assertEqual(GATE_TABLE[frm].name, name)
             self.assertEqual(GATE_TABLE[frm].to_status, nxt)
 
-    def test_enforcement_error_and_guidance_share_the_table_entry(self) -> None:
-        # The same RoleRequirement drives both the WorkflowError text and the
-        # status_and_next gate payload, so they cannot drift.
+    def test_enforcement_fact_drives_application_guidance(self) -> None:
+        # Research owns the unmet role/error; Application owns the tool advice.
         exp_id = self._experiment(status="planned")
         plan_req = GATE_TABLE["planned"].requirements[0]
         with self.assertRaises(WorkflowError) as ctx:
@@ -144,8 +143,10 @@ class GateTableConsistencyTest(SystemTransitionTestBase):
         wf = self.call("workflow.status_and_next", project_id=self.project_id, experiment_id=exp_id)
         workflow = wf["workflow"]
         self.assertEqual(workflow["current_gate"], plan_req.gate)
-        self.assertEqual(workflow["next_action"], plan_req.action)
-        self.assertEqual(workflow["allowed_actions"], list(plan_req.allowed))
+        self.assertEqual(
+            workflow["next_action"], "write_and_associate_plan_resource"
+        )
+        self.assertEqual(workflow["allowed_actions"], ["resource.register"])
         self.assertEqual(workflow["missing_evidence"], [plan_req.missing])
 
 

@@ -9,12 +9,11 @@ from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[2]
 BRAIN = ROOT / "src" / "merv" / "brain"
-BASELINE_BRAIN_LOC = 39_924
-PRE_TRACKING_SLICE_LOC = 40_850
-PRE_CONSOLIDATION_LOC = 40_848
-# Phase 3's typed Evidence boundary deleted duplicate pinned readers and direct
-# Research/Artifact SQL while reducing the committed 41,389-line brain.
-MAX_BRAIN_LOC = 41_265
+# Phase 4 physically relocates the 785-line agent policy, adds typed response
+# projection, and preserves the existing wire contract. This temporary high
+# watermark is intentionally reclaimed by Phase 7's <=40,600 target.
+PHASE_3_BRAIN_LOC = 41_265
+MAX_BRAIN_LOC = 41_700
 BASELINE_SURFACE_ORCHESTRATION_LOC = 1_022
 PRE_TRACKING_SURFACE_LOC = 549
 MAX_SURFACE_ORCHESTRATION_LOC = 100
@@ -29,8 +28,7 @@ class ApplicationArchitectureBudgetTest(unittest.TestCase):
             for path in BRAIN.rglob("*.py")
         )
         self.assertLessEqual(current, MAX_BRAIN_LOC)
-        self.assertEqual(MAX_BRAIN_LOC - PRE_CONSOLIDATION_LOC, 417)
-        self.assertEqual(MAX_BRAIN_LOC - PRE_TRACKING_SLICE_LOC, 415)
+        self.assertEqual(MAX_BRAIN_LOC - PHASE_3_BRAIN_LOC, 435)
 
     def test_rewritten_orchestration_hubs_stay_small(self) -> None:
         def lines(relative: str) -> int:
@@ -40,7 +38,7 @@ class ApplicationArchitectureBudgetTest(unittest.TestCase):
             lines(path)
             for path in (
                 "application/workflow.py",
-                "research_core/next_action.py",
+                "application/status_guidance.py",
                 "research_core/snapshots.py",
             )
         )
@@ -48,7 +46,13 @@ class ApplicationArchitectureBudgetTest(unittest.TestCase):
             lines(f"sandbox/{name}")
             for name in ("commands.py", "queries.py", "handler.py", "maintenance_handler.py")
         )
-        self.assertLessEqual(workflow, 1_600)
+        self.assertLessEqual(workflow, 1_530)
+        self.assertLessEqual(lines("application/status_guidance.py"), 730)
+        self.assertLessEqual(lines("application/reflection_guidance.py"), 140)
+        self.assertLessEqual(lines("application/experiment_figure.py"), 300)
+        self.assertLessEqual(lines("application/experiments/claim_guidance.py"), 60)
+        self.assertLessEqual(lines("application/experiments/presentation.py"), 140)
+        self.assertLessEqual(lines("application/resource_content.py"), 90)
         self.assertLessEqual(lines("sandbox/sandboxes.py"), 300)
         self.assertLessEqual(sandbox_handlers, 1_050)
         self.assertLessEqual(
@@ -146,7 +150,7 @@ class ApplicationArchitectureBudgetTest(unittest.TestCase):
         self.assertEqual(composition.count("dispatcher=self.reaction_registry"), 3)
         self.assertNotIn("self.app.mlflow_tracking", views)
         self.assertNotIn("mlflow_visible_for_status", views)
-        self.assertIn("self.app.tracking_context.experiment_detail", views)
+        self.assertIn("self.app.experiment_detail_query(", views)
 
     def test_tool_operations_receive_narrow_callable_ports(self) -> None:
         commands = (BRAIN / "application/tool_commands.py").read_text(encoding="utf-8")

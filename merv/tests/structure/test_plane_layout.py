@@ -67,13 +67,12 @@ CONTROL_MODULES = (
     RESEARCH_CORE_ROOT / "experiments.py",
     RESEARCH_CORE_ROOT / "reflections.py",
     RESEARCH_CORE_ROOT / "reviews.py",
-    RESEARCH_CORE_ROOT / "next_action.py",
+    BACKEND_ROOT / "application" / "status_guidance.py",
     RESEARCH_CORE_ROOT / "snapshots.py",
-    RESEARCH_CORE_ROOT / "experiment_views.py",
+    BACKEND_ROOT / "application" / "experiments" / "presentation.py",
     SERVICES_ROOT / "permissions.py",
     BACKEND_ROOT / "application" / "workflow.py",
     BACKEND_ROOT / "sandbox" / "facade.py",
-    RESEARCH_CORE_ROOT / "reflection_tools.py",
     FEED_ROOT / "feed.py",
     FEED_ROOT / "feed_policy.py",
     BACKEND_ROOT / "sandbox" / "sandbox_metrics.py",
@@ -615,14 +614,15 @@ if loaded:
         )
         imports = _import_segments(BACKEND_ROOT / "application" / "workflow.py")
         self.assertIn("facade", imports)
-        self.assertNotIn("experiments", imports)
+        self.assertNotIn("from ..research_core.experiments", source)
         self.assertNotIn("reviews", imports)
         self.assertNotIn("sandboxes", imports)
         self.assertIn("snapshots: ResearchSnapshots", source)
         self.assertIn("sandboxes: SandboxReads", source)
-        self.assertIn("policy: NextActions", source)
+        self.assertIn("policy: StatusGuidancePolicy", source)
         for obsolete in ("workflow.py", "workflow_views.py", "project_overview.py"):
             self.assertFalse((RESEARCH_CORE_ROOT / obsolete).exists())
+        self.assertFalse((RESEARCH_CORE_ROOT / "next_action.py").exists())
 
     def test_resource_service_owns_association_policy(self) -> None:
         # ResourceService is the control-safe record half. Local observation
@@ -644,86 +644,30 @@ if loaded:
         self.assertIn("LocalResourceObserver", proxy_source)
         self.assertIn("observe_file(", proxy_source)
 
-    def test_reflection_tools_uses_direct_concrete_collaborator(self) -> None:
-        # reflection.* has one adapter and one implementation today. Keep it
-        # lean by avoiding a single-impl port, but pin the narrow method surface
-        # the adapter is allowed to use.
-        imports = _import_segments(RESEARCH_CORE_ROOT / "reflection_tools.py")
-        self.assertIn("reflections", imports)
-        self.assertNotIn("reflection_waves", imports)
-        source = (RESEARCH_CORE_ROOT / "reflection_tools.py").read_text(
+    def test_reflection_tools_present_research_facts_in_application(self) -> None:
+        self.assertFalse((RESEARCH_CORE_ROOT / "reflection_tools.py").exists())
+        facade = (RESEARCH_CORE_ROOT / "facade.py").read_text(encoding="utf-8")
+        presentation = (BACKEND_ROOT / "application" / "reflections.py").read_text(
             encoding="utf-8"
         )
-        self.assertIn("reflections: ReflectionService", source)
-        self.assertNotIn("class ReflectionWaveStore", source)
-        from merv.brain.research_core.reflection_tools import ReflectionToolService
-        from merv.brain.research_core.reflections import ReflectionService
-
-        self.assertIs(
-            get_type_hints(ReflectionToolService.__init__)["reflections"],
-            ReflectionService,
+        app = (SURFACE_ROOT / "control" / "control_app.py").read_text(
+            encoding="utf-8"
         )
-
-        tree = ast.parse(source)
-        parents: dict[ast.AST, ast.AST] = {}
-        for parent in ast.walk(tree):
-            for child in ast.iter_child_nodes(parent):
-                parents[child] = parent
-
-        def enclosing_function(node: ast.AST) -> str | None:
-            parent = parents.get(node)
-            while parent is not None:
-                if isinstance(parent, (ast.FunctionDef, ast.AsyncFunctionDef)):
-                    return parent.name
-                parent = parents.get(parent)
-            return None
-
-        calls: set[str] = set()
-        for node in ast.walk(tree):
-            if (
-                isinstance(node, ast.Call)
-                and isinstance(node.func, ast.Name)
-                and node.func.id == "getattr"
-                and len(node.args) >= 2
-                and isinstance(node.args[0], ast.Name)
-                and node.args[0].id == "self"
-                and isinstance(node.args[1], ast.Constant)
-                and node.args[1].value == "reflections"
-            ):
-                self.fail(
-                    "reflection_tools must not dynamically access self.reflections"
-                )
-            if not isinstance(node, ast.Attribute):
-                continue
-            if isinstance(node.value, ast.Name) and node.value.id == "self":
-                if node.attr == "reflections":
-                    parent = parents.get(node)
-                    if (
-                        isinstance(parent, ast.Assign)
-                        and node in parent.targets
-                        and enclosing_function(node) == "__init__"
-                    ):
-                        continue
-                    self.assertIsInstance(parent, ast.Attribute)
-                    continue
-            owner = node.value
-            if not (
-                isinstance(owner, ast.Attribute)
-                and owner.attr == "reflections"
-                and isinstance(owner.value, ast.Name)
-                and owner.value.id == "self"
-            ):
-                continue
-            self.assertIn(
-                node.attr, {"create", "get_state", "list_reflections", "transition"}
-            )
-            parent = parents.get(node)
-            self.assertIsInstance(parent, ast.Call)
-            self.assertIs(getattr(parent, "func", None), node)
-            calls.add(node.attr)
-        self.assertEqual(
-            calls, {"create", "get_state", "list_reflections", "transition"}
+        record = (SURFACE_ROOT / "control" / "record_core.py").read_text(
+            encoding="utf-8"
         )
+        for method in (
+            "create_reflection",
+            "reflection_state",
+            "list_reflections",
+            "transition_reflection",
+        ):
+            self.assertIn(f"    def {method}(", facade)
+        for method in ("create", "get", "list", "transition"):
+            self.assertIn(f"    def {method}(", presentation)
+        self.assertIn("ReflectionCommands(reflections=self.research_core)", app)
+        self.assertIn("reflection_tools=self.reflection_commands", app)
+        self.assertNotIn("reflection_tools", record)
 
     def test_legacy_local_app_stack_is_removed(self) -> None:
         for rel in (

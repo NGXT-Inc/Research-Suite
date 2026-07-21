@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 import unittest
-from unittest.mock import Mock, call
+from unittest.mock import Mock
 
 from merv.brain.application.tool_commands import ControlToolOperations
 from merv.brain.kernel.utils import ValidationError
@@ -11,14 +11,14 @@ class ControlToolOperationsTest(unittest.TestCase):
     def setUp(self) -> None:
         self.projects = Mock()
         self.claims = Mock()
-        self.research = Mock()
+        self.list_agent_experiments = Mock()
         self.resources = Mock()
         self.storage = Mock()
         self.operations = ControlToolOperations(
             project_create=self.projects.create,
             project_get=self.projects.get,
             claims_list=self.claims.list_claims,
-            research=self.research,
+            list_agent_experiments=self.list_agent_experiments,
             resource_resolve=self.resources.resolve,
             resources_list=self.resources.list_resources,
             storage_resolve=self.storage.resolve,
@@ -30,23 +30,13 @@ class ControlToolOperationsTest(unittest.TestCase):
         )
 
     def test_experiment_list_preserves_the_slim_projection_and_order(self) -> None:
-        full = [
-            {"id": "exp_2", "private": "two"},
-            {"id": "exp_1", "private": "one"},
-        ]
-        self.research.project_experiments.return_value = full
-        self.research.present_experiment.side_effect = lambda state: {
-            "id": state["id"]
-        }
+        projected = {"experiments": [{"id": "exp_2"}, {"id": "exp_1"}]}
+        self.list_agent_experiments.return_value = projected
 
         result = self.operations.experiment_list(project_id="proj_1")
 
-        self.assertEqual(result, {"experiments": [{"id": "exp_2"}, {"id": "exp_1"}]})
-        self.research.project_experiments.assert_called_once_with(project_id="proj_1")
-        self.assertEqual(
-            self.research.present_experiment.call_args_list,
-            [call(full[0]), call(full[1])],
-        )
+        self.assertIs(result, projected)
+        self.list_agent_experiments.assert_called_once_with(project_id="proj_1")
 
     def test_project_create_forwards_only_the_historical_arguments(self) -> None:
         self.projects.create.return_value = {"id": "proj_1"}
@@ -77,8 +67,9 @@ class ControlToolOperationsTest(unittest.TestCase):
             "extra": "hidden",
         }
         self.claims.list_claims.return_value = {"claims": [{"id": "claim_1"}]}
-        self.research.project_experiments.return_value = [{"id": "exp_1"}]
-        self.research.present_experiment.return_value = {"id": "exp_1", "status": "planned"}
+        self.list_agent_experiments.return_value = {
+            "experiments": [{"id": "exp_1", "status": "planned"}]
+        }
 
         result = self.operations.project(action="overview", project_id="proj_1")
 

@@ -132,7 +132,6 @@ def evaluate_resource_requirement(
         "satisfied": present and not problems,
         "status": status,
         "gate": requirement.gate,
-        "action": requirement.action,
     }
     if requirement.validator:
         item["validator"] = requirement.validator

@@ -11,12 +11,13 @@ from ...artifacts.facade import Artifacts
 from ...research_core.facade import (
     ExperimentState,
     ResearchCore,
-    SlimExperimentState,
 )
 from ..events import EventDispatcher
+from ..ports.storage import ProducedObjectCatalog
 from ..ports.tracking import ExperimentTracking, TrackingContextPayload
 from .exhibits import ExhibitBuilder, should_pin_exhibit
 from .metrics_exhibit import METRICS_EXHIBIT_FILENAME, exhibit_bytes
+from .presentation import SlimExperimentState, slim_experiment_state
 from .tracking_presentation import with_tracking_if_visible
 
 
@@ -36,6 +37,7 @@ class TransitionExperiment:
     tracking: ExperimentTracking | None
     exhibits: ExhibitBuilder
     dispatcher: EventDispatcher
+    objects: ProducedObjectCatalog
 
     def execute(
         self,
@@ -46,13 +48,24 @@ class TransitionExperiment:
         project_id: str | None = None,
         include_tracking_credentials: bool = False,
     ) -> TransitionResponse:
-        exhibit = None
-        if transition == "submit_results":
-            before = self.research.experiment_state(
+        before = (
+            self.research.experiment_state(
                 experiment_id=experiment_id, project_id=project_id
             )
-            if str(before.get("status")) == "running":
-                exhibit = self._finalize_exhibit(state=before)
+            if transition == "submit_results" or not project_id
+            else None
+        )
+        resolved_project_id = str((before or {}).get("project_id") or project_id or "")
+        storage_objects = self.objects.by_experiment(
+            project_id=resolved_project_id, experiment_ids=(experiment_id,)
+        )[experiment_id]
+        exhibit = None
+        if (
+            transition == "submit_results"
+            and before is not None
+            and str(before.get("status")) == "running"
+        ):
+            exhibit = self._finalize_exhibit(state=before)
 
         committed = self.research.transition_experiment(
             experiment_id=experiment_id,
@@ -64,8 +77,12 @@ class TransitionExperiment:
             event=committed.event, phase="post_commit", state=committed.state
         )
         state = reacted.state
-        resolved_project_id = str(state.get("project_id") or project_id or "")
-        response = cast(TransitionResponse, dict(self.research.present_experiment(state)))
+        response = cast(
+            TransitionResponse,
+            dict(
+                slim_experiment_state(state, storage_objects=storage_objects)
+            ),
+        )
         with_tracking_if_visible(
             state=response,
             tracking=self.tracking,

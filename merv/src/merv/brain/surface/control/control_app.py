@@ -10,18 +10,27 @@ from typing import Any
 from merv.shared.storage_guidance import STORAGE_RULE_OF_THUMB, storage_guidance
 
 from ...application.events import EventDispatcher
+from ...application.experiments.create import CreateExperiment
 from ...application.experiments.exhibits import ExperimentExhibits
+from ...application.experiments.queries import ExperimentCollectionQuery
 from ...application.experiments.reactions import ExperimentReactions
-from ...application.experiments.tracking import FinalizeTrackingRun, GetTrackingContext
+from ...application.experiments.tracking import (
+    AgentExperimentQuery,
+    ExperimentDetailQuery,
+    FinalizeTrackingRun,
+    GetTrackingContext,
+)
 from ...application.experiments.transition import TransitionExperiment
 from ...application.queries import ComputeCostQuery, ExperimentFigureQuery, LogicGraphQuery, MlflowOverviewQuery, TenantCountersQuery
-from ...application.workflow import ProjectDashboardQuery, WorkflowQuery
+from ...application.resource_content import HostedResourceContentQuery
+from ...application.reflections import ReflectionCommands
+from ...application.status_guidance import StatusGuidancePolicy
+from ...application.workflow import ProjectDashboardQuery, StatusAndNextQuery
 from ...application.reviews import ReadReviewStatus
 from ...application.tool_commands import ControlToolOperations
 from ...artifacts.facade import ArtifactsFacade
 from ...feed.facade import FeedFacade
 from ...research_core.facade import ResearchCoreFacade
-from ...research_core.next_action import NextActionPolicy
 from ...research_core.snapshots import ResearchSnapshotReader
 from ..tools.contracts import (
     CONTROL_PLANE_TOOL_NAMES,
@@ -42,6 +51,7 @@ from ...mlflow import CentralMlflowService
 from ...sandbox.facade import SandboxFacade, SandboxReadFacade
 from ...sandbox.runtime import build_sandbox_runtime
 from ...object_storage.service import StorageLedgerService
+from ...object_storage.catalog import StorageObjectCatalog
 from ...kernel.state import BaseStateStore
 from ..tools.tool_facade import ToolDispatcher
 from ..tools.tool_handlers import build_control_tool_handlers
@@ -87,7 +97,6 @@ class ControlApp:
         self.resources = self.record_core.resources
         self.graph_refs = self.record_core.graph_refs
         self.reflection_waves = self.record_core.reflection_waves
-        self.reflection_tools = self.record_core.reflection_tools
         self.reviews = self.record_core.reviews
         self.feed = self.record_core.feed
 
@@ -98,7 +107,12 @@ class ControlApp:
             reflections=self.reflection_waves,
             graph_refs=self.graph_refs,
         )
+        self.reflection_commands = ReflectionCommands(reflections=self.research_core)
+        self.produced_objects = StorageObjectCatalog(store=self.store)
         self.artifacts = ArtifactsFacade(self.resources)
+        self.hosted_resource_content_query = HostedResourceContentQuery(
+            artifacts=self.artifacts
+        )
         self.feed_api = FeedFacade(self.feed)
         self.experiment_exhibits = ExperimentExhibits(
             research=self.research_core,
@@ -118,6 +132,7 @@ class ControlApp:
             tracking=self.mlflow_tracking,
             exhibits=self.experiment_exhibits,
             dispatcher=self.reaction_registry,
+            objects=self.produced_objects,
         )
         self.read_review_status = ReadReviewStatus(
             research=self.research_core,
@@ -127,17 +142,32 @@ class ControlApp:
         self.tracking_context = GetTrackingContext(
             research=self.research_core, tracking=self.mlflow_tracking
         )
+        self.agent_experiment_query = AgentExperimentQuery(
+            research=self.research_core,
+            objects=self.produced_objects,
+            tracking=self.mlflow_tracking,
+        )
+        self.experiment_detail_query = ExperimentDetailQuery(
+            research=self.research_core,
+            objects=self.produced_objects,
+            tracking=self.mlflow_tracking,
+        )
         self.finalize_tracking_run = FinalizeTrackingRun(
             research=self.research_core,
             feed=self.feed_api,
             tracking=self.mlflow_tracking,
             dispatcher=self.reaction_registry,
+            objects=self.produced_objects,
         )
+        self.experiment_collection_query = ExperimentCollectionQuery(
+            research=self.research_core, objects=self.produced_objects
+        )
+        self.create_experiment = CreateExperiment(research=self.research_core)
         self.control_tool_operations = ControlToolOperations(
             project_create=self.projects.create,
             project_get=self.projects.get,
             claims_list=self.claims.list_claims,
-            research=self.research_core,
+            list_agent_experiments=self.experiment_collection_query.agent,
             resource_resolve=self.resources.resolve,
             resources_list=self.resources.list_resources,
             storage_resolve=self.storage.resolve if self.storage is not None else None,
@@ -171,14 +201,15 @@ class ControlApp:
             store=self.store,
             reader=self.sandboxes,
         )
-        self.next_action_policy = NextActionPolicy(
+        self.next_action_policy = StatusGuidancePolicy(
             storage_enabled=self.storage is not None,
             storage_guidance=storage_guidance(enabled=self.storage is not None),
         )
-        self.workflow = WorkflowQuery(
+        self.workflow = StatusAndNextQuery(
             snapshots=self.research_snapshots,
             sandboxes=self.sandbox_reads,
             policy=self.next_action_policy,
+            objects=self.produced_objects,
         )
         self.project_dashboard_query = ProjectDashboardQuery(
             snapshots=self.research_snapshots,
@@ -222,8 +253,8 @@ class ControlApp:
                 workflow=self.workflow,
                 projects=self.projects,
                 claims=self.claims,
-                experiments=self.experiments,
-                reflection_tools=self.reflection_tools,
+                experiments=SimpleNamespace(create=self.create_experiment),
+                reflection_tools=self.reflection_commands,
                 resources=self.resources,
                 storage=self.storage,
                 reviews=self.reviews,
@@ -231,7 +262,10 @@ class ControlApp:
                 feed=self.feed,
                 experiment_transition=self.transition_experiment,
                 experiment_exhibit=self.experiment_exhibits,
-                tracking_context=self.tracking_context,
+                tracking_context=SimpleNamespace(
+                    execute=self.tracking_context.execute,
+                    experiment=self.agent_experiment_query,
+                ),
                 tracking_finalize=self.finalize_tracking_run,
                 review_status=self.read_review_status,
                 operations=self.control_tool_operations,

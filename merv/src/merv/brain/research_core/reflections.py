@@ -38,7 +38,6 @@ from .domain.reflection_artifacts import (
 )
 from .domain.reflection_policy import (
     covered_terminal_ids,
-    post_publish_guidance,
     reflection_signal_state,
 )
 from .domain.resource_evidence import (
@@ -262,10 +261,6 @@ class ReflectionService:
                 (reflection_id,),
             ).fetchall()
             data["materialized_experiments"] = rows_to_dicts(rows=experiment_rows)
-            if data.get("status") == "published" and data["materialized_experiments"]:
-                data["post_publish_guidance"] = post_publish_guidance(
-                    materialized_experiments=data["materialized_experiments"],
-                )
             review_rows = conn.execute(
                 """
                 SELECT * FROM reviews
@@ -645,7 +640,6 @@ class ReflectionService:
                 "satisfied": covered and not problem,
                 "status": "invalid" if problem else "present" if covered else "missing",
                 "gate": requirement.gate,
-                "action": requirement.action,
             }
             if covered:
                 item.update(

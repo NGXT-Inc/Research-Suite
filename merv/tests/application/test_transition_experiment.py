@@ -250,7 +250,6 @@ class RecordingResearch:
         persisted: dict[str, Any] | None = None,
         transition_error: Exception | None = None,
         persistence_error: Exception | None = None,
-        presentation_error: Exception | None = None,
     ) -> None:
         self.order = order
         self.before = before or _state("running", run=_open_run(), token="before")
@@ -259,11 +258,9 @@ class RecordingResearch:
         self.persisted = persisted
         self.transition_error = transition_error
         self.persistence_error = persistence_error
-        self.presentation_error = presentation_error
         self.transition_committed = False
         self.transition_calls: list[dict[str, Any]] = []
         self.persist_calls: list[dict[str, Any]] = []
-        self.presented_states: list[dict[str, Any]] = []
         self.verdicts: list[dict[str, Any]] = []
 
     def experiment_state(
@@ -334,24 +331,6 @@ class RecordingResearch:
 
     def exhibit_path(self, *, experiment_id: str, name: str, filename: str) -> str:
         return f"experiments/a-characterized-experiment/{filename}"
-
-    def present_experiment(self, state: dict[str, Any]) -> dict[str, Any]:
-        self.order.append("research.present")
-        self.presented_states.append(state)
-        if self.presentation_error is not None:
-            raise self.presentation_error
-        return {
-            key: state[key]
-            for key in (
-                "id",
-                "project_id",
-                "name",
-                "status",
-                "attempt_index",
-                "mlflow_run",
-            )
-            if key in state
-        }
 
 
 class RecordingArtifacts:
@@ -427,6 +406,20 @@ class RecordingExhibits:
         return deepcopy(self.exhibit)
 
 
+class RecordingObjects:
+    def __init__(
+        self, order: list[str], *, error: Exception | None = None
+    ) -> None:
+        self.order = order
+        self.error = error
+
+    def by_experiment(self, **kwargs: Any) -> dict[str, list[dict[str, Any]]]:
+        self.order.append("objects.by_experiment")
+        if self.error is not None:
+            raise self.error
+        return {experiment_id: [] for experiment_id in kwargs["experiment_ids"]}
+
+
 def _use_case(
     *,
     research: RecordingResearch,
@@ -434,6 +427,7 @@ def _use_case(
     feed: RecordingFeed,
     tracking: RecordingTracking | None,
     exhibits: RecordingExhibits,
+    objects: RecordingObjects | None = None,
 ) -> TransitionExperiment:
     dispatcher = EventDispatcher()
     ExperimentReactions(
@@ -445,7 +439,41 @@ def _use_case(
         tracking=tracking,
         exhibits=exhibits,
         dispatcher=dispatcher,
+        objects=objects or RecordingObjects(research.order),
     )
+
+
+class TransitionStoragePrefetchTest(unittest.TestCase):
+    def test_catalog_failure_prevents_exhibit_and_transition_side_effects(self) -> None:
+        order: list[str] = []
+        research = RecordingResearch(order)
+        artifacts = RecordingArtifacts(order)
+        feed = RecordingFeed(order)
+        tracking = RecordingTracking(order)
+        exhibits = RecordingExhibits(order)
+        use_case = _use_case(
+            research=research,
+            artifacts=artifacts,
+            feed=feed,
+            tracking=tracking,
+            exhibits=exhibits,
+            objects=RecordingObjects(order, error=RuntimeError("catalog down")),
+        )
+
+        with self.assertRaisesRegex(RuntimeError, "catalog down"):
+            use_case.execute(
+                experiment_id=EXPERIMENT_ID,
+                transition="submit_results",
+                project_id=PROJECT_ID,
+            )
+
+        self.assertEqual(order, ["research.state", "objects.by_experiment"])
+        self.assertEqual(research.verdicts, [])
+        self.assertEqual(research.transition_calls, [])
+        self.assertEqual(exhibits.states, [])
+        self.assertEqual(artifacts.pin_attempts, [])
+        self.assertEqual(tracking.create_calls, [])
+        self.assertEqual(feed.calls, [])
 
 
 class StartAndRetryTransitionTest(unittest.TestCase):
@@ -521,7 +549,6 @@ class StartAndRetryTransitionTest(unittest.TestCase):
         self.assertTrue(persisted_run["created_by_plugin"])
         self.assertNotIn("configured", persisted_run)
         self.assertNotIn("dashboard_run_url", persisted_run)
-        self.assertIs(research.presented_states[0], persisted)
         self.assertEqual(result["mlflow_run"]["run_id"], "run_new")
         self.assertEqual(result["mlflow"]["run"]["run_id"], "run_new")
         self.assertEqual(result["mlflow"]["env"]["MLFLOW_RUN_ID"], "run_new")
@@ -535,7 +562,6 @@ class StartAndRetryTransitionTest(unittest.TestCase):
                     "research.transition",
                     "tracking.create",
                     "research.record_tracking",
-                    "research.present",
                     "tracking.context.serialize",
                 }
             ],
@@ -543,11 +569,13 @@ class StartAndRetryTransitionTest(unittest.TestCase):
                 "research.transition",
                 "tracking.create",
                 "research.record_tracking",
-                "research.present",
                 "tracking.context.serialize",
             ],
         )
-        self.assertNotIn("research.state", order)
+        self.assertEqual(
+            order[:2],
+            ["objects.by_experiment", "research.transition"],
+        )
 
     def test_start_reuses_an_existing_run_and_retains_exact_transition_state(self) -> None:
         committed = _state("running", run=_open_run())
@@ -564,7 +592,6 @@ class StartAndRetryTransitionTest(unittest.TestCase):
 
         self.assertEqual(tracking.create_calls, [])
         self.assertEqual(research.persist_calls, [])
-        self.assertIs(research.presented_states[0], committed)
         self.assertEqual(result["mlflow_run"]["run_id"], "run_open")
 
     def test_start_persists_a_normalized_adapter_error(self) -> None:
@@ -603,7 +630,6 @@ class StartAndRetryTransitionTest(unittest.TestCase):
             "tracking control plane unavailable",
         )
         self.assertNotIn("configured", research.persist_calls[0]["run"])
-        self.assertIs(research.presented_states[0], persisted)
         self.assertEqual(
             result["mlflow_run"]["error"], "tracking control plane unavailable"
         )
@@ -626,7 +652,6 @@ class StartAndRetryTransitionTest(unittest.TestCase):
 
         self.assertTrue(research.transition_committed)
         self.assertEqual(tracking.create_calls[0]["attempt_index"], 3)
-        self.assertEqual(research.presented_states, [])
         self.assertEqual(tracking.context_calls, [])
         self.assertEqual(feed.calls, [])
         self.assertNotIn("feed.advisory", order)
@@ -666,9 +691,6 @@ class StartAndRetryTransitionTest(unittest.TestCase):
                         tracking.create_calls[0]["run_name"],
                         f"{EXPERIMENT_ID}-attempt-3",
                     )
-                    self.assertIs(research.presented_states[0], persisted)
-                else:
-                    self.assertIs(research.presented_states[0], committed)
                 self.assertEqual(result["mlflow_run"]["run_id"], expected_run_id)
 
     def test_reactions_are_driven_by_the_exact_returned_event(self) -> None:
@@ -696,7 +718,6 @@ class StartAndRetryTransitionTest(unittest.TestCase):
         self.assertEqual(tracking.create_calls, [])
         self.assertEqual(research.persist_calls, [])
         self.assertEqual(feed.calls, [])
-        self.assertIs(research.presented_states[0], committed)
         self.assertIsNone(result.get("mlflow_run"))
 
 
@@ -763,7 +784,6 @@ class TerminalTrackingTransitionTest(unittest.TestCase):
                     research.persist_calls[0]["event_type"],
                     "experiment.mlflow_run_refreshed",
                 )
-                self.assertIs(research.presented_states[0], persisted)
                 self.assertEqual(result["mlflow_run"]["status"], tracking_status)
 
     def test_terminal_adapter_and_persistence_failures_are_suppressed_and_feed_runs(self) -> None:
@@ -809,7 +829,6 @@ class TerminalTrackingTransitionTest(unittest.TestCase):
                 )
 
                 self.assertTrue(research.transition_committed)
-                self.assertIs(research.presented_states[0], committed)
                 self.assertEqual(result["mlflow_run"]["status"], "RUNNING")
                 self.assertEqual(feed.calls[0]["event"], "experiment_complete")
 
@@ -843,7 +862,6 @@ class TerminalTrackingTransitionTest(unittest.TestCase):
 
                 self.assertEqual(tracking.finalize_calls, [])
                 self.assertEqual(research.persist_calls, [])
-                self.assertIs(research.presented_states[0], committed)
 
 
 class FeedTransitionReactionTest(unittest.TestCase):
@@ -925,7 +943,6 @@ class FeedTransitionReactionTest(unittest.TestCase):
 
         self.assertEqual(len(feed.calls), 1)
         self.assertNotIn("feed_note", result)
-        self.assertLess(observed.index("research.present"), observed.index("feed.advisory"))
         self.assertLess(
             observed.index("tracking.context.serialize"),
             observed.index("feed.advisory"),
@@ -1117,7 +1134,10 @@ class SubmitResultsExhibitPrerequisiteTest(unittest.TestCase):
         self.assertEqual(exhibits.states, [])
         self.assertEqual(research.verdicts, [])
         self.assertEqual(artifacts.pin_attempts, [])
-        self.assertEqual(order[:2], ["research.state", "research.transition"])
+        self.assertEqual(
+            order[:3],
+            ["research.state", "objects.by_experiment", "research.transition"],
+        )
 
 
 class TrackingCredentialFlagTest(unittest.TestCase):

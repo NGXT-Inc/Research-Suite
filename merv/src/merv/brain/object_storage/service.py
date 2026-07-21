@@ -40,25 +40,6 @@ STORAGE_DEFAULT_TTL_SECONDS = 60 * 24 * 3600
 PRESIGN_TTL_SECONDS = 3600
 
 
-def objects_for_experiment(
-    *, conn: Connection, project_id: str, experiment_id: str
-) -> list[dict[str, Any]]:
-    """Ledger rows produced by one experiment; injected into research_core."""
-    rows = conn.execute(
-        """
-        SELECT id, name, version, kind, content_sha256, size_bytes,
-               content_type, status, expires_at, producing_run, source_uri,
-               notes, created_at, updated_at, last_accessed_at
-        FROM storage_objects
-        WHERE project_id = ? AND producing_experiment_id = ?
-          AND status != 'deleted'
-        ORDER BY kind, name, version DESC, created_seq DESC
-        """,
-        (project_id, experiment_id),
-    ).fetchall()
-    return [row_to_dict(row=row) or {} for row in rows]
-
-
 class StorageLedgerService:
     """Ledger + lifecycle owner for project-scoped heavy objects."""
 

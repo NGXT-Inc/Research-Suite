@@ -191,6 +191,40 @@ class StorageHttpApiTest(unittest.TestCase):
         )
         self.assertNotIn("namespace", objects[0])
 
+        object_id = uploaded["object"]["id"]
+        listed = self.app.call_tool(
+            "experiment.list", {"project_id": self.project_id}
+        )
+        self.assertEqual(listed["experiments"][0]["storage_objects"][0]["id"], object_id)
+        detail = self._request(
+            "GET", f"/api/projects/{self.project_id}/experiments/{exp['id']}"
+        )
+        self.assertEqual(detail["storage_objects"][0]["id"], object_id)
+        filtered = self._request(
+            "GET", f"/api/projects/{self.project_id}/experiments?status=planned"
+        )
+        self.assertEqual(filtered["experiments"][0]["storage_objects"][0]["id"], object_id)
+        view = self._request(
+            "GET", f"/api/projects/{self.project_id}/experiments/view"
+        )
+        self.assertEqual(view["experiments"][0]["storage_objects"][0]["id"], object_id)
+        status = self._request(
+            "GET",
+            f"/api/projects/{self.project_id}/status?experiment_id={exp['id']}",
+        )
+        self.assertEqual(status["experiment"]["storage_objects"][0]["id"], object_id)
+        home = self._request("GET", f"/api/projects/{self.project_id}/home")
+        self.assertEqual(home["experiments"][0]["storage_objects"][0]["id"], object_id)
+        transitioned = self.app.call_tool(
+            "experiment.transition",
+            {
+                "project_id": self.project_id,
+                "experiment_id": exp["id"],
+                "transition": "abandon",
+            },
+        )
+        self.assertEqual(transitioned["storage_objects"][0]["id"], object_id)
+
         self.app.call_tool(
             "storage.object",
             {

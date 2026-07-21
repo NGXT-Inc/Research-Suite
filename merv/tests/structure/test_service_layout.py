@@ -76,9 +76,8 @@ RAW_CONTROL_APP_ACCESS_BASELINE: Counter[tuple[str, str]] = Counter(
         ("transport/api/sandboxes.py", "store"): 1,
         ("transport/api/sandboxes.py", "sandboxes"): 1,
         ("transport/api/storage.py", "storage"): 1,
-        ("transport/api/views.py", "artifacts"): 2,
-        ("transport/api/views.py", "experiments"): 2,
-        ("transport/api/views.py", "resources"): 4,
+        ("transport/api/views.py", "artifacts"): 1,
+        ("transport/api/views.py", "resources"): 3,
         ("transport/api/views.py", "sandboxes"): 5,
         ("transport/api/views.py", "tool_calls"): 2,
         ("transport/data_plane_http.py", "feed"): 3,
@@ -496,17 +495,20 @@ class ServiceLayoutTest(unittest.TestCase):
                 self.assertNotIn("open(", source)
 
     def test_workflow_policy_is_pure_and_query_uses_public_reads(self) -> None:
-        policy = _rc_source("next_action.py")
-        policy_imports = _import_segments(RESEARCH_CORE / "next_action.py")
-        self.assertIn("class NextActionPolicy:", policy)
+        policy_path = BACKEND_ROOT / "application" / "status_guidance.py"
+        policy = policy_path.read_text(encoding="utf-8")
+        policy_imports = _import_segments(policy_path)
+        self.assertIn("class StatusGuidancePolicy:", policy)
         self.assertNotIn(".execute(", policy)
         self.assertNotIn("BaseStateStore", policy)
-        self.assertFalse({"application", "sandbox", "state"} & policy_imports)
+        self.assertNotIn("domain", policy_imports)
+        self.assertIn("facade", policy_imports)
+        self.assertFalse((RESEARCH_CORE / "next_action.py").exists())
 
         query = (BACKEND_ROOT / "application" / "workflow.py").read_text(
             encoding="utf-8"
         )
-        self.assertIn("class WorkflowQuery:", query)
+        self.assertIn("class StatusAndNextQuery:", query)
         self.assertIn("class ProjectDashboardQuery:", query)
         self.assertIn("snapshots: ResearchSnapshots", query)
         self.assertIn("sandboxes: SandboxReads", query)
@@ -821,24 +823,17 @@ class ServiceLayoutTest(unittest.TestCase):
                 self.assertIn("domain.experiment_names", imports)
                 self.assertNotIn("experiment_names", imports)
 
-    def test_reflection_tool_adapter_wraps_the_wave_service(self) -> None:
-        # The synthesis->reflection projection layer is gone (external names
-        # ARE the internal names); the tool adapter forwards to the service.
+    def test_reflection_tools_are_exposed_by_the_research_facade(self) -> None:
         self.assertFalse((DOMAIN_ROOT / "reflection_projection.py").exists())
-        reflection_imports = _import_segments(RESEARCH_CORE / "reflection_tools.py")
-        self.assertIn("reflections", reflection_imports)
-        self.assertNotIn("reflection_waves", reflection_imports)
-        reflection_source = _rc_source("reflection_tools.py")
-        self.assertIn("reflections: ReflectionService", reflection_source)
-        self.assertNotIn("class ReflectionWaveStore", reflection_source)
-        from merv.brain.research_core.reflection_tools import ReflectionToolService
-        from merv.brain.research_core.reflections import ReflectionService
-
-        self.assertIs(
-            get_type_hints(ReflectionToolService.__init__)["reflections"],
-            ReflectionService,
-        )
-        get_type_hints(ReflectionToolService.create)
+        self.assertFalse((RESEARCH_CORE / "reflection_tools.py").exists())
+        facade = _rc_source("facade.py")
+        for method in (
+            "create_reflection",
+            "reflection_state",
+            "list_reflections",
+            "transition_reflection",
+        ):
+            self.assertIn(f"    def {method}(", facade)
 
     def test_graph_lint_is_domain_leaf_module(self) -> None:
         self.assertEqual(
@@ -1321,14 +1316,20 @@ class ServiceLayoutTest(unittest.TestCase):
                 self.assertIn(route, data_plane_source)
                 self.assertNotIn(route, source)
 
-    def test_transport_delegates_resource_content_policy_to_artifacts_facade(self) -> None:
+    def test_transport_delegates_resource_content_to_application_query(self) -> None:
         source = _api_views_source()
+        start = source.index("    def resource_content(")
+        end = source.index("    def resource_file(", start)
+        content = source[start:end]
 
-        self.assertIn("self.app.artifacts.resource_content", source)
+        self.assertIn("self.app.hosted_resource_content_query", content)
         self.assertIn("self.app.artifacts.submitted_figure", source)
-        self.assertNotIn("self.app.resources.pinned_text_for_version", source)
-        self.assertNotIn("self.app.resources.submitted_text_for_version", source)
-        self.assertNotIn("self.app.resources.submitted_figure", source)
+        self.assertNotIn("self.app.resources.resolve", content)
+        self.assertNotIn("self.app.artifacts.resource_content", content)
+        self.assertNotIn("self.app.artifacts.select_resource_text", content)
+        self.assertNotIn("self.app.resources.pinned_text_for_version", content)
+        self.assertNotIn("self.app.resources.submitted_text_for_version", content)
+        self.assertNotIn("self.app.resources.submitted_figure", content)
         self.assertNotIn(
             "SELECT project_id, content_sha256 FROM resource_versions",
             source,
@@ -1402,7 +1403,7 @@ class ServiceLayoutTest(unittest.TestCase):
         self.assertIn("class TenantCountersQuery", queries)
 
     def test_surface_raw_control_app_access_baseline_only_shrinks(self) -> None:
-        self.assertEqual(sum(RAW_CONTROL_APP_ACCESS_BASELINE.values()), 48)
+        self.assertEqual(sum(RAW_CONTROL_APP_ACCESS_BASELINE.values()), 44)
         current = _raw_control_app_accesses()
         new = current - RAW_CONTROL_APP_ACCESS_BASELINE
         stale = RAW_CONTROL_APP_ACCESS_BASELINE - current
@@ -1513,12 +1514,24 @@ class ServiceLayoutTest(unittest.TestCase):
 
     def test_graph_ref_resolver_uses_reference_type_registry(self) -> None:
         source = (RESEARCH_CORE / "graph_refs.py").read_text(encoding="utf-8")
+        application = (BACKEND_ROOT / "application/queries.py").read_text(
+            encoding="utf-8"
+        )
+        artifacts = (ARTIFACTS_ROOT / "facade.py").read_text(encoding="utf-8")
+        evidence = (ARTIFACTS_ROOT / "ports" / "evidence.py").read_text(
+            encoding="utf-8"
+        )
         self.assertIn("class GraphRefType:", source)
         self.assertIn("GRAPH_REF_TYPES: tuple[GraphRefType, ...]", source)
         self.assertEqual(source.count("GraphRefType("), 4)
         self.assertIn("for ref_type in GRAPH_REF_TYPES:", source)
-        self.assertIn("self.evidence_reader.resolve_resource_reference", source)
-        self.assertIn('if ref.startswith("res_")', source)
+        self.assertNotIn("EvidenceReader", source)
+        self.assertNotIn("resolve_resource_reference", source)
+        self.assertIn("def _refs_from_graph(", application)
+        self.assertIn("self.artifacts.resolve_resource_reference", application)
+        self.assertIn('elif ref.startswith("res_")', application)
+        self.assertIn("def resolve_resource_reference(", artifacts)
+        self.assertNotIn("resolve_resource_reference", evidence)
         for prefix in ("rev_", "claim_", "exp_", "syn_"):
             self.assertIn(f'prefix="{prefix}"', source)
             self.assertNotIn(f'if ref.startswith("{prefix}")', source)
@@ -1672,15 +1685,18 @@ class ServiceLayoutTest(unittest.TestCase):
             (RESEARCH_CORE / "reviews.py").read_text(encoding="utf-8"),
         )
 
-    def test_view_modules_do_not_import_service_state_machines(self) -> None:
-        for name in ("experiment_views.py",):
-            with self.subTest(module=name):
-                modules = _rc_import_modules(name)
-                self.assertNotIn("experiments", modules)
-                self.assertNotIn("workflow", modules)
+    def test_experiment_projection_is_application_owned_and_pure(self) -> None:
+        projection = BACKEND_ROOT / "application" / "experiments" / "presentation.py"
+        modules = {
+            module.split(".", 1)[0] for module in _import_module_names(projection)
+        }
 
-    def test_experiment_view_is_a_leaf_projection(self) -> None:
-        self.assertEqual(_rc_import_modules("experiment_views.py"), {"typing"})
+        self.assertFalse((RESEARCH_CORE / "experiment_views.py").exists())
+        self.assertEqual(
+            modules, {"claim_guidance", "gate_checklist", "ports", "research_core", "typing"}
+        )
+        self.assertNotIn("experiments", modules)
+        self.assertNotIn("workflow", modules)
 
 
 if __name__ == "__main__":

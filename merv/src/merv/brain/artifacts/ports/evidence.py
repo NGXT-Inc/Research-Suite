@@ -90,11 +90,6 @@ class EvidenceReader(Protocol):
         roles: tuple[str, ...],
     ) -> tuple[SubmittedEvidence, ...]: ...
 
-    def resolve_resource_reference(
-        self, *, project_id: str, ref: str
-    ) -> dict[str, object] | None: ...
-
-
 @runtime_checkable
 class AssociationTargetResolver(Protocol):
     """Research-owned target facts needed while associating a resource."""

@@ -300,7 +300,10 @@ class ReflectionGateTest(unittest.TestCase):
             )["id"],
             syn_id,
         )
-        listed = self.call("reflection.list", project_id=self.project_id)["reflections"]
+        response = self.call("reflection.list", project_id=self.project_id)
+        self.assertEqual(list(response), ["count", "reflections"])
+        self.assertEqual(response["count"], 1)
+        listed = response["reflections"]
         self.assertEqual([row["id"] for row in listed], [syn_id])
         self.assertEqual(
             self.call(
@@ -1610,6 +1613,10 @@ class ReflectionSignalTest(unittest.TestCase):
     def _signal(self) -> dict:
         return self.app.reflection_waves.reflection_signal(project_id=self.project_id)
 
+    def _reflection_hint(self) -> str:
+        status = self.call("workflow.status_and_next", project_id=self.project_id)
+        return str((status.get("project_reflection") or {}).get("hint") or "")
+
     def _publish_wave(self) -> str:
         syn = self.call(
             "reflection.create",
@@ -1724,13 +1731,13 @@ class ReflectionSignalTest(unittest.TestCase):
             self._finish_experiment(intent=f"quiet-{i}")
         signal = self._signal()
         self.assertFalse(signal["stale"])
-        self.assertEqual(signal["hint"], "")
+        self.assertNotIn("hint", signal)
 
         self._finish_experiment(intent="nudge")
         signal = self._signal()
         self.assertTrue(signal["stale"])
         self.assertFalse(signal["experiment_create_blocked"])
-        self.assertIn("Consider running the project's first reflection", signal["hint"])
+        self.assertIn("Consider running the project's first reflection", self._reflection_hint())
 
         for i in range(
             REFLECTION_NUDGE_NEW_TERMINAL_THRESHOLD,
@@ -1739,7 +1746,7 @@ class ReflectionSignalTest(unittest.TestCase):
             self._finish_experiment(intent=f"block-{i}")
         signal = self._signal()
         self.assertTrue(signal["experiment_create_blocked"])
-        self.assertIn("required before creating another experiment", signal["hint"])
+        self.assertIn("required before creating another experiment", self._reflection_hint())
 
     def test_publish_resets_the_signal_and_coverage(self) -> None:
         for i in range(REFLECTION_BLOCK_NEW_TERMINAL_THRESHOLD):
@@ -1765,8 +1772,9 @@ class ReflectionSignalTest(unittest.TestCase):
         signal = self._signal()
         self.assertTrue(signal["stale"])
         self.assertFalse(signal["experiment_create_blocked"])
-        self.assertTrue(signal["hint"].startswith("Consider running a project reflection"))
-        self.assertIn("covers 5 of 8", signal["hint"])
+        hint = self._reflection_hint()
+        self.assertTrue(hint.startswith("Consider running a project reflection"))
+        self.assertIn("covers 5 of 8", hint)
 
         self._finish_experiment(intent="post-four")
         self._finish_experiment(intent="post-five")
@@ -1818,7 +1826,7 @@ class ReflectionSignalTest(unittest.TestCase):
         self.assertTrue(signal["stale"])
         self.assertTrue(signal["contradicted_flip"])
         self.assertFalse(signal["experiment_create_blocked"])
-        self.assertIn("contradicted", signal["hint"])
+        self.assertIn("contradicted", self._reflection_hint())
 
     def test_open_wave_suppresses_the_nudge(self) -> None:
         for i in range(3):

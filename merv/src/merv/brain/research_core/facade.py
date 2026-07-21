@@ -3,20 +3,20 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
-from typing import Any, Protocol, cast, runtime_checkable
+from typing import Any, Protocol, TypedDict, Unpack, cast, runtime_checkable
 
 from ..kernel.events import StoredEvent
 from .domain.graph_lint import MAX_GRAPH_NODES, graph_problems
+from .domain.experiment_policy import infer_claim_status_from_conclusion
 from .domain.paths import experiment_folder_rel
 from .domain.resource_evidence import preferred_associated_resource
 from .domain.vocabulary import (
     EXPERIMENT_ACTIVE_PROCESS_STATUSES,
     EXPERIMENT_TERMINAL_STATUSES,
 )
-from .experiment_views import slim_experiment_state
 from .experiments import ExperimentService
 from .graph_refs import GraphRefResolver
-from .gate_evaluation import GateEvaluation
+from .gate_evaluation import GateEvaluation, RequirementEvaluation
 from .reflections import ReflectionService
 from .transition_types import (
     CommittedExperimentTransition,
@@ -24,7 +24,6 @@ from .transition_types import (
     ExhibitVerdict,
     ExperimentState,
     PersistedRunState,
-    SlimExperimentState,
 )
 
 
@@ -60,8 +59,25 @@ class ResearchSnapshots(Protocol):
     ) -> ResearchSnapshot: ...
 
 
+class ExperimentCreateArgs(TypedDict, total=False):
+    name: str
+    intent: str
+    tested_claim_ids: list[str] | str | None
+    claim_id: str | None
+    claim_ids: list[str] | str | None
+    title: str
+    hypothesis: str
+    design: str
+    success_criteria: str
+    risks: str
+    status: str
+    project_id: str | None
+
+
 @runtime_checkable
 class ResearchCore(Protocol):
+    def create_experiment(self, **kwargs: Unpack[ExperimentCreateArgs]) -> ExperimentState: ...
+
     def experiment_state(
         self, *, experiment_id: str, project_id: str | None = None
     ) -> ExperimentState: ...
@@ -106,20 +122,32 @@ class ResearchCore(Protocol):
 
     def exhibit_path(self, *, experiment_id: str, name: str, filename: str) -> str: ...
 
-    def present_experiment(self, state: ExperimentState) -> SlimExperimentState: ...
-
     def assert_experiment_in_project(
         self, *, attachment_id: str, project_id: str
     ) -> None: ...
 
     def reflection_state(self, *, project_id: str, reflection_id: str) -> dict[str, Any]: ...
 
+    def create_reflection(
+        self,
+        *,
+        project_id: str,
+        title: str = "",
+        lenses: list[dict[str, Any]] | None = None,
+    ) -> dict[str, Any]: ...
+
+    def list_reflections(self, *, project_id: str) -> dict[str, Any]: ...
+
+    def transition_reflection(
+        self, *, project_id: str, reflection_id: str, transition: str
+    ) -> dict[str, Any]: ...
+
     def reflection_overview(self, *, project_id: str) -> dict[str, Any]: ...
 
     def project_logic_graph_selection(self, *, project_id: str) -> dict[str, Any]: ...
 
-    def resolve_graph_refs(
-        self, *, project_id: str, graph: dict[str, Any] | None
+    def resolve_research_graph_refs(
+        self, *, project_id: str, refs: tuple[str, ...]
     ) -> dict[str, Any]: ...
 
 
@@ -149,6 +177,14 @@ class ResearchCoreFacade:
         self._experiments = experiments
         self._reflections = reflections
         self._graph_refs = graph_refs
+
+    def create_experiment(
+        self, **kwargs: Unpack[ExperimentCreateArgs]
+    ) -> ExperimentState:
+        return cast(
+            ExperimentState,
+            self._experiments.create(**kwargs),
+        )
 
     def experiment_state(
         self, *, experiment_id: str, project_id: str | None = None
@@ -238,9 +274,6 @@ class ResearchCoreFacade:
     def exhibit_path(self, *, experiment_id: str, name: str, filename: str) -> str:
         return f"{experiment_folder_rel(experiment_id=experiment_id, name=name)}{filename}"
 
-    def present_experiment(self, state: ExperimentState) -> SlimExperimentState:
-        return cast(SlimExperimentState, slim_experiment_state(state))
-
     def assert_experiment_in_project(
         self, *, attachment_id: str, project_id: str
     ) -> None:
@@ -258,17 +291,40 @@ class ResearchCoreFacade:
     def reflection_overview(self, *, project_id: str) -> dict[str, Any]:
         return self._reflection_service().overview(project_id=project_id)
 
+    def create_reflection(
+        self,
+        *,
+        project_id: str,
+        title: str = "",
+        lenses: list[dict[str, Any]] | None = None,
+    ) -> dict[str, Any]:
+        return self._reflection_service().create(
+            project_id=project_id, title=title, lenses=lenses or []
+        )
+
+    def list_reflections(self, *, project_id: str) -> dict[str, Any]:
+        return self._reflection_service().list_reflections(project_id=project_id)
+
+    def transition_reflection(
+        self, *, project_id: str, reflection_id: str, transition: str
+    ) -> dict[str, Any]:
+        return self._reflection_service().transition(
+            project_id=project_id,
+            reflection_id=reflection_id,
+            transition=transition,
+        )
+
     def project_logic_graph_selection(self, *, project_id: str) -> dict[str, Any]:
         return self._reflection_service().project_logic_graph_selection(
             project_id=project_id
         )
 
-    def resolve_graph_refs(
-        self, *, project_id: str, graph: dict[str, Any] | None
+    def resolve_research_graph_refs(
+        self, *, project_id: str, refs: tuple[str, ...]
     ) -> dict[str, Any]:
         if self._graph_refs is None:
             raise RuntimeError("graph reference resolver is not configured")
-        return self._graph_refs.resolve_index(project_id=project_id, graph=graph)
+        return self._graph_refs.resolve_index(project_id=project_id, refs=refs)
 
     def _reflection_service(self) -> ReflectionService:
         if self._reflections is None:
@@ -281,6 +337,7 @@ __all__ = [
     "CommittedTrackingRunRefresh",
     "EXPERIMENT_ACTIVE_PROCESS_STATUSES",
     "EXPERIMENT_TERMINAL_STATUSES",
+    "ExperimentCreateArgs",
     "ExhibitVerdict",
     "ExperimentState",
     "GateEvaluation",
@@ -291,7 +348,9 @@ __all__ = [
     "ResearchReviews",
     "ResearchSnapshot",
     "ResearchSnapshots",
-    "SlimExperimentState",
+    "RequirementEvaluation",
+    "experiment_folder_rel",
     "graph_problems",
+    "infer_claim_status_from_conclusion",
     "preferred_associated_resource",
 ]

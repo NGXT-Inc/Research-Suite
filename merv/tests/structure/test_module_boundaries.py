@@ -80,7 +80,10 @@ ALLOWED_COMPONENT_EDGES = (
         )
     }
     | {(MLFLOW, dependency) for dependency in (MLFLOW, APPLICATION_COMPONENT, KERNEL)}
-    | {(OBJECT_STORAGE, dependency) for dependency in (OBJECT_STORAGE, KERNEL)}
+    | {
+        (OBJECT_STORAGE, dependency)
+        for dependency in (OBJECT_STORAGE, APPLICATION_COMPONENT, KERNEL)
+    }
     | {(SURFACE, dependency) for dependency in MODULES}
 )
 
@@ -126,7 +129,6 @@ PACKAGE_LAYERS = {
 FILE_LAYERS = {
     "__init__.py": FOUNDATION,
     "kernel/state/dialects.py": ADAPTER,
-    "artifacts/figure_view.py": DOMAIN,
     "artifacts/association_policy.py": DOMAIN,
     "feed/feed_policy.py": DOMAIN,
     "feed/feed_unfurl.py": ADAPTER,
@@ -798,6 +800,9 @@ class ModuleBoundaryTest(unittest.TestCase):
 
     def test_composite_reads_are_application_owned_and_surface_delegates(self) -> None:
         queries = (BACKEND_ROOT / "application/queries.py").read_text(encoding="utf-8")
+        figure = (BACKEND_ROOT / "application/experiment_figure.py").read_text(
+            encoding="utf-8"
+        )
         workflow = (BACKEND_ROOT / "application/workflow.py").read_text(encoding="utf-8")
         control = (BACKEND_ROOT / "surface/control/control_app.py").read_text(
             encoding="utf-8"
@@ -815,7 +820,13 @@ class ModuleBoundaryTest(unittest.TestCase):
             with self.subTest(query=query):
                 self.assertIn(f"class {query}:", queries)
                 self.assertIn(query, control)
-        for query in ("WorkflowQuery", "ProjectDashboardQuery"):
+        self.assertIn("def build_experiment_figure(", figure)
+        self.assertFalse((BACKEND_ROOT / "artifacts/figure_view.py").exists())
+        self.assertNotIn(
+            "build_experiment_figure",
+            (BACKEND_ROOT / "artifacts/facade.py").read_text(encoding="utf-8"),
+        )
+        for query in ("StatusAndNextQuery", "ProjectDashboardQuery"):
             with self.subTest(query=query):
                 self.assertIn(f"class {query}:", workflow)
                 self.assertIn(query, control)

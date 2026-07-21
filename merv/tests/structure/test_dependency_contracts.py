@@ -61,7 +61,6 @@ surface/tools/tool_handlers.py | build_control_tool_handlers | workflow | Any
 surface/tools/tool_handlers.py | build_control_tool_handlers | projects | Any
 surface/tools/tool_handlers.py | build_control_tool_handlers | claims | Any
 surface/tools/tool_handlers.py | build_control_tool_handlers | experiments | Any
-surface/tools/tool_handlers.py | build_control_tool_handlers | reflection_tools | Any
 surface/tools/tool_handlers.py | build_control_tool_handlers | resources | Any
 surface/tools/tool_handlers.py | build_control_tool_handlers | storage | Any | None
 surface/tools/tool_handlers.py | build_control_tool_handlers | reviews | Any

@@ -118,7 +118,6 @@ class EvidenceReaderTest(unittest.TestCase):
             "resources_for_target",
             "submitted_document",
             "submitted_evidence",
-            "resolve_resource_reference",
         ):
             self.assertEqual(
                 call_shape(getattr(ResourceService, name)),
