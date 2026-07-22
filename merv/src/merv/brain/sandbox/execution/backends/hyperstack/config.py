@@ -6,7 +6,7 @@ from dataclasses import dataclass
 
 from .....kernel.env import env_value
 from ....sandbox_backend import BackendValidationError
-from ...sync_dirs import DEFAULT_DATA_DIR, DEFAULT_REMOTE_ROOT
+from ....sandbox_paths import DEFAULT_DATA_DIR, DEFAULT_REMOTE_ROOT
 
 
 DEFAULT_BASE_URL = "https://infrahub-api.nexgencloud.com/v1"

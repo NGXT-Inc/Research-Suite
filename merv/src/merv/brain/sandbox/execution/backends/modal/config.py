@@ -8,7 +8,7 @@ from pathlib import Path, PurePosixPath
 from .._config import _env_discovery_disabled, _load_env_text
 from .....kernel.env import env_int, env_raw, env_value
 from ....sandbox_backend import BackendValidationError
-from ...sync_dirs import DEFAULT_DATA_DIR, DEFAULT_REMOTE_ROOT, SESSIONS_DIRNAME
+from ....sandbox_paths import DEFAULT_DATA_DIR, DEFAULT_REMOTE_ROOT, SESSIONS_DIRNAME
 
 VALID_GPUS: frozenset[str] = frozenset({"T4", "L4", "A10G", "L40S", "A100", "A100-80GB", "H100", "B200"})
 DEFAULT_GPU = "A100"

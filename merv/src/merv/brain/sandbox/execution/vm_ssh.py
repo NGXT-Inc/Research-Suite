@@ -11,7 +11,7 @@ from typing import Any, Callable, Mapping
 from ...kernel.env import env_value
 from ..sandbox_backend import BackendUnavailableError, TranscriptTail
 
-from .sync_dirs import remote_experiment_dir, remote_root_of, remote_sessions_dir
+from ..sandbox_paths import remote_experiment_dir, remote_root_of, remote_sessions_dir
 from .transcript_wire import (
     TRANSCRIPT_TAIL_DEFAULT,
     parse_transcript_tail,

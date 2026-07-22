@@ -9,7 +9,7 @@ from .._config import _env_discovery_disabled
 from .._config import _absolute_posix_path, _load_env_text, _positive_float, _positive_int, _validate_data_dir
 from .....kernel.env import env_value
 from ....sandbox_backend import BackendValidationError
-from ...sync_dirs import DEFAULT_DATA_DIR, DEFAULT_REMOTE_ROOT
+from ....sandbox_paths import DEFAULT_DATA_DIR, DEFAULT_REMOTE_ROOT
 
 DEFAULT_BASE_URL = "https://cloud.lambda.ai/api/v1"
 DEFAULT_SANDBOX_DATA_DIR = DEFAULT_DATA_DIR

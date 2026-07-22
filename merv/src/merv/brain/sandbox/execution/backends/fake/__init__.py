@@ -7,7 +7,7 @@ from pathlib import Path
 from typing import Any
 
 from ...run_receipts import parse_runs_listing
-from ...sync_dirs import (
+from ....sandbox_paths import (
     DEFAULT_DATA_DIR,
     remote_experiment_dir,
 )

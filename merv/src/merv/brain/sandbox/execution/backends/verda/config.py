@@ -6,7 +6,7 @@ from dataclasses import dataclass
 
 from .....kernel.env import env_value
 from ....sandbox_backend import BackendValidationError
-from ...sync_dirs import DEFAULT_DATA_DIR, DEFAULT_REMOTE_ROOT
+from ....sandbox_paths import DEFAULT_DATA_DIR, DEFAULT_REMOTE_ROOT
 
 
 # Pinned to the datacrunch.io host: the verda.com rename is mid-migration and

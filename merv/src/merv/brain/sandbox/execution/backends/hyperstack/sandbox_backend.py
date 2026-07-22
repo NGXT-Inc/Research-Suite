@@ -26,7 +26,7 @@ from ....sandbox_backend import (
     ProvisionedSandbox,
     SandboxRequest,
 )
-from ...sync_dirs import remote_experiment_dir, remote_root_of, remote_sessions_dir
+from ....sandbox_paths import remote_experiment_dir, remote_root_of, remote_sessions_dir
 from ..vm_ssh_backend import SshInputRunner, SshRunner, VmSshSandboxBackend, _vm_name
 from .catalog import find_option, to_agent_options
 from .client import HyperstackClient

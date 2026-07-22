@@ -43,6 +43,9 @@ class SandboxArchitectureTest(unittest.TestCase):
     def test_repository_is_the_compatibility_registry(self) -> None:
         self.assertIs(SandboxRepository, SandboxRegistry)
 
+    def test_sandbox_paths_have_one_canonical_module(self) -> None:
+        self.assertFalse((ROOT / "sandbox" / "execution" / "sync_dirs.py").exists())
+
     def test_facade_does_not_construct_or_start_runtime(self) -> None:
         source = (ROOT / "sandbox" / "sandboxes.py").read_text(encoding="utf-8")
         tree = ast.parse(source)

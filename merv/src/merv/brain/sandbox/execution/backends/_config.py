@@ -6,7 +6,7 @@ import os
 
 from ....kernel.env import env_value
 from ...sandbox_backend import BackendValidationError
-from ..sync_dirs import SESSIONS_DIRNAME
+from ...sandbox_paths import SESSIONS_DIRNAME
 
 
 def _env_discovery_disabled() -> bool:

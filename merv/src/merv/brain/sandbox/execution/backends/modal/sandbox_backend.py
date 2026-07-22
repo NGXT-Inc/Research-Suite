@@ -40,7 +40,7 @@ from ...usage_metrics import (
     parse_metrics,
 )
 from ....sandbox_backend import BackendUnavailableError
-from ...sync_dirs import remote_experiment_dir, remote_root_of, remote_sessions_dir
+from ....sandbox_paths import remote_experiment_dir, remote_root_of, remote_sessions_dir
 from ...transcript_wire import (
     TRANSCRIPT_TAIL_DEFAULT,
     parse_transcript_tail,
