@@ -67,15 +67,11 @@ class VerdaSandboxBackend(VmSshSandboxBackend):
 
     @property
     def config(self) -> VerdaSandboxConfig:
-        if self._config is None:
-            self._config = VerdaSandboxConfig.from_env()
-        return self._config
+        return self._lazy_provider_config(VerdaSandboxConfig.from_env)
 
     @property
     def client(self) -> VerdaClient:
-        if self._client is None:
-            self._client = VerdaClient(config=self.config.cloud)
-        return self._client
+        return self._lazy_provider_client(VerdaClient)
 
     def acquire(
         self,
@@ -140,13 +136,7 @@ class VerdaSandboxBackend(VmSshSandboxBackend):
                 sandbox_id=instance_id,
                 ssh_host=ip,
                 ssh_port=22,
-                ssh_user=self.config.ssh_user,
-                workdir=workdir,
-                volume_name="",
-                sync_dir=workdir,
-                unsynced_dir=self.config.sandbox_data_dir,
-                sandbox_data_dir=self.config.sandbox_data_dir,
-                reused=False,
+                **self._provisioned_vm_fields(workdir=workdir),
                 gpu=str(option.get("gpu") or request.gpu or ""),
                 cpu=float(option.get("vcpus") or 0) or None,
                 memory=(int(option.get("memory_gib") or 0) * 1024) or None,

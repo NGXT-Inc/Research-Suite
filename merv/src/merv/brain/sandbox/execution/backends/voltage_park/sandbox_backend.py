@@ -71,15 +71,11 @@ class VoltageParkSandboxBackend(VmSshSandboxBackend):
 
     @property
     def config(self) -> VoltageParkSandboxConfig:
-        if self._config is None:
-            self._config = VoltageParkSandboxConfig.from_env()
-        return self._config
+        return self._lazy_provider_config(VoltageParkSandboxConfig.from_env)
 
     @property
     def client(self) -> VoltageParkClient:
-        if self._client is None:
-            self._client = VoltageParkClient(config=self.config.cloud)
-        return self._client
+        return self._lazy_provider_client(VoltageParkClient)
 
     def acquire(
         self,
@@ -138,13 +134,7 @@ class VoltageParkSandboxBackend(VmSshSandboxBackend):
                 sandbox_id=vm_id,
                 ssh_host=host,
                 ssh_port=port,
-                ssh_user=self.config.ssh_user,
-                workdir=workdir,
-                volume_name="",
-                sync_dir=workdir,
-                unsynced_dir=self.config.sandbox_data_dir,
-                sandbox_data_dir=self.config.sandbox_data_dir,
-                reused=False,
+                **self._provisioned_vm_fields(workdir=workdir),
                 gpu=str(option.get("gpu") or request.gpu or ""),
                 cpu=float(option.get("vcpus") or 0) or None,
                 memory=(int(option.get("memory_gib") or 0) * 1024) or None,

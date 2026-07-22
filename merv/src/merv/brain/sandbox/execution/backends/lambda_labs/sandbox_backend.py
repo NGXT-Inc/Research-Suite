@@ -77,15 +77,11 @@ class LambdaLabsSandboxBackend(VmSshSandboxBackend):
 
     @property
     def config(self) -> LambdaSandboxConfig:
-        if self._config is None:
-            self._config = LambdaSandboxConfig.from_env()
-        return self._config
+        return self._lazy_provider_config(LambdaSandboxConfig.from_env)
 
     @property
     def client(self) -> LambdaCloudClient:
-        if self._client is None:
-            self._client = LambdaCloudClient(config=self.config.cloud)
-        return self._client
+        return self._lazy_provider_client(LambdaCloudClient)
 
     def acquire(
         self,
@@ -149,13 +145,7 @@ class LambdaLabsSandboxBackend(VmSshSandboxBackend):
                 sandbox_id=instance_id,
                 ssh_host=ip,
                 ssh_port=22,
-                ssh_user=self.config.ssh_user,
-                workdir=workdir,
-                volume_name="",
-                sync_dir=workdir,
-                unsynced_dir=self.config.sandbox_data_dir,
-                sandbox_data_dir=self.config.sandbox_data_dir,
-                reused=False,
+                **self._provisioned_vm_fields(workdir=workdir),
                 gpu=str(specs.get("gpu") or request.gpu or ""),
                 cpu=float(specs["vcpus"]) if specs.get("vcpus") else None,
                 memory=int(specs["memory_gib"]) * 1024 if specs.get("memory_gib") else None,

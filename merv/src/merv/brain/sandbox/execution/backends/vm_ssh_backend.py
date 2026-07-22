@@ -5,7 +5,7 @@ from __future__ import annotations
 import re
 import socket
 import time
-from typing import Any, Mapping
+from typing import Any, Callable, Mapping
 
 from ..bootstrap_tools import ML_PYTHON_PACKAGES
 from ..vm_ssh import (
@@ -45,6 +45,27 @@ class VmSshSandboxBackend(SandboxBackendBase):
     ) -> None:
         self._ssh_runner = ssh_runner or run_ssh
         self._ssh_input_runner = ssh_input_runner or run_ssh_input
+
+    def _lazy_provider_config(self, factory: Callable[[], Any]) -> Any:
+        if self._config is None:
+            self._config = factory()
+        return self._config
+
+    def _lazy_provider_client(self, factory: Callable[..., Any]) -> Any:
+        if self._client is None:
+            self._client = factory(config=self.config.cloud)
+        return self._client
+
+    def _provisioned_vm_fields(self, *, workdir: str) -> dict[str, Any]:
+        return {
+            "ssh_user": self.config.ssh_user,
+            "workdir": workdir,
+            "volume_name": "",
+            "sync_dir": workdir,
+            "unsynced_dir": self.config.sandbox_data_dir,
+            "sandbox_data_dir": self.config.sandbox_data_dir,
+            "reused": False,
+        }
 
     def _sandbox_workdir(self, request: SandboxRequest) -> str:
         return request.remote_workdir or remote_experiment_dir(

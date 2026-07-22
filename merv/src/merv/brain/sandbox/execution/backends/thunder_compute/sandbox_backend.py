@@ -76,15 +76,11 @@ class ThunderComputeSandboxBackend(VmSshSandboxBackend):
 
     @property
     def config(self) -> ThunderSandboxConfig:
-        if self._config is None:
-            self._config = ThunderSandboxConfig.from_env()
-        return self._config
+        return self._lazy_provider_config(ThunderSandboxConfig.from_env)
 
     @property
     def client(self) -> ThunderComputeClient:
-        if self._client is None:
-            self._client = ThunderComputeClient(config=self.config.cloud)
-        return self._client
+        return self._lazy_provider_client(ThunderComputeClient)
 
     def acquire(
         self,
@@ -143,13 +139,7 @@ class ThunderComputeSandboxBackend(VmSshSandboxBackend):
                 sandbox_id=instance_id,
                 ssh_host=host,
                 ssh_port=port,
-                ssh_user=self.config.ssh_user,
-                workdir=workdir,
-                volume_name="",
-                sync_dir=workdir,
-                unsynced_dir=self.config.sandbox_data_dir,
-                sandbox_data_dir=self.config.sandbox_data_dir,
-                reused=False,
+                **self._provisioned_vm_fields(workdir=workdir),
                 gpu=str(option.get("gpu") or request.gpu or ""),
                 cpu=float(option["vcpus"]),
                 memory=int(option.get("memory_gib") or 0) * 1024 or None,

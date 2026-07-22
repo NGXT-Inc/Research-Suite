@@ -9,6 +9,9 @@ from types import SimpleNamespace
 from unittest import mock
 
 from merv.brain.sandbox.execution.backends.fake import FakeSandboxBackend
+from merv.brain.sandbox.execution.backends.lambda_labs import (
+    sandbox_backend as lambda_backend,
+)
 from merv.brain.sandbox.execution.backends.modal.sandbox_backend import (
     ModalSandboxBackend,
 )
@@ -182,6 +185,112 @@ class SandboxBackendContractTest(unittest.TestCase):
         self.assertIsNot(
             MultiplexingSandboxBackend.sandbox_environment,
             SandboxBackendBase.sandbox_environment,
+        )
+
+    def test_vm_provider_dependencies_are_lazy_cached_and_retry_failures(self) -> None:
+        cloud = object()
+        config = SimpleNamespace(
+            cloud=cloud,
+            ssh_user="ubuntu",
+            sandbox_data_dir="/workspace/data",
+        )
+        with mock.patch.object(
+            lambda_backend.LambdaSandboxConfig,
+            "from_env",
+            side_effect=[RuntimeError("missing config"), config],
+        ) as config_factory:
+            backend = lambda_backend.LambdaLabsSandboxBackend()
+            config_factory.assert_not_called()
+            with self.assertRaisesRegex(RuntimeError, "missing config"):
+                _ = backend.config
+            self.assertIs(backend.config, config)
+            self.assertIs(backend.config, config)
+            self.assertEqual(config_factory.call_count, 2)
+
+        built_client = object()
+        with mock.patch.object(
+            lambda_backend,
+            "LambdaCloudClient",
+            side_effect=[RuntimeError("client unavailable"), built_client],
+        ) as client_factory:
+            backend = lambda_backend.LambdaLabsSandboxBackend(config=config)
+            client_factory.assert_not_called()
+            with self.assertRaisesRegex(RuntimeError, "client unavailable"):
+                _ = backend.client
+            self.assertIs(backend.client, built_client)
+            self.assertIs(backend.client, built_client)
+            self.assertEqual(
+                client_factory.call_args_list,
+                [mock.call(config=cloud), mock.call(config=cloud)],
+            )
+
+        injected_client = object()
+        with mock.patch.object(lambda_backend, "LambdaCloudClient") as client_factory:
+            backend = lambda_backend.LambdaLabsSandboxBackend(
+                config=config,
+                client=injected_client,
+            )
+            self.assertIs(backend.config, config)
+            self.assertIs(backend.client, injected_client)
+            client_factory.assert_not_called()
+
+    def test_provisioned_vm_fields_preserve_exact_values_and_order(self) -> None:
+        accesses: list[str] = []
+
+        class RecordingConfig:
+            @property
+            def ssh_user(self) -> str:
+                accesses.append("ssh_user")
+                return "ubuntu"
+
+            @property
+            def sandbox_data_dir(self) -> str:
+                accesses.append("sandbox_data_dir")
+                return "/workspace/data"
+
+        backend = lambda_backend.LambdaLabsSandboxBackend(
+            config=RecordingConfig(),  # type: ignore[arg-type]
+            client=object(),  # type: ignore[arg-type]
+        )
+        fields = backend._provisioned_vm_fields(workdir="/workspace/exp_1")
+
+        self.assertEqual(
+            list(fields.items()),
+            [
+                ("ssh_user", "ubuntu"),
+                ("workdir", "/workspace/exp_1"),
+                ("volume_name", ""),
+                ("sync_dir", "/workspace/exp_1"),
+                ("unsynced_dir", "/workspace/data"),
+                ("sandbox_data_dir", "/workspace/data"),
+                ("reused", False),
+            ],
+        )
+        self.assertEqual(
+            accesses,
+            ["ssh_user", "sandbox_data_dir", "sandbox_data_dir"],
+        )
+        self.assertEqual(
+            ProvisionedSandbox(
+                sandbox_id="vm-1",
+                ssh_host="203.0.113.8",
+                ssh_port=22,
+                **fields,
+                gpu="H100",
+            ),
+            ProvisionedSandbox(
+                sandbox_id="vm-1",
+                ssh_host="203.0.113.8",
+                ssh_port=22,
+                ssh_user="ubuntu",
+                workdir="/workspace/exp_1",
+                volume_name="",
+                sync_dir="/workspace/exp_1",
+                unsynced_dir="/workspace/data",
+                sandbox_data_dir="/workspace/data",
+                reused=False,
+                gpu="H100",
+            ),
         )
 
     def test_services_do_not_probe_backend_optional_methods(self) -> None:
