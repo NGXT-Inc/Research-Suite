@@ -3,17 +3,9 @@
 from __future__ import annotations
 
 import time
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
 from ..kernel.utils import NotFoundError, ValidationError
-from .handler import SandboxHandler
-from .messages import (
-    GetSandboxQuery,
-    ListSandboxesQuery,
-    SandboxOptionsQuery,
-    SandboxRunsQuery,
-    SandboxTerminalQuery,
-)
 from .sandbox_backend import TranscriptTail
 from .sandbox_runs import run_records_view
 from .sandbox_support import (
@@ -23,14 +15,36 @@ from .sandbox_support import (
     parse_terminal_snapshot,
 )
 
+if TYPE_CHECKING:
+    from .facade import SandboxFacade
 
-class SandboxQueryHandler(SandboxHandler):
-    def execute_get(self, query: GetSandboxQuery) -> dict[str, Any]:
-        experiment_id = query.experiment_id
-        project_id = query.project_id
-        tenant_id = query.tenant_id
-        sandbox_uid = query.sandbox_uid
-        include_data_plane_enrichment = query.include_data_plane_enrichment
+
+class SandboxQueryHandler:
+    def __init__(self, host: SandboxFacade) -> None:
+        self.repository = host.repository
+        self.lifecycle = host.lifecycle
+        self.backend = host.backend
+        self.transcript_cache = host.transcript_cache
+        self.runs_ledger = host.runs_ledger
+        self.runs_wait_poll_seconds = host.runs_wait_poll_seconds
+        self.metrics = host.metrics
+        self._agent_result = host._agent_result
+        self._agent_summary = host._agent_summary
+        self._deliver_secrets_once = host._deliver_secrets_once
+        self._hardware_catalog = host._hardware_catalog
+        self._mgmt_key_path = host._mgmt_key_path
+        self._row_view = host._row_view
+        self._with_runs_nudge = host._with_runs_nudge
+
+    def execute_get(
+        self,
+        *,
+        experiment_id: str | None = None,
+        project_id: str | None = None,
+        tenant_id: str | None = None,
+        sandbox_uid: str | None = None,
+        include_data_plane_enrichment: bool = True,
+    ) -> dict[str, Any]:
         experiment_id = (experiment_id or "").strip()
         if not experiment_id and (not (sandbox_uid or "").strip()):
             raise ValidationError("sandbox.get requires experiment_id or sandbox_uid")
@@ -60,8 +74,14 @@ class SandboxQueryHandler(SandboxHandler):
             use_sandbox_uid_command=True,
         )
 
-    def execute_options(self, query: SandboxOptionsQuery) -> dict[str, Any]:
-        gpu, region = (query.gpu, query.region)
+    def execute_options(
+        self,
+        *,
+        project_id: str | None = None,
+        gpu: str | None = None,
+        region: str | None = None,
+    ) -> dict[str, Any]:
+        _ = project_id
         caps = self.backend.capabilities
         catalog = self._hardware_catalog(gpu=gpu, region=region)
         selection_required = bool(caps.requires_hardware_selection)
@@ -72,20 +92,23 @@ class SandboxQueryHandler(SandboxHandler):
         )
         return {"backend": caps.name, **catalog, "hint": hint}
 
-    def execute_list(self, query: ListSandboxesQuery) -> dict[str, Any]:
+    def execute_list(self, *, project_id: str | None = None) -> dict[str, Any]:
         return {
             "sandboxes": [
                 self._agent_summary(row=row)
-                for row in self.repository.list_rows(project_id=query.project_id)
+                for row in self.repository.list_rows(project_id=project_id)
             ]
         }
 
-    def execute_terminal(self, query: SandboxTerminalQuery) -> dict[str, Any]:
-        experiment_id = query.experiment_id
-        project_id = query.project_id
-        sandbox_uid = query.sandbox_uid
-        tail = query.tail
-        since = query.since
+    def execute_terminal(
+        self,
+        *,
+        experiment_id: str | None = None,
+        project_id: str | None = None,
+        sandbox_uid: str | None = None,
+        tail: int | None = None,
+        since: int | None = None,
+    ) -> dict[str, Any]:
         experiment_id = (experiment_id or "").strip()
         if not experiment_id and (not (sandbox_uid or "").strip()):
             raise ValidationError(
@@ -202,12 +225,15 @@ class SandboxQueryHandler(SandboxHandler):
             sandbox_uid=sandbox_uid,
         )
 
-    def execute_runs(self, query: SandboxRunsQuery) -> dict[str, Any]:
-        experiment_id = query.experiment_id
-        project_id = query.project_id
-        tenant_id = query.tenant_id
-        sandbox_uid = query.sandbox_uid
-        wait_seconds = query.wait_seconds
+    def execute_runs(
+        self,
+        *,
+        experiment_id: str | None = None,
+        project_id: str | None = None,
+        tenant_id: str | None = None,
+        sandbox_uid: str | None = None,
+        wait_seconds: int = 0,
+    ) -> dict[str, Any]:
         experiment_id = (experiment_id or "").strip()
         sandbox_uid = (sandbox_uid or "").strip()
         if not experiment_id and (not sandbox_uid):

@@ -17,7 +17,6 @@ FACADE_INTERNALS = {
     "commands",
     "daemons",
     "lifecycle",
-    "maintenance",
     "metrics",
     "mgmt_keys",
     "provisioner",

@@ -72,17 +72,6 @@ from merv.brain.research_core.transition_types import (
     ExperimentSummary,
     PersistedRunState,
 )
-from merv.brain.sandbox.messages import (
-    AttachSandboxCommand,
-    ExtendSandboxCommand,
-    GetSandboxQuery,
-    ListSandboxesQuery,
-    ReleaseSandboxCommand,
-    RequestSandboxCommand,
-    SandboxOptionsQuery,
-    SandboxRunsQuery,
-    SandboxTerminalQuery,
-)
 from tests.paths import BACKEND_ROOT
 
 
@@ -116,7 +105,6 @@ def _boundary_types() -> dict[str, type]:
         "kernel/events.py",
         "research_core/gate_evaluation.py",
         "research_core/transition_types.py",
-        "sandbox/messages.py",
     }
     for path in sorted(BACKEND_ROOT.rglob("*.py")):
         relative = path.relative_to(BACKEND_ROOT).as_posix()
@@ -464,18 +452,6 @@ SAMPLES: dict[type, object] = {
         recent_claims=[{"id": "clm_1"}],
         claim_events_since_reflection=[],
     ),
-    GetSandboxQuery: GetSandboxQuery("exp_1", "proj_1", "tenant_1", "sbx_1"),
-    ListSandboxesQuery: ListSandboxesQuery("proj_1"),
-    SandboxOptionsQuery: SandboxOptionsQuery("proj_1", "H100", "us-east"),
-    SandboxTerminalQuery: SandboxTerminalQuery("exp_1", "proj_1", "sbx_1", 20, 2),
-    SandboxRunsQuery: SandboxRunsQuery("exp_1", "proj_1", "tenant_1", "sbx_1", 2),
-    RequestSandboxCommand: RequestSandboxCommand(
-        "exp_1", "proj_1", "H100", 8, 64, 3600, "gpu.large", "us-east",
-        "fake", "ssh-ed25519 AAAA", None, True, False, "sbx_1"
-    ),
-    AttachSandboxCommand: AttachSandboxCommand("exp_1", "sbx_1", "proj_1", True, None),
-    ExtendSandboxCommand: ExtendSandboxCommand("exp_1", "proj_1", "tenant_1", "sbx_1", 900),
-    ReleaseSandboxCommand: ReleaseSandboxCommand("exp_1", "proj_1", "sbx_1", True),
 }
 
 

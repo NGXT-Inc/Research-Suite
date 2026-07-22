@@ -4,19 +4,12 @@ from __future__ import annotations
 
 from contextlib import closing
 from datetime import timedelta
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
 from ..kernel.ports.quota_admission import AdmissionRequest
 from ..kernel.utils import NotFoundError, ValidationError, format_iso, parse_iso
 from . import sandbox_views
-from .handler import SandboxHandler
 from .lifecycle_reducer import release_decision
-from .messages import (
-    AttachSandboxCommand,
-    ExtendSandboxCommand,
-    ReleaseSandboxCommand,
-    RequestSandboxCommand,
-)
 from .sandbox_backend import SandboxRequest
 from .sandbox_paths import remote_experiment_dir
 from .sandbox_support import (
@@ -25,20 +18,50 @@ from .sandbox_support import (
     validate_request_inputs,
 )
 
+if TYPE_CHECKING:
+    from .facade import SandboxFacade
 
-class SandboxCommandHandler(SandboxHandler):
-    def execute_request(self, command: RequestSandboxCommand) -> dict[str, Any]:
-        experiment_id = command.experiment_id
-        project_id = command.project_id
-        gpu, cpu, memory = (command.gpu, command.cpu, command.memory)
-        time_limit, instance_type = (command.time_limit, command.instance_type)
-        region, provider = (command.region, command.provider)
-        public_key, public_key_override = (
-            command.public_key,
-            command.public_key_override,
-        )
-        include_data_plane_enrichment = command.include_data_plane_enrichment
-        additional, sandbox_uid = (command.additional, command.sandbox_uid)
+
+class SandboxCommandHandler:
+    def __init__(self, host: SandboxFacade) -> None:
+        self.store = host.store
+        self.attachment_check = host.attachment_check
+        self.repository = host.repository
+        self.mgmt_keys = host.mgmt_keys
+        self.lifecycle = host.lifecycle
+        self.quotas = host.quotas
+        self.provisioner = host.provisioner
+        self.request_wait_seconds = host.request_wait_seconds
+        self.activity_policy = host.activity_policy
+        self.storage_enabled = host.storage_enabled
+        self.storage_hint = host.storage_hint
+        self._active_experiment_ids_for_row = host._active_experiment_ids_for_row
+        self._agent_result = host._agent_result
+        self._capabilities_for = host._capabilities_for
+        self._deliver_secrets_once = host._deliver_secrets_once
+        self._hardware_catalog = host._hardware_catalog
+        self._price_for_instance = host._price_for_instance
+        self._row_view = host._row_view
+        self._with_runs_nudge = host._with_runs_nudge
+
+    def execute_request(
+        self,
+        *,
+        experiment_id: str | None = None,
+        project_id: str | None = None,
+        gpu: str | None = None,
+        cpu: float | None = None,
+        memory: int | None = None,
+        time_limit: int | None = None,
+        instance_type: str | None = None,
+        region: str | None = None,
+        provider: str | None = None,
+        public_key: str | None = None,
+        public_key_override: str | None = None,
+        include_data_plane_enrichment: bool = True,
+        additional: bool = False,
+        sandbox_uid: str | None = None,
+    ) -> dict[str, Any]:
         experiment_id = (experiment_id or "").strip()
         provider = (provider or "").strip() or None
         caps = self._capabilities_for(provider=provider)
@@ -177,12 +200,15 @@ class SandboxCommandHandler(SandboxHandler):
         result["public_key_source"] = public_key_source
         return result
 
-    def execute_attach(self, command: AttachSandboxCommand) -> dict[str, Any]:
-        experiment_id = command.experiment_id
-        project_id = command.project_id
-        sandbox_uid = command.sandbox_uid
-        include_data_plane_enrichment = command.include_data_plane_enrichment
-        public_key_override = command.public_key_override
+    def execute_attach(
+        self,
+        *,
+        experiment_id: str,
+        project_id: str | None = None,
+        sandbox_uid: str,
+        include_data_plane_enrichment: bool = True,
+        public_key_override: str | None = None,
+    ) -> dict[str, Any]:
         _ = public_key_override
         sandbox_uid = sandbox_uid.strip()
         if not sandbox_uid:
@@ -229,12 +255,15 @@ class SandboxCommandHandler(SandboxHandler):
         result["active_experiment_ids"] = active_experiment_ids
         return result
 
-    def execute_extend(self, command: ExtendSandboxCommand) -> dict[str, Any]:
-        experiment_id = command.experiment_id
-        project_id = command.project_id
-        tenant_id = command.tenant_id
-        sandbox_uid = command.sandbox_uid
-        seconds = command.seconds
+    def execute_extend(
+        self,
+        *,
+        experiment_id: str | None = None,
+        project_id: str | None = None,
+        tenant_id: str | None = None,
+        sandbox_uid: str | None = None,
+        seconds: int = 1800,
+    ) -> dict[str, Any]:
         experiment_id = (experiment_id or "").strip()
         sandbox_uid = (sandbox_uid or "").strip()
         if not experiment_id and (not sandbox_uid):
@@ -322,11 +351,14 @@ class SandboxCommandHandler(SandboxHandler):
         view["time_limit"] = new_limit
         return view
 
-    def execute_release(self, command: ReleaseSandboxCommand) -> dict[str, Any]:
-        experiment_id = command.experiment_id
-        project_id = command.project_id
-        sandbox_uid = command.sandbox_uid
-        confirm_retained = command.confirm_retained
+    def execute_release(
+        self,
+        *,
+        experiment_id: str | None = None,
+        project_id: str | None = None,
+        sandbox_uid: str | None = None,
+        confirm_retained: bool = False,
+    ) -> dict[str, Any]:
         experiment_id = (experiment_id or "").strip()
         if not experiment_id and (not (sandbox_uid or "").strip()):
             raise ValidationError(

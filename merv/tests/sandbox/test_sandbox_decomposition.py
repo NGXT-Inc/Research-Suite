@@ -219,27 +219,25 @@ class SandboxDecompositionTest(unittest.TestCase):
         self.assertNotIn("SELECT ", query_source)
         self.assertNotIn(".execute(", query_source)
 
-    def test_facade_delegates_typed_commands_queries_and_maintenance(self) -> None:
+    def test_facade_has_no_reflective_or_general_forwarding_objects(self) -> None:
         source = FACADE.read_text(encoding="utf-8")
-        # Prevent orchestration policy from accumulating in the stable entry
-        # point again.
         for binding in (
             "self.commands = SandboxCommandHandler(self)",
             "self.queries = SandboxQueryHandler(self)",
-            "self.maintenance = SandboxMaintenanceHandler(self)",
-            "return self.commands.execute_request(_message(RequestSandboxCommand, locals()))",
-            "return self.queries.execute_get(_message(GetSandboxQuery, locals()))",
-            "return self.maintenance.reconcile_running_rows()",
         ):
             self.assertIn(binding, source)
-        for policy in (
-            "validate_request_inputs",
-            "read_transcript",
-            "release_decision",
-            "run_records_view",
-            "conn.execute(",
+        for forbidden in (
+            "_message(",
+            "locals()",
+            ".messages",
+            "SandboxMaintenanceHandler",
+            "self.maintenance",
+            "__getattr__",
         ):
-            self.assertNotIn(policy, source)
+            self.assertNotIn(forbidden, source)
+        for removed in ("messages.py", "handler.py", "maintenance_handler.py"):
+            self.assertFalse((FACADE.parent / removed).exists())
+        self.assertNotIn("class SandboxHandler", source)
         for attribute in (
             "repository",
             "lifecycle",

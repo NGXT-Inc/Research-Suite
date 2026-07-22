@@ -55,7 +55,6 @@ sandbox/execution/backends/modal/sandbox_backend.py | ModalSandboxBackend.__init
 sandbox/execution/backends/modal/sandbox_backend.py | ModalSandboxBackend.__init__ | activity | ActivityHook | None
 sandbox/execution/backends/modal/sandbox_backend.py | build_modal_sandbox_backend | activity | ActivityHook | None
 sandbox/execution/backends/thunder_compute/sandbox_backend.py | ThunderComputeSandboxBackend.__init__ | bootstrap_runner | BootstrapRunner | None
-sandbox/handler.py | SandboxHandler.__init__ | host | Any
 sandbox/sandbox_daemons.py | SandboxDaemons.__init__ | sample_metrics | Callable[..., dict[str, Any]] | None
 sandbox/sandbox_daemons.py | SandboxDaemons.__init__ | reconcile_runs | Callable[[], int] | None
 sandbox/sandbox_heartbeat.py | SandboxHeartbeatMonitor.__init__ | repository | Any
