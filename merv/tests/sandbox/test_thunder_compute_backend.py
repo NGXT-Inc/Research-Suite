@@ -9,7 +9,7 @@ from pathlib import Path
 from unittest.mock import patch
 
 from merv.brain.sandbox.execution import build_sandbox_backend
-from merv.brain.sandbox.execution.driver_registry import SANDBOX_DRIVER_REGISTRY
+from merv.brain.sandbox.execution.driver_registry import sandbox_driver_descriptor
 from merv.brain.sandbox.execution.backends.thunder_compute.catalog import summarize_specs
 from merv.brain.sandbox.execution.backends.thunder_compute.config import (
     ThunderCloudConfig,
@@ -232,7 +232,7 @@ class ThunderBackendTest(unittest.TestCase):
 
     def test_shared_driver_contract_with_injected_client(self) -> None:
         backend, _, _, _ = self._backend()
-        descriptor = SANDBOX_DRIVER_REGISTRY.descriptor("thunder_compute")
+        descriptor = sandbox_driver_descriptor("thunder_compute")
 
         assert_driver_surface(self, descriptor=descriptor, backend=backend)
         assert_catalog_envelope(self, descriptor=descriptor, backend=backend)

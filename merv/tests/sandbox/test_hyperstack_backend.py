@@ -14,7 +14,7 @@ from merv.brain.sandbox.execution.backends.hyperstack.sandbox_backend import (
     SSH_INGRESS_RULES,
     HyperstackSandboxBackend,
 )
-from merv.brain.sandbox.execution.driver_registry import SANDBOX_DRIVER_REGISTRY
+from merv.brain.sandbox.execution.driver_registry import sandbox_driver_descriptor
 from merv.brain.sandbox.sandbox_backend import (
     BackendUnavailableError,
     BackendValidationError,
@@ -230,7 +230,7 @@ class HyperstackLivenessTest(unittest.TestCase):
 class HyperstackCatalogTest(unittest.TestCase):
     def test_shared_driver_contract_with_injected_client(self) -> None:
         backend = _backend(FakeHyperstackClient())
-        descriptor = SANDBOX_DRIVER_REGISTRY.descriptor("hyperstack")
+        descriptor = sandbox_driver_descriptor("hyperstack")
 
         assert_driver_surface(self, descriptor=descriptor, backend=backend)
         assert_catalog_envelope(self, descriptor=descriptor, backend=backend)

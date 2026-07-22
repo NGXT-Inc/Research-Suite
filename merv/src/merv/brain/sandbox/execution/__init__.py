@@ -23,29 +23,27 @@ from ..sandbox_backend import (
     SandboxBackend,
     SandboxBackendBase,
     SandboxDriver,
-    SandboxManagementTransport,
     SandboxRequest,
 )
 from .driver_registry import (
     DEFAULT_SANDBOX_DRIVER,
-    SANDBOX_DRIVER_REGISTRY,
+    SANDBOX_DRIVER_ALIASES,
+    SANDBOX_DRIVER_DESCRIPTORS,
     ActivityHook,
-    ManagementTransportKind,
     SandboxDriverDescriptor,
     SandboxDriverFactory,
-    SandboxDriverKind,
-    SandboxDriverRegistry,
-    register_sandbox_driver,
+    build_sandbox_driver,
+    canonical_sandbox_driver_name,
+    sandbox_driver_descriptor,
     sandbox_driver_inventory,
 )
 
 
-# Compatibility export: aliases now come from each registered descriptor.
-BACKEND_ALIASES = SANDBOX_DRIVER_REGISTRY.aliases
+BACKEND_ALIASES = SANDBOX_DRIVER_ALIASES
 
 
 def _canonical_backend_name(name: str) -> str:
-    return SANDBOX_DRIVER_REGISTRY.canonical_name(name)
+    return canonical_sandbox_driver_name(name)
 
 
 def _build_named_backend(
@@ -54,7 +52,7 @@ def _build_named_backend(
     repo_root: Path,
     activity: ActivityHook | None = None,
 ) -> SandboxBackend:
-    return SANDBOX_DRIVER_REGISTRY.build(
+    return build_sandbox_driver(
         name=name,
         repo_root=repo_root,
         activity=activity,
@@ -122,19 +120,18 @@ __all__ = [
     "OnCreated",
     "OnPhase",
     "ProvisionedSandbox",
-    "SANDBOX_DRIVER_REGISTRY",
+    "SANDBOX_DRIVER_ALIASES",
+    "SANDBOX_DRIVER_DESCRIPTORS",
     "SANDBOX_STATES",
     "SandboxBackend",
     "SandboxBackendBase",
     "SandboxDriver",
     "SandboxDriverDescriptor",
     "SandboxDriverFactory",
-    "SandboxDriverKind",
-    "SandboxDriverRegistry",
-    "SandboxManagementTransport",
     "SandboxRequest",
+    "build_sandbox_driver",
     "build_sandbox_backend",
-    "ManagementTransportKind",
-    "register_sandbox_driver",
+    "canonical_sandbox_driver_name",
+    "sandbox_driver_descriptor",
     "sandbox_driver_inventory",
 ]

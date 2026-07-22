@@ -1,4 +1,4 @@
-"""Lazy registration and runtime inventory for sandbox provider drivers.
+"""Immutable lazy inventory for sandbox provider drivers.
 
 Descriptors contain only metadata and an import string. Importing this module
 does not import provider implementations, resolve credentials, or require an
@@ -9,7 +9,6 @@ from __future__ import annotations
 
 import re
 from dataclasses import dataclass
-from enum import Enum
 from importlib import import_module
 from pathlib import Path
 from types import MappingProxyType
@@ -19,8 +18,6 @@ from ..sandbox_backend import (
     BackendUnavailableError,
     BackendValidationError,
     SandboxBackend,
-    SandboxDriver,
-    SandboxManagementTransport,
 )
 
 
@@ -30,12 +27,7 @@ DRIVER_NAME_PATTERN = re.compile(r"[a-z][a-z0-9_]*\Z")
 
 
 class SandboxDriverFactory(Protocol):
-    """Uniform lazy-construction seam used by every registered provider.
-
-    Factories return the flattened ``SandboxBackend`` compatibility facade
-    while existing services still consume it. The smaller ``SandboxDriver``
-    and its management transport remain the implementation boundary underneath.
-    """
+    """Uniform lazy-construction seam used by every provider."""
 
     def __call__(
         self,
@@ -45,34 +37,16 @@ class SandboxDriverFactory(Protocol):
     ) -> SandboxBackend: ...
 
 
-class SandboxDriverKind(str, Enum):
-    """Provider procurement model; deliberately not a VM-only taxonomy."""
-
-    VM = "vm"
-    MANAGED_CONTAINER = "managed_container"
-    IN_MEMORY_TEST = "in_memory_test"
-
-
-class ManagementTransportKind(str, Enum):
-    """How the brain performs operational reads/writes after provisioning."""
-
-    MANAGEMENT_SSH = "management_ssh"
-    PROVIDER_EXEC = "provider_exec"
-    IN_MEMORY = "in_memory"
-
-
 def _normalized_name(value: str) -> str:
     return value.strip().lower()
 
 
 @dataclass(frozen=True, slots=True)
 class SandboxDriverDescriptor:
-    """Registration record for one lazily loaded provider implementation."""
+    """One lazily loaded provider implementation."""
 
     name: str
     factory_ref: str
-    kind: SandboxDriverKind
-    management_transport_kind: ManagementTransportKind
     aliases: tuple[str, ...] = ()
     test_only: bool = False
 
@@ -127,198 +101,135 @@ class SandboxDriverDescriptor:
         return cast(SandboxDriverFactory, factory)
 
 
-class SandboxDriverRegistry:
-    """Explicit provider registration, alias resolution, and lazy construction."""
+SANDBOX_DRIVER_DESCRIPTORS = (
+    SandboxDriverDescriptor(
+        name="lambda_labs",
+        factory_ref=(
+            "merv.brain.sandbox.execution.backends.lambda_labs:"
+            "build_lambda_labs_sandbox_backend"
+        ),
+        aliases=("lambda", "lambdalabs"),
+    ),
+    SandboxDriverDescriptor(
+        name="thunder_compute",
+        factory_ref=(
+            "merv.brain.sandbox.execution.backends.thunder_compute:"
+            "build_thunder_compute_sandbox_backend"
+        ),
+        aliases=("thunder", "thundercompute"),
+    ),
+    SandboxDriverDescriptor(
+        name="modal",
+        factory_ref=(
+            "merv.brain.sandbox.execution.backends.modal:build_modal_sandbox_backend"
+        ),
+    ),
+    SandboxDriverDescriptor(
+        name="hyperstack",
+        factory_ref=(
+            "merv.brain.sandbox.execution.backends.hyperstack:"
+            "build_hyperstack_sandbox_backend"
+        ),
+    ),
+    SandboxDriverDescriptor(
+        name="digitalocean",
+        factory_ref=(
+            "merv.brain.sandbox.execution.backends.digitalocean:"
+            "build_digitalocean_sandbox_backend"
+        ),
+    ),
+    SandboxDriverDescriptor(
+        name="verda",
+        factory_ref=(
+            "merv.brain.sandbox.execution.backends.verda:build_verda_sandbox_backend"
+        ),
+        aliases=("datacrunch",),
+    ),
+    SandboxDriverDescriptor(
+        name="voltage_park",
+        factory_ref=(
+            "merv.brain.sandbox.execution.backends.voltage_park:"
+            "build_voltage_park_sandbox_backend"
+        ),
+        aliases=("voltagepark",),
+    ),
+    SandboxDriverDescriptor(
+        name="tensordock",
+        factory_ref=(
+            "merv.brain.sandbox.execution.backends.tensordock:"
+            "build_tensordock_sandbox_backend"
+        ),
+    ),
+    SandboxDriverDescriptor(
+        name="fake",
+        factory_ref=(
+            "merv.brain.sandbox.execution.backends.fake:build_fake_sandbox_backend"
+        ),
+        test_only=True,
+    ),
+)
 
-    def __init__(self) -> None:
-        self._descriptors: dict[str, SandboxDriverDescriptor] = {}
-        self._aliases: dict[str, str] = {}
+_DESCRIPTORS_BY_NAME: Mapping[str, SandboxDriverDescriptor] = MappingProxyType(
+    {descriptor.name: descriptor for descriptor in SANDBOX_DRIVER_DESCRIPTORS}
+)
+SANDBOX_DRIVER_ALIASES: Mapping[str, str] = MappingProxyType(
+    {
+        alias: descriptor.name
+        for descriptor in SANDBOX_DRIVER_DESCRIPTORS
+        for alias in descriptor.aliases
+    }
+)
 
-    def register(self, descriptor: SandboxDriverDescriptor) -> None:
-        names = (descriptor.name, *descriptor.aliases)
-        conflicts = [
-            name
-            for name in names
-            if name in self._descriptors or name in self._aliases
-        ]
-        if conflicts:
-            raise BackendValidationError(
-                "sandbox driver name or alias is already registered: "
-                + ", ".join(conflicts)
-            )
-        self._descriptors[descriptor.name] = descriptor
-        self._aliases.update(
-            {alias: descriptor.name for alias in descriptor.aliases}
+
+def canonical_sandbox_driver_name(name: str) -> str:
+    normalized = _normalized_name(name)
+    return SANDBOX_DRIVER_ALIASES.get(normalized, normalized)
+
+
+def sandbox_driver_descriptor(name: str) -> SandboxDriverDescriptor:
+    canonical = canonical_sandbox_driver_name(name)
+    try:
+        return _DESCRIPTORS_BY_NAME[canonical]
+    except KeyError as exc:
+        raise BackendUnavailableError(
+            f"unknown execution backend: {canonical}"
+        ) from exc
+
+
+def build_sandbox_driver(
+    *,
+    name: str,
+    repo_root: Path,
+    activity: ActivityHook | None = None,
+) -> SandboxBackend:
+    descriptor = sandbox_driver_descriptor(name)
+    backend = descriptor.load_factory()(repo_root=repo_root, activity=activity)
+    if not isinstance(backend, SandboxBackend):
+        raise BackendValidationError(
+            f"sandbox driver {descriptor.name} does not implement SandboxBackend"
         )
-
-    def canonical_name(self, name: str) -> str:
-        normalized = _normalized_name(name)
-        return self._aliases.get(normalized, normalized)
-
-    def descriptor(self, name: str) -> SandboxDriverDescriptor:
-        canonical = self.canonical_name(name)
-        try:
-            return self._descriptors[canonical]
-        except KeyError as exc:
-            raise BackendUnavailableError(
-                f"unknown execution backend: {canonical}"
-            ) from exc
-
-    def build(
-        self,
-        *,
-        name: str,
-        repo_root: Path,
-        activity: ActivityHook | None = None,
-    ) -> SandboxBackend:
-        descriptor = self.descriptor(name)
-        backend = descriptor.load_factory()(
-            repo_root=repo_root,
-            activity=activity,
+    if backend.capabilities.name != descriptor.name:
+        raise BackendValidationError(
+            f"sandbox driver {descriptor.name} built backend named "
+            f"{backend.capabilities.name}"
         )
-        if not isinstance(backend, SandboxBackend) or not isinstance(
-            backend, SandboxDriver
-        ) or not isinstance(
-            backend.management_transport, SandboxManagementTransport
-        ):
-            raise BackendValidationError(
-                f"sandbox driver {descriptor.name} does not implement the "
-                "SandboxBackend compatibility contract"
-            )
-        if backend.capabilities.name != descriptor.name:
-            raise BackendValidationError(
-                f"sandbox driver {descriptor.name} built backend named "
-                f"{backend.capabilities.name}"
-            )
-        return backend
-
-    def descriptors(self) -> tuple[SandboxDriverDescriptor, ...]:
-        """Stable runtime inventory, in registration order."""
-        return tuple(self._descriptors.values())
-
-    @property
-    def aliases(self) -> Mapping[str, str]:
-        # A live read-only view: aliases registered after module import must be
-        # visible to a later multiplexer build as well as to canonicalization.
-        return MappingProxyType(self._aliases)
-
-
-SANDBOX_DRIVER_REGISTRY = SandboxDriverRegistry()
-
-
-def register_sandbox_driver(descriptor: SandboxDriverDescriptor) -> None:
-    """Register a provider with the process-wide composition inventory."""
-    SANDBOX_DRIVER_REGISTRY.register(descriptor)
+    return backend
 
 
 def sandbox_driver_inventory() -> tuple[SandboxDriverDescriptor, ...]:
-    """Return every registered driver without importing its implementation."""
-    return SANDBOX_DRIVER_REGISTRY.descriptors()
-
-
-def _vm_driver_descriptor(
-    *, name: str, factory_ref: str, aliases: tuple[str, ...] = ()
-) -> SandboxDriverDescriptor:
-    return SandboxDriverDescriptor(
-        name=name,
-        factory_ref=factory_ref,
-        aliases=aliases,
-        kind=SandboxDriverKind.VM,
-        management_transport_kind=ManagementTransportKind.MANAGEMENT_SSH,
-    )
-
-
-def _register_builtin_drivers() -> None:
-    descriptors = (
-        _vm_driver_descriptor(
-            name="lambda_labs",
-            factory_ref=(
-                "merv.brain.sandbox.execution.backends.lambda_labs:"
-                "build_lambda_labs_sandbox_backend"
-            ),
-            aliases=("lambda", "lambdalabs"),
-        ),
-        _vm_driver_descriptor(
-            name="thunder_compute",
-            factory_ref=(
-                "merv.brain.sandbox.execution.backends.thunder_compute:"
-                "build_thunder_compute_sandbox_backend"
-            ),
-            aliases=("thunder", "thundercompute"),
-        ),
-        SandboxDriverDescriptor(
-            name="modal",
-            factory_ref=(
-                "merv.brain.sandbox.execution.backends.modal:"
-                "build_modal_sandbox_backend"
-            ),
-            kind=SandboxDriverKind.MANAGED_CONTAINER,
-            management_transport_kind=ManagementTransportKind.PROVIDER_EXEC,
-        ),
-        _vm_driver_descriptor(
-            name="hyperstack",
-            factory_ref=(
-                "merv.brain.sandbox.execution.backends.hyperstack:"
-                "build_hyperstack_sandbox_backend"
-            ),
-        ),
-        _vm_driver_descriptor(
-            name="digitalocean",
-            factory_ref=(
-                "merv.brain.sandbox.execution.backends.digitalocean:"
-                "build_digitalocean_sandbox_backend"
-            ),
-        ),
-        _vm_driver_descriptor(
-            name="verda",
-            factory_ref=(
-                "merv.brain.sandbox.execution.backends.verda:"
-                "build_verda_sandbox_backend"
-            ),
-            aliases=("datacrunch",),
-        ),
-        _vm_driver_descriptor(
-            name="voltage_park",
-            factory_ref=(
-                "merv.brain.sandbox.execution.backends.voltage_park:"
-                "build_voltage_park_sandbox_backend"
-            ),
-            aliases=("voltagepark",),
-        ),
-        _vm_driver_descriptor(
-            name="tensordock",
-            factory_ref=(
-                "merv.brain.sandbox.execution.backends.tensordock:"
-                "build_tensordock_sandbox_backend"
-            ),
-        ),
-        SandboxDriverDescriptor(
-            name="fake",
-            factory_ref=(
-                "merv.brain.sandbox.execution.backends.fake:"
-                "build_fake_sandbox_backend"
-            ),
-            kind=SandboxDriverKind.IN_MEMORY_TEST,
-            management_transport_kind=ManagementTransportKind.IN_MEMORY,
-            test_only=True,
-        ),
-    )
-    for descriptor in descriptors:
-        register_sandbox_driver(descriptor)
-
-
-_register_builtin_drivers()
+    """Return every driver without importing its implementation."""
+    return SANDBOX_DRIVER_DESCRIPTORS
 
 
 __all__ = [
     "ActivityHook",
     "DEFAULT_SANDBOX_DRIVER",
-    "ManagementTransportKind",
-    "SANDBOX_DRIVER_REGISTRY",
+    "SANDBOX_DRIVER_ALIASES",
+    "SANDBOX_DRIVER_DESCRIPTORS",
     "SandboxDriverDescriptor",
     "SandboxDriverFactory",
-    "SandboxDriverKind",
-    "SandboxDriverRegistry",
-    "register_sandbox_driver",
+    "build_sandbox_driver",
+    "canonical_sandbox_driver_name",
+    "sandbox_driver_descriptor",
     "sandbox_driver_inventory",
 ]

@@ -17,7 +17,7 @@ from merv.brain.sandbox.execution.backends.modal.sandbox_backend import (
 )
 from merv.brain.sandbox.execution.backends.vm_ssh_backend import VmSshSandboxBackend
 from merv.brain.sandbox.execution.driver_registry import (
-    SANDBOX_DRIVER_REGISTRY,
+    build_sandbox_driver,
     sandbox_driver_inventory,
 )
 from merv.brain.sandbox.execution.multiplexer import MultiplexingSandboxBackend
@@ -120,7 +120,7 @@ class SandboxBackendContractTest(unittest.TestCase):
         ):
             backend_classes = [
                 type(
-                    SANDBOX_DRIVER_REGISTRY.build(
+                    build_sandbox_driver(
                         name=descriptor.name, repo_root=Path(tmp)
                     )
                 )
@@ -140,7 +140,6 @@ class SandboxBackendContractTest(unittest.TestCase):
 
         # Single-provider default: one backend serves every request.
         self.assertIs(backend.capabilities_for(provider="anything"), backend.capabilities)
-        self.assertIs(backend.management_transport, backend)
         self.assertIsNone(backend.sample_metrics(sandbox_id="sb"))
         self.assertIsNone(backend.read_runs(sandbox_id="sb", workdir="/workspace"))
         self.assertIsNone(backend.refresh_ssh_endpoint(sandbox_id="sb"))

@@ -11,7 +11,7 @@ from merv.brain.sandbox.execution.backends.verda.config import (
     VerdaSandboxConfig,
 )
 from merv.brain.sandbox.execution.backends.verda.sandbox_backend import VerdaSandboxBackend
-from merv.brain.sandbox.execution.driver_registry import SANDBOX_DRIVER_REGISTRY
+from merv.brain.sandbox.execution.driver_registry import sandbox_driver_descriptor
 from merv.brain.sandbox.sandbox_backend import (
     BackendUnavailableError,
     BackendValidationError,
@@ -227,7 +227,7 @@ class VerdaLivenessTest(unittest.TestCase):
 class VerdaCatalogTest(unittest.TestCase):
     def test_shared_driver_contract_with_injected_client(self) -> None:
         backend = _backend(FakeVerdaClient())
-        descriptor = SANDBOX_DRIVER_REGISTRY.descriptor("verda")
+        descriptor = sandbox_driver_descriptor("verda")
 
         assert_driver_surface(self, descriptor=descriptor, backend=backend)
         assert_catalog_envelope(self, descriptor=descriptor, backend=backend)

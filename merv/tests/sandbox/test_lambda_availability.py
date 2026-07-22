@@ -10,7 +10,7 @@ from pathlib import Path
 from unittest.mock import patch
 
 from merv.brain.sandbox.execution import build_sandbox_backend
-from merv.brain.sandbox.execution.driver_registry import SANDBOX_DRIVER_REGISTRY
+from merv.brain.sandbox.execution.driver_registry import sandbox_driver_descriptor
 from merv.brain.sandbox.execution.backends.lambda_labs.catalog import summarize_instance_types
 from merv.brain.sandbox.execution.backends.lambda_labs.config import LambdaCloudConfig
 from merv.brain.sandbox.execution.backends.lambda_labs.sandbox_backend import (
@@ -344,7 +344,7 @@ class LambdaSelectionTest(unittest.TestCase):
 
     def test_shared_driver_contract_with_injected_client(self) -> None:
         backend, _ = self._backend()
-        descriptor = SANDBOX_DRIVER_REGISTRY.descriptor("lambda_labs")
+        descriptor = sandbox_driver_descriptor("lambda_labs")
 
         assert_driver_surface(self, descriptor=descriptor, backend=backend)
         assert_catalog_envelope(self, descriptor=descriptor, backend=backend)

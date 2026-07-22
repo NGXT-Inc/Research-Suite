@@ -7,7 +7,7 @@ import unittest
 from pathlib import Path
 from unittest import mock
 
-from merv.brain.sandbox.execution.driver_registry import SANDBOX_DRIVER_REGISTRY
+from merv.brain.sandbox.execution.driver_registry import sandbox_driver_descriptor
 from merv.brain.sandbox.sandbox_backend import BackendUnavailableError, BackendValidationError
 from merv.brain.sandbox.sandbox_backend import SandboxRequest, TranscriptTail
 from merv.brain.sandbox.execution.backends.modal.config import ModalConfig
@@ -217,7 +217,7 @@ class ModalSandboxBackendTest(unittest.TestCase):
         )
 
     def test_shared_driver_contract_with_injected_client(self) -> None:
-        descriptor = SANDBOX_DRIVER_REGISTRY.descriptor("modal")
+        descriptor = sandbox_driver_descriptor("modal")
 
         assert_driver_surface(self, descriptor=descriptor, backend=self.backend)
         assert_catalog_envelope(self, descriptor=descriptor, backend=self.backend)

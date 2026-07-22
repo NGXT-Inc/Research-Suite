@@ -16,7 +16,7 @@ from merv.brain.sandbox.execution.backends.tensordock.config import (
 from merv.brain.sandbox.execution.backends.tensordock.sandbox_backend import (
     TensorDockSandboxBackend,
 )
-from merv.brain.sandbox.execution.driver_registry import SANDBOX_DRIVER_REGISTRY
+from merv.brain.sandbox.execution.driver_registry import sandbox_driver_descriptor
 from merv.brain.sandbox.sandbox_backend import (
     BackendUnavailableError,
     BackendValidationError,
@@ -216,7 +216,7 @@ class TensorDockLivenessTest(unittest.TestCase):
 class TensorDockCatalogTest(unittest.TestCase):
     def test_shared_driver_contract_with_injected_client(self) -> None:
         backend = _backend(FakeTensorDockClient())
-        descriptor = SANDBOX_DRIVER_REGISTRY.descriptor("tensordock")
+        descriptor = sandbox_driver_descriptor("tensordock")
 
         assert_driver_surface(self, descriptor=descriptor, backend=backend)
         assert_catalog_envelope(self, descriptor=descriptor, backend=backend)

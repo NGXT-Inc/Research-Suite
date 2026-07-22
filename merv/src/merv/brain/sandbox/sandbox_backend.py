@@ -143,81 +143,10 @@ class BackendCapabilities:
 
 
 @runtime_checkable
-class SandboxManagementTransport(Protocol):
-    """Provider-side operational channel for a provisioned sandbox.
-
-    VM drivers normally implement this over the dedicated management SSH key.
-    Managed runtimes such as Modal implement it with provider-native exec APIs.
-    Keeping the transport explicit lets a driver remain honest about that
-    difference without forcing every provider into ``VmSshSandboxBackend``.
-    """
-
-    def read_transcript(
-        self,
-        *,
-        sandbox_id: str,
-        experiment_id: str,
-        volume_name: str,
-        workdir: str,
-        tail: int | None = None,
-        ssh_host: str = "",
-        ssh_port: int = 0,
-        ssh_user: str = "",
-        key_path: str = "",
-    ) -> TranscriptTail: ...
-
-    def sample_metrics(
-        self,
-        *,
-        sandbox_id: str,
-        ssh_host: str = "",
-        ssh_port: int = 0,
-        ssh_user: str = "",
-        key_path: str = "",
-    ) -> dict[str, Any] | None:
-        """Optionally sample live usage; unsupported transports return None."""
-        ...
-
-    def read_runs(
-        self,
-        *,
-        sandbox_id: str,
-        workdir: str,
-        ssh_host: str = "",
-        ssh_port: int = 0,
-        ssh_user: str = "",
-        key_path: str = "",
-    ) -> list[dict[str, Any]] | None:
-        """Read parsed ``merv_run`` receipts.
-
-        ``[]`` means the transport answered and no runs exist; ``None`` means
-        unsupported or unreachable — "no news", never "no runs".
-        """
-        ...
-
-    def write_secrets(
-        self,
-        *,
-        sandbox_id: str,
-        secrets: Mapping[str, str],
-        ssh_host: str = "",
-        ssh_port: int = 0,
-        key_path: str = "",
-    ) -> bool:
-        """Deliver post-boot secrets without exposing them to agent APIs."""
-        ...
-
-
-@runtime_checkable
 class SandboxDriver(Protocol):
-    """Small provider contract: catalog, lifecycle, and management channel."""
+    """Small provider contract: catalog and lifecycle."""
 
     capabilities: BackendCapabilities
-
-    @property
-    def management_transport(self) -> SandboxManagementTransport:
-        """Operational channel used for transcripts, metrics, runs, and secrets."""
-        ...
 
     def capabilities_for(self, *, provider: str | None = None) -> BackendCapabilities:
         """Capabilities of the backend that would serve ``provider``.
@@ -251,14 +180,53 @@ class SandboxDriver(Protocol):
 
 
 @runtime_checkable
-class SandboxBackend(SandboxDriver, SandboxManagementTransport, Protocol):
-    """Compatibility port consumed by existing provider-neutral services.
+class SandboxBackend(SandboxDriver, Protocol):
+    """Provider-neutral lifecycle and operational-channel contract."""
 
-    The stable driver contract exposes ``management_transport`` explicitly.
-    Existing services still call the flattened management methods on this
-    compatibility protocol; ``SandboxBackendBase`` makes the backend itself
-    that transport, so current providers need no behavioral adapter.
-    """
+    def read_transcript(
+        self,
+        *,
+        sandbox_id: str,
+        experiment_id: str,
+        volume_name: str,
+        workdir: str,
+        tail: int | None = None,
+        ssh_host: str = "",
+        ssh_port: int = 0,
+        ssh_user: str = "",
+        key_path: str = "",
+    ) -> TranscriptTail: ...
+
+    def sample_metrics(
+        self,
+        *,
+        sandbox_id: str,
+        ssh_host: str = "",
+        ssh_port: int = 0,
+        ssh_user: str = "",
+        key_path: str = "",
+    ) -> dict[str, Any] | None: ...
+
+    def read_runs(
+        self,
+        *,
+        sandbox_id: str,
+        workdir: str,
+        ssh_host: str = "",
+        ssh_port: int = 0,
+        ssh_user: str = "",
+        key_path: str = "",
+    ) -> list[dict[str, Any]] | None: ...
+
+    def write_secrets(
+        self,
+        *,
+        sandbox_id: str,
+        secrets: Mapping[str, str],
+        ssh_host: str = "",
+        ssh_port: int = 0,
+        key_path: str = "",
+    ) -> bool: ...
 
     def sandbox_environment(self) -> dict: ...
 
@@ -281,11 +249,6 @@ class SandboxBackendBase:
     """Sentinel defaults for optional SandboxBackend operations."""
 
     capabilities: BackendCapabilities
-
-    @property
-    def management_transport(self) -> SandboxManagementTransport:
-        """Compatibility adapter: current backends carry their own transport."""
-        return self
 
     @staticmethod
     def _notify(callback: Callable[..., None] | None, *args: Any) -> None:
@@ -410,7 +373,6 @@ __all__ = [
     "SandboxBackend",
     "SandboxBackendBase",
     "SandboxDriver",
-    "SandboxManagementTransport",
     "SandboxRequest",
     "TranscriptTail",
 ]

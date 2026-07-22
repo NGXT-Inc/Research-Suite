@@ -16,7 +16,6 @@ from merv.brain.sandbox.sandbox_backend import (
     BackendUnavailableError,
     SandboxBackend,
     SandboxDriver,
-    SandboxManagementTransport,
     SandboxRequest,
 )
 
@@ -72,8 +71,6 @@ def assert_driver_surface(
     case.assertIs(
         backend.capabilities_for(provider=descriptor.name), backend.capabilities
     )
-    transport = backend.management_transport
-    case.assertIsInstance(transport, SandboxManagementTransport)
     for method in DRIVER_METHODS:
         case.assertTrue(
             callable(getattr(backend, method, None)),
@@ -81,8 +78,8 @@ def assert_driver_surface(
         )
     for method in MANAGEMENT_METHODS:
         case.assertTrue(
-            callable(getattr(transport, method, None)),
-            f"{descriptor.name} management transport is missing {method}",
+            callable(getattr(backend, method, None)),
+            f"{descriptor.name} backend is missing {method}",
         )
     for method in COMPATIBILITY_METHODS:
         case.assertTrue(
@@ -138,7 +135,7 @@ def exercise_offline_driver(case: TestCase, fixture: OfflineDriverFixture) -> No
     case.assertEqual(refreshed, fixture.expected_refreshed_endpoint)
 
     fixture.set_transcript(fixture.request.experiment_id, "alpha-omega")
-    transcript = backend.management_transport.read_transcript(
+    transcript = backend.read_transcript(
         sandbox_id=provisioned.sandbox_id,
         experiment_id=fixture.request.experiment_id,
         volume_name=provisioned.volume_name,
@@ -154,7 +151,7 @@ def exercise_offline_driver(case: TestCase, fixture: OfflineDriverFixture) -> No
 
     fixture.set_metrics(provisioned.sandbox_id, {"cpu_percent": 12.5})
     case.assertEqual(
-        backend.management_transport.sample_metrics(
+        backend.sample_metrics(
             sandbox_id=provisioned.sandbox_id,
             ssh_host=provisioned.ssh_host,
             ssh_port=provisioned.ssh_port,
@@ -168,7 +165,7 @@ def exercise_offline_driver(case: TestCase, fixture: OfflineDriverFixture) -> No
         '===MERV_RUN train\n{"label":"train","command":"python train.py"}\n'
         "===EXIT 0\n===FIN 2026-07-19T12:00:00Z\n",
     )
-    runs = backend.management_transport.read_runs(
+    runs = backend.read_runs(
         sandbox_id=provisioned.sandbox_id,
         workdir=provisioned.workdir,
         ssh_host=provisioned.ssh_host,
@@ -181,7 +178,7 @@ def exercise_offline_driver(case: TestCase, fixture: OfflineDriverFixture) -> No
     case.assertEqual(runs[0]["label"], "train")
     case.assertEqual(runs[0]["exit_code"], 0)
     case.assertIsInstance(
-        backend.management_transport.write_secrets(
+        backend.write_secrets(
             sandbox_id=provisioned.sandbox_id,
             secrets={"OFFLINE_TEST_TOKEN": "not-a-real-secret"},
             ssh_host=provisioned.ssh_host,
@@ -197,7 +194,7 @@ def exercise_offline_driver(case: TestCase, fixture: OfflineDriverFixture) -> No
         backend.refresh_ssh_endpoint(sandbox_id=provisioned.sandbox_id)
     )
     case.assertIsNone(
-        backend.management_transport.sample_metrics(
+        backend.sample_metrics(
             sandbox_id=provisioned.sandbox_id,
             ssh_host=provisioned.ssh_host,
             ssh_port=provisioned.ssh_port,
@@ -206,7 +203,7 @@ def exercise_offline_driver(case: TestCase, fixture: OfflineDriverFixture) -> No
         )
     )
     case.assertIsNone(
-        backend.management_transport.read_runs(
+        backend.read_runs(
             sandbox_id=provisioned.sandbox_id,
             workdir=provisioned.workdir,
             ssh_host=provisioned.ssh_host,

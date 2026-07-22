@@ -1,4 +1,4 @@
-"""Sandbox driver registration and reusable offline contract conformance."""
+"""Static sandbox driver inventory and reusable offline conformance."""
 
 from __future__ import annotations
 
@@ -15,11 +15,12 @@ from merv.brain.sandbox.execution.backends.fake import FakeSandboxBackend
 from merv.brain.sandbox.execution.backends.vm_ssh_backend import VmSshSandboxBackend
 from merv.brain.sandbox.execution.driver_registry import (
     DEFAULT_SANDBOX_DRIVER,
-    SANDBOX_DRIVER_REGISTRY,
-    ManagementTransportKind,
+    SANDBOX_DRIVER_ALIASES,
+    SANDBOX_DRIVER_DESCRIPTORS,
     SandboxDriverDescriptor,
-    SandboxDriverKind,
-    SandboxDriverRegistry,
+    build_sandbox_driver,
+    canonical_sandbox_driver_name,
+    sandbox_driver_descriptor,
     sandbox_driver_inventory,
 )
 from merv.brain.sandbox.sandbox_backend import (
@@ -57,7 +58,7 @@ EXPECTED_ALIASES = {
 }
 
 
-class SandboxDriverRegistryTest(unittest.TestCase):
+class SandboxDriverTableTest(unittest.TestCase):
     def setUp(self) -> None:
         self.tmp = tempfile.TemporaryDirectory()
         self.repo = Path(self.tmp.name)
@@ -72,17 +73,18 @@ class SandboxDriverRegistryTest(unittest.TestCase):
         self.assertEqual(set(names), EXPECTED_DRIVERS)
         self.assertEqual(len(names), len(set(names)))
         self.assertEqual(DEFAULT_SANDBOX_DRIVER, "lambda_labs")
-        self.assertEqual(dict(SANDBOX_DRIVER_REGISTRY.aliases), EXPECTED_ALIASES)
+        self.assertIs(descriptors, SANDBOX_DRIVER_DESCRIPTORS)
+        self.assertEqual(dict(SANDBOX_DRIVER_ALIASES), EXPECTED_ALIASES)
         for descriptor in descriptors:
             with self.subTest(driver=descriptor.name):
                 self.assertNotIn(":", descriptor.name)
                 self.assertEqual(
-                    SANDBOX_DRIVER_REGISTRY.canonical_name(descriptor.name),
+                    canonical_sandbox_driver_name(descriptor.name),
                     descriptor.name,
                 )
                 for alias in descriptor.aliases:
                     self.assertEqual(
-                        SANDBOX_DRIVER_REGISTRY.canonical_name(alias), descriptor.name
+                        canonical_sandbox_driver_name(alias), descriptor.name
                     )
 
     def test_every_registered_factory_builds_compatibility_surface_offline(self) -> None:
@@ -101,7 +103,7 @@ class SandboxDriverRegistryTest(unittest.TestCase):
         ):
             for descriptor in sandbox_driver_inventory():
                 with self.subTest(driver=descriptor.name):
-                    backend = SANDBOX_DRIVER_REGISTRY.build(
+                    backend = build_sandbox_driver(
                         name=descriptor.name,
                         repo_root=self.repo,
                     )
@@ -114,13 +116,13 @@ class SandboxDriverRegistryTest(unittest.TestCase):
 import sys
 from pathlib import Path
 from merv.brain.sandbox.execution.driver_registry import (
-    SANDBOX_DRIVER_REGISTRY, sandbox_driver_inventory,
+    build_sandbox_driver, sandbox_driver_inventory,
 )
 assert sandbox_driver_inventory()
 assert "modal" not in sys.modules
 provider_prefix = "merv.brain.sandbox.execution.backends."
 assert not any(name.startswith(provider_prefix) for name in sys.modules)
-SANDBOX_DRIVER_REGISTRY.build(name="modal", repo_root=Path("/tmp/merv-driver"))
+build_sandbox_driver(name="modal", repo_root=Path("/tmp/merv-driver"))
 assert "modal" not in sys.modules
 assert provider_prefix + "modal" in sys.modules
 assert provider_prefix + "lambda_labs" not in sys.modules
@@ -128,18 +130,13 @@ assert provider_prefix + "lambda_labs" not in sys.modules
         env = {"MERV_MODE": "control", "PYTHONPATH": str(IMPORT_ROOT)}
         subprocess.run([sys.executable, "-c", code], check=True, env=env)
 
-    def test_modal_is_an_explicit_non_vm_provider_exec_driver(self) -> None:
-        descriptor = SANDBOX_DRIVER_REGISTRY.descriptor("modal")
+    def test_modal_keeps_its_non_vm_catalog_shape(self) -> None:
+        descriptor = sandbox_driver_descriptor("modal")
         with mock.patch.dict(os.environ, {"MERV_MODE": "control"}, clear=True):
-            backend = SANDBOX_DRIVER_REGISTRY.build(
+            backend = build_sandbox_driver(
                 name="modal", repo_root=self.repo
             )
 
-        self.assertEqual(descriptor.kind, SandboxDriverKind.MANAGED_CONTAINER)
-        self.assertEqual(
-            descriptor.management_transport_kind,
-            ManagementTransportKind.PROVIDER_EXEC,
-        )
         self.assertNotIsInstance(backend, VmSshSandboxBackend)
         catalog = assert_catalog_envelope(
             self, descriptor=descriptor, backend=backend
@@ -148,57 +145,18 @@ assert provider_prefix + "lambda_labs" not in sys.modules
         self.assertIn("gpus", catalog)
         self.assertNotIn("options", catalog)
 
-    def test_vm_drivers_declare_management_ssh(self) -> None:
-        with mock.patch.dict(os.environ, {"MERV_MODE": "control"}, clear=True):
-            for descriptor in sandbox_driver_inventory():
-                if descriptor.kind is not SandboxDriverKind.VM:
-                    continue
-                with self.subTest(driver=descriptor.name):
-                    backend = SANDBOX_DRIVER_REGISTRY.build(
-                        name=descriptor.name, repo_root=self.repo
-                    )
-                    self.assertEqual(
-                        descriptor.management_transport_kind,
-                        ManagementTransportKind.MANAGEMENT_SSH,
-                    )
-
-    def test_registry_registration_and_alias_views_are_live(self) -> None:
-        registry = SandboxDriverRegistry()
-        aliases = registry.aliases
-        descriptor = SandboxDriverDescriptor(
-            name="example_driver",
-            factory_ref=(
-                "merv.brain.sandbox.execution.backends.fake:"
-                "build_fake_sandbox_backend"
-            ),
-            aliases=("example",),
-            kind=SandboxDriverKind.IN_MEMORY_TEST,
-            management_transport_kind=ManagementTransportKind.IN_MEMORY,
-        )
-
-        registry.register(descriptor)
-
-        self.assertEqual(aliases["example"], "example_driver")
-        self.assertIs(registry.descriptor("example"), descriptor)
-        with self.assertRaisesRegex(BackendValidationError, "built backend named fake"):
-            registry.build(name="example", repo_root=self.repo)
-        with self.assertRaises(BackendValidationError):
-            registry.register(descriptor)
-
-    def test_registry_rejects_unsafe_names_and_unknown_drivers(self) -> None:
+    def test_descriptors_reject_unsafe_names_and_unknown_drivers(self) -> None:
         with self.assertRaises(BackendValidationError):
             SandboxDriverDescriptor(
                 name="bad:name",
                 factory_ref="some.module:factory",
-                kind=SandboxDriverKind.VM,
-                management_transport_kind=ManagementTransportKind.MANAGEMENT_SSH,
             )
         with self.assertRaisesRegex(
             BackendUnavailableError, "unknown execution backend"
         ):
-            SANDBOX_DRIVER_REGISTRY.build(name="missing", repo_root=self.repo)
+            build_sandbox_driver(name="missing", repo_root=self.repo)
 
-    def test_factory_uses_registry_instead_of_provider_name_dispatch(self) -> None:
+    def test_factory_uses_static_table_instead_of_provider_name_dispatch(self) -> None:
         source = (
             BACKEND_ROOT / "sandbox" / "execution" / "__init__.py"
         ).read_text(encoding="utf-8")
@@ -218,7 +176,7 @@ assert provider_prefix + "lambda_labs" not in sys.modules
 
 class OfflineDriverConformanceTest(unittest.TestCase):
     def test_shared_harness_covers_lifecycle_catalog_and_management(self) -> None:
-        descriptor = SANDBOX_DRIVER_REGISTRY.descriptor("fake")
+        descriptor = sandbox_driver_descriptor("fake")
         backend = FakeSandboxBackend()
         fixture = OfflineDriverFixture(
             descriptor=descriptor,
