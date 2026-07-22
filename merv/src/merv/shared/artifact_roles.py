@@ -9,10 +9,9 @@ feature boundaries.
 
 from __future__ import annotations
 
-from typing import Any
-
-
-RESOURCE_TARGET_TYPES = frozenset({"experiment", "reflection", "claim", "review", "attempt"})
+RESOURCE_TARGET_TYPES = frozenset(
+    {"experiment", "reflection", "claim", "review", "attempt"}
+)
 
 PROJECT_GRAPH_ROLE = "project_graph"
 LEGACY_PROJECT_GRAPH_ROLE = "graph"
