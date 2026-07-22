@@ -21,3 +21,13 @@ def _float_or_zero(value: Any) -> float:
         return float(value)
     except (TypeError, ValueError):
         return 0.0
+
+
+def find_option(
+    options: list[dict[str, Any]], *, instance_type: str
+) -> dict[str, Any] | None:
+    wanted = _norm(instance_type)
+    for option in options:
+        if _norm(option.get("instance_type")) == wanted:
+            return option
+    return None

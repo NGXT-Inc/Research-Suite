@@ -10,7 +10,7 @@ from __future__ import annotations
 
 from typing import Any
 
-from .._values import _float_or_zero, _int_or_zero, _norm
+from .._values import _float_or_zero, _int_or_zero, _norm, find_option
 
 
 def to_agent_options(
@@ -62,13 +62,3 @@ def to_agent_options(
         )
     options.sort(key=lambda o: (o["price_usd_per_hour"], o["instance_type"]))
     return options
-
-
-def find_option(
-    options: list[dict[str, Any]], *, instance_type: str
-) -> dict[str, Any] | None:
-    wanted = _norm(instance_type)
-    for option in options:
-        if _norm(option.get("instance_type")) == wanted:
-            return option
-    return None
