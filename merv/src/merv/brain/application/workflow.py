@@ -12,7 +12,6 @@ from merv.shared.artifact_roles import PROJECT_GRAPH_ROLES
 from ..research_core.facade import (
     EXPERIMENT_ACTIVE_PROCESS_STATUSES,
     EXPERIMENT_TERMINAL_STATUSES,
-    GateEvaluation,
     ResearchSnapshot,
     ResearchSnapshots,
 )

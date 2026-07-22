@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from typing import Any, Iterable, TypedDict, cast
+from typing import Any, Iterable, cast
 
 from ...research_core.facade import ExperimentState
 from ..gate_checklist import present_gate_checklist
