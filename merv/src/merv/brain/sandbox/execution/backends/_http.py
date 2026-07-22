@@ -10,6 +10,15 @@ from urllib.request import Request, urlopen
 from ...sandbox_backend import BackendUnavailableError
 
 
+def bearer_json_headers(token: str, user_agent: str) -> dict[str, str]:
+    return {
+        "Accept": "application/json",
+        "Authorization": f"Bearer {token}",
+        "Content-Type": "application/json",
+        "User-Agent": user_agent,
+    }
+
+
 def request_json(
     *,
     provider: str,

@@ -9,7 +9,7 @@ from __future__ import annotations
 
 from typing import Any
 
-from .._http import request_json
+from .._http import bearer_json_headers, request_json
 from ....sandbox_backend import BackendUnavailableError
 from .config import TensorDockCloudConfig
 
@@ -97,12 +97,7 @@ class TensorDockClient:
             base_url=self.config.base_url,
             path=path,
             body=body,
-            headers={
-                "Accept": "application/json",
-                "Authorization": f"Bearer {self.config.token}",
-                "Content-Type": "application/json",
-                "User-Agent": "merv/0.0013",
-            },
+            headers=bearer_json_headers(self.config.token, "merv/0.0013"),
             timeout=self.timeout,
         )
 

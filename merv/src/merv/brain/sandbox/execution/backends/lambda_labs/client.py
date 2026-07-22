@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from typing import Any
 
-from .._http import request_json
+from .._http import bearer_json_headers, request_json
 from ....sandbox_backend import BackendUnavailableError
 from .config import LambdaCloudConfig
 
@@ -108,12 +108,7 @@ class LambdaCloudClient:
             base_url=self.config.base_url,
             path=path,
             body=body,
-            headers={
-                "Accept": "application/json",
-                "Authorization": f"Bearer {self.config.api_key}",
-                "Content-Type": "application/json",
-                "User-Agent": "merv/0.0005",
-            },
+            headers=bearer_json_headers(self.config.api_key, "merv/0.0005"),
             timeout=self.timeout,
             require_object=True,
         )
