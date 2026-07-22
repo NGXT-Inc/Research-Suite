@@ -116,6 +116,7 @@ class EvidenceReaderTest(unittest.TestCase):
 
         for name in (
             "resources_for_target",
+            "resources_for_targets",
             "submitted_document",
             "submitted_evidence",
         ):
@@ -124,6 +125,147 @@ class EvidenceReaderTest(unittest.TestCase):
                 call_shape(getattr(EvidenceReader, name)),
                 name,
             )
+
+    def test_plural_resources_handle_empty_duplicates_and_singular_order(self) -> None:
+        self.assertEqual(
+            self.app.resources.resources_for_targets(
+                target_type="experiment", target_ids=()
+            ),
+            {},
+        )
+        prior = self.associate(
+            path="z-result.json", role="result", body=b'{"score": 1}\n'
+        )
+        self.associate(path="b-plan.md", role="plan", body=b"plan b\n")
+        self.associate(path="a-plan.md", role="plan", body=b"plan a\n")
+        with self.app.store.transaction() as conn:
+            conn.execute(
+                "UPDATE resource_associations SET attempt_index = 0 "
+                "WHERE resource_id = ? AND target_id = ?",
+                (prior["id"], self.experiment_id),
+            )
+
+        singular = self.app.resources.resources_for_target(
+            target_type="experiment", target_id=self.experiment_id
+        )
+        plural = self.app.resources.resources_for_targets(
+            target_type="experiment",
+            target_ids=(self.experiment_id, "exp_missing", self.experiment_id),
+        )
+
+        self.assertEqual(list(plural), [self.experiment_id, "exp_missing"])
+        self.assertEqual(plural[self.experiment_id], singular)
+        self.assertEqual(plural["exp_missing"], ())
+        self.assertEqual(
+            [(item.attempt_index, item.role, item.path) for item in singular],
+            [
+                (0, "result", "z-result.json"),
+                (1, "plan", "a-plan.md"),
+                (1, "plan", "b-plan.md"),
+            ],
+        )
+
+    def test_plural_resources_preserve_corrupt_cross_project_associations(self) -> None:
+        resource = self.associate(
+            path="cross-project.md", role="result", body=b"tenant A evidence\n"
+        )
+        other_project_id = self.call(
+            "project", action="create", name="Other tenant project"
+        )["id"]
+        other_experiment_id = self.call(
+            "experiment.create",
+            project_id=other_project_id,
+            name="other-tenant-experiment",
+            intent="Remain isolated from the first project.",
+        )["id"]
+        with self.app.store.transaction() as conn:
+            conn.execute(
+                """
+                INSERT INTO resource_associations (
+                  id, resource_id, version_id, target_type, target_id, role,
+                  attempt_index, created_at, created_seq
+                ) VALUES (?, ?, ?, 'experiment', ?, 'plan', 1, ?, ?)
+                """,
+                (
+                    "assoc_corrupt_cross_project",
+                    resource["id"],
+                    resource["current_version_id"],
+                    other_experiment_id,
+                    "2026-07-22T00:00:00Z",
+                    999,
+                ),
+            )
+
+        singular = self.app.resources.resources_for_target(
+            target_type="experiment", target_id=other_experiment_id
+        )
+        plural = self.app.resources.resources_for_targets(
+            target_type="experiment", target_ids=(other_experiment_id,)
+        )
+
+        self.assertEqual(plural[other_experiment_id], singular)
+        self.assertEqual(len(singular), 1)
+        self.assertEqual(singular[0].project_id, self.project_id)
+        self.assertNotEqual(singular[0].project_id, other_project_id)
+
+    def test_plural_resources_chunk_401_exact_ids_into_two_sqlite_reads(self) -> None:
+        resource = self.associate(
+            path="bulk-target.md", role="result", body=b"shared evidence\n"
+        )
+        target_ids = tuple(f"exp_bulk_{index:03d}" for index in range(401))
+        with self.app.store.transaction() as conn:
+            conn.executemany(
+                """
+                INSERT INTO resource_associations (
+                  id, resource_id, version_id, target_type, target_id, role,
+                  attempt_index, created_at, created_seq
+                ) VALUES (?, ?, ?, 'experiment', ?, 'result', 1, ?, ?)
+                """,
+                [
+                    (
+                        f"assoc_bulk_{index:03d}",
+                        resource["id"],
+                        resource["current_version_id"],
+                        target_id,
+                        "2026-07-22T00:00:00Z",
+                        index + 1000,
+                    )
+                    for index, target_id in enumerate(target_ids)
+                ],
+            )
+
+        statements: list[str] = []
+        untraced_connect = self.app.store.connect
+
+        def traced_connect():
+            conn = untraced_connect()
+            conn.set_trace_callback(statements.append)
+            return conn
+
+        with patch.object(self.app.store, "connect", side_effect=traced_connect):
+            result = self.app.resources.resources_for_targets(
+                target_type="experiment", target_ids=target_ids
+            )
+
+        evidence_selects = [
+            statement
+            for statement in statements
+            if statement.lstrip().upper().startswith("SELECT")
+            and "association_target_id" in statement
+        ]
+        self.assertEqual(len(evidence_selects), 2)
+        self.assertEqual(
+            [statement.count("exp_bulk_") for statement in evidence_selects],
+            [400, 1],
+        )
+        self.assertEqual(tuple(result), target_ids)
+        self.assertTrue(
+            all(
+                len(result[target_id]) == 1
+                and result[target_id][0].resource_id == resource["id"]
+                for target_id in target_ids
+            )
+        )
 
     def test_role_precedence_and_figure_membership_are_evidence_facts(self) -> None:
         plan = self.associate(

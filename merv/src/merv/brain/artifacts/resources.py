@@ -55,11 +55,50 @@ def _resubmit_hint(*, role: str, path: str) -> str:
     )
 
 
-def _rows_for_ids(*, conn: Connection, query: str, ids: list[str]) -> Iterator[Row]:
+def _rows_for_ids(
+    *,
+    conn: Connection,
+    query: str,
+    ids: list[str],
+    parameters: tuple[Any, ...] = (),
+) -> Iterator[Row]:
     for start in range(0, len(ids), _RESOURCE_HYDRATION_BATCH_SIZE):
         batch = ids[start : start + _RESOURCE_HYDRATION_BATCH_SIZE]
         placeholders = ", ".join("?" for _ in batch)
-        yield from conn.execute(query.format(placeholders=placeholders), batch).fetchall()
+        yield from conn.execute(
+            query.format(placeholders=placeholders), (*parameters, *batch)
+        ).fetchall()
+
+
+def _associated_evidence(row: Row) -> AssociatedEvidence:
+    return AssociatedEvidence(
+        resource_id=str(row["id"]),
+        project_id=str(row["project_id"]),
+        path=str(row["path"]),
+        kind=str(row["kind"]),
+        title=str(row["title"]),
+        current_version_id=(
+            str(row["current_version_id"]) if row["current_version_id"] else None
+        ),
+        version_token=str(row["version_token"]),
+        modified_time_ns=int(row["mtime_ns"]),
+        size_bytes=int(row["size_bytes"]),
+        observed_at=str(row["observed_at"]),
+        git_commit=str(row["git_commit"]) if row["git_commit"] else None,
+        is_missing=bool(row["missing"]),
+        is_deleted=bool(row["deleted"]),
+        created_by=str(row["created_by"]),
+        created_at=str(row["created_at"]),
+        updated_at=str(row["updated_at"]),
+        role=str(row["association_role"]),
+        attempt_index=int(row["association_attempt_index"]),
+        submitted_version_id=(
+            str(row["association_version_id"])
+            if row["association_version_id"]
+            else None
+        ),
+        association_order=int(row["association_rowid"]),
+    )
 
 
 class ResourceService:
@@ -552,53 +591,41 @@ class ResourceService:
         self, *, target_type: str, target_id: str
     ) -> tuple[AssociatedEvidence, ...]:
         """Return stable evidence facts without exposing storage-row names."""
+        return self.resources_for_targets(
+            target_type=target_type, target_ids=(target_id,)
+        )[target_id]
+
+    def resources_for_targets(
+        self, *, target_type: str, target_ids: tuple[str, ...]
+    ) -> dict[str, tuple[AssociatedEvidence, ...]]:
+        """Return exact-target evidence in the same order as singular reads."""
+        ids = list(dict.fromkeys(str(target_id) for target_id in target_ids))
+        grouped: dict[str, list[AssociatedEvidence]] = {
+            target_id: [] for target_id in ids
+        }
+        if not ids:
+            return {}
         with closing(self.store.connect()) as conn:
-            rows = conn.execute(
-                """
+            for row in _rows_for_ids(
+                conn=conn,
+                query="""
                 SELECT r.*, a.role AS association_role,
                        a.attempt_index AS association_attempt_index,
                        a.version_id AS association_version_id,
-                       a.created_seq AS association_rowid
+                       a.created_seq AS association_rowid,
+                       a.target_id AS association_target_id
                 FROM resources r
                 JOIN resource_associations a ON a.resource_id = r.id
-                WHERE a.target_type = ? AND a.target_id = ?
-                ORDER BY a.attempt_index, a.role, r.path
+                WHERE a.target_type = ? AND a.target_id IN ({placeholders})
+                ORDER BY a.target_id, a.attempt_index, a.role, r.path
                 """,
-                (target_type, target_id),
-            ).fetchall()
-        return tuple(
-            AssociatedEvidence(
-                resource_id=str(row["id"]),
-                project_id=str(row["project_id"]),
-                path=str(row["path"]),
-                kind=str(row["kind"]),
-                title=str(row["title"]),
-                current_version_id=(
-                    str(row["current_version_id"])
-                    if row["current_version_id"]
-                    else None
-                ),
-                version_token=str(row["version_token"]),
-                modified_time_ns=int(row["mtime_ns"]),
-                size_bytes=int(row["size_bytes"]),
-                observed_at=str(row["observed_at"]),
-                git_commit=str(row["git_commit"]) if row["git_commit"] else None,
-                is_missing=bool(row["missing"]),
-                is_deleted=bool(row["deleted"]),
-                created_by=str(row["created_by"]),
-                created_at=str(row["created_at"]),
-                updated_at=str(row["updated_at"]),
-                role=str(row["association_role"]),
-                attempt_index=int(row["association_attempt_index"]),
-                submitted_version_id=(
-                    str(row["association_version_id"])
-                    if row["association_version_id"]
-                    else None
-                ),
-                association_order=int(row["association_rowid"]),
-            )
-            for row in rows
-        )
+                ids=ids,
+                parameters=(target_type,),
+            ):
+                grouped[str(row["association_target_id"])].append(
+                    _associated_evidence(row)
+                )
+        return {target_id: tuple(items) for target_id, items in grouped.items()}
 
     def submitted_document(
         self,

@@ -72,6 +72,10 @@ class EvidenceReader(Protocol):
         self, *, target_type: str, target_id: str
     ) -> tuple[AssociatedEvidence, ...]: ...
 
+    def resources_for_targets(
+        self, *, target_type: str, target_ids: tuple[str, ...]
+    ) -> dict[str, tuple[AssociatedEvidence, ...]]: ...
+
     def submitted_document(
         self,
         *,
@@ -90,11 +94,13 @@ class EvidenceReader(Protocol):
         roles: tuple[str, ...],
     ) -> tuple[SubmittedEvidence, ...]: ...
 
+
 @runtime_checkable
 class AssociationTargetResolver(Protocol):
     """Research-owned target facts needed while associating a resource."""
 
     def resolve(self, *, target_type: str, target_id: str) -> AssociationTarget: ...
+
 
 __all__ = [
     "AssociatedEvidence",
