@@ -108,7 +108,6 @@ class SandboxDecompositionTest(unittest.TestCase):
         self.assertIn("repository.mark_failed", lifecycle_src)
         for module in (
             "facade.py",
-            "commands.py",
             "sandbox_provisioner.py",
             "sandbox_daemons.py",
         ):
@@ -221,21 +220,24 @@ class SandboxDecompositionTest(unittest.TestCase):
 
     def test_facade_has_no_reflective_or_general_forwarding_objects(self) -> None:
         source = FACADE.read_text(encoding="utf-8")
-        for binding in (
-            "self.commands = SandboxCommandHandler(self)",
-            "self.queries = SandboxQueryHandler(self)",
-        ):
-            self.assertIn(binding, source)
+        self.assertIn("self.queries = SandboxQueryHandler(self)", source)
         for forbidden in (
             "_message(",
             "locals()",
             ".messages",
+            "SandboxCommandHandler",
+            "self.commands",
             "SandboxMaintenanceHandler",
             "self.maintenance",
             "__getattr__",
         ):
             self.assertNotIn(forbidden, source)
-        for removed in ("messages.py", "handler.py", "maintenance_handler.py"):
+        for removed in (
+            "messages.py",
+            "handler.py",
+            "commands.py",
+            "maintenance_handler.py",
+        ):
             self.assertFalse((FACADE.parent / removed).exists())
         self.assertNotIn("class SandboxHandler", source)
         for attribute in (

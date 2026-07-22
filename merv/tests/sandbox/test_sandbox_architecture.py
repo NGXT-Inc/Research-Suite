@@ -14,7 +14,6 @@ FACADE_INTERNALS = {
     "activity_policy",
     "attachment_check",
     "backend",
-    "commands",
     "daemons",
     "lifecycle",
     "metrics",
