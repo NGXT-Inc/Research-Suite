@@ -8,13 +8,15 @@ from typing import Any
 
 from ..kernel.state.store import BaseStateStore
 
+_GRAPH_REF_BATCH_SIZE = 400
+
 
 @dataclass(frozen=True)
 class GraphRefType:
     prefix: str
     entity_type: str
     id_key: str
-    query: str
+    table: str
     fields: tuple[str, ...]
 
 
@@ -23,40 +25,28 @@ GRAPH_REF_TYPES: tuple[GraphRefType, ...] = (
         prefix="rev_",
         entity_type="review",
         id_key="review_id",
-        query=(
-            "SELECT id, role, verdict, created_at FROM reviews"
-            " WHERE id = ? AND project_id = ?"
-        ),
+        table="reviews",
         fields=("role", "verdict", "created_at"),
     ),
     GraphRefType(
         prefix="claim_",
         entity_type="claim",
         id_key="claim_id",
-        query=(
-            "SELECT id, statement, status FROM claims"
-            " WHERE id = ? AND project_id = ?"
-        ),
+        table="claims",
         fields=("statement", "status"),
     ),
     GraphRefType(
         prefix="exp_",
         entity_type="experiment",
         id_key="experiment_id",
-        query=(
-            "SELECT id, intent, status FROM experiments"
-            " WHERE id = ? AND project_id = ?"
-        ),
+        table="experiments",
         fields=("intent", "status"),
     ),
     GraphRefType(
         prefix="syn_",
         entity_type="reflection",
         id_key="reflection_id",
-        query=(
-            "SELECT id, title, status, published_at FROM reflections"
-            " WHERE id = ? AND project_id = ?"
-        ),
+        table="reflections",
         fields=("title", "status", "published_at"),
     ),
 )
@@ -74,25 +64,32 @@ class GraphRefResolver:
         if not refs:
             return {}
         with closing(self.store.connect()) as conn:
-            result: dict[str, Any] = {}
-            for ref in refs:
-                ref_type = _type_for_ref(ref)
-                if ref_type is None:
-                    continue
-                row = conn.execute(ref_type.query, (ref, project_id)).fetchone()
-                result[ref] = (
-                    _record_ref(ref_type=ref_type, row=row)
-                    if row
-                    else {"type": "unknown", "resolved": False}
+            resolved: dict[str, Any] = {}
+            for ref_type in GRAPH_REF_TYPES:
+                typed_refs = tuple(
+                    dict.fromkeys(ref for ref in refs if ref.startswith(ref_type.prefix))
                 )
-            return result
-
-
-def _type_for_ref(ref: str) -> GraphRefType | None:
-    for ref_type in GRAPH_REF_TYPES:
-        if ref.startswith(ref_type.prefix):
-            return ref_type
-    return None
+                if not typed_refs:
+                    continue
+                fields = ", ".join(("id", *ref_type.fields))
+                by_id: dict[str, Any] = {}
+                for start in range(0, len(typed_refs), _GRAPH_REF_BATCH_SIZE):
+                    batch = typed_refs[start : start + _GRAPH_REF_BATCH_SIZE]
+                    placeholders = ", ".join("?" for _ in batch)
+                    rows = conn.execute(
+                        f"SELECT {fields} FROM {ref_type.table} "
+                        f"WHERE project_id = ? AND id IN ({placeholders})",
+                        (project_id, *batch),
+                    ).fetchall()
+                    by_id.update((str(row["id"]), row) for row in rows)
+                for ref in typed_refs:
+                    row = by_id.get(ref)
+                    resolved[ref] = (
+                        _record_ref(ref_type=ref_type, row=row)
+                        if row
+                        else {"type": "unknown", "resolved": False}
+                    )
+            return {ref: resolved[ref] for ref in refs if ref in resolved}
 
 
 def _record_ref(*, ref_type: GraphRefType, row: Any) -> dict[str, Any]:
