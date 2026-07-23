@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from typing import Any, Protocol, TypedDict, Unpack, cast, runtime_checkable
 
 from ..kernel.events import StoredEvent
@@ -29,6 +29,11 @@ from .transition_types import (
 )
 
 
+class LiteratureSignal(TypedDict):
+    papers_total: int
+    papers_unreviewed: int
+
+
 @dataclass(frozen=True, slots=True)
 class ResearchSnapshot:
     """One transaction's Research-side facts for workflow and dashboards."""
@@ -46,6 +51,11 @@ class ResearchSnapshot:
     gate_evaluations: dict[str, GateEvaluation]
     recent_claims: list[dict[str, Any]]
     claim_events_since_reflection: list[dict[str, Any]]
+    # Literature facts for the soft lit-review nudge: papers_total plus
+    # papers_unreviewed (cited to experiments/claims but in no review section).
+    literature_signal: LiteratureSignal = field(
+        default_factory=lambda: LiteratureSignal(papers_total=0, papers_unreviewed=0)
+    )
 
 
 @runtime_checkable

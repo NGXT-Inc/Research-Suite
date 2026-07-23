@@ -103,5 +103,37 @@ class LitreviewToolsTest(unittest.TestCase):
             self._call("litreview.view", limit=51)
 
 
+class LitreviewNudgeTest(LitreviewToolsTest):
+    def test_status_hint_fires_at_three_unreviewed_papers(self) -> None:
+        claim = self.app.call_tool(
+            "claim.create",
+            {"project_id": self.project_id, "statement": "Papers accumulate."},
+        )
+        for i in range(2):
+            self._call(
+                "litreview.cite", url=f"https://example.com/p{i}", title=f"P{i}",
+                targets=[{"type": "claim", "id": claim["id"]}],
+            )
+        status = self._call("workflow.status_and_next")
+        self.assertNotIn("litreview", status)
+        self._call(
+            "litreview.cite", url="https://example.com/p2", title="P2",
+            targets=[{"type": "claim", "id": claim["id"]}],
+        )
+        status = self._call("workflow.status_and_next")
+        self.assertEqual(status["litreview"]["papers_unreviewed"], 3)
+        self.assertIn("litreview.edit", status["litreview"]["hint"])
+        # Working one paper into a section clears it below the threshold.
+        section = self._call(
+            "litreview.edit", op="add", title="Covered", tldr="t",
+        )["section"]
+        self._call(
+            "litreview.cite", url="https://example.com/p2",
+            targets=[{"type": "litreview_section", "id": section["id"]}],
+        )
+        status = self._call("workflow.status_and_next")
+        self.assertNotIn("litreview", status)
+
+
 if __name__ == "__main__":
     unittest.main()
