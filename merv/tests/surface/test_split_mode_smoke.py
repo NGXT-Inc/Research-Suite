@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-import base64
 import tempfile
 import unittest
 from pathlib import Path
@@ -172,96 +171,12 @@ class ProxyLocalDataPlaneSmokeTest(unittest.TestCase):
             )
         )
 
-    def test_feed_post_reads_image_locally_and_submits_bytes(self) -> None:
-        (self.repo / "figures").mkdir()
-        (self.repo / "figures" / "plot.png").write_bytes(b"png-bytes")
-        calls: list[tuple[str, dict]] = []
+    # feed.post is a control tool since the no-dataplane transition (Phase D.1):
+    # the proxy forwards it to /mcp unchanged and carries no feed media handler,
+    # so the former local-read smoke tests (which drove /api/data-plane/feed/*)
+    # are gone. feed-media upload is covered by tests/workflow/test_feed.py's
+    # token-PUT flow.
 
-        def api_post(path: str, payload: dict) -> dict:
-            calls.append((path, payload))
-            return {"ok": True, "post_id": "feed_1"}
-
-        result = self._plane(api_post=api_post).call_tool(
-            name="feed.post",
-            arguments={
-                "handle": "codex",
-                "text": "Image from split proxy",
-                "image_path": "figures/plot.png",
-            },
-        )
-
-        self.assertEqual(result["post_id"], "feed_1")
-        self.assertEqual(calls[0][0], "/api/data-plane/feed/validate-post")
-        self.assertEqual(calls[1][0], "/api/data-plane/feed/post")
-        self.assertEqual(
-            base64.b64decode(calls[1][1]["image"]["data_b64"].encode("ascii")),
-            b"png-bytes",
-        )
-
-    def test_feed_post_preflights_before_reading_image(self) -> None:
-        calls: list[str] = []
-
-        def api_post(path: str, payload: dict) -> dict:
-            calls.append(path)
-            if path.endswith("/validate-post"):
-                raise LocalDataPlaneError("bad feed intent")
-            return {}
-
-        with self.assertRaises(LocalDataPlaneError):
-            self._plane(api_post=api_post).call_tool(
-                name="feed.post",
-                arguments={
-                    "handle": "codex",
-                    "text": "will fail preflight",
-                    "image_path": "missing.png",
-                },
-            )
-
-        self.assertEqual(calls, ["/api/data-plane/feed/validate-post"])
-
-    def test_feed_post_reads_embed_locally_and_submits_bytes(self) -> None:
-        (self.repo / "figures").mkdir()
-        (self.repo / "figures" / "chart.html").write_bytes(
-            b"<html><body>chart</body></html>"
-        )
-        calls: list[tuple[str, dict]] = []
-
-        def api_post(path: str, payload: dict) -> dict:
-            calls.append((path, payload))
-            return {"ok": True, "post_id": "feed_2"}
-
-        result = self._plane(api_post=api_post).call_tool(
-            name="feed.post",
-            arguments={
-                "handle": "codex",
-                "text": "Embed from split proxy",
-                "html_path": "figures/chart.html",
-            },
-        )
-
-        self.assertEqual(result["post_id"], "feed_2")
-        self.assertEqual(calls[0][0], "/api/data-plane/feed/validate-post")
-        self.assertEqual(calls[1][0], "/api/data-plane/feed/post")
-        self.assertEqual(
-            base64.b64decode(calls[1][1]["html"]["data_b64"].encode("ascii")),
-            b"<html><body>chart</body></html>",
-        )
-
-    def test_feed_post_rejects_image_and_html_path_together(self) -> None:
-        (self.repo / "figures").mkdir()
-        (self.repo / "figures" / "plot.png").write_bytes(b"png-bytes")
-        (self.repo / "figures" / "chart.html").write_bytes(b"<html></html>")
-
-        with self.assertRaises(LocalDataPlaneError):
-            self._plane().call_tool(
-                name="feed.post",
-                arguments={
-                    "handle": "codex",
-                    "text": "both",
-                    "image_path": "figures/plot.png",
-                    "html_path": "figures/chart.html",
-                },
-            )
 
 class PrivateSplitProxyTest(unittest.TestCase):
     def test_split_proxy_sends_project_id_not_repo_context(self) -> None:
