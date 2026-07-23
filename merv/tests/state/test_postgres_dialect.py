@@ -263,6 +263,20 @@ def _schema_without_project_keys() -> str:
     return legacy
 
 
+def _schema_without_feed_upload_tokens() -> str:
+    """SCHEMA before the no-dataplane Phase-D.1 feed-media token table."""
+    legacy = re.sub(
+        r"\n-- Pending feed-post upload tokens.*?"
+        r"CREATE TABLE IF NOT EXISTS feed_upload_tokens \(.*?\n\);\n",
+        "\n",
+        SCHEMA,
+        flags=re.DOTALL,
+    )
+    if legacy == SCHEMA or "feed_upload_tokens" in legacy:
+        raise AssertionError("failed to build the pre-feed-token schema")
+    return legacy
+
+
 @unittest.skipUnless(HAVE_DOCKER, "docker unavailable")
 class PostgresControlPlaneContractTest(
     ControlPlaneContractScenarios, unittest.TestCase
@@ -636,6 +650,50 @@ class PostgresStoreBehaviorTest(unittest.TestCase):
                 "SELECT key_id FROM sandbox_generations WHERE id = 'sbg_old'"
             ).fetchone()
             self.assertIsNone(key_id["key_id"])  # pre-existing row keeps NULL
+            ledger = conn.execute(
+                "SELECT version, name FROM schema_migrations ORDER BY version"
+            ).fetchall()
+            self.assertEqual(
+                [(int(r["version"]), str(r["name"])) for r in ledger],
+                [(version, name) for version, name, _statement in MIGRATIONS],
+            )
+        finally:
+            conn.close()
+
+    def test_legacy_postgres_store_gains_feed_upload_tokens(self) -> None:
+        """Old-DB upgrade through the no-dataplane Phase-D.1 block: replay ledger
+        rows < 32 against a schema without feed_upload_tokens, re-open, and
+        confirm migration 32 creates the table (each migration + its ledger row
+        inside one transaction on the autocommit connection)."""
+        dsn = _reset_database()
+        import psycopg
+
+        legacy_schema = _schema_without_feed_upload_tokens()
+        created = now_iso()
+        with psycopg.connect(dsn, autocommit=True) as conn:
+            conn.execute(translate_schema_to_postgres(legacy_schema))
+            for version, name, _statement in MIGRATIONS:
+                if version >= 32:
+                    continue
+                conn.execute(
+                    "INSERT INTO schema_migrations (version, name, applied_at) "
+                    "VALUES (%s, %s, %s)",
+                    (version, name, created),
+                )
+
+        store = PostgresStateStore(dsn=dsn)
+        conn = store.connect()
+        try:
+            self.assertTrue(
+                store._has_table(conn=conn, table="feed_upload_tokens")
+            )
+            for column in ("token", "post_id", "media_kind", "expires_at"):
+                self.assertTrue(
+                    store._has_column(
+                        conn=conn, table="feed_upload_tokens", column=column
+                    ),
+                    column,
+                )
             ledger = conn.execute(
                 "SELECT version, name FROM schema_migrations ORDER BY version"
             ).fetchall()
