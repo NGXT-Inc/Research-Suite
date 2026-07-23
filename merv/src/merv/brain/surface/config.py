@@ -54,6 +54,10 @@ CONTROL_RESTRICT_CORS_ENV_VAR = "MERV_CONTROL_RESTRICT_CORS"
 # Where the device-flow sign-in page lives. Unlike a CORS origin this may
 # carry a path (e.g. https://rapidreview.io/merv) for path-mounted UIs.
 UI_BASE_URL_ENV_VAR = "MERV_UI_BASE_URL"
+# Canonical RFC 8707 resource URI for the /mcp audience. Owner-minted project
+# keys carry it so they are audience-bound once OAuth enforcement lands; unset
+# leaves keys un-audienced (Phase A has no audience enforcement yet).
+OAUTH_RESOURCE_URI_ENV_VAR = "MERV_OAUTH_RESOURCE_URI"
 # MLflow-extension env config (MLFLOW_MODE/TRACKING_URI/SERVER_URI/DASHBOARD)
 # lives in src/merv/brain/mlflow/config.py — the extension owns its own knobs.
 # The enforcement knob below is composition policy, so it stays here.
@@ -207,6 +211,11 @@ def resolve_allowed_origins(env: Mapping[str, str] | None = None) -> list[str]:
             )
         origins.append(origin)
     return origins
+
+
+def resolve_oauth_resource_uri(env: Mapping[str, str] | None = None) -> str:
+    """Canonical /mcp resource URI for the key/OAuth audience, or "" when unset."""
+    return (env_value(OAUTH_RESOURCE_URI_ENV_VAR, env=env) or "").strip()
 
 
 def resolve_ui_base_url(env: Mapping[str, str] | None = None) -> str:

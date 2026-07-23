@@ -148,6 +148,8 @@ FILE_LAYERS = {
     "surface/control/record_core.py": BOOTSTRAP,
     "surface/control/control_client.py": ADAPTER,
     "surface/control/control_runtime.py": ADAPTER,
+    "surface/project_keys.py": APPLICATION_LAYER,
+    "surface/project_key_store.py": ADAPTER,
 }
 
 ALLOWED_LAYER_EDGES = (
@@ -180,6 +182,7 @@ LAYER_EXCEPTIONS: frozenset[tuple[str, str]] = frozenset()
 TABLE_OWNERS = {
     "projects": KERNEL,
     "project_members": KERNEL,
+    "project_api_keys": SURFACE,
     "events": KERNEL,
     "schema_migrations": KERNEL,
     "tenants": KERNEL,
@@ -709,6 +712,17 @@ def _cross_component_constructions_outside_bootstrap() -> list[str]:
 
 
 class ModuleBoundaryTest(unittest.TestCase):
+    def test_no_source_references_tracking_credentials_allowed(self) -> None:
+        # The v29 per-sandbox trust column is moot under the no-dataplane
+        # transition (MLflow suspension + project-shared sandboxes) and must
+        # never be ported: no column, no read site, no reference anywhere.
+        offenders = [
+            path.relative_to(BACKEND_ROOT).as_posix()
+            for path in _backend_files()
+            if "tracking_credentials_allowed" in path.read_text(encoding="utf-8")
+        ]
+        self.assertEqual(offenders, [])
+
     def test_tool_handler_registry_is_delivery(self) -> None:
         self.assertEqual(_layer("surface/tools/tool_handlers.py"), DELIVERY)
 

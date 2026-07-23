@@ -21,6 +21,7 @@ import httpx
 
 from ..kernel.identity import LOCAL_TENANT_ID
 from .identity import Principal
+from .project_keys import PROJECT_KEY_PREFIX, ProjectKeyControl
 
 SUPABASE_URL_ENV_VAR = "SUPABASE_URL"
 SUPABASE_JWT_SECRET_ENV_VAR = "SUPABASE_JWT_SECRET"
@@ -49,11 +50,17 @@ class SupabaseVerifier:
     jwt_secret: str
     service_key: str = ""
     anon_key: str = ""
+    project_keys: ProjectKeyControl | None = None
     _key_cache: dict[str, tuple[str, float]] = field(default_factory=dict)
     _http: httpx.Client | None = None
 
     @classmethod
-    def from_env(cls, env: Mapping[str, str] | None = None) -> "SupabaseVerifier | None":
+    def from_env(
+        cls,
+        env: Mapping[str, str] | None = None,
+        *,
+        project_keys: ProjectKeyControl | None = None,
+    ) -> "SupabaseVerifier | None":
         source = env if env is not None else os.environ
         url = (source.get(SUPABASE_URL_ENV_VAR) or "").strip().rstrip("/")
         secret = (source.get(SUPABASE_JWT_SECRET_ENV_VAR) or "").strip()
@@ -64,6 +71,7 @@ class SupabaseVerifier:
             jwt_secret=secret,
             service_key=(source.get(SUPABASE_SERVICE_KEY_ENV_VAR) or "").strip(),
             anon_key=(source.get(SUPABASE_ANON_KEY_ENV_VAR) or "").strip(),
+            project_keys=project_keys,
         )
 
     def meta(self) -> dict[str, object]:
@@ -80,6 +88,8 @@ class SupabaseVerifier:
         token = authorization[len("Bearer "):].strip()
         if not token:
             raise UnauthorizedError("empty bearer credential")
+        if token.startswith(PROJECT_KEY_PREFIX):
+            return self._verify_project_key(token)
         if token.startswith(API_KEY_PREFIX):
             return self._verify_api_key(token)
         return self._verify_jwt(token)
@@ -136,6 +146,24 @@ class SupabaseVerifier:
             self._key_cache[digest] = (user_id, time.monotonic() + _KEY_CACHE_TTL_SECONDS)
         return Principal(
             tenant_id=LOCAL_TENANT_ID, client_id=f"key:{digest[:8]}", user_id=user_id
+        )
+
+    def _verify_project_key(self, key: str) -> Principal:
+        if self.project_keys is None:
+            raise UnauthorizedError("project API keys are not enabled on this deployment")
+        record = self.project_keys.verify_secret(secret=key)
+        if record is None:
+            raise UnauthorizedError("unknown, expired, or revoked project API key")
+        return Principal(
+            tenant_id=record.tenant_id,
+            client_id=f"project-key:{record.id}",
+            user_id=record.owner_user_id,
+            key_id=record.id,
+            key_project_id=record.project_id,
+            audience=record.audience,
+            oauth_family_id=record.oauth_family_id,
+            key_sandbox_seconds_ceiling=record.sandbox_seconds_ceiling,
+            key_blob_bytes_ceiling=record.blob_bytes_ceiling,
         )
 
     def _lookup_key_user(self, digest: str) -> str:

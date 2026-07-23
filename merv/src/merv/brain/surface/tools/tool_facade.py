@@ -15,6 +15,7 @@ from typing import Any, Protocol
 from pydantic import ValidationError as PydanticValidationError
 
 from .contracts import ContractModel, TOOL_CONTRACTS, static_tool_catalog
+from ..identity import ToolVisibilityError
 from ...kernel.state.activity import monotonic_ms
 from ...kernel.utils import ResearchPluginError
 from ...kernel.utils import ValidationError as ToolValidationError
@@ -135,6 +136,7 @@ class ToolDispatcher:
         activity_source: str = "app",
         internal_kwargs: dict[str, Any] | None = None,
         telemetry_project_id: str | None = None,
+        caller_is_external_mcp: bool = False,
     ) -> dict[str, Any]:
         arguments = arguments or {}
         telemetry_arguments = arguments
@@ -147,6 +149,15 @@ class ToolDispatcher:
         try:
             if name not in self._tools:
                 raise ResearchPluginError(f"unknown tool: {name}", details={"tool": name})
+            # Defense-in-depth for INV-5: an internal/hidden tool is never
+            # reachable over MCP by any non-local caller (mk_ key, rr_sk_, raw
+            # JWT). Only LOCAL_PRINCIPAL composition — which never sets this
+            # flag — keeps internal access over the same dispatch path.
+            if caller_is_external_mcp and TOOL_CONTRACTS[name].visibility == "internal":
+                raise ToolVisibilityError(
+                    f"tool {name} is internal and cannot be invoked over MCP",
+                    details={"tool": name, "visibility": "internal"},
+                )
             self.permissions.reject_reviewer_mutation(
                 tool_name=name,
                 review_session_id=arguments.get("review_session_id"),
