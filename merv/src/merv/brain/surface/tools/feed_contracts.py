@@ -47,19 +47,23 @@ class FeedPostInput(ProjectScopedInput):
     image_path: str | None = Field(
         default=None,
         description=(
-            "Optional repo-relative path to an image to attach "
-            "(a training plot, a generated graphic, a document excerpt). Most "
-            "posts should carry a visual. Stored server-side; the file is read once. "
-            "Mutually exclusive with html_path."
+            "Optional path to an image to attach (a training plot, a generated "
+            "graphic, a document excerpt) — png/jpeg/gif/webp/svg, under 10MB. "
+            "Most posts should carry a visual. Passing it returns a one-time "
+            "`run` curl instead of posting immediately; run it verbatim to push "
+            "the file's bytes, and the PUT finalizes the post. Mutually exclusive "
+            "with html_path."
         ),
     )
     html_path: str | None = Field(
         default=None,
         description=(
-            "Optional repo-relative path to a self-contained interactive HTML "
-            "file to embed (e.g. a plotly chart) — under 512KB. Served sandboxed "
-            "(scripts run, but isolated: no same-origin, no top navigation). "
-            "Mutually exclusive with image_path."
+            "Optional path to a self-contained interactive HTML file to embed "
+            "(e.g. a plotly chart) — under 512KB. Served sandboxed (scripts run, "
+            "but isolated: no same-origin, no top navigation). Passing it returns "
+            "a one-time `run` curl instead of posting immediately; run it verbatim "
+            "to push the file's bytes, and the PUT finalizes the post. Mutually "
+            "exclusive with image_path."
         ),
     )
     in_reply_to: str | None = Field(
@@ -114,16 +118,17 @@ FEED_TOOL_CONTRACTS: dict[str, ToolContract] = {
         ),
     ),
     "feed.post": ToolContract(
-        handler_identity="local.post_feed",
-        execution_strategy="local-orchestration",
+        handler_identity="feed.post",
         input_model=FeedPostInput,
         description=(
             "Post a brief, high-signal aha-moment to the project's social feed "
             "for the human to glance at — a surprising result, a bottleneck, an "
             "exciting direction, a hunch worth surfacing. NOT one post per "
             "experiment: post only what genuinely stands out. Keep it short with "
-            "a high-value visual where you can. Posts are permanent (no edit or "
-            "delete — correct a post by posting again)."
+            "a high-value visual where you can. A text/link-only post lands "
+            "immediately; attaching image_path/html_path returns a one-time `run` "
+            "curl to push the bytes, and that upload finalizes the post. Posts "
+            "are permanent (no edit or delete — correct a post by posting again)."
         ),
     ),
     "feed.list": ToolContract(

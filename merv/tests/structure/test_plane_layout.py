@@ -343,11 +343,10 @@ class ToolPlanePartitionTest(unittest.TestCase):
                 "sandbox.request",
                 "sandbox.attach",
                 "sandbox.pull_outputs",
-                # feed.post reads a local image file before recording the post,
-                # so it lives on the data plane; find/delete are pure control
-                # records. Artifact submission is control-plane: bytes travel
-                # over the agent's own curl, not through the proxy.
-                "feed.post",
+                # feed.post is control-plane since the no-dataplane transition
+                # (Phase D.1): media bytes travel over the agent's own curl to
+                # the token-bearer PUT /api/feed/u/<token>, not through the proxy
+                # — exactly like artifact.submit.
             },
         )
         self.assertIn("sandbox.health", CONTROL_PLANE_TOOL_NAMES)
@@ -357,10 +356,12 @@ class ToolPlanePartitionTest(unittest.TestCase):
         self.assertLessEqual(
             {
                 "storage.upload_file",
-                "feed.post",
             },
             DATA_PLANE_TOOL_NAMES,
         )
+        # feed.post no longer reads local files server-side (Phase D.1): the
+        # agent's own curl pushes the bytes, so it is a control tool now.
+        self.assertNotIn("feed.post", DATA_PLANE_TOOL_NAMES)
 
     def test_proxy_local_data_plane_dispatches_contract_plane_sets(self) -> None:
         proxy = PROXY_ROOT / "proxy.py"

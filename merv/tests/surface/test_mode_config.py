@@ -218,7 +218,9 @@ class HostedControlSurfaceTest(unittest.TestCase):
         names = {tool["name"] for tool in tools.json()["tools"]}
         self.assertIn("claim.create", names)
         self.assertIn("artifact.submit", names)
-        self.assertNotIn("feed.post", names)
+        # feed.post is control-plane since Phase D.1 (media bytes ride the
+        # agent's own curl), so it is MCP-visible like artifact.submit.
+        self.assertIn("feed.post", names)
 
         rejected = self.client.post(
             "/mcp/call",
