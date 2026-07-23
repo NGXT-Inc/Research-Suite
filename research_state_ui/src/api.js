@@ -189,6 +189,17 @@ export const api = {
   // and the client stays on its polling fallback; local mode needs no auth.
   eventStreamUrl: (pid) => `${BASE}/api/projects/${encodeURIComponent(pid)}/events/stream`,
 
+  // Project MCP keys — owner-only (routes require a Supabase browser session,
+  // so these fail in local/API-key mode). Mint returns the mk_ secret exactly
+  // once: { key:<public record>, secret:"mk_…" }. List → { keys:[…] }; revoke →
+  // { key:<public record> }. The public record never carries the secret.
+  listProjectKeys: (pid) =>
+    request(`/api/projects/${encodeURIComponent(pid)}/keys`),
+  createProjectKey: (pid, body = {}) =>
+    request(`/api/projects/${encodeURIComponent(pid)}/keys`, { method: 'POST', body }),
+  revokeProjectKey: (pid, keyId) =>
+    request(`/api/projects/${encodeURIComponent(pid)}/keys/${encodeURIComponent(keyId)}/revoke`, { method: 'POST' }),
+
   // Claims
   createClaim: (pid, { statement, scope, confidence }) =>
     request(`/api/projects/${encodeURIComponent(pid)}/claims`, {

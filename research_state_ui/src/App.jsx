@@ -36,6 +36,7 @@ import Events from './pages/Events';
 import Sandboxes from './pages/Sandboxes';
 import Debug from './pages/Debug';
 import MlflowDashboard from './pages/MlflowDashboard';
+import Settings from './pages/Settings';
 
 // /debug merged into /activity. Preserve ?tool= (v6 <Navigate> drops search).
 // Lives under /p/:projectId, so redirect into the same project's /activity.
@@ -250,6 +251,7 @@ export default function App() {
             <Route path="events" element={<Events />} />
             <Route path="sandboxes" element={<Sandboxes />} />
             <Route path="mlflow" element={<MlflowDashboard />} />
+            <Route path="settings" element={<Settings />} />
             <Route path="activity" element={<Debug />} />
             <Route path="debug" element={<DebugRedirect />} />
           </Route>

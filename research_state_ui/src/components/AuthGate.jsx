@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react';
 import { useLocation } from 'react-router-dom';
 import { api, request } from '../api';
+import OAuthConsent from './OAuthConsent';
 import {
   getAuthToken,
   getSessionTokens,
@@ -58,6 +59,10 @@ export default function AuthGate({ children }) {
   const location = useLocation();
   if (!state.checked) return null;
   if (state.required && !state.authed) return <SignIn />;
+  // OAuth consent: a signed-in owner picks the one project this MCP client may
+  // access (the lane that mints the project key). Sits above the router — the
+  // /oauth/authorize path is served by the backend, not an in-app route.
+  if (state.required && location.pathname === '/oauth/authorize') return <OAuthConsent />;
   // CLI device-flow handoff: once signed in, /auth/sdk posts this browser's
   // session to the brain for the polling terminal — instead of the app,
   // which may still be booting (this route must work with zero projects).
