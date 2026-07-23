@@ -244,12 +244,14 @@ def _schema_without_review_synopsis() -> str:
 
 def _schema_without_project_keys() -> str:
     """SCHEMA before the agent-anywhere Phase-A tables: no project_api_keys
-    table and no sandbox_generations.key_id column."""
+    table and no sandbox_generations.key_id column. The Phase-B OAuth tables
+    are stripped too — oauth_refresh_tokens FKs project_api_keys, so a schema
+    predating project_api_keys cannot carry them without a dangling reference."""
     legacy = re.sub(
         r"\n-- Surface-owned project credentials.*?"
         r"CREATE TABLE IF NOT EXISTS project_api_keys \(.*?\n\);\n",
         "\n",
-        SCHEMA,
+        _schema_without_oauth_tables(),
         flags=re.DOTALL,
     )
     legacy = re.sub(
@@ -258,8 +260,36 @@ def _schema_without_project_keys() -> str:
         legacy,
         flags=re.DOTALL,
     )
-    if legacy == SCHEMA or "project_api_keys" in legacy or "key_id" in legacy:
+    if (
+        legacy == SCHEMA
+        or "CREATE TABLE IF NOT EXISTS project_api_keys" in legacy
+        or "key_id" in legacy
+    ):
         raise AssertionError("failed to build the pre-project-keys schema")
+    return legacy
+
+
+def _schema_without_oauth_tables() -> str:
+    """SCHEMA before the agent-anywhere Phase-B tables: no oauth_clients,
+    oauth_authorization_codes, or oauth_refresh_tokens. The three tables are
+    consecutive (with interleaved comments), so one DOTALL sweep from the first
+    OAuth comment through the refresh-token block's terminator removes them."""
+    legacy = re.sub(
+        r"\n-- OAuth 2\.1 public DCR registrations.*?"
+        r"CREATE TABLE IF NOT EXISTS oauth_refresh_tokens \(.*?\n\);\n",
+        "\n",
+        SCHEMA,
+        flags=re.DOTALL,
+    )
+    if legacy == SCHEMA or any(
+        table in legacy
+        for table in (
+            "oauth_clients",
+            "oauth_authorization_codes",
+            "oauth_refresh_tokens",
+        )
+    ):
+        raise AssertionError("failed to build the pre-oauth schema")
     return legacy
 
 
@@ -636,6 +666,55 @@ class PostgresStoreBehaviorTest(unittest.TestCase):
                 "SELECT key_id FROM sandbox_generations WHERE id = 'sbg_old'"
             ).fetchone()
             self.assertIsNone(key_id["key_id"])  # pre-existing row keeps NULL
+            ledger = conn.execute(
+                "SELECT version, name FROM schema_migrations ORDER BY version"
+            ).fetchall()
+            self.assertEqual(
+                [(int(r["version"]), str(r["name"])) for r in ledger],
+                [(version, name) for version, name, _statement in MIGRATIONS],
+            )
+        finally:
+            conn.close()
+
+    def test_legacy_postgres_store_gains_oauth_tables(self) -> None:
+        """Old-DB upgrade through the agent-anywhere Phase-B block: replay ledger
+        rows < 28 against a schema with none of the three OAuth tables, re-open,
+        and confirm migrations 28/29/30 create each (migration + its ledger row
+        inside one transaction on the autocommit connection). The FK order
+        (clients before codes/refresh, refresh before project_api_keys of
+        migration 26) must apply cleanly on Postgres."""
+        dsn = _reset_database()
+        import psycopg
+
+        legacy_schema = _schema_without_oauth_tables()
+        created = now_iso()
+        with psycopg.connect(dsn, autocommit=True) as conn:
+            conn.execute(translate_schema_to_postgres(legacy_schema))
+            for version, name, _statement in MIGRATIONS:
+                if version >= 28:
+                    continue
+                conn.execute(
+                    "INSERT INTO schema_migrations (version, name, applied_at) "
+                    "VALUES (%s, %s, %s)",
+                    (version, name, created),
+                )
+            conn.execute(
+                "INSERT INTO projects (id, name, summary, created_at) "
+                "VALUES (%s, %s, %s, %s)",
+                ("proj_oauth_old", "Old", "", created),
+            )
+
+        store = PostgresStateStore(dsn=dsn)
+        conn = store.connect()
+        try:
+            for table in (
+                "oauth_clients",
+                "oauth_authorization_codes",
+                "oauth_refresh_tokens",
+            ):
+                self.assertTrue(
+                    store._has_table(conn=conn, table=table), table
+                )
             ledger = conn.execute(
                 "SELECT version, name FROM schema_migrations ORDER BY version"
             ).fetchall()
