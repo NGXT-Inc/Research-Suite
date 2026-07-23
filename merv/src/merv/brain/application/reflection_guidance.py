@@ -27,6 +27,19 @@ def reflection_create_block_reason(*, signal: Mapping[str, Any]) -> str:
     )
 
 
+def literature_hint(*, signal: Mapping[str, Any]) -> str | None:
+    """Soft lit-review nudge (never blocks): fires iff >=3 cited papers have
+    no section in the literature review yet."""
+    unreviewed = int(signal.get("papers_unreviewed") or 0)
+    if unreviewed < 3:
+        return None
+    return (
+        f"{unreviewed} cited papers are not yet worked into the literature "
+        "review — consider a targeted litreview.edit (add or amend the one "
+        "relevant section)."
+    )
+
+
 def idle_reflection_hint(*, signal: Mapping[str, Any]) -> str:
     new = signal["new_terminal_since_publish"]
     finished = f"{new} experiment{'s have' if new != 1 else ' has'} finished"

@@ -3,7 +3,7 @@ set -eu
 
 verify_dir=$(CDPATH= cd -- "$(dirname -- "$0")/.." && pwd)
 verify_python=${MERV_VERIFY_PYTHON:-python}
-catalog_expected=45e46fac9ea0a4d97fa12d1fc9b111e1088f862992288ffca01a735b70ee2420
+catalog_expected=92a9b82946adf3aec6762d448bdfd01d45b733619a2f23e0a436e898eefd7aae
 
 cd "$verify_dir"
 test ! -e src/merv/brain/mlflow/exhibit.py

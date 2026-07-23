@@ -23,7 +23,11 @@ from ....application.facade import (
 from ....application.ports.storage import ObjectStorage
 from ....artifacts.facade import ArtifactRecords, Artifacts
 from ....feed.facade import FeedDelivery
-from ....research_core.facade import ResearchProjects, ResearchReviewDelivery
+from ....research_core.facade import (
+    ResearchLiterature,
+    ResearchProjects,
+    ResearchReviewDelivery,
+)
 from ....sandbox.facade import SandboxFacade
 from ...observability import StructuredLogger
 from ...tools.tool_facade import ToolDispatcher
@@ -70,3 +74,4 @@ class HttpDependencies:
     experiment_figure: ExperimentFigureQuery
     tracking_overview: MlflowOverviewQuery
     tenant_counters: TenantCountersQuery
+    literature: ResearchLiterature

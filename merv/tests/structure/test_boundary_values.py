@@ -60,7 +60,11 @@ from merv.brain.kernel.ports.object_store import (
     UploadTarget,
 )
 from merv.brain.kernel.ports.quota_admission import AdmissionRequest
-from merv.brain.research_core.facade import ExperimentCreateArgs, ResearchSnapshot
+from merv.brain.research_core.facade import (
+    ExperimentCreateArgs,
+    LiteratureSignal,
+    ResearchSnapshot,
+)
 from merv.brain.research_core.gate_evaluation import (
     GateEvaluation,
     RequirementEvaluation,
@@ -451,7 +455,9 @@ SAMPLES: dict[type, object] = {
         },
         recent_claims=[{"id": "clm_1"}],
         claim_events_since_reflection=[],
+        literature_signal=LiteratureSignal(papers_total=1, papers_unreviewed=0),
     ),
+    LiteratureSignal: LiteratureSignal(papers_total=1, papers_unreviewed=0),
 }
 
 

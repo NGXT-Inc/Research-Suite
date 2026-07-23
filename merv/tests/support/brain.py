@@ -37,7 +37,7 @@ class TestBrain:
     __test__ = False
     _RECORD_SERVICES = frozenset(
         {"permissions", "quotas", "projects", "claims", "experiments", "resources",
-         "graph_refs", "reflection_waves", "reviews", "feed"}
+         "graph_refs", "reflection_waves", "reviews", "feed", "literature"}
     )
     _PRIVATE_ALIASES = {
         "store": "_store", "blobs": "_blobs", "storage": "_storage",

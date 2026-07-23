@@ -368,7 +368,9 @@ class ProjectDashboardBatchingTest(unittest.TestCase):
             self._dashboard_select_count(project_id="proj_one"),
             self._dashboard_select_count(project_id="proj_many"),
         )
-        self.assertEqual(self._dashboard_select_count(project_id="proj_many"), 22)
+        # 24 = the pre-litreview 22 plus the two constant literature-signal
+        # counts (papers_total, papers_unreviewed) in snapshots.read.
+        self.assertEqual(self._dashboard_select_count(project_id="proj_many"), 24)
 
     def test_seven_active_experiments_bound_terminal_history_cost(self) -> None:
         self._seed_project(project_id="proj_active_one", active=7, terminal=1)
@@ -379,7 +381,7 @@ class ProjectDashboardBatchingTest(unittest.TestCase):
             self._dashboard_select_count(project_id="proj_active_many"),
         )
         self.assertEqual(
-            self._dashboard_select_count(project_id="proj_active_many"), 22
+            self._dashboard_select_count(project_id="proj_active_many"), 24
         )
 
 

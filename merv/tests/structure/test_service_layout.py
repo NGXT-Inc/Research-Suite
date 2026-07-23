@@ -1435,7 +1435,7 @@ class ServiceLayoutTest(unittest.TestCase):
         )
         self.assertIn("class GraphRefType:", source)
         self.assertIn("GRAPH_REF_TYPES: tuple[GraphRefType, ...]", source)
-        self.assertEqual(source.count("GraphRefType("), 4)
+        self.assertEqual(source.count("GraphRefType("), 6)
         self.assertIn("for ref_type in GRAPH_REF_TYPES:", source)
         self.assertNotIn("EvidenceReader", source)
         self.assertNotIn("resolve_resource_reference", source)
@@ -1444,7 +1444,7 @@ class ServiceLayoutTest(unittest.TestCase):
         self.assertIn('elif ref.startswith("res_")', application)
         self.assertIn("def resolve_resource_reference(", artifacts)
         self.assertNotIn("resolve_resource_reference", evidence)
-        for prefix in ("rev_", "claim_", "exp_", "syn_"):
+        for prefix in ("rev_", "claim_", "exp_", "syn_", "lit_", "paper_"):
             self.assertIn(f'prefix="{prefix}"', source)
             self.assertNotIn(f'if ref.startswith("{prefix}")', source)
             self.assertNotIn(f'elif ref.startswith("{prefix}")', source)

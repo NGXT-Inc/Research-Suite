@@ -5193,3 +5193,33 @@ a.spend-row-name:hover { color: var(--active); }
   width: 48px; height: 48px; margin-bottom: 16px; border-radius: 999px;
   background: rgba(229, 72, 77, 0.10); color: var(--rr-accent);
 }
+
+/* --- Literature review ---------------------------------------------------- */
+.litreview { max-width: 860px; }
+.litreview-tabs { display: flex; gap: 8px; margin-bottom: 16px; }
+.litreview-tab {
+  background: none; border: 1px solid var(--border); border-radius: 6px;
+  padding: 4px 12px; color: var(--muted); cursor: pointer; font: inherit;
+}
+.litreview-tab.active { color: var(--ink, inherit); border-color: currentColor; }
+.litreview-count { opacity: 0.6; margin-left: 4px; }
+.litreview-doc h2 { margin: 20px 0 6px; }
+.litreview-tldr { color: var(--muted); font-style: italic; margin: 4px 0 8px; }
+.litreview-section { margin: 14px 0; }
+.litreview-section-head {
+  display: flex; align-items: center; gap: 6px; background: none; border: none;
+  padding: 0; font: inherit; font-weight: 600; cursor: pointer; color: inherit;
+}
+.litreview-chevron { display: inline-block; transition: transform 0.12s; }
+.litreview-chevron.open { transform: rotate(90deg); }
+.litreview-body { margin: 6px 0 0 18px; }
+.litreview-cited { color: var(--muted); font-size: 0.9em; }
+.litreview-cite-item { margin-right: 10px; }
+.litreview-references ol { padding-left: 22px; }
+.litreview-references li { margin: 6px 0; }
+.litreview-paper-meta, .litreview-paper-flag { color: var(--muted); }
+.litreview-paper-card {
+  border: 1px solid var(--border); border-radius: 8px; padding: 10px 12px;
+  margin: 8px 0;
+}
+.litreview-paper-links { margin-top: 6px; display: flex; flex-wrap: wrap; gap: 6px; }

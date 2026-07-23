@@ -244,6 +244,7 @@ class ControlApp:
                 tracking_finalize=self.finalize_tracking_run,
                 review_status=self.read_review_status,
                 operations=self.control_tool_operations,
+                litreview=core.literature,
             ),
             permissions=core.permissions,
             activity=self.activity,
@@ -273,6 +274,7 @@ class ControlApp:
             experiment_figure=self.experiment_figure_query,
             tracking_overview=self.mlflow_overview_query,
             tenant_counters=self.tenant_counters_query,
+            literature=core.literature,
         )
 
     def shutdown(self) -> None:

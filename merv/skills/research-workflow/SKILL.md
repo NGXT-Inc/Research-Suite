@@ -66,6 +66,17 @@ is blocked until a project reflection is published. The published reflection's
 reviewed change spec may create the next experiment wave. Claim creation can
 still be allowed.
 
+## Literature review
+
+The project keeps one living literature review: a General Summary, dynamic
+theme sections (each with a required TLDR), and a derived References list.
+Whenever a paper informs a plan, claim, or conclusion: `litreview.cite` it to
+the experiment/claim it supports, then make a *targeted* `litreview.edit` —
+add or amend the one relevant section, never rewrite the document. Read
+`litreview.view` (the TLDR outline) before editing so you know the document's
+shape. `workflow.status_and_next` surfaces a soft `litreview` hint when cited
+papers have not been worked into the review; it never blocks anything.
+
 ## Feed
 
 The feed is your main line to the researcher. It is how they follow the work as

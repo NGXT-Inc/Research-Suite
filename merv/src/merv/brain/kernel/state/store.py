@@ -521,6 +521,77 @@ CREATE TABLE IF NOT EXISTS spend_kill_switches (
   reason TEXT NOT NULL DEFAULT '',
   tripped_at TEXT
 );
+
+-- Literature review (July 2026, dev_docs/litreview_feature_plan.md). One
+-- living sectioned document per project: kind='summary' is the General
+-- Summary (at most one, enforced by the litreview_one_summary partial index
+-- below; ensured lazily on first WRITE — reads never create it), kind='section'
+-- are the dynamic theme sections. Rows are mutable envelopes; history is the
+-- events table (full post-state per mutation, like claims). ``revision`` is
+-- the per-section compare-and-swap counter; reorder bumps every row's
+-- revision because position is section state.
+CREATE TABLE IF NOT EXISTS litreview_sections (
+  id TEXT PRIMARY KEY,
+  project_id TEXT NOT NULL,
+  kind TEXT NOT NULL CHECK (kind IN ('summary','section')),
+  title TEXT NOT NULL,
+  tldr TEXT NOT NULL,
+  body TEXT NOT NULL DEFAULT '',
+  position INTEGER NOT NULL DEFAULT 0,
+  revision INTEGER NOT NULL DEFAULT 1,
+  created_by TEXT NOT NULL DEFAULT '',
+  created_seq INTEGER NOT NULL DEFAULT 0,
+  created_at TEXT NOT NULL,
+  updated_at TEXT NOT NULL,
+  UNIQUE(project_id, kind, title),
+  FOREIGN KEY(project_id) REFERENCES projects(id)
+);
+
+CREATE UNIQUE INDEX IF NOT EXISTS litreview_one_summary
+  ON litreview_sections(project_id) WHERE kind = 'summary';
+
+-- The papers ledger: every external paper the project has cited, deduplicated
+-- per project by ``norm_key`` (arxiv:<id-sans-version> | doi:<casefolded> |
+-- normalized URL). Metadata comes from the strict paper unfurler;
+-- ``fetch_status`` records how ('fetched' beats 'manual' beats 'failed' and
+-- is never downgraded).
+CREATE TABLE IF NOT EXISTS papers (
+  id TEXT PRIMARY KEY,
+  project_id TEXT NOT NULL,
+  norm_key TEXT NOT NULL,
+  url TEXT NOT NULL,
+  title TEXT NOT NULL DEFAULT '',
+  authors_json TEXT NOT NULL DEFAULT '[]',
+  year TEXT NOT NULL DEFAULT '',
+  description TEXT NOT NULL DEFAULT '',
+  source_kind TEXT NOT NULL CHECK (source_kind IN ('arxiv','doi','url')),
+  fetch_status TEXT NOT NULL CHECK (fetch_status IN ('fetched','manual','failed')),
+  created_by TEXT NOT NULL DEFAULT '',
+  created_seq INTEGER NOT NULL DEFAULT 0,
+  created_at TEXT NOT NULL,
+  updated_at TEXT NOT NULL,
+  UNIQUE(project_id, norm_key),
+  FOREIGN KEY(project_id) REFERENCES projects(id)
+);
+
+-- Citation edges: paper -> lit-review section | experiment | claim. Same-
+-- project integrity is enforced in the service write transaction (paper and
+-- target are both looked up WHERE project_id = ?); deleting a section deletes
+-- its links in the same transaction. The rendered References block is derived
+-- from these rows and is never hand-edited.
+CREATE TABLE IF NOT EXISTS paper_links (
+  id TEXT PRIMARY KEY,
+  project_id TEXT NOT NULL,
+  paper_id TEXT NOT NULL,
+  target_type TEXT NOT NULL CHECK (target_type IN ('litreview_section','experiment','claim')),
+  target_id TEXT NOT NULL,
+  note TEXT NOT NULL DEFAULT '',
+  created_by TEXT NOT NULL DEFAULT '',
+  created_at TEXT NOT NULL,
+  UNIQUE(project_id, paper_id, target_type, target_id),
+  FOREIGN KEY(project_id) REFERENCES projects(id),
+  FOREIGN KEY(paper_id) REFERENCES papers(id)
+);
 """
 
 
@@ -608,6 +679,19 @@ MIGRATIONS: tuple[tuple[int, str, str], ...] = (
     # event vocabulary, and rewrites review snapshot ids so passing reviews
     # keep satisfying their gates.
     (19, "unify_synthesis_to_reflection", ""),
+    # Literature review (July 2026): three new tables + the at-most-one-summary
+    # partial index. The table entries dispatch to handlers that execute the
+    # SCHEMA-extracted DDL (_schema_table_ddl), so ledger and SCHEMA cannot
+    # drift; each entry stays one statement.
+    (20, "add_litreview_sections", ""),
+    (21, "add_litreview_papers", ""),
+    (22, "add_litreview_paper_links", ""),
+    (
+        23,
+        "add_litreview_summary_unique_index",
+        "CREATE UNIQUE INDEX IF NOT EXISTS litreview_one_summary\n"
+        "  ON litreview_sections(project_id) WHERE kind = 'summary'",
+    ),
 )
 
 
@@ -753,6 +837,12 @@ class BaseStateStore:
                 self._ensure_sandbox_provider_columns(conn=conn)
             elif name == "unify_synthesis_to_reflection":
                 self._unify_synthesis_to_reflection(conn=conn)
+            elif name == "add_litreview_sections":
+                conn.execute(_schema_table_ddl(table="litreview_sections"))
+            elif name == "add_litreview_papers":
+                conn.execute(_schema_table_ddl(table="papers"))
+            elif name == "add_litreview_paper_links":
+                conn.execute(_schema_table_ddl(table="paper_links"))
             else:
                 conn.execute(statement)
             conn.execute(

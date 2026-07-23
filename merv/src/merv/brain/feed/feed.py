@@ -66,7 +66,7 @@ MAX_EMBED_BYTES = MAX_FEED_EMBED_BYTES
 
 RESEARCHER_HANDLE = "Researcher"
 
-_KNOWN_REF_PREFIXES = ("exp_", "claim_", "res_", "rver_", "syn_", "rev_")
+_KNOWN_REF_PREFIXES = ("exp_", "claim_", "res_", "rver_", "syn_", "rev_", "lit_", "paper_")
 
 # The feed owns its schema so it stays a liftable module rather than living in
 # the shared store SCHEMA constant. The DDL is dialect-neutral (only TEXT/INTEGER,

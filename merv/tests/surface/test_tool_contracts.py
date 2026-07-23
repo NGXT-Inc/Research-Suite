@@ -77,6 +77,7 @@ def _handler_targets() -> dict[str, Any]:
         "tracking_finalize": target,
         "review_status": target,
         "operations": target,
+        "litreview": target,
     }
 
 

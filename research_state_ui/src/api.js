@@ -221,6 +221,11 @@ export const api = {
   // List + staleness/coverage signal for the Home panel. Each entry is the
   // full wave state (roster, resources, reviews, reflection_coverage), so the
   // panel drives the whole history off this one call.
+  // The whole literature review (summary, sections, papers ledger) in one read.
+  getLitReview: (pid, signal) =>
+    request(`/api/projects/${encodeURIComponent(pid)}/litreview`, { signal }),
+  getLitReviewIfChanged: (pid, etag) =>
+    conditionalGet(`/api/projects/${encodeURIComponent(pid)}/litreview`, { etag }),
   getReflections: (pid, signal) =>
     request(`/api/projects/${encodeURIComponent(pid)}/reflections`, { signal }),
   // One wave, fully hydrated (deep-link / single-wave refresh).

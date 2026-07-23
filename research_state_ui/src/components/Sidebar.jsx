@@ -205,6 +205,9 @@ export default function Sidebar({ onRefresh, onHide }) {
           <span>Reviews</span>
           <span className="sidebar-link-count">{stats.open_reviews ?? stats.reviews ?? 0}</span>
         </NavLink>
+        <NavLink to={px('/litreview')} className={({ isActive }) => 'sidebar-link' + (isActive ? ' active' : '')}>
+          Lit Review
+        </NavLink>
         {mlflowConfigured && (
           <NavLink to={px('/mlflow')} className={({ isActive }) => 'sidebar-link' + (isActive ? ' active' : '')}>
             MLflow

@@ -17,7 +17,12 @@ from ...application.facade import (
 from ...application.ports.storage import ObjectStorage
 from ...artifacts.facade import ArtifactRecords
 from ...feed.facade import FeedDelivery
-from ...research_core.facade import ResearchClaims, ResearchProjects, ResearchReviewDelivery
+from ...research_core.facade import (
+    ResearchClaims,
+    ResearchLiterature,
+    ResearchProjects,
+    ResearchReviewDelivery,
+)
 from ...sandbox.facade import SandboxFacade
 from .contracts import TOOL_MANIFEST, available_tool_names
 from .tool_facade import ToolHandler
@@ -42,6 +47,7 @@ def build_control_tool_handlers(
     tracking_finalize: FinalizeTrackingRun,
     review_status: ReadReviewStatus,
     operations: ControlToolOperations,
+    litreview: ResearchLiterature,
 ) -> dict[str, ToolHandler]:
     """Map control-plane tool names to service methods.
 
@@ -65,6 +71,7 @@ def build_control_tool_handlers(
         "review_status": review_status,
         "sandboxes": sandboxes,
         "feed": feed,
+        "litreview": litreview,
     }
     if storage is not None:
         owners["storage"] = storage

@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from typing import Any, Protocol, TypedDict, Unpack, cast, runtime_checkable
 
 from ..kernel.events import StoredEvent
@@ -29,6 +29,11 @@ from .transition_types import (
 )
 
 
+class LiteratureSignal(TypedDict):
+    papers_total: int
+    papers_unreviewed: int
+
+
 @dataclass(frozen=True, slots=True)
 class ResearchSnapshot:
     """One transaction's Research-side facts for workflow and dashboards."""
@@ -46,6 +51,11 @@ class ResearchSnapshot:
     gate_evaluations: dict[str, GateEvaluation]
     recent_claims: list[dict[str, Any]]
     claim_events_since_reflection: list[dict[str, Any]]
+    # Literature facts for the soft lit-review nudge: papers_total plus
+    # papers_unreviewed (cited to experiments/claims but in no review section).
+    literature_signal: LiteratureSignal = field(
+        default_factory=lambda: LiteratureSignal(papers_total=0, papers_unreviewed=0)
+    )
 
 
 @runtime_checkable
@@ -364,6 +374,12 @@ class ResearchClaims(Protocol):
     def update(self, **kwargs: Any) -> dict[str, Any]: ...
 
 
+class ResearchLiterature(Protocol):
+    def view(self, **kwargs: Any) -> dict[str, Any]: ...
+    def edit(self, **kwargs: Any) -> dict[str, Any]: ...
+    def cite(self, **kwargs: Any) -> dict[str, Any]: ...
+
+
 class ResearchReviewDelivery(Protocol):
     def queue(self, *, project_id: str | None = None) -> dict[str, Any]: ...
     def request_project_id(self, *, review_request_id: Any) -> str | None: ...
@@ -378,7 +394,7 @@ __all__ = (
     "CommittedExperimentTransition", "CommittedTrackingRunRefresh", "EXPERIMENT_ACTIVE_PROCESS_STATUSES",
     "EXPERIMENT_TERMINAL_STATUSES", "ExperimentCreateArgs", "ExhibitVerdict", "ExperimentState", "ExperimentSummary",
     "GateEvaluation", "MAX_GRAPH_NODES", "PersistedRunState", "ResearchClaims", "ResearchCore",
-    "ResearchCoreFacade", "ResearchProjects", "ResearchReviewDelivery", "ResearchReviews",
+    "ResearchCoreFacade", "ResearchLiterature", "ResearchProjects", "ResearchReviewDelivery", "ResearchReviews",
     "ResearchSnapshot", "ResearchSnapshots", "REVIEW_VERDICT_VALUES", "RequirementEvaluation",
     "experiment_folder_rel", "graph_problems", "infer_claim_status_from_conclusion",
     "preferred_associated_resource",

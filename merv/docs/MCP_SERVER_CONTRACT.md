@@ -49,6 +49,8 @@ experiment.transition        experiment.exhibit
 mlflow.context               mlflow.finalize_run
 reflection.create            reflection.get
 reflection.transition
+litreview.view               litreview.edit
+litreview.cite
 resource.find
 storage.find                 storage.object
 review.request               review.start               review.submit

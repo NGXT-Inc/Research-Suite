@@ -25,6 +25,8 @@ const PREFIX_TYPE = {
   // a review version — it resolves to the resource that owns the version.
   rver: 'resource_version',
   syn: 'reflection',
+  lit: 'litreview_section',
+  paper: 'paper',
 };
 
 // One geometric glyph per type (monochrome, no emoji) — claim is the hollow
@@ -36,6 +38,8 @@ export const TYPE_GLYPH = {
   resource_version: '▤',
   review: '◈',
   reflection: '❖',
+  litreview_section: '▤',
+  paper: '▧',
 };
 
 export const TYPE_LABEL = {
@@ -45,6 +49,8 @@ export const TYPE_LABEL = {
   resource_version: 'resource version',
   review: 'review',
   reflection: 'reflection',
+  litreview_section: 'lit review section',
+  paper: 'paper',
 };
 
 // Only these types have a project-scoped detail page; the rest render as a
@@ -53,16 +59,19 @@ const ROUTE = {
   experiment: (id) => `/experiments/${id}`,
   claim: (id) => `/claims/${id}`,
   resource: (id) => `/resources/${id}`,
+  // Sections and papers live on the one lit-review screen (no per-id page).
+  litreview_section: () => '/litreview',
+  paper: () => '/litreview',
 };
 
 // Matches a bare entity id in prose. `\b` at the head keeps `myexp_1` from
 // matching; the trailing negative lookahead lets ids carry hyphens without the
 // word boundary cutting them short. `rver` precedes `rev` so the longer prefix
 // wins.
-export const ENTITY_ID_RE = /\b(exp|claim|rver|rev|res|syn)_[A-Za-z0-9][\w-]*(?![\w-])/g;
+export const ENTITY_ID_RE = /\b(exp|claim|rver|rev|res|syn|lit|paper)_[A-Za-z0-9][\w-]*(?![\w-])/g;
 // Anchored form: is a whole (trimmed) string exactly one id? Used to decide
 // whether a bare id inside inline `code` should still chip.
-export const ENTITY_ID_EXACT = /^(exp|claim|rver|rev|res|syn)_[A-Za-z0-9][\w-]*$/;
+export const ENTITY_ID_EXACT = /^(exp|claim|rver|rev|res|syn|lit|paper)_[A-Za-z0-9][\w-]*$/;
 
 export function entityPrefix(id) {
   if (typeof id !== 'string') return null;
@@ -217,6 +226,18 @@ export function resolveEntity(id, home) {
     };
   }
 
+  // Lit-review sections and papers: not in the home snapshot — resolve by
+  // fetch, but the chip already routes to the lit-review screen.
+  if (type === 'litreview_section' || type === 'paper') {
+    return {
+      ...DEAD(id, type),
+      label: TYPE_LABEL[type],
+      route: ROUTE[type](id),
+      navigable: true,
+      needsFetch: true,
+    };
+  }
+
   // reflection: never carried in the home snapshot — resolve by fetch.
   return { ...DEAD(id, type), label: 'reflection', needsFetch: true };
 }
@@ -260,6 +281,20 @@ export function seedFromRefIndex(refString, entry) {
     return {
       id: refString, type: 'reflection', label: entry.title || 'reflection', navigable: false,
       detail: { type: 'reflection', status: entry.status, decision: entry.decision },
+    };
+  }
+  if (t === 'litreview_section') {
+    return {
+      id: refString, type: 'litreview_section', label: entry.title || 'lit review section',
+      route: ROUTE.litreview_section(refString), navigable: true,
+      detail: { type: 'litreview_section', title: entry.title || '', tldr: entry.tldr || '' },
+    };
+  }
+  if (t === 'paper') {
+    return {
+      id: refString, type: 'paper', label: clamp(entry.title, 44) || 'paper',
+      route: ROUTE.paper(refString), navigable: true,
+      detail: { type: 'paper', title: entry.title || '', url: entry.url || '', year: entry.year || '' },
     };
   }
   return null;
@@ -307,6 +342,27 @@ export async function fetchEntity(id, pid) {
         id, type, label: 'reflection', navigable: false,
         detail: { type, status: w.status, decision: w.decision },
       };
+    } else if (type === 'litreview_section' || type === 'paper') {
+      const s = await api.getLitReview(pid);
+      if (type === 'litreview_section') {
+        const sec = [s?.summary, ...(s?.sections || [])].find((x) => x && x.id === id);
+        if (sec) {
+          out = {
+            id, type, label: sec.title || 'lit review section',
+            route: ROUTE.litreview_section(id), navigable: true,
+            detail: { type, title: sec.title || '', tldr: sec.tldr || '' },
+          };
+        }
+      } else {
+        const p = (s?.papers || []).find((x) => x.id === id);
+        if (p) {
+          out = {
+            id, type, label: clamp(p.title, 44) || shortId(id),
+            route: ROUTE.paper(id), navigable: true,
+            detail: { type, title: p.title || '', url: p.url || '', year: p.year || '', authors: p.authors || [] },
+          };
+        }
+      }
     }
   } catch {
     // leave the notFound default — the card shows the raw id + a quiet note.

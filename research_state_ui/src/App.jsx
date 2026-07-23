@@ -26,6 +26,7 @@ import CreateProject from './pages/CreateProject';
 import Projects from './pages/Projects';
 import Claims from './pages/Claims';
 import ClaimDetail from './pages/ClaimDetail';
+import LitReview from './pages/LitReview';
 import Experiments from './pages/Experiments';
 import ExperimentDetail from './pages/ExperimentDetail';
 import Resources from './pages/Resources';
@@ -188,6 +189,7 @@ export default function App() {
             <Route path="feed" element={<Feed />} />
             <Route path="claims" element={<MobileClaims />} />
             <Route path="claims/:claimId" element={<MobileClaimDetail />} />
+            <Route path="litreview" element={<LitReview />} />
             <Route path="experiments" element={<ExperimentCardList />} />
             <Route path="experiments/:experimentId" element={<MobileExperimentDetail />} />
             <Route path="reflection" element={<MobileReflectionScreen />} />
@@ -237,6 +239,7 @@ export default function App() {
             <Route path="feed" element={<Feed />} />
             <Route path="claims" element={<Claims />} />
             <Route path="claims/:claimId" element={<ClaimDetail />} />
+            <Route path="litreview" element={<LitReview />} />
             <Route path="experiments" element={<Experiments />} />
             <Route path="experiments/:experimentId" element={<ExperimentDetail />} />
             <Route path="resources" element={<Resources />} />

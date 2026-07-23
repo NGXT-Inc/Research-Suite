@@ -957,6 +957,276 @@
       "visibility": "public"
     },
     {
+      "description": "Read the project's living literature review. No args = the overview (General Summary + every section's TLDR + paper count) \u2014 read this before editing so you know the document's shape. section=<id or title> = one full section with its cited papers. papers=true = the papers ledger with links to the sections, experiments, and claims that cite each paper.",
+      "executionStrategy": "control",
+      "featureRequirements": [],
+      "handlerIdentity": "litreview.view",
+      "inputSchema": {
+        "additionalProperties": false,
+        "properties": {
+          "cursor": {
+            "default": 0,
+            "description": "papers=true: created_seq cursor from the previous page's next_cursor.",
+            "minimum": 0,
+            "title": "Cursor",
+            "type": "integer"
+          },
+          "limit": {
+            "default": 20,
+            "description": "papers=true: page size.",
+            "maximum": 50,
+            "minimum": 1,
+            "title": "Limit",
+            "type": "integer"
+          },
+          "papers": {
+            "default": false,
+            "description": "Return the papers ledger page (with links) instead of the document.",
+            "title": "Papers",
+            "type": "boolean"
+          },
+          "project_id": {
+            "description": "Explicit project scope. Project-local MCP adapters may fill this from hidden repo context before the call reaches core services.",
+            "title": "Project Id",
+            "type": "string"
+          },
+          "section": {
+            "default": "",
+            "description": "Read one full section by id (lit_...) or exact title (case-insensitive); 'summary' addresses the General Summary. Empty = the overview: General Summary + every section's TLDR outline + paper count \u2014 the cheap glance.",
+            "maxLength": 200,
+            "title": "Section",
+            "type": "string"
+          }
+        },
+        "required": [
+          "project_id"
+        ],
+        "type": "object"
+      },
+      "localHandlerIdentity": null,
+      "name": "litreview.view",
+      "plane": "control",
+      "scopeStrategy": "linked-project",
+      "visibility": "public"
+    },
+    {
+      "description": "Make a TARGETED change to the literature review: add, edit, delete, or reorder one thing per call \u2014 never rewrite the whole document. Every section keeps a TLDR (required on writes) so the overview stays glanceable. edit/delete require expected_revision (the revision you last read); a conflict means someone changed it \u2014 re-read and retry. Update the review whenever a new paper informs the project.",
+      "executionStrategy": "control",
+      "featureRequirements": [],
+      "handlerIdentity": "litreview.edit",
+      "inputSchema": {
+        "$defs": {
+          "LitreviewOrderPair": {
+            "additionalProperties": false,
+            "properties": {
+              "id": {
+                "description": "Section id (lit_...).",
+                "maxLength": 64,
+                "title": "Id",
+                "type": "string"
+              },
+              "revision": {
+                "description": "The revision you last read for this section.",
+                "minimum": 1,
+                "title": "Revision",
+                "type": "integer"
+              }
+            },
+            "required": [
+              "id",
+              "revision"
+            ],
+            "title": "LitreviewOrderPair",
+            "type": "object"
+          }
+        },
+        "additionalProperties": false,
+        "properties": {
+          "body": {
+            "default": "",
+            "description": "Markdown body, max 16,000 bytes. Cite papers inline by paper_ id.",
+            "title": "Body",
+            "type": "string"
+          },
+          "expected_revision": {
+            "anyOf": [
+              {
+                "minimum": 0,
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "description": "edit/delete: the revision you last read. A mismatch means the section changed under you \u2014 re-read it and retry.",
+            "title": "Expected Revision"
+          },
+          "op": {
+            "description": "add = new dynamic section (title + tldr required); edit = targeted update of one section (expected_revision required; only the fields you pass change); delete = remove one section and its citation links (expected_revision required; the General Summary cannot be deleted); reorder = set the complete section order (order required). Always make targeted edits \u2014 never rewrite the whole document.",
+            "enum": [
+              "add",
+              "edit",
+              "delete",
+              "reorder"
+            ],
+            "title": "Op",
+            "type": "string"
+          },
+          "order": {
+            "anyOf": [
+              {
+                "items": {
+                  "$ref": "#/$defs/LitreviewOrderPair"
+                },
+                "maxItems": 64,
+                "type": "array"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "description": "reorder: ALL dynamic sections as {id, revision} pairs in the new order.",
+            "title": "Order"
+          },
+          "project_id": {
+            "description": "Explicit project scope. Project-local MCP adapters may fill this from hidden repo context before the call reaches core services.",
+            "title": "Project Id",
+            "type": "string"
+          },
+          "section": {
+            "default": "",
+            "description": "edit/delete: section id (lit_...) or exact title; 'summary' addresses the General Summary (pass expected_revision=0 to write it for the first time).",
+            "maxLength": 200,
+            "title": "Section",
+            "type": "string"
+          },
+          "title": {
+            "default": "",
+            "description": "add: required. edit: optional rename (summary title is fixed).",
+            "maxLength": 200,
+            "title": "Title",
+            "type": "string"
+          },
+          "tldr": {
+            "default": "",
+            "description": "One-glance summary of the section. Required on add and on every edit that changes body \u2014 keep it current; it is what other agents read first.",
+            "maxLength": 500,
+            "title": "Tldr",
+            "type": "string"
+          }
+        },
+        "required": [
+          "project_id",
+          "op"
+        ],
+        "type": "object"
+      },
+      "localHandlerIdentity": null,
+      "name": "litreview.edit",
+      "plane": "control",
+      "scopeStrategy": "linked-project",
+      "visibility": "public"
+    },
+    {
+      "description": "Register a paper in the project's papers ledger and link it to the sections, experiments, or claims that use it. Papers are deduplicated (arXiv/DOI/URL forms of the same paper converge); metadata is fetched from known paper hosts, otherwise pass title. After citing, make a targeted litreview.edit so the review stays current.",
+      "executionStrategy": "control",
+      "featureRequirements": [],
+      "handlerIdentity": "litreview.cite",
+      "inputSchema": {
+        "$defs": {
+          "LitreviewCiteTarget": {
+            "additionalProperties": false,
+            "properties": {
+              "id": {
+                "description": "Target id (section ids may also be exact titles).",
+                "maxLength": 200,
+                "title": "Id",
+                "type": "string"
+              },
+              "type": {
+                "enum": [
+                  "litreview_section",
+                  "experiment",
+                  "claim"
+                ],
+                "title": "Type",
+                "type": "string"
+              }
+            },
+            "required": [
+              "type",
+              "id"
+            ],
+            "title": "LitreviewCiteTarget",
+            "type": "object"
+          }
+        },
+        "additionalProperties": false,
+        "properties": {
+          "arxiv_id": {
+            "default": "",
+            "description": "Bare arXiv id, e.g. 2107.03374.",
+            "maxLength": 64,
+            "title": "Arxiv Id",
+            "type": "string"
+          },
+          "doi": {
+            "default": "",
+            "description": "Bare DOI, e.g. 10.1038/xyz.",
+            "maxLength": 256,
+            "title": "Doi",
+            "type": "string"
+          },
+          "note": {
+            "default": "",
+            "description": "Optional one-liner: why this paper matters here.",
+            "maxLength": 300,
+            "title": "Note",
+            "type": "string"
+          },
+          "project_id": {
+            "description": "Explicit project scope. Project-local MCP adapters may fill this from hidden repo context before the call reaches core services.",
+            "title": "Project Id",
+            "type": "string"
+          },
+          "targets": {
+            "description": "Where this paper is used: lit-review sections, experiments, and/or claims. Registering with no targets is allowed.",
+            "items": {
+              "$ref": "#/$defs/LitreviewCiteTarget"
+            },
+            "maxItems": 20,
+            "title": "Targets",
+            "type": "array"
+          },
+          "title": {
+            "default": "",
+            "description": "Fallback title, used when the paper's host is off the fetch allowlist.",
+            "maxLength": 200,
+            "title": "Title",
+            "type": "string"
+          },
+          "url": {
+            "default": "",
+            "description": "Paper URL (arXiv/DOI forms are normalized).",
+            "maxLength": 2048,
+            "title": "Url",
+            "type": "string"
+          }
+        },
+        "required": [
+          "project_id"
+        ],
+        "type": "object"
+      },
+      "localHandlerIdentity": null,
+      "name": "litreview.cite",
+      "plane": "control",
+      "scopeStrategy": "linked-project",
+      "visibility": "public"
+    },
+    {
       "description": "Register repo file(s) as resources and, optionally, associate them to a claim, experiment, review, or attempt in one call. Pass 'path' (one file) or 'paths' (a changed-files batch) to register/observe the file(s); add the association trio (target_type, target_id, role) to also associate each registered resource. Or pass 'resource_id' to associate an ALREADY-registered resource \u2014 that mode requires the trio. Association validates the file against the role: gated artifacts (plan, report, graph, project_graph, reflection_doc, reflection_lens_doc, change_spec) are size-capped and their figure links resolved at register time, so keep them lean and reference raw data instead of inlining it.",
       "executionStrategy": "local-orchestration",
       "featureRequirements": [],
@@ -1845,7 +2115,7 @@
             "type": "string"
           },
           "synopsis": {
-            "description": "The researcher's TLDR, 1-3 plain sentences, 40-420 chars: what was tried, what happened, and whether it holds. This is the first thing the human reads on the experiment page, so write plain prose in reader context \u2014 name things by their human names, and use at most one decisive number with its baseline. No entity ids (exp_/claim_/res_/rev_/rver_/syn_), no backticks or markdown, no newlines.",
+            "description": "The researcher's TLDR, 1-3 plain sentences, 40-420 chars: what was tried, what happened, and whether it holds. This is the first thing the human reads on the experiment page, so write plain prose in reader context \u2014 name things by their human names, and use at most one decisive number with its baseline. No entity ids (exp_/claim_/res_/rev_/rver_/syn_/lit_/paper_), no backticks or markdown, no newlines.",
             "title": "Synopsis",
             "type": "string"
           },
@@ -2701,7 +2971,7 @@
               }
             ],
             "default": null,
-            "description": "Optional id of the entity this post is about (exp_/claim_/res_/rver_/syn_/rev_). Leave empty for an un-anchored thought.",
+            "description": "Optional id of the entity this post is about (exp_/claim_/res_/rver_/syn_/rev_/lit_/paper_). Leave empty for an un-anchored thought.",
             "title": "Ref"
           },
           "text": {

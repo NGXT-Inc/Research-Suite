@@ -12,7 +12,7 @@ from ..data_plane_http import register_data_plane_routes
 from ..feed_http import register_feed_routes
 from ..http_policy import HttpSurfacePolicy
 from ..mcp_http import register_mcp_routes
-from . import claims, events, experiments, meta, projects, reflections, resources, reviews, sandboxes, storage
+from . import claims, events, experiments, litreview, meta, projects, reflections, resources, reviews, sandboxes, storage
 from .context import ApiRouteContext
 from .dependencies import HttpDependencies
 from .gateway import (
@@ -83,6 +83,7 @@ def create_fastapi_app(
             tracking=api.tracking_overview,
         ),
         reflections.build_router(graphs=api.logic_graph),
+        litreview.build_router(literature=api.literature),
         resources.build_router(
             ctx,
             records=api.artifact_records,

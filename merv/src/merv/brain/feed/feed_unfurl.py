@@ -31,6 +31,7 @@ import socket
 import urllib.error
 import urllib.parse
 import urllib.request
+from collections.abc import Callable
 from html.parser import HTMLParser
 from typing import Any
 
@@ -124,16 +125,21 @@ def safe_fetch(
     timeout: float = _DEFAULT_TIMEOUT,
     max_bytes: int = _MAX_HTML_BYTES,
     max_redirects: int = _MAX_REDIRECTS,
+    host_policy: Callable[[str], bool] | None = None,
 ) -> tuple[str, str, bytes]:
     """Fetch ``url`` under the SSRF guard, following redirects manually.
 
     Returns ``(final_url, content_type, body)``. Raises ``UnfurlError`` on any
     validation failure, redirect-limit overflow, transport error, or oversize
-    body. Every redirect hop is re-validated.
+    body. Every redirect hop is re-validated; when ``host_policy`` is given it
+    is a HARD per-hop gate — a hop whose host it rejects aborts the fetch
+    (unlike the advisory ALLOWLIST_SUFFIXES labelling).
     """
     current = url
     for _ in range(max_redirects + 1):
-        _validate_url(current)
+        parsed = _validate_url(current)
+        if host_policy is not None and not host_policy(parsed.hostname or ""):
+            raise UnfurlError("link host is outside the allowed set")
         request = urllib.request.Request(
             current,
             headers={"User-Agent": _USER_AGENT, "Accept": "*/*"},
@@ -327,3 +333,50 @@ class NetworkLinkUnfurl:
 
     def fetch_preview_image(self, image_url: str) -> tuple[bytes, str]:
         return fetch_preview_image(image_url)
+
+
+# Hosts the literature-review citation path may fetch, enforced per hop —
+# unlike ALLOWLIST_SUFFIXES this is a hard gate, sized to paper sources only.
+PAPER_ALLOWLIST_SUFFIXES = (
+    "arxiv.org",
+    "ar5iv.org",
+    "openreview.net",
+    "semanticscholar.org",
+    "aclanthology.org",
+    "nature.com",
+    "paperswithcode.com",
+    "doi.org",
+    "dx.doi.org",
+)
+
+
+def _paper_host_allowed(host: str) -> bool:
+    return _matches(host.lower(), PAPER_ALLOWLIST_SUFFIXES)
+
+
+class AllowlistedPaperUnfurl:
+    """Adapter for the literature-review paper-unfurl port.
+
+    Same SSRF guard and metadata extraction as the feed unfurler, plus a hard
+    per-hop host allowlist: the initial URL and every redirect target must be
+    a known paper host, or the fetch aborts. Off-list papers register as
+    ``manual`` with agent-supplied metadata instead of being fetched.
+    """
+
+    def allowed(self, url: str) -> bool:
+        host = (urllib.parse.urlparse(url.strip()).hostname or "").lower()
+        return _paper_host_allowed(host)
+
+    def unfurl(self, url: str) -> dict[str, Any]:
+        url = url.strip()
+        m = _ARXIV_PDF_RE.match(url)
+        if m:
+            card = extract_card(
+                *safe_fetch(
+                    f"https://arxiv.org/abs/{m.group(1)}",
+                    host_policy=_paper_host_allowed,
+                )
+            )
+            card["url"] = url
+            return card
+        return extract_card(*safe_fetch(url, host_policy=_paper_host_allowed))

@@ -7,7 +7,7 @@ from typing import Any
 from .domain.reflection_policy import reflection_signal_state
 from .domain.workflow_gates import TERMINAL_STATUSES
 from .experiments import ExperimentService
-from .facade import ResearchSnapshot
+from .facade import LiteratureSignal, ResearchSnapshot
 from .gate_evaluation import GateEvaluation
 from .reflections import ReflectionService
 from ..kernel.state.store import BaseStateStore, row_to_dict, rows_to_dicts
@@ -113,6 +113,9 @@ class ResearchSnapshotReader:
                 if dashboard_facts
                 else ([], [])
             )
+            literature_signal = self._literature_signal(
+                conn=conn, project_id=project_id
+            )
             return ResearchSnapshot(
                 project_id=project_id,
                 requested_experiment_id=experiment_id,
@@ -127,7 +130,32 @@ class ResearchSnapshotReader:
                 gate_evaluations=gate_evaluations,
                 recent_claims=recent_claims,
                 claim_events_since_reflection=claim_events,
+                literature_signal=literature_signal,
             )
+
+    def _literature_signal(self, *, conn, project_id: str) -> LiteratureSignal:
+        total = conn.execute(
+            "SELECT COUNT(*) AS n FROM papers WHERE project_id = ?", (project_id,)
+        ).fetchone()
+        unreviewed = conn.execute(
+            """
+            SELECT COUNT(*) AS n FROM papers p
+            WHERE p.project_id = ?
+              AND EXISTS (
+                SELECT 1 FROM paper_links l
+                WHERE l.paper_id = p.id AND l.target_type IN ('experiment', 'claim')
+              )
+              AND NOT EXISTS (
+                SELECT 1 FROM paper_links l
+                WHERE l.paper_id = p.id AND l.target_type = 'litreview_section'
+              )
+            """,
+            (project_id,),
+        ).fetchone()
+        return {
+            "papers_total": int(total["n"]),
+            "papers_unreviewed": int(unreviewed["n"]),
+        }
 
     def _reflection(
         self, *, conn, project_id: str, terminal: bool

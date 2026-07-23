@@ -18,6 +18,7 @@ from ..research_core.facade import (
 from .experiments.presentation import project_fields, project_rows, rich_experiment_state
 from .ports.sandbox import SandboxReads
 from .ports.storage import ProducedObjectCatalog
+from .reflection_guidance import literature_hint
 from .status_guidance import (
     StatusGuidancePolicy,
     _SLIM_RESOURCE_FIELDS,
@@ -184,6 +185,12 @@ class StatusAndNextQuery:
         }
         if reflection is not None:
             result["project_reflection"] = reflection
+        hint = literature_hint(signal=snapshot.literature_signal)
+        if hint is not None:
+            result["litreview"] = {
+                **snapshot.literature_signal,
+                "hint": hint,
+            }
         return result
 
     def _active_work(
@@ -489,6 +496,8 @@ def _slim_status(full: Record) -> Record:
             result["resource_refresh"] = full["resource_refresh"]
     if full.get("project_reflection"):
         result["project_reflection"] = full["project_reflection"]
+    if full.get("litreview"):
+        result["litreview"] = full["litreview"]
     return result
 
 

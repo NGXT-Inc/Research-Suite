@@ -643,8 +643,8 @@ class ReviewSubmitInput(ContractModel):
             "first thing the human reads on the experiment page, so write "
             "plain prose in reader context — name things by their human "
             "names, and use at most one decisive number with its baseline. "
-            "No entity ids (exp_/claim_/res_/rev_/rver_/syn_), no backticks "
-            "or markdown, no newlines."
+            "No entity ids (exp_/claim_/res_/rev_/rver_/syn_/lit_/paper_), "
+            "no backticks or markdown, no newlines."
         )
     )
     return_to: Literal["", "planned", "running", "reflecting", "synthesizing"] = Field(
@@ -946,6 +946,147 @@ class SandboxTerminalInput(ProjectScopedInput):
     )
 
 
+class LitreviewViewInput(ProjectScopedInput):
+    section: str = Field(
+        default="",
+        max_length=200,
+        description=(
+            "Read one full section by id (lit_...) or exact title "
+            "(case-insensitive); 'summary' addresses the General Summary. "
+            "Empty = the overview: General Summary + every section's TLDR "
+            "outline + paper count — the cheap glance."
+        ),
+    )
+    papers: bool = Field(
+        default=False,
+        description="Return the papers ledger page (with links) instead of the document.",
+    )
+    cursor: int = Field(
+        default=0,
+        ge=0,
+        description="papers=true: created_seq cursor from the previous page's next_cursor.",
+    )
+    limit: int = Field(
+        default=20, ge=1, le=50, description="papers=true: page size."
+    )
+
+
+class LitreviewOrderPair(ContractModel):
+    id: str = Field(max_length=64, description="Section id (lit_...).")
+    revision: int = Field(ge=1, description="The revision you last read for this section.")
+
+
+class LitreviewEditInput(ProjectScopedInput):
+    op: Literal["add", "edit", "delete", "reorder"] = Field(
+        description=(
+            "add = new dynamic section (title + tldr required); edit = targeted "
+            "update of one section (expected_revision required; only the fields "
+            "you pass change); delete = remove one section and its citation "
+            "links (expected_revision required; the General Summary cannot be "
+            "deleted); reorder = set the complete section order (order "
+            "required). Always make targeted edits — never rewrite the whole "
+            "document."
+        )
+    )
+    section: str = Field(
+        default="",
+        max_length=200,
+        description=(
+            "edit/delete: section id (lit_...) or exact title; 'summary' "
+            "addresses the General Summary (pass expected_revision=0 to write "
+            "it for the first time)."
+        ),
+    )
+    title: str = Field(
+        default="",
+        max_length=200,
+        description="add: required. edit: optional rename (summary title is fixed).",
+    )
+    tldr: str = Field(
+        default="",
+        max_length=500,
+        description=(
+            "One-glance summary of the section. Required on add and on every "
+            "edit that changes body — keep it current; it is what other agents "
+            "read first."
+        ),
+    )
+    body: str = Field(
+        default="",
+        description="Markdown body, max 16,000 bytes. Cite papers inline by paper_ id.",
+    )
+    expected_revision: int | None = Field(
+        default=None,
+        ge=0,
+        description=(
+            "edit/delete: the revision you last read. A mismatch means the "
+            "section changed under you — re-read it and retry."
+        ),
+    )
+    order: list[LitreviewOrderPair] | None = Field(
+        default=None,
+        max_length=64,
+        description="reorder: ALL dynamic sections as {id, revision} pairs in the new order.",
+    )
+
+    @field_validator("body")
+    @classmethod
+    def _body_byte_cap(cls, value: str) -> str:
+        if len(value.encode("utf-8")) > 16_000:
+            raise ValueError("body exceeds 16,000 bytes — split the section instead")
+        return value
+
+    @model_validator(mode="after")
+    def _check_op(self) -> "LitreviewEditInput":
+        if self.op == "add" and not self.title:
+            raise ValueError("op=add requires title")
+        if self.op in ("edit", "delete"):
+            if not self.section:
+                raise ValueError(f"op={self.op} requires section")
+            if self.expected_revision is None:
+                raise ValueError(f"op={self.op} requires expected_revision")
+        if self.op == "reorder" and not self.order:
+            raise ValueError("op=reorder requires order")
+        return self
+
+
+class LitreviewCiteTarget(ContractModel):
+    type: Literal["litreview_section", "experiment", "claim"]
+    id: str = Field(
+        max_length=200,
+        description="Target id (section ids may also be exact titles).",
+    )
+
+
+class LitreviewCiteInput(ProjectScopedInput):
+    url: str = Field(default="", max_length=2048, description="Paper URL (arXiv/DOI forms are normalized).")
+    doi: str = Field(default="", max_length=256, description="Bare DOI, e.g. 10.1038/xyz.")
+    arxiv_id: str = Field(default="", max_length=64, description="Bare arXiv id, e.g. 2107.03374.")
+    targets: list[LitreviewCiteTarget] = Field(
+        default_factory=list,
+        max_length=20,
+        description=(
+            "Where this paper is used: lit-review sections, experiments, "
+            "and/or claims. Registering with no targets is allowed."
+        ),
+    )
+    note: str = Field(
+        default="", max_length=300, description="Optional one-liner: why this paper matters here."
+    )
+    title: str = Field(
+        default="",
+        max_length=200,
+        description="Fallback title, used when the paper's host is off the fetch allowlist.",
+    )
+
+    @model_validator(mode="after")
+    def _one_identity(self) -> "LitreviewCiteInput":
+        provided = [v for v in (self.url, self.doi, self.arxiv_id) if v]
+        if len(provided) != 1:
+            raise ValueError("provide exactly one of url, doi, or arxiv_id")
+        return self
+
+
 TOOL_MANIFEST: dict[str, ToolManifest] = {
     "workflow.status_and_next": ToolContract(
         handler_identity="workflow.status_and_next_agent",
@@ -1163,6 +1304,43 @@ TOOL_MANIFEST: dict[str, ToolManifest] = {
             "current status. On publish, after the reflection reviewer has "
             "passed, the reviewed change spec applies claim changes and "
             "creates the approved experiment wave."
+        ),
+    ),
+    "litreview.view": ToolContract(
+        handler_identity="litreview.view",
+        input_model=LitreviewViewInput,
+        description=(
+            "Read the project's living literature review. No args = the "
+            "overview (General Summary + every section's TLDR + paper count) — "
+            "read this before editing so you know the document's shape. "
+            "section=<id or title> = one full section with its cited papers. "
+            "papers=true = the papers ledger with links to the sections, "
+            "experiments, and claims that cite each paper."
+        ),
+    ),
+    "litreview.edit": ToolContract(
+        handler_identity="litreview.edit",
+        input_model=LitreviewEditInput,
+        description=(
+            "Make a TARGETED change to the literature review: add, edit, "
+            "delete, or reorder one thing per call — never rewrite the whole "
+            "document. Every section keeps a TLDR (required on writes) so the "
+            "overview stays glanceable. edit/delete require expected_revision "
+            "(the revision you last read); a conflict means someone changed it "
+            "— re-read and retry. Update the review whenever a new paper "
+            "informs the project."
+        ),
+    ),
+    "litreview.cite": ToolContract(
+        handler_identity="litreview.cite",
+        input_model=LitreviewCiteInput,
+        description=(
+            "Register a paper in the project's papers ledger and link it to "
+            "the sections, experiments, or claims that use it. Papers are "
+            "deduplicated (arXiv/DOI/URL forms of the same paper converge); "
+            "metadata is fetched from known paper hosts, otherwise pass title. "
+            "After citing, make a targeted litreview.edit so the review stays "
+            "current."
         ),
     ),
     "resource.register": ToolContract(

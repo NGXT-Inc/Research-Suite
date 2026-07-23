@@ -49,6 +49,20 @@ GRAPH_REF_TYPES: tuple[GraphRefType, ...] = (
         table="reflections",
         fields=("title", "status", "published_at"),
     ),
+    GraphRefType(
+        prefix="lit_",
+        entity_type="litreview_section",
+        id_key="section_id",
+        table="litreview_sections",
+        fields=("title", "tldr"),
+    ),
+    GraphRefType(
+        prefix="paper_",
+        entity_type="paper",
+        id_key="paper_id",
+        table="papers",
+        fields=("title", "url", "year"),
+    ),
 )
 
 

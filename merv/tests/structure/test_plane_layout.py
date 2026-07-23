@@ -67,6 +67,7 @@ CONTROL_MODULES = (
     RESEARCH_CORE_ROOT / "experiments.py",
     RESEARCH_CORE_ROOT / "reflections.py",
     RESEARCH_CORE_ROOT / "reviews.py",
+    RESEARCH_CORE_ROOT / "literature.py",
     BACKEND_ROOT / "application" / "status_guidance.py",
     RESEARCH_CORE_ROOT / "snapshots.py",
     BACKEND_ROOT / "application" / "experiments" / "presentation.py",

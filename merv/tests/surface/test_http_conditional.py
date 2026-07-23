@@ -203,3 +203,24 @@ class EventStreamTest(ConditionalRequestTestBase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class LitreviewEtagTest(ConditionalRequestTestBase):
+    def test_litreview_conditional_get(self) -> None:
+        path = f"/api/projects/{self.project_id}/litreview"
+        first = self.client.get(path)
+        self.assertEqual(first.status_code, 200, first.text)
+        payload = first.json()
+        self.assertFalse(payload["summary"]["exists"])
+        self.assertEqual(payload["sections"], [])
+        self.assertEqual(payload["papers"], [])
+        etag = first.headers["etag"]
+        cached = self.client.get(path, headers={"If-None-Match": etag})
+        self.assertEqual(cached.status_code, 304)
+        # A write moves the ETag.
+        self.app.literature.edit(
+            project_id=self.project_id, op="add", title="Sec", tldr="t"
+        )
+        changed = self.client.get(path, headers={"If-None-Match": etag})
+        self.assertEqual(changed.status_code, 200)
+        self.assertEqual(len(changed.json()["sections"]), 1)

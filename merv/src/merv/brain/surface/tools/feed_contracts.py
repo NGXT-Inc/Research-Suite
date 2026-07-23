@@ -78,7 +78,7 @@ class FeedPostInput(ProjectScopedInput):
         default=None,
         description=(
             "Optional id of the entity this post is about "
-            "(exp_/claim_/res_/rver_/syn_/rev_). "
+            "(exp_/claim_/res_/rver_/syn_/rev_/lit_/paper_). "
             "Leave empty for an un-anchored thought."
         ),
     )
