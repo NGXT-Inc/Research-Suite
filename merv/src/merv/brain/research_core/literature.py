@@ -609,11 +609,11 @@ class LiteratureService:
                     UPDATE papers
                     SET title = ?, authors_json = ?, year = ?, description = ?,
                         fetch_status = 'fetched', updated_at = ?
-                    WHERE id = ?
+                    WHERE id = ? AND project_id = ?
                     """,
                     (
                         meta["title"], meta["authors_json"], meta["year"],
-                        meta["description"], now_iso(), existing["id"],
+                        meta["description"], now_iso(), existing["id"], project_id,
                     ),
                 )
             return str(existing["id"]), True
