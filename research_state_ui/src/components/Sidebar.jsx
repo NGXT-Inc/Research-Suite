@@ -220,6 +220,11 @@ export default function Sidebar({ onRefresh, onHide }) {
         <NavLink to={px('/activity')} className={({ isActive }) => 'sidebar-link' + (isActive ? ' active' : '')}>
           Traffic &amp; Tool I/O
         </NavLink>
+
+        <div className="sidebar-section">Project</div>
+        <NavLink to={px('/settings')} className={({ isActive }) => 'sidebar-link' + (isActive ? ' active' : '')}>
+          Settings
+        </NavLink>
       </nav>
 
       <div className="sidebar-foot">
