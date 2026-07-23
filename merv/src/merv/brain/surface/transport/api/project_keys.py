@@ -11,9 +11,17 @@ from __future__ import annotations
 
 from fastapi import APIRouter, Body, Request
 
+from ....kernel.utils import ValidationError
 from ...identity import HumanSessionRequiredError
 from ...project_keys import ProjectKeyControl
 from .shared import JsonBody
+
+# The only optional fields a JWT owner may supply when minting a key; audience
+# is server-set. Anything else (e.g. a de-profiled ``profile``) is a 400 rather
+# than a silently-ignored 201.
+_CREATE_KEY_FIELDS = frozenset(
+    {"expires_at", "parent_key_id", "sandbox_seconds_ceiling", "blob_bytes_ceiling"}
+)
 
 
 def build_router(*, keys: ProjectKeyControl, audience: str = "") -> APIRouter:
@@ -25,6 +33,11 @@ def build_router(*, keys: ProjectKeyControl, audience: str = "") -> APIRouter:
         project_id: str, request: Request, body: JsonBody = Body(default=None)
     ) -> dict[str, object]:
         payload = body or {}
+        unknown = sorted(set(payload) - _CREATE_KEY_FIELDS)
+        if unknown:
+            raise ValidationError(
+                "unsupported key-create field(s)", details={"fields": unknown}
+            )
         return keys.create(
             project_id=project_id,
             owner_user_id=_owner(request),

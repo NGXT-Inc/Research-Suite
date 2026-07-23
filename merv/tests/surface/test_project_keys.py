@@ -184,6 +184,15 @@ class ProjectKeySurfaceTest(unittest.TestCase):
             self.keys.create(
                 project_id=self.project_a, owner_user_id=USER_A, profile="cloud"
             )
+        # The REST create rejects any unknown field rather than 201-ing and
+        # silently dropping it (FIX 7).
+        over_http = self.client.post(
+            f"/api/projects/{self.project_a}/keys",
+            json={"profile": "cloud"},
+            headers=_bearer(self.jwt_a),
+        )
+        self.assertEqual(over_http.status_code, 400, over_http.text)
+        self.assertEqual(over_http.json()["fields"], ["profile"])
 
     def test_revocation_is_immediate_after_a_successful_lookup(self) -> None:
         self.assertEqual(
