@@ -444,5 +444,46 @@ class McpStreamableHttpProgressTest(unittest.TestCase):
         )
 
 
+class McpStreamablePreflightTest(unittest.TestCase):
+    """FIX 6: a scope/visibility denial resolves SYNCHRONOUSLY, before the SSE
+    stream can commit a 200, so it is always a transport 403 — even when the
+    tool executor is slow enough that the fast-call window would have elapsed."""
+
+    def test_scope_denial_is_http_403_even_when_execution_is_slow(self) -> None:
+        from merv.brain.surface.identity import ProjectKeyScopeError
+
+        app = FastAPI()
+
+        def call_tool(name, arguments, context, request):
+            time.sleep(0.3)  # far past the 50ms fast-call window
+            return {"ok": True, "name": name}
+
+        def authorize_scope(request, project_id):
+            raise ProjectKeyScopeError(
+                "project API key cannot access a different project",
+                details={"requested_project_id": project_id},
+            )
+
+        register_mcp_routes(
+            app,
+            list_tools=lambda: [{"name": "slow.tool"}],
+            call_tool=call_tool,
+            authorize_scope=authorize_scope,
+        )
+        mcp = _McpClient(TestClient(app))
+        mcp.initialize()  # Accept carries text/event-stream (would stream)
+        response = mcp.request(
+            "tools/call",
+            {"name": "slow.tool", "arguments": {"project_id": "p_other"}},
+        )
+        self.assertEqual(response.status_code, 403, response.text)
+        self.assertTrue(
+            response.headers["content-type"].startswith("application/json")
+        )
+        self.assertEqual(
+            response.json()["error"]["data"]["error_code"], "project_scope_forbidden"
+        )
+
+
 if __name__ == "__main__":
     unittest.main()

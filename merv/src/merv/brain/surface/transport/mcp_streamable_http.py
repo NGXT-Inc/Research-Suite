@@ -24,7 +24,12 @@ from fastapi.responses import JSONResponse, Response, StreamingResponse
 
 from ... import __version__
 from ...kernel.utils import ResearchPluginError, ValidationError
-from ..identity import ProjectKeyScopeError, ToolVisibilityError
+from ..identity import (
+    LOCAL_PRINCIPAL,
+    ProjectKeyScopeError,
+    ToolVisibilityError,
+    is_local_principal,
+)
 from ..tools.contracts import TOOL_MANIFEST
 from .request_body import RequestBodyTooLarge, read_limited_body
 
@@ -69,6 +74,14 @@ class ToolCaller(Protocol):
 
 class Authorizer(Protocol):
     def __call__(self, authorization: str | None) -> None: ...
+
+
+class ScopeAuthorizer(Protocol):
+    """Resolves project scope (key-project equality + membership) for a request,
+    raising ProjectKeyScopeError / NotFoundError. Used for the synchronous
+    pre-flight so a slow denial is a transport 403, never a mid-stream error."""
+
+    def __call__(self, request: Request, project_id: str) -> None: ...
 
 
 def _is_request_id(value: object) -> bool:
@@ -170,11 +183,13 @@ class McpStreamableHttp:
         call_tool: ToolCaller,
         allow_tool: ToolFilter | None,
         authorize: Authorizer | None,
+        authorize_scope: ScopeAuthorizer | None = None,
     ) -> None:
         self._list_tools = list_tools
         self._call_tool = call_tool
         self._allow_tool = allow_tool
         self._authorize = authorize
+        self._authorize_scope = authorize_scope
 
     def register(self, http: FastAPI) -> None:
         @http.post("/mcp")
@@ -336,6 +351,11 @@ class McpStreamableHttp:
         progress_token, token_error = self._progress_token(params)
         if token_error is not None:
             return _json_response(_error(request_id, -32602, token_error))
+        denied = self._preauthorize(
+            name=name, arguments=arguments, request=request, request_id=request_id
+        )
+        if denied is not None:
+            return denied
 
         task = asyncio.create_task(
             run_in_threadpool(self._call_tool, name, arguments, {}, request)
@@ -355,6 +375,33 @@ class McpStreamableHttp:
             media_type="text/event-stream",
             headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no"},
         )
+
+    def _preauthorize(
+        self, *, name: str, arguments: JsonObject, request: Request, request_id: RequestId
+    ) -> JSONResponse | None:
+        """INV-5/INV-11 (FIX 6): resolve project scope and the internal-tool block
+        SYNCHRONOUSLY — before the SSE stream can commit a 200 — so a slow scope
+        or visibility denial is always a transport 403, never a mid-stream error.
+        Tool execution alone runs behind the stream."""
+        principal = getattr(request.state, "principal", LOCAL_PRINCIPAL)
+        try:
+            if self._authorize_scope is not None:
+                self._authorize_scope(request, str(arguments.get("project_id") or ""))
+            contract = TOOL_MANIFEST.get(name)
+            if (
+                contract is not None
+                and contract.visibility == "internal"
+                and not is_local_principal(principal)
+            ):
+                raise ToolVisibilityError(
+                    f"tool {name} is internal and cannot be invoked over MCP",
+                    details={"tool": name, "visibility": "internal"},
+                )
+        except ResearchPluginError as exc:
+            return _json_response(
+                _dispatcher_error(request_id, exc), status_code=_error_status(exc)
+            )
+        return None
 
     @staticmethod
     def _progress_token(

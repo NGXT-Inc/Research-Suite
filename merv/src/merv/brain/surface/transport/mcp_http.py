@@ -30,6 +30,7 @@ ToolCaller = Callable[
     dict[str, Any],
 ]
 Authorizer = Callable[[str | None], None]
+ScopeAuthorizer = Callable[[Request, str], None]
 
 
 def register_mcp_routes(
@@ -39,6 +40,7 @@ def register_mcp_routes(
     call_tool: ToolCaller,
     allow_tool: ToolFilter | None = None,
     authorize: Authorizer | None = None,
+    authorize_scope: ScopeAuthorizer | None = None,
 ) -> None:
     def check_authorized(authorization: str | None) -> None:
         if authorize is not None:
@@ -115,4 +117,5 @@ def register_mcp_routes(
         call_tool=call_tool,
         allow_tool=allow_tool,
         authorize=authorize,
+        authorize_scope=authorize_scope,
     ).register(http)

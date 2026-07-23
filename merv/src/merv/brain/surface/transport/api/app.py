@@ -106,10 +106,9 @@ def create_fastapi_app(
         activity=api.activity,
     )
     register_mcp_routes(
-        http,
-        list_tools=api.tools.list_tools,
-        call_tool=gateway.call_mcp,
+        http, list_tools=api.tools.list_tools, call_tool=gateway.call_mcp,
         allow_tool=lambda tool: tool.get("plane") != "data",
+        authorize_scope=gateway.authorize_data_plane_project,
     )
     register_data_plane_routes(
         http,
