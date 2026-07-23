@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { Link, useParams } from 'react-router-dom';
 import { api } from '../api';
-import { useProjectStore, selectResources, useProjectHref } from '../store/useProjectStore';
+import { useProjectStore, useProjectHref } from '../store/useProjectStore';
 import ExperimentMetrics from '../components/ExperimentMetrics';
 import SandboxTerminal from '../components/SandboxTerminal';
 import MobileGraphSection from './MobileGraphSection';
@@ -27,7 +27,6 @@ export default function MobileExperimentDetail() {
   const { experimentId } = useParams();
   const px = useProjectHref();
   const projectId = useProjectStore(s => s.projectId);
-  const allProjectResources = useProjectStore(selectResources);
 
   const [statusData, setStatusData] = useState(null);
   const [error, setError] = useState(null);
@@ -99,18 +98,17 @@ export default function MobileExperimentDetail() {
   const currentAttempt = experiment.attempt_index;
   const isClosed = TERMINAL_STATUSES.includes(experiment.status);
 
-  // ── Resource partition (same derivation as the desktop detail page) ──
+  // ── Artifact partition (same derivation as the desktop detail page) ──
   const currentRes = (experiment.current_attempt_resources || [])
     .slice()
     .sort((a, b) => (a.association_role || '').localeCompare(b.association_role || ''));
-  const enrich = (bare) =>
-    bare ? (allProjectResources.find(r => r.id === bare.id) || bare) : null;
-  const planResBare = currentRes.find(r => r.association_role === 'plan') || null;
-  const planRes = enrich(planResBare)
-    || allProjectResources.find(r => (r.associations || []).some(
-      a => a.target_type === 'experiment' && a.target_id === experimentId && a.role === 'plan',
-    )) || null;
-  const reportRes = enrich(currentRes.find(r => r.association_role === 'report') || null);
+  const planRes = currentRes.find(r => r.association_role === 'plan')
+    || (experiment.resources || [])
+      .filter(r => r.association_role === 'plan')
+      .sort((a, b) => (a.association_attempt_index ?? 0) - (b.association_attempt_index ?? 0))
+      .pop()
+    || null;
+  const reportRes = currentRes.find(r => r.association_role === 'report') || null;
 
   const allReviews = (experiment.reviews || []).slice().sort((a, b) =>
     (a.created_at || '').localeCompare(b.created_at || ''),
@@ -160,7 +158,7 @@ export default function MobileExperimentDetail() {
         {planRes ? (
           <MobileDoc
             projectId={projectId}
-            resource={planRes}
+            artifact={planRes}
             reviews={designReviews}
             kind="plan"
             experimentStatus={experiment.status}
@@ -194,7 +192,7 @@ export default function MobileExperimentDetail() {
         {reportRes && (
           <MobileDoc
             projectId={projectId}
-            resource={reportRes}
+            artifact={reportRes}
             reviews={experimentReviews}
             kind="report"
             experimentStatus={experiment.status}

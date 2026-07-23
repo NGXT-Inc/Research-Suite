@@ -10,8 +10,8 @@ import CodeBlock from './CodeBlock';
  * draw dark strokes on a transparent ground, which would vanish on the dark
  * app surface. A toggle flips to the raw markup through the shared CodeBlock.
  *
- * Reusable wherever a text resource is known to be SVG (FileRenderer dispatches
- * here; ResourceContentView / ReportSpotlight / PlanBody reach it through that).
+ * Reusable wherever a text artifact is known to be SVG (FileRenderer dispatches
+ * here; ArtifactContentView / ReportSpotlight / PlanBody reach it through that).
  */
 export default function SvgView({ text }) {
   const [showSource, setShowSource] = useState(false);

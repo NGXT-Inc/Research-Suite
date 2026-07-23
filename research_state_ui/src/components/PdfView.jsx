@@ -1,7 +1,7 @@
 /**
  * PdfView — inline PDF rendering via the browser's native viewer.
  *
- * The backend already serves `/api/projects/{pid}/resources/{rid}/file` with
+ * The backend serves `/api/projects/{pid}/artifacts/{aid}/file` with
  * `Content-Type: application/pdf` and `Content-Disposition: inline`, so every
  * modern browser (Chrome, Safari, Firefox, Edge) will mount its built-in PDF
  * viewer inside the iframe — which gives us page nav, search, zoom, print,
@@ -28,8 +28,8 @@ function filenameOf(path) {
   return path.split('/').pop() || 'document.pdf';
 }
 
-export default function PdfView({ projectId, resourceId, path }) {
-  const url = api.resourceFileUrl(projectId, resourceId);
+export default function PdfView({ projectId, artifactId, path }) {
+  const url = api.artifactFileUrl(projectId, artifactId);
   // Hosted auth: an iframe can't carry the Bearer header, so render the blob.
   const frameSrc = useAuthedSrc(url);
   if (!frameSrc) return null;

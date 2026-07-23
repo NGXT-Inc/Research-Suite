@@ -58,12 +58,11 @@ function ClaimBody({ d }) {
   );
 }
 
-function ResourceBody({ d }) {
+function ArtifactBody({ d }) {
   return (
     <>
       {d.path && <p className="ehover-lead ehover-mono">{d.path}</p>}
       <Row label="role">{d.role}</Row>
-      <Row label="versions">{d.versions != null && d.versions}</Row>
       <Row label="updated">{ago(d.updated_at)}</Row>
     </>
   );
@@ -91,8 +90,7 @@ function ReflectionBody({ d }) {
 const BODY = {
   experiment: ExperimentBody,
   claim: ClaimBody,
-  resource: ResourceBody,
-  resource_version: ResourceBody,
+  artifact: ArtifactBody,
   review: ReviewBody,
   reflection: ReflectionBody,
 };

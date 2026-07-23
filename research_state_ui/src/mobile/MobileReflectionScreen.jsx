@@ -2,11 +2,11 @@ import { lazy, Suspense, useCallback, useEffect, useMemo, useState } from 'react
 import { Link } from 'react-router-dom';
 import { api } from '../api';
 import { useProjectStore, selectProject, useProjectHref } from '../store/useProjectStore';
-import ResourceContentView from '../components/ResourceContentView';
+import ArtifactContentView from '../components/ArtifactContentView';
 import ReviewCard from '../components/ReviewCard';
 import GraphOutline from './GraphOutline';
 import { normalizeLogic, makeLogicDetail } from './graphModel';
-import { TERMINAL_WAVE, reflectionsByLens, secondaryDocs, resolveReflectionDoc, docVersion } from '../components/reflection/waveModel';
+import { TERMINAL_WAVE, reflectionsByLens, secondaryDocs, resolveReflectionDoc } from '../components/reflection/waveModel';
 
 const GraphCanvasOverlay = lazy(() => import('./GraphCanvasOverlay'));
 
@@ -17,9 +17,9 @@ const GraphCanvasOverlay = lazy(() => import('./GraphCanvasOverlay'));
  *   graph (clean outline, with an opt-in interactive canvas) → the reflection
  *   document → the per-lens reflections (tap to expand) → quiet change-spec /
  *   review disclosures → a muted "reflection history" strip to pan back to
- *   older waves. A past wave renders FAITHFULLY from the bytes it pinned (the
- *   per-wave /graph endpoint + `?version=` content), not the living files a
- *   later wave overwrote. Reached by tapping the Now-screen reflection card.
+ *   older waves. A past wave renders FAITHFULLY from the artifacts it
+ *   submitted (an artifact id pins exact bytes). Reached by tapping the
+ *   Now-screen reflection card.
  */
 
 // Small status → dot color for the history chips.
@@ -160,12 +160,10 @@ export default function MobileReflectionScreen() {
       {reflectionDoc && (
         <section className="section msyn-doc">
           <div className="msyn-eyebrow">Reflection</div>
-          <ResourceContentView
+          <ArtifactContentView
             projectId={projectId}
-            resourceId={reflectionDoc.id}
+            artifactId={reflectionDoc.id}
             path={reflectionDoc.path}
-            version={docVersion(reflectionDoc)}
-            hideSource
             stripTitle
           />
         </section>
@@ -193,12 +191,10 @@ export default function MobileReflectionScreen() {
         <section className="section">
           {secondary.map(({ role, res, label }) => (
             <MobileDisclosure key={role} label={label}>
-              <ResourceContentView
+              <ArtifactContentView
                 projectId={projectId}
-                resourceId={res.id}
+                artifactId={res.id}
                 path={res.path}
-                version={docVersion(res)}
-                hideSource
               />
             </MobileDisclosure>
           ))}
@@ -273,7 +269,7 @@ export default function MobileReflectionScreen() {
 // content fetches at once; each wave renders the exact version it pinned.
 function MobileLensRow({ projectId, lens, reflection }) {
   const [open, setOpen] = useState(false);
-  const covered = Boolean(reflection?.covered && reflection?.resourceId);
+  const covered = Boolean(reflection?.covered && reflection?.artifactId);
   return (
     <div className={`msyn-lens${open ? ' is-open' : ''}`}>
       <button
@@ -294,12 +290,10 @@ function MobileLensRow({ projectId, lens, reflection }) {
       </button>
       {open && covered && (
         <div className="msyn-lens-body">
-          <ResourceContentView
+          <ArtifactContentView
             projectId={projectId}
-            resourceId={reflection.resourceId}
+            artifactId={reflection.artifactId}
             path={reflection.path}
-            version={reflection.versionId || null}
-            hideSource
             dedupeTitle={lens.title}
           />
         </div>

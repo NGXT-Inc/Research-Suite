@@ -30,7 +30,7 @@ const FIG_STATUS_COLOR = {
   failed: 'var(--refutes)', faded: 'var(--faint)', neutral: 'var(--line-strong)',
 };
 const FIG_TYPE_GLYPH = {
-  attempt: '◇', resource: '▤', resource_group: '▣', review: '☑',
+  attempt: '◇', artifact: '▤', artifact_group: '▣', review: '☑',
   sandbox: '▶', conclusion: '∴', claim: '◎',
 };
 const LOGIC_KIND_COLORS = [
@@ -88,8 +88,8 @@ export function EdgeList({ outgoing, labelById }) {
 // Resolved node refs (logic graph) — same taxonomy as LogicGraph.NodeRef.
 export function LogicRef({ refString, resolution }) {
   const r = resolution || { resolved: false, type: 'unknown' };
-  if (r.type === 'resource' && r.resolved) {
-    return <Link className="gnode-ref" to={projectPath(useProjectStore.getState().projectId, `/resources/${r.resource_id}`)}>{r.kind || 'resource'} · {r.title || r.path} →</Link>;
+  if (r.type === 'artifact' && r.resolved) {
+    return <Link className="gnode-ref" to={projectPath(useProjectStore.getState().projectId, `/artifacts/${r.artifact_id}`)}>{r.role || 'artifact'} · {r.title || r.path} →</Link>;
   }
   if (r.type === 'claim' && r.resolved) {
     return <Link className="gnode-ref" to={projectPath(useProjectStore.getState().projectId, `/claims/${r.claim_id}`)}>claim · {r.statement} →</Link>;
@@ -106,8 +106,8 @@ export function LogicRef({ refString, resolution }) {
 // Figure ref → detail-page link, mirroring FigurePanel's destinations.
 export function figureRefLink(node) {
   const ref = node.ref || {};
-  if (ref.kind === 'resource' && ref.id) return <Link className="gnode-ref" to={projectPath(useProjectStore.getState().projectId, `/resources/${ref.id}`)}>open resource →</Link>;
-  if (ref.kind === 'resource_group') return <Link className="gnode-ref" to={projectPath(useProjectStore.getState().projectId, '/resources')}>open resources →</Link>;
+  if (ref.kind === 'artifact' && ref.id) return <Link className="gnode-ref" to={projectPath(useProjectStore.getState().projectId, `/artifacts/${ref.id}`)}>open artifact →</Link>;
+  if (ref.kind === 'artifact_group') return <Link className="gnode-ref" to={projectPath(useProjectStore.getState().projectId, '/artifacts')}>open artifacts →</Link>;
   if (ref.kind === 'claim' && ref.id) return <Link className="gnode-ref" to={projectPath(useProjectStore.getState().projectId, `/claims/${ref.id}`)}>open claim →</Link>;
   return null;
 }

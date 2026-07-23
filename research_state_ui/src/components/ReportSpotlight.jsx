@@ -3,7 +3,6 @@ import { api } from '../api';
 import MarkdownView from './MarkdownView';
 import FileRenderer from './FileRenderer';
 import ExperimentReviewStepper from './ExperimentReviewStepper';
-import ContentUnavailable from './ContentUnavailable';
 import { isMarkdown } from '../utils/format';
 
 /**
@@ -16,14 +15,14 @@ import { isMarkdown } from '../utils/format';
  * toggle) above the rendered body.
  *
  * The body renders inline markdown — prose and GFM metrics tables. Relative
- * image links resolve through the resource file endpoint's `rel` parameter, so
- * figures submitted with the report display inline in any mode (the backend
- * serves them from the blob store); a link never submitted falls back to a
- * "figure not available" placeholder.
+ * image links resolve through the artifact figure endpoint, so figures
+ * submitted with the report display inline (the backend serves them from the
+ * blob store); a link never submitted falls back to a "figure not available"
+ * placeholder.
  */
 export default function ReportSpotlight({
   projectId,
-  reportResource,
+  reportArtifact,
   experimentReviews,
   experimentStatus,
 }) {
@@ -34,27 +33,27 @@ export default function ReportSpotlight({
   const [showReview, setShowReview] = useState(false);
 
   useEffect(() => {
-    if (!reportResource) return undefined;
+    if (!reportArtifact) return undefined;
     let cancelled = false;
     setLoading(true);
     setError(null);
     setContent(null);
-    api.getResourceContent(projectId, reportResource.id)
+    api.getArtifactContent(projectId, reportArtifact.id)
       .then(d => { if (!cancelled) setContent(d); })
       .catch(e => { if (!cancelled) setError(e.message); })
       .finally(() => !cancelled && setLoading(false));
     return () => { cancelled = true; };
-  }, [projectId, reportResource?.id, reportResource?.version_token]);
+  }, [projectId, reportArtifact?.id]);
 
   // Stable identity: MarkdownView keys its `img` component (and its memo) on
   // this — an inline arrow here would remount every figure per re-render.
-  const reportId = reportResource?.id;
+  const reportId = reportArtifact?.id;
   const resolveImageSrc = useCallback(
-    (src) => api.resourceFileUrl(projectId, reportId, src),
+    (src) => api.artifactFigureUrl(projectId, reportId, src),
     [projectId, reportId],
   );
 
-  if (!reportResource) return null;
+  if (!reportArtifact) return null;
 
   const latestReview = (experimentReviews || [])[experimentReviews.length - 1];
   let reportStatus = 'drafting';
@@ -73,7 +72,7 @@ export default function ReportSpotlight({
           <span className={`plan-status plan-status--${reportStatus.replace(/\s+/g, '_')}`}>{reportStatus}</span>
         </div>
         <div className="spotlight-head-right">
-          <span className="mono spotlight-bar-path">{reportResource.path}</span>
+          <span className="mono spotlight-bar-path">{reportArtifact.path}</span>
           {reviewAvailable && (
             <button
               type="button"
@@ -110,17 +109,15 @@ export default function ReportSpotlight({
           ) : error ? (
             <div className="error-message">{error}</div>
           ) : content ? (
-            content.available === false ? (
-              <ContentUnavailable content={content} />
-            ) : content.is_binary ? (
+            content.is_binary ? (
               <div className="empty">Binary report file</div>
-            ) : isMarkdown(reportResource.path) ? (
+            ) : isMarkdown(reportArtifact.path) ? (
               <MarkdownView
                 text={content.content ?? ''}
                 resolveImageSrc={resolveImageSrc}
               />
             ) : (
-              <FileRenderer text={content.content ?? ''} path={reportResource.path} />
+              <FileRenderer text={content.content ?? ''} path={reportArtifact.path} />
             )
           ) : null}
         </div>

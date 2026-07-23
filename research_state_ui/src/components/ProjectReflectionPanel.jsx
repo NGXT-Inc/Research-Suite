@@ -2,11 +2,11 @@ import { useCallback, useEffect, useMemo, useState } from 'react';
 import { api } from '../api';
 import LogicGraph from './LogicGraph';
 import ReviewCard from './ReviewCard';
-import ResourceContentView from './ResourceContentView';
+import ArtifactContentView from './ArtifactContentView';
 import FSMStrip, { REFLECTION_STAGES, REFLECTION_GATES, REFLECTION_TERMINAL } from './FSMStrip';
 import WaveSelector from './reflection/WaveSelector';
 import LensReflectionCard from './reflection/LensReflectionCard';
-import { TERMINAL_WAVE, reflectionsByLens, secondaryDocs, resolveReflectionDoc, docVersion } from './reflection/waveModel';
+import { TERMINAL_WAVE, reflectionsByLens, secondaryDocs, resolveReflectionDoc } from './reflection/waveModel';
 
 /**
  * ProjectReflectionPanel — the reflection wave, on Home.
@@ -20,9 +20,9 @@ import { TERMINAL_WAVE, reflectionsByLens, secondaryDocs, resolveReflectionDoc, 
  * compete with the graph and reflection.
  *
  * The current wave (open, else latest published) shows by default; panning to a
- * past wave renders it FAITHFULLY from the bytes it pinned (the per-wave /graph
- * endpoint and `?version=` content), not the living files a later wave
- * overwrote. Everything is driven from one polled GET /reflections call.
+ * past wave renders it FAITHFULLY from the artifacts it submitted (an artifact
+ * id pins exact bytes). Everything is driven from one polled GET /reflections
+ * call.
  */
 
 function shortDateTime(iso) {
@@ -188,12 +188,10 @@ export default function ProjectReflectionPanel({ projectId }) {
       {wave && reflectionDoc && (
         <div className="refl-doc">
           <div className="refl-eyebrow">Reflection</div>
-          <ResourceContentView
+          <ArtifactContentView
             projectId={projectId}
-            resourceId={reflectionDoc.id}
+            artifactId={reflectionDoc.id}
             path={reflectionDoc.path}
-            version={docVersion(reflectionDoc)}
-            hideSource
             stripTitle
           />
         </div>
@@ -219,12 +217,10 @@ export default function ProjectReflectionPanel({ projectId }) {
       {/* secondary, quiet: change spec + other docs, then the review */}
       {wave && secondaryDocs(waveResources).map(({ role, res, label }) => (
         <Collapsible key={role} label={label}>
-          <ResourceContentView
+          <ArtifactContentView
             projectId={projectId}
-            resourceId={res.id}
+            artifactId={res.id}
             path={res.path}
-            version={docVersion(res)}
-            hideSource
           />
         </Collapsible>
       ))}

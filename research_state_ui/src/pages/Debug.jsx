@@ -61,7 +61,7 @@ function targetFromArgs(args) {
   if (!args || typeof args !== 'object') return [null, null];
   if (args.experiment_id) return ['experiment', String(args.experiment_id)];
   if (args.claim_id) return ['claim', String(args.claim_id)];
-  if (args.resource_id) return ['resource', String(args.resource_id)];
+  if (args.artifact_id) return ['artifact', String(args.artifact_id)];
   const review = args.review_id || args.request_id;
   if (review) return ['review', String(review)];
   return [null, null];
@@ -71,7 +71,7 @@ function targetHref(type, id) {
   switch (type) {
     case 'experiment': return `/experiments/${id}`;
     case 'claim':      return `/claims/${id}`;
-    case 'resource':   return `/resources`;
+    case 'artifact':   return `/artifacts/${id}`;
     case 'review':     return `/reviews`;
     default:           return null;
   }

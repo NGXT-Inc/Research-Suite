@@ -34,7 +34,7 @@ export const useProjectStore = create((set, get) => ({
   compatDismissed: false,
 
   // Live snapshot from GET /home
-  home: null,            // {project, claims, experiments, resources, reviews, recent_events, stats, workflow, active_experiment, active_experiments, active_processes}
+  home: null,            // {project, claims, experiments, resources (artifact rows), reviews, recent_events, stats, workflow, active_experiment, active_experiments, active_processes}
   sandboxes: [],         // project-wide sandbox list from GET /sandboxes (one per experiment)
   events: [],            // longer event window from GET /events?limit=500 — powers dashboard sparklines
   lastSyncedAt: null,    // epoch ms of last successful refresh
@@ -198,7 +198,6 @@ const EMPTY_ARR = Object.freeze([]);
 export const selectStats = (s) => s.home?.stats || EMPTY_OBJ;
 export const selectClaims = (s) => s.home?.claims || EMPTY_ARR;
 export const selectExperiments = (s) => s.home?.experiments || EMPTY_ARR;
-export const selectResources = (s) => s.home?.resources || EMPTY_ARR;
 // Server returns reviews as { requests, reviews } on /home and on /reviews.
 export const selectReviewRequests = (s) => {
   const r = s.home?.reviews;

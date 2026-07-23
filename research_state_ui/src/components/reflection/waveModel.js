@@ -7,13 +7,8 @@
 export const TERMINAL_WAVE = new Set(['published', 'abandoned']);
 
 // Roles with their own dedicated section above; everything else a wave
-// associates falls through to the quiet "change_spec / other docs" disclosures.
-// Two renames happened: the prose doc synthesis_doc -> reflection_doc, and the
-// per-lens doc reflection -> reflection_lens_doc. Both are excluded here (and
-// resolved with a fallback below) so old and new waves render either way.
-export const REFLECTION_DOC_ROLES = ['reflection_doc', 'synthesis_doc'];
-export const LENS_DOC_ROLES = ['reflection_lens_doc', 'reflection'];
-const PRIMARY_ROLES = new Set(['graph', ...LENS_DOC_ROLES, ...REFLECTION_DOC_ROLES]);
+// submits falls through to the quiet "change_spec / other docs" disclosures.
+const PRIMARY_ROLES = new Set(['graph', 'project_graph', 'reflection_lens_doc', 'reflection_doc']);
 
 // Nice labels for known secondary doc roles; anything else is humanized so a
 // new backend role never goes unrendered as the reflection model evolves.
@@ -26,30 +21,30 @@ function humanizeRole(role) {
   return role.replace(/[_-]+/g, ' ').replace(/\b\w/g, c => c.toUpperCase());
 }
 
-// Resolve each roster lens to its reflection resource for the wave's current
-// attempt. reflection_coverage already matched <lens_id>.md → path + pinned
-// version server-side; here we just look up the resource id by that path.
+// Resolve each roster lens to the reflection artifact submitted for the wave's
+// current attempt. Artifacts carry an explicit `lens_id` (submission requires
+// it for role reflection_lens_doc), so the match is direct — no filename
+// heuristics. An artifact id pins exact bytes, so no version pinning either.
 export function reflectionsByLens(wave) {
-  const byPath = {};
+  const byLens = {};
   for (const r of wave?.current_attempt_resources || []) {
-    if (LENS_DOC_ROLES.includes(r.association_role) && r.path) byPath[r.path] = r;
+    if (r.association_role === 'reflection_lens_doc' && r.lens_id) byLens[r.lens_id] = r;
   }
   const map = {};
   for (const lens of wave?.reflection_coverage?.lenses || []) {
-    const res = lens.path ? byPath[lens.path] : null;
+    const res = byLens[lens.lens_id] || null;
     map[lens.lens_id] = {
       covered: Boolean(lens.covered),
-      resourceId: res?.id || null,
-      versionId: lens.version_id || res?.association_version_id || null,
-      path: lens.path || res?.path || null,
+      artifactId: res?.id || null,
+      path: res?.path || lens.path || null,
     };
   }
   return map;
 }
 
-// The secondary docs (everything that isn't graph / reflection / reflection_doc):
-// today just the change_spec, but derived from the resources so new roles render
-// automatically. First association per role wins.
+// The secondary docs (everything that isn't graph / lens doc / reflection_doc):
+// today just the change_spec, but derived from the artifacts so new roles render
+// automatically. First artifact per role wins.
 export function secondaryDocs(resources) {
   const seen = new Set();
   const docs = [];
@@ -63,16 +58,6 @@ export function secondaryDocs(resources) {
   return docs.sort((a, b) => a.order - b.order || a.role.localeCompare(b.role));
 }
 
-// Prefer the new reflection_doc role, fall back to legacy synthesis_doc so a
-// wave published before the rename still renders. Mirrors app.py's resolution.
 export function resolveReflectionDoc(resources) {
-  return REFLECTION_DOC_ROLES
-    .map(role => resources.find(r => r.association_role === role))
-    .find(Boolean) || null;
+  return resources.find(r => r.association_role === 'reflection_doc') || null;
 }
-
-// Pin every rendered doc to the exact version THIS wave associated. The living
-// files (reflection_doc, change_spec, proposals) are one resource shared across
-// waves, so the server's default "latest" can resolve to another wave's bytes —
-// pinning keeps each wave faithful, the current one included.
-export const docVersion = res => res.association_version_id || null;

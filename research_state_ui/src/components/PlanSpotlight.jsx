@@ -2,20 +2,17 @@ import { useCallback, useEffect, useState } from 'react';
 import { api } from '../api';
 import PlanBody from './PlanBody';
 import ReviewEvolutionStepper from './ReviewEvolutionStepper';
-import ContentUnavailable from './ContentUnavailable';
 
 /**
- * PlanSpotlight — the design artifact.
+ * PlanSpotlight — the design artifact (role `plan`).
  *
- * The plan resource is the framing document of the experiment, so we render
- * its content inline from the backend's available source: live local bytes in
- * local mode, or submitted/pinned bytes in hosted mode when available. Above
- * the body, a compact header bar (path + size + status), and the
- * ReviewEvolutionStepper showing v1→v2→…→accepted.
+ * The plan artifact is the framing document of the experiment; its submitted
+ * bytes render inline. Above the body, a compact header bar (path label +
+ * status), and the ReviewEvolutionStepper showing v1→v2→…→accepted.
  */
 export default function PlanSpotlight({
   projectId,
-  planResource,
+  planArtifact,
   designReviews,
   attemptIndex,
   experimentStatus,
@@ -28,32 +25,32 @@ export default function PlanSpotlight({
   const [showReview, setShowReview] = useState(false);
 
   useEffect(() => {
-    if (!planResource) return undefined;
+    if (!planArtifact) return undefined;
     let cancelled = false;
     setLoading(true);
     setError(null);
     setContent(null);
-    api.getResourceContent(projectId, planResource.id)
+    api.getArtifactContent(projectId, planArtifact.id)
       .then(d => { if (!cancelled) setContent(d); })
       .catch(e => { if (!cancelled) setError(e.message); })
       .finally(() => !cancelled && setLoading(false));
     return () => { cancelled = true; };
-  }, [projectId, planResource?.id, planResource?.version_token]);
+  }, [projectId, planArtifact?.id]);
 
   // Stable identity: MarkdownView keys its `img` component (and its memo) on
   // this — an inline arrow here would remount every figure per re-render.
-  const planId = planResource?.id;
+  const planId = planArtifact?.id;
   const resolveImageSrc = useCallback(
-    (src) => api.resourceFileUrl(projectId, planId, src),
+    (src) => api.artifactFigureUrl(projectId, planId, src),
     [projectId, planId],
   );
 
-  if (!planResource) {
+  if (!planArtifact) {
     return (
       <section id="design" className="spotlight">
         <div className="spotlight-eyebrow">Plan</div>
         <div className="spotlight-empty">
-          No plan resource registered for this attempt yet.
+          No plan submitted for this attempt yet.
         </div>
       </section>
     );
@@ -75,7 +72,7 @@ export default function PlanSpotlight({
           <span className={`plan-status plan-status--${planStatus.replace(/\s+/g, '_')}`}>{planStatus}</span>
         </div>
         <div className="spotlight-head-right">
-          <span className="mono spotlight-bar-path">{planResource.path}</span>
+          <span className="mono spotlight-bar-path">{planArtifact.path}</span>
           {reviewAvailable && (
             <button
               type="button"
@@ -112,14 +109,12 @@ export default function PlanSpotlight({
           ) : error ? (
             <div className="error-message">{error}</div>
           ) : content ? (
-            content.available === false ? (
-              <ContentUnavailable content={content} />
-            ) : content.is_binary ? (
+            content.is_binary ? (
               <div className="empty">Binary plan file</div>
             ) : (
               <PlanBody
                 text={content.content ?? ''}
-                path={planResource.path}
+                path={planArtifact.path}
                 resolveImageSrc={resolveImageSrc}
               />
             )

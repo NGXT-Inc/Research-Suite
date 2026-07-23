@@ -240,7 +240,7 @@ export default function LogicGraph({
   );
 
   const hasStory = Boolean(graph && nodes.length);
-  // A graph resource exists but nothing is drawable (unparseable JSON, empty
+  // A graph artifact exists but nothing is drawable (unparseable JSON, empty
   // or malformed nodes): stay visible and surface the lint problems instead
   // of silently disabling the tab as if no graph had been written.
   const broken = Boolean(payload?.available && !hasStory);

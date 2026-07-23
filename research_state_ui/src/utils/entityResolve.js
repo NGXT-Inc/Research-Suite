@@ -1,6 +1,6 @@
 /**
  * The single place that turns a research-entity id (`exp_…`, `claim_…`,
- * `res_…`, `rev_…`, `rver_…`, `syn_…`) into a display label, a route, and the
+ * `art_…`, `rev_…`, `syn_…`) into a display label, a route, and the
  * key facts a hover card shows. Every id chip in the product resolves through
  * here so labels/routes never drift per surface (it subsumes the old
  * PostCard.refTarget, EventTimeline.targetHref, and LogicGraph.NodeRef logic).
@@ -13,17 +13,12 @@
 import { api } from '../api';
 import { expName } from './experiment';
 
-// The prefix is the token before the first underscore, so `rev` (a review) and
-// `rver` (a specific review version) stay distinct — a plain startsWith would
-// conflate them.
+// The prefix is the token before the first underscore.
 const PREFIX_TYPE = {
   exp: 'experiment',
   claim: 'claim',
-  res: 'resource',
+  art: 'artifact',
   rev: 'review',
-  // rver_ is a resource *version* id (it appears as association.version_id), not
-  // a review version — it resolves to the resource that owns the version.
-  rver: 'resource_version',
   syn: 'reflection',
   lit: 'litreview_section',
   paper: 'paper',
@@ -34,8 +29,7 @@ const PREFIX_TYPE = {
 export const TYPE_GLYPH = {
   experiment: '◆',
   claim: '◇',
-  resource: '▤',
-  resource_version: '▤',
+  artifact: '▤',
   review: '◈',
   reflection: '❖',
   litreview_section: '▤',
@@ -45,8 +39,7 @@ export const TYPE_GLYPH = {
 export const TYPE_LABEL = {
   experiment: 'experiment',
   claim: 'claim',
-  resource: 'resource',
-  resource_version: 'resource version',
+  artifact: 'artifact',
   review: 'review',
   reflection: 'reflection',
   litreview_section: 'lit review section',
@@ -58,7 +51,7 @@ export const TYPE_LABEL = {
 const ROUTE = {
   experiment: (id) => `/experiments/${id}`,
   claim: (id) => `/claims/${id}`,
-  resource: (id) => `/resources/${id}`,
+  artifact: (id) => `/artifacts/${id}`,
   // Sections and papers live on the one lit-review screen (no per-id page).
   litreview_section: () => '/litreview',
   paper: () => '/litreview',
@@ -66,12 +59,11 @@ const ROUTE = {
 
 // Matches a bare entity id in prose. `\b` at the head keeps `myexp_1` from
 // matching; the trailing negative lookahead lets ids carry hyphens without the
-// word boundary cutting them short. `rver` precedes `rev` so the longer prefix
-// wins.
-export const ENTITY_ID_RE = /\b(exp|claim|rver|rev|res|syn|lit|paper)_[A-Za-z0-9][\w-]*(?![\w-])/g;
+// word boundary cutting them short.
+export const ENTITY_ID_RE = /\b(exp|claim|rev|art|syn|lit|paper)_[A-Za-z0-9][\w-]*(?![\w-])/g;
 // Anchored form: is a whole (trimmed) string exactly one id? Used to decide
 // whether a bare id inside inline `code` should still chip.
-export const ENTITY_ID_EXACT = /^(exp|claim|rver|rev|res|syn|lit|paper)_[A-Za-z0-9][\w-]*$/;
+export const ENTITY_ID_EXACT = /^(exp|claim|rev|art|syn|lit|paper)_[A-Za-z0-9][\w-]*$/;
 
 export function entityPrefix(id) {
   if (typeof id !== 'string') return null;
@@ -132,14 +124,8 @@ function countClaimTests(claimId, home) {
   return exps.filter((e) => names(e).some((x) => (typeof x === 'string' ? x : x?.id || x?.claim_id) === claimId)).length;
 }
 
-function resourceRole(r) {
-  return r.role || r.associations?.[0]?.role || r.kind || null;
-}
-
-function versionCount(r) {
-  if (Array.isArray(r.versions)) return r.versions.length;
-  if (typeof r.version_count === 'number') return r.version_count;
-  return null;
+function artifactRole(r) {
+  return r.association_role || r.role || null;
 }
 
 function headlineMetric(e) {
@@ -193,27 +179,15 @@ export function resolveEntity(id, home) {
     };
   }
 
-  if (type === 'resource') {
+  if (type === 'artifact') {
+    // The home snapshot's `resources` rows are artifact-shaped (id = art_*).
     const r = (H.resources || []).find((x) => x.id === id);
     if (!r) return { ...DEAD(id, type), needsFetch: true };
     return {
-      id, type, label: basename(r.path) || r.title || 'resource', route: ROUTE.resource(id), navigable: true,
+      id, type, label: r.title || basename(r.path) || 'artifact', route: ROUTE.artifact(id), navigable: true,
       detail: {
-        type, path: r.path || '', role: resourceRole(r),
-        versions: versionCount(r), updated_at: r.updated_at,
+        type, path: r.path || '', role: artifactRole(r), updated_at: r.updated_at || r.created_at,
       },
-    };
-  }
-
-  // A resource-version id resolves to the resource that owns the version.
-  if (type === 'resource_version') {
-    const r = (H.resources || []).find(
-      (x) => x.current_version_id === id || (x.associations || []).some((a) => a.version_id === id),
-    );
-    if (!r) return { ...DEAD(id, type), notFound: true };
-    return {
-      id, type, label: basename(r.path) || r.title || 'resource', route: ROUTE.resource(r.id), navigable: true,
-      detail: { type: 'resource', path: r.path || '', role: resourceRole(r), versions: versionCount(r), updated_at: r.updated_at },
     };
   }
 
@@ -250,11 +224,11 @@ export function resolveEntity(id, home) {
 export function seedFromRefIndex(refString, entry) {
   if (!entry || !entry.type) return null;
   const t = entry.type;
-  if (t === 'resource') {
+  if (t === 'artifact') {
     return {
-      id: refString, type: 'resource', label: entry.title || basename(entry.path) || entry.kind || 'resource',
-      route: entry.resource_id ? ROUTE.resource(entry.resource_id) : null, navigable: !!entry.resource_id,
-      detail: { type: 'resource', path: entry.path || '', role: entry.role || entry.kind },
+      id: refString, type: 'artifact', label: entry.title || basename(entry.path) || 'artifact',
+      route: entry.artifact_id ? ROUTE.artifact(entry.artifact_id) : null, navigable: !!entry.artifact_id,
+      detail: { type: 'artifact', path: entry.path || '', role: entry.role },
     };
   }
   if (t === 'claim') {
@@ -335,6 +309,16 @@ export async function fetchEntity(id, pid) {
         id, type, label: clamp(c.statement, 44) || shortId(id), route: ROUTE.claim(id), navigable: true,
         detail: { type, statement: c.statement || '', status: c.status, confidence: c.confidence, linked: null },
       };
+    } else if (type === 'artifact') {
+      const s = await api.listArtifacts(pid);
+      const a = (s?.artifacts || []).find((x) => x.id === id);
+      if (a) {
+        out = {
+          id, type, label: a.title || basename(a.path) || shortId(id),
+          route: ROUTE.artifact(id), navigable: true,
+          detail: { type, path: a.path || '', role: a.role, updated_at: a.created_at },
+        };
+      }
     } else if (type === 'reflection') {
       const s = await api.getReflection(pid, id);
       const w = s || {};

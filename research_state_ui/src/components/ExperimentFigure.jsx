@@ -5,7 +5,7 @@ import '@xyflow/react/dist/style.css';
 import { api } from '../api';
 import StatusPill from './StatusPill';
 import DetailPanelShell from './DetailPanelShell';
-import ResourceContentView from './ResourceContentView';
+import ArtifactContentView from './ArtifactContentView';
 import { layoutFigure, FIG_NODE_W } from '../utils/figureLayout';
 import { TERMINAL_STATUSES } from '../utils/experiment';
 import { usePanelWidth } from '../store/usePanelWidth';
@@ -14,8 +14,8 @@ import { useStreamAwarePoll } from '../store/useEventStream';
 
 const TYPE_GLYPH = {
   attempt: '◇',
-  resource: '▤',
-  resource_group: '▣',
+  artifact: '▤',
+  artifact_group: '▣',
   review: '☑',
   sandbox: '▶',
   conclusion: '∴',
@@ -134,35 +134,34 @@ function FigurePanel({ projectId, node, onClose }) {
         <div style={{ margin: '6px 0' }}><StatusPill value={String(node.status)} /></div>
       )}
 
-      {ref.kind === 'resource' && ref.id && (
+      {ref.kind === 'artifact' && ref.id && (
         <>
           {meta.path && <div className="fig-panel-meta">{meta.path}</div>}
           {/* Native rendering (markdown / json / code / pdf / binary) through
-              the same dispatcher the Resources page uses — not a raw text
-              slice. ResourceContentView owns the fetch, loading/error states,
-              and per-type renderer selection. hideSource + dedupeTitle keep the
-              panel header to just name + path: no agent-facing provenance note,
-              and no leading H1 echoing the title already shown above. */}
+              the same dispatcher the Artifacts page uses — not a raw text
+              slice. ArtifactContentView owns the fetch, loading/error states,
+              and per-type renderer selection. dedupeTitle keeps the panel
+              header to just name + path: no leading H1 echoing the title
+              already shown above. */}
           <div className="fig-panel-render">
-            <ResourceContentView
+            <ArtifactContentView
               projectId={projectId}
-              resourceId={ref.id}
+              artifactId={ref.id}
               size={meta.size_bytes}
               path={meta.path}
-              hideSource
               dedupeTitle={node.label}
             />
           </div>
-          <Link className="btn btn--sm" to={px(`/resources/${ref.id}`)}>Open in resources →</Link>
+          <Link className="btn btn--sm" to={px(`/artifacts/${ref.id}`)}>Open in artifacts →</Link>
         </>
       )}
 
-      {ref.kind === 'resource_group' && (
+      {ref.kind === 'artifact_group' && (
         <>
           <div className="fig-panel-meta">
-            {meta.count} additional files ({(meta.roles || []).join(', ')}) associated with this attempt.
+            {meta.count} additional files ({(meta.roles || []).join(', ')}) submitted for this attempt.
           </div>
-          <Link className="btn btn--sm" to={px('/resources')}>Open resources →</Link>
+          <Link className="btn btn--sm" to={px('/artifacts')}>Open artifacts →</Link>
         </>
       )}
 

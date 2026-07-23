@@ -3,7 +3,6 @@ import { api } from '../api';
 import PlanBody from '../components/PlanBody';
 import MarkdownView from '../components/MarkdownView';
 import FileRenderer from '../components/FileRenderer';
-import ContentUnavailable from '../components/ContentUnavailable';
 import ReviewEvolutionStepper from '../components/ReviewEvolutionStepper';
 import ExperimentReviewStepper from '../components/ExperimentReviewStepper';
 import { isMarkdown } from '../utils/format';
@@ -16,7 +15,7 @@ import { isMarkdown } from '../utils/format';
  */
 export default function MobileDoc({
   projectId,
-  resource,
+  artifact,
   reviews = [],
   kind, // 'plan' | 'report'
   experimentStatus,
@@ -27,25 +26,25 @@ export default function MobileDoc({
   const [showReview, setShowReview] = useState(false);
 
   useEffect(() => {
-    if (!resource) return undefined;
+    if (!artifact) return undefined;
     let cancelled = false;
     setContent(null);
     setError(null);
-    api.getResourceContent(projectId, resource.id)
+    api.getArtifactContent(projectId, artifact.id)
       .then(d => { if (!cancelled) setContent(d); })
       .catch(e => { if (!cancelled) setError(e.message); });
     return () => { cancelled = true; };
-  }, [projectId, resource?.id, resource?.version_token]);
+  }, [projectId, artifact?.id]);
 
   // Stable identity: MarkdownView keys its `img` component (and its memo) on
   // this — an inline arrow here would remount every figure per re-render.
-  const resourceId = resource?.id;
+  const artifactId = artifact?.id;
   const resolveImageSrc = useCallback(
-    (src) => api.resourceFileUrl(projectId, resourceId, src),
-    [projectId, resourceId],
+    (src) => api.artifactFigureUrl(projectId, artifactId, src),
+    [projectId, artifactId],
   );
 
-  if (!resource) return null;
+  if (!artifact) return null;
 
   const inReview = experimentStatus === (kind === 'plan' ? 'design_review' : 'experiment_review');
   const latest = reviews[reviews.length - 1];
@@ -83,16 +82,14 @@ export default function MobileDoc({
         <div className="error-message">{error}</div>
       ) : !content ? (
         <div className="mquiet">loading…</div>
-      ) : content.available === false ? (
-        <ContentUnavailable content={content} />
       ) : content.is_binary ? (
         <div className="mquiet">binary file</div>
       ) : kind === 'plan' ? (
-        <PlanBody text={content.content ?? ''} path={resource.path} resolveImageSrc={resolveImageSrc} />
-      ) : isMarkdown(resource.path) ? (
+        <PlanBody text={content.content ?? ''} path={artifact.path} resolveImageSrc={resolveImageSrc} />
+      ) : isMarkdown(artifact.path) ? (
         <MarkdownView text={content.content ?? ''} resolveImageSrc={resolveImageSrc} />
       ) : (
-        <FileRenderer text={content.content ?? ''} path={resource.path} />
+        <FileRenderer text={content.content ?? ''} path={artifact.path} />
       )}
     </div>
   );

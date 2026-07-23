@@ -219,7 +219,7 @@ export const api = {
 
   // Reflections (project reflection waves).
   // List + staleness/coverage signal for the Home panel. Each entry is the
-  // full wave state (roster, resources, reviews, reflection_coverage), so the
+  // full wave state (roster, artifacts, reviews, reflection_coverage), so the
   // panel drives the whole history off this one call.
   // The whole literature review (summary, sections, papers ledger) in one read.
   getLitReview: (pid, signal) =>
@@ -240,41 +240,22 @@ export const api = {
   getReflectionGraph: (pid, synId) =>
     request(`/api/projects/${encodeURIComponent(pid)}/reflections/${encodeURIComponent(synId)}/graph`),
 
-  // Resources
-  registerResource: (pid, { path, kind, title }) =>
-    request(`/api/projects/${encodeURIComponent(pid)}/resources`, {
-      method: 'POST',
-      body: { path, kind, ...(title ? { title } : {}) },
-    }),
-  associateResource: (pid, rid, { target_type, target_id, role }) =>
-    request(`/api/projects/${encodeURIComponent(pid)}/resources/${encodeURIComponent(rid)}/associate`, {
-      method: 'POST',
-      body: { target_type, target_id, role },
-    }),
-  deleteResource: (pid, rid) =>
-    request(`/api/projects/${encodeURIComponent(pid)}/resources/${encodeURIComponent(rid)}`, {
-      method: 'DELETE',
-    }),
-  // `version` pins the exact submitted bytes of one resource version (faithful
-  // historical rendering for past reflection-wave graphs/proposals). Omitted →
-  // unchanged behavior (latest submitted bytes / live file).
-  getResourceContent: (pid, rid, version = null) =>
-    request(`/api/projects/${encodeURIComponent(pid)}/resources/${encodeURIComponent(rid)}/content${
-      version ? `?version=${encodeURIComponent(version)}` : ''
-    }`),
-  // rel: optional path relative to the resource's own directory (locked inside
-  // the repo root server-side) — used to resolve a report's figure links.
-  resourceFileUrl: (pid, rid, rel = null) =>
-    `${BASE}/api/projects/${encodeURIComponent(pid)}/resources/${encodeURIComponent(rid)}/file${
-      rel ? `?rel=${encodeURIComponent(rel)}` : ''
-    }`,
-
-  // Version history. Resources carry version metadata directly
-  // (current_version_id, associations[].version_id); `history` returns version
-  // metadata only (sha256, size, mtime, content_type) — the backend does not
-  // store or serve historical file content.
-  getResourceHistory: (pid, rid) =>
-    request(`/api/projects/${encodeURIComponent(pid)}/resources/${encodeURIComponent(rid)}/history`),
+  // Artifacts — typed objects the agent submitted against workflow targets.
+  // Read-only here: submission is agent-only (artifact.submit → one-time
+  // upload token), so there are no register/associate/delete calls.
+  listArtifacts: (pid) =>
+    request(`/api/projects/${encodeURIComponent(pid)}/artifacts`),
+  // Decoded text ({ content, is_binary, size_bytes, content_type }). An
+  // artifact id pins exact bytes — resubmission mints a new id, so there is
+  // no version parameter.
+  getArtifactContent: (pid, aid) =>
+    request(`/api/projects/${encodeURIComponent(pid)}/artifacts/${encodeURIComponent(aid)}/content`),
+  artifactFileUrl: (pid, aid) =>
+    `${BASE}/api/projects/${encodeURIComponent(pid)}/artifacts/${encodeURIComponent(aid)}/file`,
+  // rel: a markdown doc's relative image link → the figure bytes submitted
+  // alongside it.
+  artifactFigureUrl: (pid, aid, rel) =>
+    `${BASE}/api/projects/${encodeURIComponent(pid)}/artifacts/${encodeURIComponent(aid)}/figure?rel=${encodeURIComponent(rel)}`,
 
   // Reviews
   listReviews: (pid, target = {}) => {

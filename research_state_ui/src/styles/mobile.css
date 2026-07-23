@@ -426,41 +426,6 @@ html[data-surface="mobile"] .mcard-drawer {
 }
 html[data-surface="mobile"] .mcard-drawer .section { margin-bottom: 0; }
 
-/* Resources: in-page file tree panel. */
-html[data-surface="mobile"] .mfiles {
-  border: 1px solid var(--line);
-  border-radius: var(--radius-lg);
-  background: var(--bg-elev);
-  margin-bottom: 14px;
-  overflow: hidden;
-}
-html[data-surface="mobile"] .mfiles-head {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 8px;
-  width: 100%;
-  min-height: 44px;
-  padding: 8px 14px;
-  border: none;
-  background: none;
-  color: var(--text);
-  font-size: var(--text-md);
-  font-weight: 600;
-  text-align: left;
-}
-html[data-surface="mobile"] .mfiles-head span:first-child {
-  overflow-wrap: anywhere;
-}
-html[data-surface="mobile"] .mfiles-body {
-  border-top: 1px solid var(--line-soft);
-  max-height: 46dvh;
-  overflow-y: auto;
-  padding: 8px 10px;
-}
-/* File-tree rows are 26px on desktop — bump to touch size here only. */
-html[data-surface="mobile"] .mfiles-body .ft-row { padding: 9px 6px; }
-
 /* =====================================================================
    MOBILE-NATIVE PRIMITIVES (review §3) — bottom sheet, pull-to-refresh,
    toasts, skeletons, slide-to-confirm, graph outline, sparkline charts.

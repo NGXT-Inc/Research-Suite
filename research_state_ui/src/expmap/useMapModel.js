@@ -13,7 +13,7 @@ import { computeLayout, nowX as clampNowX } from './mapLayout';
  *
  * Assembles cards (one per experiment), the world layout, satellite/panel
  * objects, and the inverse citation index from the home snapshot plus three
- * lazy sources: plan/report texts (per-resource, concurrency-capped),
+ * lazy sources: plan/report texts (per-artifact, concurrency-capped),
  * one MLflow overview, and one compute-cost read. Returns progressively —
  * cards render immediately off the snapshot; text-derived refs, metric chips,
  * and compute strings fill in as fetches land.
@@ -34,8 +34,8 @@ const paperTitle = (raw) => {
 
 // ── module caches (survive re-renders, re-mounts, and project revisits) ────
 
-// Resource text keyed `${resourceId}@${versionId}` — a new submitted version
-// changes the key, so stale text is superseded rather than refetched forever.
+// Artifact text keyed by artifact id — resubmission mints a new id, so stale
+// text is superseded rather than refetched forever.
 const textCache = new Map();
 const textQueued = new Set();
 const textJobs = [];
@@ -43,13 +43,13 @@ let textInFlight = 0;
 const TEXT_CONCURRENCY = 4;
 const textListeners = new Set();
 
-const textKey = (res) => `${res.id}@${res.association_version_id || res.current_version_id || 'live'}`;
+const textKey = (res) => res.id;
 
 function pumpTexts() {
   while (textInFlight < TEXT_CONCURRENCY && textJobs.length) {
     const { pid, rid, key } = textJobs.shift();
     textInFlight += 1;
-    api.getResourceContent(pid, rid)
+    api.getArtifactContent(pid, rid)
       .then((d) => textCache.set(key, typeof d?.content === 'string' ? d.content : ''))
       .catch(() => textCache.set(key, ''))
       .finally(() => {
@@ -84,9 +84,9 @@ function projectFetches(pid) {
 
 // ── per-experiment derivations ─────────────────────────────────────────────
 
-// The experiment's plan/report resource: current attempt first (how
-// ExperimentDetail picks them), else the newest prior attempt's association.
-function roleResource(e, role) {
+// The experiment's plan/report artifact: current attempt first (how
+// ExperimentDetail picks them), else the newest prior attempt's submission.
+function roleArtifact(e, role) {
   const cur = (e.current_attempt_resources || []).find((r) => r.association_role === role);
   if (cur) return cur;
   let best = null;
@@ -210,7 +210,7 @@ export function useMapModel(viewW) {
 
   // Re-render when queued plan/report texts land in the module cache. The
   // bumps are trailing-debounced: a burst of completions (4-deep fetch queue)
-  // costs one model recompute, not one per resource.
+  // costs one model recompute, not one per artifact.
   useEffect(() => {
     let timer = null;
     const bump = () => {
@@ -237,12 +237,12 @@ export function useMapModel(viewW) {
     return () => { alive = false; };
   }, [projectId]);
 
-  // Queue plan/report content fetches (capped, deduped by resource+version).
+  // Queue plan/report content fetches (capped, deduped by artifact id).
   useEffect(() => {
     if (!projectId) return;
     for (const e of experiments) {
       for (const role of ['plan', 'report']) {
-        const r = roleResource(e, role);
+        const r = roleArtifact(e, role);
         if (r) enqueueText(projectId, r);
       }
     }
@@ -285,7 +285,7 @@ export function useMapModel(viewW) {
     for (const e of experiments) {
       const text = ['plan', 'report']
         .map((role) => {
-          const r = roleResource(e, role);
+          const r = roleArtifact(e, role);
           return r ? textCache.get(textKey(r)) || '' : '';
         })
         .join('\n');
@@ -317,7 +317,7 @@ export function useMapModel(viewW) {
       const textClaimIds = [];
       for (const id of new Set(text.match(ENTITY_ID_RE) || [])) {
         if (id === e.id) continue;
-        const kind = id.startsWith('exp_') ? 'exp' : id.startsWith('claim_') ? 'claim' : id.startsWith('res_') ? 'res' : null;
+        const kind = id.startsWith('exp_') ? 'exp' : id.startsWith('claim_') ? 'claim' : id.startsWith('art_') ? 'art' : null;
         if (!kind) continue;
         const ent = resolveEntity(id, home);
         if (!ent?.navigable) continue; // unknown / unresolvable id — drop
@@ -326,7 +326,7 @@ export function useMapModel(viewW) {
           type: kind,
           id,
           label: ent.label,
-          sub: kind === 'exp' ? clip(ent.detail?.intent, 64) : ent.detail?.role || 'resource',
+          sub: kind === 'exp' ? clip(ent.detail?.intent, 64) : ent.detail?.role || 'artifact',
         });
       }
 
@@ -418,7 +418,7 @@ export function useMapModel(viewW) {
         metrics: run ? headlineChips(run) : [],
         gates: gatesFor(e),
         artifacts: (e.storage_objects || []).length,
-        agent: roleResource(e, 'report')?.created_by || roleResource(e, 'plan')?.created_by || null,
+        agent: roleArtifact(e, 'report')?.created_by || roleArtifact(e, 'plan')?.created_by || null,
         computeStr,
         sbxIds,
       });

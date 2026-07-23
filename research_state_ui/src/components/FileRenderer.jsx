@@ -66,7 +66,7 @@ export default function FileRenderer({ text, path, resolveImageSrc = null }) {
   const ext = extOf(path);
   if (ext === 'md' || ext === 'markdown' || ext === 'mdx') {
     // resolveImageSrc maps a relative figure link (e.g. `figures/loss.svg`) to
-    // a fetchable URL so inline images render in the generic resource view, not
+    // a fetchable URL so inline images render in the generic artifact view, not
     // just the report spotlight. Harmless for files without images.
     return <MarkdownView text={text} resolveImageSrc={resolveImageSrc} />;
   }

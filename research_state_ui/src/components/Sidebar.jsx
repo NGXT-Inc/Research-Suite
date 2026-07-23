@@ -1,13 +1,12 @@
 import { useEffect, useRef, useState } from 'react';
-import { NavLink, useLocation, useNavigate } from 'react-router-dom';
-import { useProjectStore, useProjectHref, selectStats, selectResources, selectSandboxes } from '../store/useProjectStore';
+import { NavLink } from 'react-router-dom';
+import { useProjectStore, useProjectHref, selectStats, selectSandboxes } from '../store/useProjectStore';
 import { CLIENT_VERSION } from '../api';
 import { useTheme } from '../store/useTheme';
 import { useBackdrop, setBackdrop } from '../store/useBackdrop';
 import { setSurfaceOverride } from '../store/useViewport';
 import ProductSwitch from './ProductSwitch';
 import ProjectSwitcher from './ProjectSwitcher';
-import FileTree from './FileTree';
 import SandboxRetentionIndicator from './SandboxRetentionIndicator';
 import { getAuthEmail, isAuthEnabled, onAuthChange, signOut } from '../auth';
 
@@ -123,38 +122,18 @@ export default function Sidebar({ onRefresh, onHide }) {
   const lastSyncedAt = useProjectStore(s => s.lastSyncedAt);
   const isPolling = useProjectStore(s => s.isPolling);
   const lastSyncError = useProjectStore(s => s.lastSyncError);
-  const resources = useProjectStore(selectResources);
   const sandboxes = useProjectStore(selectSandboxes);
   const runningSandboxes = sandboxes.filter(s => s.status === 'running').length;
   // Central MLflow spans every experiment, so its entry point is project-level.
   // The /home payload's `mlflow` health block gates the nav row; the dedicated
   // page (/p/<id>/mlflow) renders the project's runs, curves, and embedded UI.
   const mlflowConfigured = home?.mlflow?.configured;
-  const location = useLocation();
-  const navigate = useNavigate();
   const px = useProjectHref();
-  // Sidebar lives outside the <Routes> tree, so useParams() returns {}.
-  // Parse the resourceId out of the path ourselves so deep-links highlight
-  // the selected file in the tree. Paths are project-scoped: /p/<id>/resources/<rid>.
-  const resMatch = location.pathname.match(/\/resources\/([^/]+)\/?$/);
-  const resourceId = resMatch ? resMatch[1] : null;
-  const onResourcesPath = /\/resources(\/|$)/.test(location.pathname);
-
-  // Sidebar tree state: which top-level "drawer" sections are expanded.
-  // For now only Resources is expandable, but the pattern leaves room for
-  // similar nested sections later (e.g., Claims expanded into their files).
-  const [resourcesOpen, setResourcesOpen] = useState(onResourcesPath);
-
-  // Auto-open the Resources drawer whenever the user navigates into a
-  // resource URL (e.g., from a deep link), so the file tree is visible.
-  useEffect(() => {
-    if (onResourcesPath) setResourcesOpen(true);
-  }, [onResourcesPath]);
 
   const dotClass = lastSyncError ? 'sync-dot stale' : (isPolling ? 'sync-dot' : 'sync-dot paused');
   const pollLabel = lastSyncError ? 'stale' : (isPolling ? 'live' : 'paused');
 
-  const resourcesCount = stats.resources ?? home?.resources?.length ?? 0;
+  const artifactsCount = stats.resources ?? home?.resources?.length ?? 0;
   // Live backend version from the /api/meta handshake; fall back to the UI's
   // own build version before the first handshake lands.
   const serverVersion = useProjectStore(s => s.serverMeta?.server_version);
@@ -216,36 +195,10 @@ export default function Sidebar({ onRefresh, onHide }) {
         {/* The substrate research runs on: files, objects, machines. */}
         <div className="sidebar-section">Operations</div>
 
-        {/* Resources — expands inline; clicking does not change route.
-            Chevron sits on the LEFT (VSCode-style) — `>` collapsed, `v`
-            expanded, rendered as a single rotating glyph. */}
-        <button
-          type="button"
-          className={`sidebar-link sidebar-link--expandable${onResourcesPath ? ' active' : ''}`}
-          onClick={() => setResourcesOpen(v => !v)}
-          aria-expanded={resourcesOpen}
-        >
-          <span
-            className={`sidebar-link-chevron${resourcesOpen ? ' sidebar-link-chevron--open' : ''}`}
-            aria-hidden="true"
-          >▸</span>
-          <span className="sidebar-link-label">Resources</span>
-          <span className="sidebar-link-count">{resourcesCount}</span>
-        </button>
-        {resourcesOpen && (
-          <div className="sidebar-subtree">
-            {resources.length === 0 ? (
-              <div className="sidebar-subtree-empty">No files registered.</div>
-            ) : (
-              <FileTree
-                resources={resources}
-                selectedId={resourceId || null}
-                onSelect={(r) => navigate(px(`/resources/${r.id}`))}
-              />
-            )}
-          </div>
-        )}
-
+        <NavLink to={px('/artifacts')} className={({ isActive }) => 'sidebar-link' + (isActive ? ' active' : '')}>
+          <span>Artifacts</span>
+          <span className="sidebar-link-count">{artifactsCount}</span>
+        </NavLink>
         <NavLink to={px('/storage')} className={({ isActive }) => 'sidebar-link' + (isActive ? ' active' : '')}>
           Storage
         </NavLink>

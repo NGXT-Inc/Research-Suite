@@ -9,7 +9,7 @@ import ReviewCard from './ReviewCard';
  *
  * One interaction: click a verdict pill → expand its ReviewCard inline. A lone
  * review starts expanded; with several, all start collapsed so the section
- * stays quiet. Shared by OutcomesSection and the ReportSpotlight "Show review"
+ * stays quiet. Used by the ReportSpotlight "Show review"
  * disclosure so the results review reads the same wherever it surfaces.
  */
 export default function ExperimentReviewStepper({ reviews }) {

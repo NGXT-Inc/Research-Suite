@@ -1,5 +1,5 @@
 import { useState } from 'react';
-import ResourceContentView from '../ResourceContentView';
+import ArtifactContentView from '../ArtifactContentView';
 
 /**
  * LensReflectionCard — one roster lens and the reflection its subagent wrote.
@@ -9,11 +9,11 @@ import ResourceContentView from '../ResourceContentView';
  * opens it to the full roster width (it spans every column and pushes the rest
  * down) so the reflection markdown reads at a comfortable measure. The markdown
  * is lazy-mounted on open, so a five-lens wave doesn't fire five fetches at
- * once, and each wave renders the exact version it pinned (faithful history).
+ * once; each wave renders the exact artifact it submitted (faithful history).
  */
 export default function LensReflectionCard({ projectId, lens, reflection }) {
   const [open, setOpen] = useState(false);
-  const covered = Boolean(reflection?.covered && reflection?.resourceId);
+  const covered = Boolean(reflection?.covered && reflection?.artifactId);
   const toggle = () => { if (covered) setOpen(v => !v); };
 
   return (
@@ -70,12 +70,10 @@ export default function LensReflectionCard({ projectId, lens, reflection }) {
               </div>
             </header>
             <div className="spotlight-body">
-              <ResourceContentView
+              <ArtifactContentView
                 projectId={projectId}
-                resourceId={reflection.resourceId}
+                artifactId={reflection.artifactId}
                 path={reflection.path}
-                version={reflection.versionId || null}
-                hideSource
               />
             </div>
           </section>

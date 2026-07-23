@@ -19,7 +19,7 @@ const GAP_X = 72;
 const GAP_Y = 80;
 
 // Vertical order within a column: inputs above the spine, verdicts/outputs below.
-const TYPE_ORDER = { resource: 0, resource_group: 1, attempt: 2, sandbox: 3, review: 4, conclusion: 5, claim: 6 };
+const TYPE_ORDER = { artifact: 0, artifact_group: 1, attempt: 2, sandbox: 3, review: 4, conclusion: 5, claim: 6 };
 
 export function layoutFigure(figure) {
   const rawNodes = figure?.nodes || [];

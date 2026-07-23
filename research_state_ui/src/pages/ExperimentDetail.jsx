@@ -1,12 +1,7 @@
 import { useCallback, useMemo, useRef, useState } from 'react';
 import { Link, useParams } from 'react-router-dom';
 import { api } from '../api';
-import {
-  useProjectStore,
-  useProjectHref,
-  selectResources,
-  selectHasLocalDataPlaneHttp,
-} from '../store/useProjectStore';
+import { useProjectStore, useProjectHref } from '../store/useProjectStore';
 import { useStreamAwarePoll } from '../store/useEventStream';
 import FSMStrip from '../components/FSMStrip';
 import GateBanner from '../components/GateBanner';
@@ -15,8 +10,7 @@ import ReportSpotlight from '../components/ReportSpotlight';
 import ExperimentGraphs from '../components/ExperimentGraphs';
 import ExperimentMetrics from '../components/ExperimentMetrics';
 import SandboxTerminal from '../components/SandboxTerminal';
-import ResourceList from '../components/ResourceList';
-import AddResourceToExperiment from '../components/AddResourceToExperiment';
+import ArtifactList from '../components/ArtifactList';
 import IndependentRead from '../components/IndependentRead';
 import { expName } from '../utils/experiment';
 import { pickIndependentRead } from '../utils/independentRead';
@@ -52,16 +46,12 @@ export default function ExperimentDetail() {
   const px = useProjectHref();
   const projectId = useProjectStore(s => s.projectId);
   const refreshHome = useProjectStore(s => s.refreshHome);
-  const allProjectResources = useProjectStore(selectResources);
-  const hasLocalDataPlane = useProjectStore(selectHasLocalDataPlaneHttp);
 
   const [statusData, setStatusData] = useState(null);
   const [error, setError] = useState(null);
   const [busy, setBusy] = useState(new Set());
   const [actionError, setActionError] = useState(null);
   const [gateOpen, setGateOpen] = useState(false);
-  const [showAddPlan, setShowAddPlan] = useState(false);
-  const [showAddInput, setShowAddInput] = useState(false);
 
   // Cross-page deep links (e.g. /experiments/:id#execution) — once the
   // experiment has loaded and its sections rendered, scroll the matching id
@@ -124,39 +114,26 @@ export default function ExperimentDetail() {
   const currentAttempt = experiment.attempt_index;
   const isClosed = ['complete', 'failed', 'abandoned'].includes(experiment.status);
 
-  // Partition resources by role.
+  // Partition artifacts by role.
   const currentRes = (experiment.current_attempt_resources || [])
     .slice()
     .sort((a, b) => (a.association_role || '').localeCompare(b.association_role || ''));
   const currentIds = new Set(currentRes.map(r => r.id));
-  // The status endpoint's current_attempt_resources gives us per-attempt
-  // association metadata (role / attempt), but not the richer /home shape
-  // (version_token, associations[]) — so we look the resource up in the
-  // project store, which carries it.
-  //
-  // Fallback: if the current attempt hasn't associated a plan yet (e.g. just
-  // bumped to a new attempt), find the experiment's plan resource via its
-  // full associations history so PlanSpotlight can still render it.
-  const planResBare = currentRes.find(r => r.association_role === 'plan') || null;
-  const planResFromCurrent = planResBare
-    ? (allProjectResources.find(r => r.id === planResBare.id) || planResBare)
-    : null;
-  const planResFromHistory = planResFromCurrent
-    ? null
-    : allProjectResources.find(r => (r.associations || []).some(
-        a => a.target_type === 'experiment' && a.target_id === experimentId && a.role === 'plan'
-      )) || null;
-  const planRes = planResFromCurrent || planResFromHistory;
+  // Fallback: if the current attempt has no plan yet (e.g. just bumped to a
+  // new attempt), show the newest earlier-attempt plan so PlanSpotlight can
+  // still render it.
+  const planRes = currentRes.find(r => r.association_role === 'plan')
+    || (experiment.resources || [])
+      .filter(r => r.association_role === 'plan')
+      .sort((a, b) => (a.association_attempt_index ?? 0) - (b.association_attempt_index ?? 0))
+      .pop()
+    || null;
   // The results report (role 'report') mirrors the plan: current attempt only
   // (a prior attempt's report is history, not the face of this attempt).
-  const reportResBare = currentRes.find(r => r.association_role === 'report') || null;
-  const reportRes = reportResBare
-    ? (allProjectResources.find(r => r.id === reportResBare.id) || reportResBare)
-    : null;
-  const execRes    = currentRes.filter(r => ['code', 'config', 'input'].includes(r.association_role));
-  // `result`-type resources are intentionally not surfaced on this page. Model
-  // artifacts (a distinct type) fall through to "Other resources" below.
-  const otherRes   = currentRes.filter(r => !['plan', 'report', 'code', 'config', 'input', 'result'].includes(r.association_role));
+  const reportRes = currentRes.find(r => r.association_role === 'report') || null;
+  // `result` artifacts are intentionally not surfaced on this page (they feed
+  // the metrics exhibit); anything beyond plan/report/graph falls through.
+  const otherRes = currentRes.filter(r => !['plan', 'report', 'graph', 'result'].includes(r.association_role));
 
   // Historical (deduped by id).
   const historicalRes = (experiment.resources || [])
@@ -174,8 +151,6 @@ export default function ExperimentDetail() {
   // The page's lede: the independent reviewer's synopsis when one exists,
   // else the experiment's own intent line.
   const independentRead = pickIndependentRead(allReviews, experiment);
-
-  const refresh = async () => { await Promise.all([fetchStatus(), refreshHome()]); };
 
   return (
     <div className="page-stage">
@@ -238,7 +213,7 @@ export default function ExperimentDetail() {
       {reportRes && (
         <ReportSpotlight
           projectId={projectId}
-          reportResource={reportRes}
+          reportArtifact={reportRes}
           experimentReviews={experimentReviews}
           experimentStatus={experiment.status}
         />
@@ -261,81 +236,17 @@ export default function ExperimentDetail() {
         collapsible
       />
 
-      {!['complete', 'failed', 'abandoned'].includes(experiment.status) && (
-        <div className="spotlight-followup">
-          <button
-            type="button"
-            className="btn btn--sm btn--ghost"
-            disabled={!hasLocalDataPlane}
-            title={
-              hasLocalDataPlane
-                ? 'Add code, config, or input resources'
-                : 'Requires the local data-plane daemon'
-            }
-            onClick={() => setShowAddInput(v => !v)}
-          >
-            {showAddInput ? 'Cancel' : '+ Add code / config / input'}
-          </button>
-          {showAddInput && (
-            <div style={{ marginTop: 10 }}>
-              <AddResourceToExperiment
-                projectId={projectId}
-                experimentId={experimentId}
-                attemptIndex={currentAttempt}
-                currentResources={currentRes}
-                allResources={allProjectResources}
-                defaultRole="code"
-                onCancel={() => setShowAddInput(false)}
-                onDone={async () => { setShowAddInput(false); await refresh(); }}
-              />
-            </div>
-          )}
-        </div>
-      )}
-
       {/* ═════════════  DESIGN  ═════════════════════════════════════════
           The framing document, oldest so it anchors the bottom. Its design
           review lives behind a "Show review" disclosure on the header. */}
       <PlanSpotlight
         projectId={projectId}
-        planResource={planRes}
+        planArtifact={planRes}
         designReviews={designReviews}
         attemptIndex={currentAttempt}
         experimentStatus={experiment.status}
         defaultOpen={!reportRes}
       />
-
-      {!planRes && !['complete', 'failed', 'abandoned'].includes(experiment.status) && (
-        <div className="spotlight-followup">
-          <button
-            type="button"
-            className="btn btn--sm btn--primary"
-            disabled={!hasLocalDataPlane}
-            title={
-              hasLocalDataPlane
-                ? 'Register and associate a plan resource'
-                : 'Requires the local data-plane daemon'
-            }
-            onClick={() => setShowAddPlan(v => !v)}
-          >
-            {showAddPlan ? 'Cancel' : '+ Register plan resource'}
-          </button>
-          {showAddPlan && (
-            <div style={{ marginTop: 10 }}>
-              <AddResourceToExperiment
-                projectId={projectId}
-                experimentId={experimentId}
-                attemptIndex={currentAttempt}
-                currentResources={currentRes}
-                allResources={allProjectResources}
-                defaultRole="plan"
-                onCancel={() => setShowAddPlan(false)}
-                onDone={async () => { setShowAddPlan(false); await refresh(); }}
-              />
-            </div>
-          )}
-        </div>
-      )}
 
       {(otherRes.length > 0 || historicalRes.length > 0) && (
         <FooterMisc
@@ -354,8 +265,8 @@ function FooterMisc({ projectId, otherRes, historicalRes }) {
     <section className="exp-footer">
       {otherRes.length > 0 && (
         <div style={{ marginBottom: 14 }}>
-          <div className="outcomes-subhead">Other resources</div>
-          <ResourceList projectId={projectId} resources={otherRes} />
+          <div className="outcomes-subhead">Other artifacts</div>
+          <ArtifactList projectId={projectId} artifacts={otherRes} />
         </div>
       )}
       {historicalRes.length > 0 && (
@@ -366,12 +277,12 @@ function FooterMisc({ projectId, otherRes, historicalRes }) {
             onClick={() => setShowHist(v => !v)}
           >
             {showHist
-              ? `Hide earlier-attempt resources (${historicalRes.length})`
+              ? `Hide earlier-attempt artifacts (${historicalRes.length})`
               : `Carried forward from earlier attempts (${historicalRes.length})`}
           </button>
           {showHist && (
             <div style={{ marginTop: 10 }}>
-              <ResourceList projectId={projectId} resources={historicalRes} historical />
+              <ArtifactList projectId={projectId} artifacts={historicalRes} historical />
             </div>
           )}
         </div>

@@ -297,9 +297,9 @@ function MapCanvas({ model, wrapRef, size, initialViewport }) {
   const [sel, setSel] = useState(null);
   const [hover, setHover] = useState(null);
 
-  // Sandbox refs arrive as type 'res'; the object panel speaks 'sbx'.
+  // Artifact refs arrive as type 'art'; the object panel speaks 'sbx'.
   const selectObject = useCallback((type, id) => {
-    setSel({ type: type === 'res' ? 'sbx' : type, id });
+    setSel({ type: type === 'art' ? 'sbx' : type, id });
   }, []);
 
   // Transport: center the card in the viewport minus the panel, then select.

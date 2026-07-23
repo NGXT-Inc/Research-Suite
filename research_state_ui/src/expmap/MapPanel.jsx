@@ -14,7 +14,7 @@ function lookupObject(objects, type, id) {
 
 // Experiments that cite this object — via refs, satellites, or sandbox usage.
 function referencedBy(cards, type, id) {
-  const types = type === 'sbx' ? ['sbx', 'res'] : [type];
+  const types = type === 'sbx' ? ['sbx', 'art'] : [type];
   return cards.filter((c) => (
     (type === 'sbx' && (c.sbxIds || []).includes(id))
     || (c.refs || []).some((r) => types.includes(r.type) && r.id === id)

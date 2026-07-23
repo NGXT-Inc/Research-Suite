@@ -1,7 +1,7 @@
 /**
  * rehype plugin: rewrite bare entity ids in rendered markdown prose into
  * <entity-chip> nodes, which MarkdownView maps to an <EntityChip>. This upgrades
- * every markdown surface (report/plan spotlights, review findings, resource .md
+ * every markdown surface (report/plan spotlights, review findings, artifact .md
  * views) without each having to know about ids.
  *
  * Rules (per the feature spec):

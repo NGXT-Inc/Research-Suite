@@ -25,7 +25,7 @@ function targetHref(targetType, targetId) {
     case 'experiment': return projectPath(pid, `/experiments/${targetId}`);
     case 'claim':      return projectPath(pid, `/claims/${targetId}`);
     case 'project':    return `/projects`;
-    case 'resource':   return projectPath(pid, `/resources`);
+    case 'artifact':   return projectPath(pid, `/artifacts/${targetId}`);
     case 'review':     return projectPath(pid, `/reviews`);
     case 'sandbox':    return projectPath(pid, `/experiments/${targetId}#execution`);
     default:           return null;

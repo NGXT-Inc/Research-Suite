@@ -1326,22 +1326,26 @@ html { scroll-behavior: smooth; }
   flex-shrink: 0;
 }
 
-/* Resource grouping */
+/* Artifact rows */
 .res-path {
   font-family: var(--font-mono);
   font-size: var(--text-sm);
   color: var(--text);
 }
-.res-missing {
-  font-size: 10.5px;
-  font-weight: 600;
-  letter-spacing: 0.06em;
-  text-transform: uppercase;
-  color: var(--refutes);
-  background: rgba(var(--refutes-rgb), 0.08);
+.artifact-role {
+  display: inline-block;
+  margin-right: 8px;
   padding: 1px 6px;
+  border: 1px solid var(--line-soft);
   border-radius: var(--radius-pill);
+  font-size: var(--text-xs);
+  color: var(--muted);
+  background: var(--bg-soft);
 }
+.artifact-group { margin-bottom: 18px; }
+.artifact-group-link { color: inherit; text-decoration: none; }
+.artifact-group-link:hover { text-decoration: underline; }
+.list-row--link { color: inherit; text-decoration: none; }
 
 /* Active experiment card on Home — clickable summary that links into detail */
 .active-exp-card {
@@ -1572,271 +1576,12 @@ html { scroll-behavior: smooth; }
 /* Live shimmer — a subtle sliding highlight on currently-running segments. */
 
 
-/* Sidebar — inline expanding Resources drawer with FileTree inside.
-   Button reset only; everything else flows from .sidebar-link so this row
-   lines up pixel-for-pixel with the NavLink siblings. The chevron sits
-   absolutely positioned outside the count column so counts stay aligned. */
-.sidebar-link--expandable {
-  appearance: none;
-  background: transparent;
-  border: 0;
-  cursor: pointer;
-  text-align: left;
-  width: 100%;
-  font-family: inherit;
-  position: relative;
-}
-/* VSCode-style left chevron for the expandable Resources row.
-   `▸` collapsed, rotates to `▾`-like on expand. Sits in the row's left
-   gutter (14px wide) so the label position is consistent. */
-.sidebar-link-chevron {
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  width: 14px;
-  flex: none;
-  margin-right: 4px;
-  font-size: 10px;
-  line-height: 1;
-  color: var(--faint);
-  transition: transform var(--motion-fast);
-  pointer-events: none;
-}
-.sidebar-link-chevron--open {
-  transform: rotate(90deg);
-  color: var(--muted);
-}
-.sidebar-link-label {
-  flex: 1;
-  min-width: 0;
-  text-align: left;
-}
-.sidebar-subtree {
-  margin: 2px 0 4px;
-  border-left: 1px solid var(--line);
-  margin-left: 13px;
-  /* No left padding: the ft-subtree wrappers inside add 6px of margin from
-     the sidebar-subtree's content edge, which combined with the 1px border
-     gives the same 7px gap as every inter-ft-subtree gap. */
-  padding-left: 0;
-  max-height: 50vh;
-  overflow: auto;
-}
-.sidebar-subtree-empty {
-  font-size: var(--text-xs);
-  color: var(--faint);
-  padding: 6px 10px;
-}
-
-/* Hint card shown in main pane when no file is picked yet */
-.explorer-hint {
-  margin-top: 12px;
-  padding: 32px 28px;
-  border: 1px dashed var(--line);
-  border-radius: var(--radius-md);
-  background: var(--bg-elev);
-  color: var(--muted);
-}
-.explorer-hint-title {
-  font-size: var(--text-md);
-  color: var(--text);
-  margin-bottom: 6px;
-}
-.explorer-hint-sub {
-  font-size: var(--text-sm);
-  color: var(--muted);
-  line-height: var(--leading-base);
-}
-.ft {
-  display: flex;
-  flex-direction: column;
-  font-size: var(--text-sm);
-}
-.ft-row {
-  appearance: none;
-  background: none;
-  border: 1px solid transparent;
-  width: calc(100% - 8px);
-  margin: 0 4px;
-  text-align: left;
-  display: flex;
-  align-items: center;
-  gap: 6px;
-  padding: 3px 10px 3px 8px;
-  cursor: pointer;
-  color: var(--text);
-  font: inherit;
-  line-height: 1.5;
-  border-radius: 6px;
-  position: relative;
-}
-/* Per-folder subtree wrapper. Each expanded folder nests its children inside
-   one of these, adding both a vertical guide line (border-left) and a small
-   horizontal indent. Stacking these wrappers builds VSCode-style tree
-   guides that follow each level of nesting. Keep the indent small so deeply
-   nested files don't get crushed against the right edge of the sidebar. */
-.ft-subtree {
-  margin-left: 6px;
-  border-left: 1px solid var(--line);
-}
-@media (hover: hover) {
-  .ft-row:hover { background: var(--hover); }
-}
-.ft-row.is-selected {
-  background: var(--bg-elev);
-  border-color: rgba(var(--active-rgb), 0.55);
-  box-shadow: 0 0 0 1px rgba(var(--active-rgb), 0.15) inset;
-}
-.ft-twist {
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  width: 14px;
-  color: var(--muted);
-  font-size: 11px;
-  line-height: 1;
-  flex-shrink: 0;
-}
-.ft-row--folder .ft-twist { color: var(--text); }
-.ft-fi {
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  width: 16px;
-  height: 16px;
-  flex-shrink: 0;
-  color: var(--muted);
-}
-.ft-fi--md      { color: #2f7d32; }
-.ft-fi--react   { color: #2196c0; }
-.ft-fi--js      { color: #b58900; }
-.ft-fi--ts      { color: #2563b0; }
-.ft-fi--py      { color: #c98a1a; }
-.ft-fi--cfg     { color: #8a6a2c; }
-.ft-fi--data    { color: #1f7a3c; }
-.ft-fi--html    { color: #b14d2c; }
-.ft-fi--css     { color: #2563b0; }
-.ft-fi--shell   { color: #5a5a5a; }
-.ft-fi--default { color: var(--faint); }
-/* File-type hues brightened for dark surfaces. */
-html[data-theme="dark"] .ft-fi--md      { color: #7cc285; }
-html[data-theme="dark"] .ft-fi--react   { color: #56c0e8; }
-html[data-theme="dark"] .ft-fi--js      { color: #d9b53a; }
-html[data-theme="dark"] .ft-fi--ts      { color: #6f9fe8; }
-html[data-theme="dark"] .ft-fi--py      { color: #e0aa48; }
-html[data-theme="dark"] .ft-fi--cfg     { color: #b59868; }
-html[data-theme="dark"] .ft-fi--data    { color: #67b878; }
-html[data-theme="dark"] .ft-fi--html    { color: #e0795a; }
-html[data-theme="dark"] .ft-fi--css     { color: #6f9fe8; }
-html[data-theme="dark"] .ft-fi--shell   { color: #a3a19a; }
-.ft-name {
-  font-family: var(--font-body);
-  font-size: var(--text-sm);
-  color: var(--text);
-  white-space: nowrap;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  flex: 1;
-  min-width: 0;
-}
-.ft-name--folder {
-  font-family: var(--font-body);
-  color: var(--text);
-  font-weight: 400;
-}
-.ft-tag {
-  font-size: 10px;
-  font-weight: 600;
-  letter-spacing: 0.06em;
-  text-transform: uppercase;
-  padding: 1px 6px;
-  border-radius: var(--radius-pill);
-  margin-left: 6px;
-  flex-shrink: 0;
-}
-.ft-tag--missing {
-  color: var(--refutes);
-  background: rgba(var(--refutes-rgb), 0.08);
-}
-.ft-empty {
-  padding: 16px;
-  font-size: var(--text-sm);
-}
 
 /* File preview — collapsed path strip, then full-width body */
 .file-view {
   display: flex;
   flex-direction: column;
   gap: 10px;
-}
-.file-strip {
-  background: var(--bg-elev);
-  border: 1px solid var(--line);
-  border-radius: var(--radius-md);
-}
-.file-strip-head {
-  appearance: none;
-  background: transparent;
-  border: 0;
-  cursor: pointer;
-  width: 100%;
-  text-align: left;
-  display: flex;
-  align-items: center;
-  gap: 12px;
-  padding: 10px 14px;
-  font-family: inherit;
-  font-size: inherit;
-  color: var(--text);
-}
-.file-strip-head:hover { background: var(--bg-soft); }
-.file-strip-path {
-  flex: 1;
-  font-size: var(--text-sm);
-  color: var(--text);
-  white-space: nowrap;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  min-width: 0;
-}
-.file-strip-size {
-  font-size: var(--text-xs);
-  color: var(--muted);
-  font-variant-numeric: tabular-nums;
-}
-.file-strip-twist {
-  color: var(--faint);
-  font-size: 10px;
-}
-.file-strip-details {
-  padding: 0 14px 12px;
-  border-top: 1px solid var(--line-soft);
-  margin-top: -1px;
-}
-.file-strip-meta {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 4px 14px;
-  margin-top: 10px;
-  font-size: var(--text-xs);
-  color: var(--muted);
-  align-items: center;
-}
-.file-strip-title {
-  font-size: var(--text-sm);
-  color: var(--muted);
-  margin-top: 8px;
-}
-.file-strip-actions {
-  display: flex;
-  gap: 8px;
-  margin-top: 10px;
-  flex-wrap: wrap;
-}
-.file-strip-associate {
-  margin-top: 10px;
-  padding-top: 10px;
-  border-top: 1px solid var(--line-soft);
 }
 .file-body {
   /* No card chrome — let the file content (markdown / code block) own the
@@ -1869,86 +1614,8 @@ html[data-theme="dark"] .ft-fi--shell   { color: #a3a19a; }
   display: block;
 }
 
-/* Banner above the file body when viewing a past version */
 
-/* Version history panel inside file-strip-details */
-.version-history {
-  margin-top: 12px;
-  padding-top: 10px;
-  border-top: 1px solid var(--line-soft);
-}
-.version-history-toggle {
-  appearance: none;
-  background: none;
-  border: 0;
-  cursor: pointer;
-  font-family: inherit;
-  font-size: var(--text-xs);
-  font-weight: 600;
-  letter-spacing: 0.06em;
-  text-transform: uppercase;
-  color: var(--muted);
-  padding: 2px 0;
-  display: inline-flex;
-  align-items: center;
-  gap: 6px;
-}
-.version-history-twist {
-  font-size: 10px;
-  color: var(--faint);
-}
-.version-history-count {
-  font-size: 10.5px;
-  font-weight: 600;
-  color: var(--faint);
-  margin-left: 4px;
-  font-variant-numeric: tabular-nums;
-}
-.version-history-body {
-  margin-top: 8px;
-  display: flex;
-  flex-direction: column;
-  gap: 6px;
-}
 
-.version-row {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 12px;
-  padding: 8px 12px;
-  border: 1px solid var(--line);
-  border-radius: var(--radius-md);
-  background: var(--bg-elev);
-}
-.version-row.is-viewing {
-  border-color: rgba(var(--active-rgb), 0.55);
-  box-shadow: 0 0 0 1px rgba(var(--active-rgb), 0.18) inset;
-}
-.version-row-main { min-width: 0; }
-.version-row-line {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-}
-.version-row-id {
-  font-size: var(--text-xs);
-  color: var(--muted);
-}
-.version-row-tag {
-  font-size: 10px;
-  font-weight: 600;
-  letter-spacing: 0.06em;
-  text-transform: uppercase;
-  padding: 1px 6px;
-  border-radius: var(--radius-pill);
-}
-.version-row-tag--current { color: var(--supports); background: rgba(var(--supports-rgb), 0.08); border: 1px solid rgba(var(--supports-rgb), 0.3); }
-.version-row-sub {
-  font-size: var(--text-xs);
-  color: var(--muted);
-  margin-top: 2px;
-}
 
 
 /* Content preview (plain text fallback) */
@@ -2655,11 +2322,6 @@ html[data-theme="dark"] .ft-fi--shell   { color: #a3a19a; }
   font-size: var(--text-sm);
   padding: 8px 0;
 }
-.spotlight-followup {
-  margin-top: -16px;
-  margin-bottom: 24px;
-  padding-left: 4px;
-}
 
 .plan-history {
   margin-top: 22px;
@@ -2774,17 +2436,6 @@ details[open] > .plan-section-toggle::before { transform: rotate(90deg); }
 .plan-status--revising     { color: var(--qualifies); background: rgba(var(--qualifies-rgb), 0.05); border: 1px solid rgba(var(--qualifies-rgb), 0.25); }
 
 /* "viewing past version" + "live file advanced" indicators */
-.plan-version-tag {
-  font-size: 10.5px;
-  font-weight: 600;
-  letter-spacing: 0.04em;
-  text-transform: uppercase;
-  color: var(--muted);
-  background: var(--bg-soft);
-  border: 1px solid var(--line);
-  padding: 1px 8px;
-  border-radius: var(--radius-pill);
-}
 
 /* "Snapshot not available" placeholder */
 
@@ -4554,36 +4205,10 @@ a.clb-card:focus-visible { outline: 2px solid var(--active); outline-offset: -2p
    All colors flow through tokens so dark theme inherits for free.
    ============================================================ */
 
-/* Source-of-truth badge: is the rendered artifact the SUBMITTED
-   pinned snapshot the gates lint and reviewers grade, or the LIVE
-   working-tree file? (submitted bytes don't change until re-associate.) */
-.src-badge {
-  display: inline-flex; align-items: center; gap: 5px;
-  padding: 2px 8px; border-radius: var(--radius-pill);
-  font-size: var(--text-xs); font-weight: 500;
-  border: 1px solid var(--line-strong); color: var(--muted);
-  background: var(--bg-soft); white-space: nowrap;
-}
-.src-badge-dot { width: 6px; height: 6px; border-radius: 50%; background: currentColor; }
-.src-badge--submitted { color: var(--active); border-color: rgba(var(--active-rgb), .35); background: rgba(var(--active-rgb), .07); }
-.src-badge--live { color: var(--supports); border-color: rgba(var(--supports-rgb), .35); background: rgba(var(--supports-rgb), .07); }
-.src-badge--unavailable { color: var(--refutes); border-color: rgba(var(--refutes-rgb), .35); background: rgba(var(--refutes-rgb), .07); }
-.src-badge-version { font-family: var(--font-mono); opacity: .8; }
-.src-badge-note { margin-left: 8px; font-size: var(--text-xs); color: var(--faint); }
 
-/* Degraded content panel — bytes unavailable in this mode (cloud
-   result-role files live only on the offline daemon). */
-.content-unavailable {
-  display: flex; flex-direction: column; gap: 6px;
-  padding: 16px 18px; border: 1px dashed var(--line-strong);
-  border-radius: var(--radius-md); background: var(--bg-soft);
-  color: var(--muted); font-size: var(--text-sm);
-}
-.content-unavailable-title { font-weight: 600; color: var(--text); }
-.content-unavailable-detail { color: var(--faint); }
 
 /* Inline placeholder swapped in when a report/markdown figure 404s
-   (not in the submitted set → re-associate the report). */
+   (not in the submitted set → resubmit the report with its figures). */
 .figure-missing {
   display: flex; flex-direction: column; gap: 4px; align-items: center; justify-content: center;
   padding: 18px; margin: 8px 0;

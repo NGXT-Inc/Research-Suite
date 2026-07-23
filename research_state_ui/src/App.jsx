@@ -12,7 +12,7 @@ import HomeScreen from './mobile/HomeScreen';
 import ExperimentCardList from './mobile/ExperimentCardList';
 import MobileExperimentDetail from './mobile/MobileExperimentDetail';
 import SandboxCardList from './mobile/SandboxCardList';
-import MobileResources from './mobile/MobileResources';
+import MobileArtifacts from './mobile/MobileArtifacts';
 import MobileClaims from './mobile/MobileClaims';
 import MobileClaimDetail from './mobile/MobileClaimDetail';
 import MobileReviews from './mobile/MobileReviews';
@@ -29,7 +29,7 @@ import ClaimDetail from './pages/ClaimDetail';
 import LitReview from './pages/LitReview';
 import Experiments from './pages/Experiments';
 import ExperimentDetail from './pages/ExperimentDetail';
-import Resources from './pages/Resources';
+import Artifacts from './pages/Artifacts';
 import Storage from './pages/Storage';
 import Reviews from './pages/Reviews';
 import Events from './pages/Events';
@@ -193,8 +193,8 @@ export default function App() {
             <Route path="experiments" element={<ExperimentCardList />} />
             <Route path="experiments/:experimentId" element={<MobileExperimentDetail />} />
             <Route path="reflection" element={<MobileReflectionScreen />} />
-            <Route path="resources" element={<MobileResources />} />
-            <Route path="resources/:resourceId" element={<MobileResources />} />
+            <Route path="artifacts" element={<MobileArtifacts />} />
+            <Route path="artifacts/:artifactId" element={<MobileArtifacts />} />
             <Route path="storage" element={<Storage />} />
             <Route path="storage/:objectId" element={<Storage />} />
             <Route path="reviews" element={<MobileReviews />} />
@@ -242,8 +242,8 @@ export default function App() {
             <Route path="litreview" element={<LitReview />} />
             <Route path="experiments" element={<Experiments />} />
             <Route path="experiments/:experimentId" element={<ExperimentDetail />} />
-            <Route path="resources" element={<Resources />} />
-            <Route path="resources/:resourceId" element={<Resources />} />
+            <Route path="artifacts" element={<Artifacts />} />
+            <Route path="artifacts/:artifactId" element={<Artifacts />} />
             <Route path="storage" element={<Storage />} />
             <Route path="storage/:objectId" element={<Storage />} />
             <Route path="reviews" element={<Reviews />} />

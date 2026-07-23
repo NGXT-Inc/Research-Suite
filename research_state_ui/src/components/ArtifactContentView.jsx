@@ -1,11 +1,8 @@
 import { useCallback, useEffect, useState } from 'react';
 import { api } from '../api';
 import { AuthedImg, RawLink } from './AuthedMedia';
-import { useProjectStore, selectHasLocalDataPlaneHttp } from '../store/useProjectStore';
 import FileRenderer from './FileRenderer';
 import PdfView from './PdfView';
-import SourceBadge from './SourceBadge';
-import ContentUnavailable from './ContentUnavailable';
 import { formatBytes, isMarkdown } from '../utils/format';
 
 // Drop a leading "# <title>" from markdown when it just repeats a name already
@@ -74,18 +71,13 @@ function isBinaryPath(path) {
 // responsive. The raw-file link serves the untruncated bytes.
 const MAX_PREVIEW_CHARS = 200_000;
 
-export default function ResourceContentView({
-  projectId, resourceId, size, path,
-  // Pin a specific submitted version (faithful historical rendering for a past
-  // reflection wave's graph/proposals). Null → latest submitted bytes / live file.
-  version = null,
-  // Panel-context trims: hide the provenance badge entirely, drop a leading H1
-  // that just echoes the title shown in the panel header (dedupeTitle), or drop
-  // the leading H1 unconditionally when the panel already labels the section
-  // (stripTitle).
-  hideSource = false, dedupeTitle = null, stripTitle = false,
+export default function ArtifactContentView({
+  projectId, artifactId, size, path,
+  // Panel-context trims: drop a leading H1 that just echoes the title shown in
+  // the panel header (dedupeTitle), or drop the leading H1 unconditionally when
+  // the panel already labels the section (stripTitle).
+  dedupeTitle = null, stripTitle = false,
 }) {
-  const hasLocalDataPlane = useProjectStore(selectHasLocalDataPlaneHttp);
   // PDFs render directly via the file endpoint (the browser's PDF viewer
   // streams the bytes). Known-binary types (model weights, archives, media)
   // never render inline at all. Both skip /content — for PDFs it would just
@@ -102,8 +94,8 @@ export default function ResourceContentView({
   // Stable identity: MarkdownView keys its `img` component (and its memo) on
   // this — an inline arrow here would remount every figure per re-render.
   const resolveImageSrc = useCallback(
-    (src) => api.resourceFileUrl(projectId, resourceId, src),
-    [projectId, resourceId],
+    (src) => api.artifactFigureUrl(projectId, artifactId, src),
+    [projectId, artifactId],
   );
 
   useEffect(() => {
@@ -121,7 +113,7 @@ export default function ResourceContentView({
     setLoading(true);
     setError(null);
     setContent(null);
-    api.getResourceContent(projectId, resourceId, version)
+    api.getArtifactContent(projectId, artifactId)
       .then(data => {
         if (cancelled) return;
         setContent(data);
@@ -132,26 +124,24 @@ export default function ResourceContentView({
       })
       .finally(() => !cancelled && setLoading(false));
     return () => { cancelled = true; };
-  }, [projectId, resourceId, version, renderPdf, renderImage, renderBinary]);
+  }, [projectId, artifactId, renderPdf, renderImage, renderBinary]);
 
   if (renderPdf) {
-    if (!hasLocalDataPlane) return <LocalFileUnavailable path={path} />;
     return (
       <div>
-        <PdfView projectId={projectId} resourceId={resourceId} path={path} />
+        <PdfView projectId={projectId} artifactId={artifactId} path={path} />
       </div>
     );
   }
 
   if (renderImage) {
-    if (!hasLocalDataPlane) return <LocalFileUnavailable path={path} />;
     return (
       <div className="image-view">
         {/* Not lazy: inside a small overflow:auto preview panel a lazy image
             sits "below the fold" of the scroll box and never loads. */}
         <AuthedImg
           className="image-view-img"
-          src={api.resourceFileUrl(projectId, resourceId)}
+          src={api.artifactFileUrl(projectId, artifactId)}
           alt={path || 'image'}
         />
       </div>
@@ -162,9 +152,7 @@ export default function ResourceContentView({
     return (
       <div className="empty">
         Binary file{size != null ? ` (${formatBytes(size)})` : ''}.{' '}
-        {hasLocalDataPlane ? (
-          <RawLink href={api.resourceFileUrl(projectId, resourceId)}>Open raw</RawLink>
-        ) : null}
+        <RawLink href={api.artifactFileUrl(projectId, artifactId)}>Open raw</RawLink>
       </div>
     );
   }
@@ -174,26 +162,11 @@ export default function ResourceContentView({
     return (
       <div>
         <div className="error-message">{error}</div>
-        {hasLocalDataPlane ? (
-          <RawLink href={api.resourceFileUrl(projectId, resourceId)}>Open raw file</RawLink>
-        ) : null}
+        <RawLink href={api.artifactFileUrl(projectId, artifactId)}>Open raw file</RawLink>
       </div>
     );
   }
   if (!content) return null;
-
-  if (content.available === false) {
-    return (
-      <ContentUnavailable
-        content={content}
-        fallbackLink={
-          hasLocalDataPlane
-            ? { href: api.resourceFileUrl(projectId, resourceId), label: 'Open raw file' }
-            : null
-        }
-      />
-    );
-  }
 
   const isBinary = content.is_binary || !('content' in content);
   const fullText = content.content ?? '';
@@ -207,35 +180,21 @@ export default function ResourceContentView({
 
   return (
     <div>
-      {!hideSource && <SourceBadge source={content.source} versionId={content.version_id} />}
       {(content.truncated || overCap) && (
         <div className="content-truncated-note">File is large — preview is truncated.</div>
       )}
       {isBinary ? (
         <div className="empty">
           Binary file ({formatBytes(meta)}).{' '}
-          {hasLocalDataPlane ? (
-            <RawLink href={api.resourceFileUrl(projectId, resourceId)}>Open raw</RawLink>
-          ) : null}
+          <RawLink href={api.artifactFileUrl(projectId, artifactId)}>Open raw</RawLink>
         </div>
       ) : (
         <FileRenderer
           text={text}
           path={path || content.path}
-          resolveImageSrc={hasLocalDataPlane ? resolveImageSrc : null}
+          resolveImageSrc={resolveImageSrc}
         />
       )}
     </div>
-  );
-}
-
-function LocalFileUnavailable({ path }) {
-  return (
-    <ContentUnavailable
-      content={{
-        reason: 'content_unavailable_in_this_mode',
-        detail: `${path || 'This file'} is unavailable in this mode.`,
-      }}
-    />
   );
 }
