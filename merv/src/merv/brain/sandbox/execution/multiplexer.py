@@ -312,11 +312,11 @@ class MultiplexingSandboxBackend(SandboxBackendBase):
             notes.extend(n for n in env.get("notes", []) if n not in notes)
         return {"available_tokens": tokens, "notes": notes}
 
-    def sandbox_secrets(self) -> dict[str, str]:
+    def sandbox_secrets(self, *, hf_token: str = "") -> dict[str, str]:
         merged: dict[str, str] = {}
         for backend in self.backends.values():
             try:
-                merged.update(backend.sandbox_secrets())
+                merged.update(backend.sandbox_secrets(hf_token=hf_token))
             except Exception:  # noqa: BLE001
                 continue
         return merged

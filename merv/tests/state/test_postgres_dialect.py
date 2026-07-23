@@ -197,6 +197,20 @@ def _schema_without_sandbox_tenant() -> str:
     return legacy
 
 
+def _schema_without_user_hf_tokens() -> str:
+    """SCHEMA before the no-dataplane Phase C table: no user_hf_tokens."""
+    legacy = re.sub(
+        r"\n-- Per-user Hugging Face access token.*?"
+        r"CREATE TABLE IF NOT EXISTS user_hf_tokens \(.*?\n\);\n",
+        "\n",
+        SCHEMA,
+        flags=re.DOTALL,
+    )
+    if legacy == SCHEMA or "user_hf_tokens" in legacy:
+        raise AssertionError("failed to build the pre-user-hf-tokens schema")
+    return legacy
+
+
 def _schema_with_legacy_sandbox_identity() -> str:
     """SCHEMA as it stood before the decoupling refactor: sandboxes keyed by
     experiment_id, before tables whose foreign keys require sandbox_uid."""
@@ -724,6 +738,50 @@ class PostgresStoreBehaviorTest(unittest.TestCase):
             )
         finally:
             conn.close()
+
+    def test_legacy_postgres_store_gains_user_hf_tokens(self) -> None:
+        """Old-DB upgrade through the no-dataplane Phase C block: replay ledger
+        rows < 31 against a schema without user_hf_tokens, re-open, and confirm
+        migration 31 creates the table (migration + ledger row inside one
+        transaction on the autocommit connection). The write-only round trip
+        (set -> resolve) works on the Postgres dialect too."""
+        dsn = _reset_database()
+        import psycopg
+
+        legacy_schema = _schema_without_user_hf_tokens()
+        created = now_iso()
+        with psycopg.connect(dsn, autocommit=True) as conn:
+            conn.execute(translate_schema_to_postgres(legacy_schema))
+            for version, name, _statement in MIGRATIONS:
+                if version >= 31:
+                    continue
+                conn.execute(
+                    "INSERT INTO schema_migrations (version, name, applied_at) "
+                    "VALUES (%s, %s, %s)",
+                    (version, name, created),
+                )
+
+        store = PostgresStateStore(dsn=dsn)
+        conn = store.connect()
+        try:
+            self.assertTrue(store._has_table(conn=conn, table="user_hf_tokens"))
+            ledger = conn.execute(
+                "SELECT version, name FROM schema_migrations ORDER BY version"
+            ).fetchall()
+            self.assertEqual(
+                [(int(r["version"]), str(r["name"])) for r in ledger],
+                [(version, name) for version, name, _statement in MIGRATIONS],
+            )
+        finally:
+            conn.close()
+
+        # Write-only round trip: set, resolve (internal), clear, resolve empty.
+        store.set_user_hf_token(user_id="user_pg", token="hf_pg_secret")
+        self.assertEqual(store.user_hf_token(user_id="user_pg"), "hf_pg_secret")
+        store.set_user_hf_token(user_id="user_pg", token="hf_pg_rotated")  # upsert
+        self.assertEqual(store.user_hf_token(user_id="user_pg"), "hf_pg_rotated")
+        store.clear_user_hf_token(user_id="user_pg")
+        self.assertEqual(store.user_hf_token(user_id="user_pg"), "")
 
     def test_legacy_postgres_sandboxes_gain_uid_and_attachments(self) -> None:
         dsn = _reset_database()

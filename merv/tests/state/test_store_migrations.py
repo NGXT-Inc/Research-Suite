@@ -1185,5 +1185,48 @@ class StoreMigrationTest(unittest.TestCase):
             conn.close()
 
 
+class UserHfTokenStoreTest(unittest.TestCase):
+    """no-dataplane Phase C: write-only per-user Hugging Face token store."""
+
+    def setUp(self) -> None:
+        self.tmp = tempfile.TemporaryDirectory()
+        self.db = Path(self.tmp.name) / ".research_plugin" / "state.sqlite"
+        self.db.parent.mkdir(parents=True, exist_ok=True)
+        self.store = StateStore(db_path=self.db)
+
+    def tearDown(self) -> None:
+        self.tmp.cleanup()
+
+    def test_fresh_db_has_user_hf_tokens_table(self) -> None:
+        conn = self.store.connect()
+        try:
+            self.assertTrue(self.store._has_table(conn=conn, table="user_hf_tokens"))
+        finally:
+            conn.close()
+
+    def test_set_resolve_upsert_and_clear(self) -> None:
+        self.assertEqual(self.store.user_hf_token(user_id="u1"), "")
+        self.store.set_user_hf_token(user_id="u1", token="hf_first")
+        self.assertEqual(self.store.user_hf_token(user_id="u1"), "hf_first")
+        # Upsert (one row per user) — the second set replaces, not appends.
+        self.store.set_user_hf_token(user_id="u1", token="hf_second")
+        self.assertEqual(self.store.user_hf_token(user_id="u1"), "hf_second")
+        conn = self.store.connect()
+        try:
+            count = conn.execute(
+                "SELECT COUNT(*) AS n FROM user_hf_tokens WHERE user_id = ?", ("u1",)
+            ).fetchone()
+            self.assertEqual(int(count["n"]), 1)
+        finally:
+            conn.close()
+        self.store.clear_user_hf_token(user_id="u1")
+        self.assertEqual(self.store.user_hf_token(user_id="u1"), "")
+
+    def test_resolve_is_scoped_per_user_and_empty_for_unknown(self) -> None:
+        self.store.set_user_hf_token(user_id="a", token="hf_a")
+        self.assertEqual(self.store.user_hf_token(user_id="b"), "")
+        self.assertEqual(self.store.user_hf_token(user_id=""), "")
+
+
 if __name__ == "__main__":
     unittest.main()

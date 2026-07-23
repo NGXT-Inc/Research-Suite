@@ -1,9 +1,11 @@
 from __future__ import annotations
 
+import os
 import tempfile
 import threading
 import time
 import unittest
+from unittest import mock
 from pathlib import Path
 
 from tests.support.brain import TestBrain
@@ -1651,6 +1653,142 @@ class SandboxServiceTest(unittest.TestCase):
             "sandbox.get", project_id=self.project_id, experiment_id=exp_id
         )
         self.assertEqual(result["status"], "none")
+
+
+_PUBKEY = "ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789 a@b"
+
+
+class SandboxHfAndAttributionTest(unittest.TestCase):
+    """no-dataplane Phase C: per-user HF resolution + key_id attribution."""
+
+    def setUp(self) -> None:
+        self.tmp = tempfile.TemporaryDirectory()
+        self.repo = Path(self.tmp.name)
+        self.backend = FakeSandboxBackend()
+        self.app = TestBrain(
+            repo_root=self.repo,
+            db_path=self.repo / ".research_plugin" / "state.sqlite",
+            execution_backend=self.backend,
+        )
+        self.project_id = self.app.call_tool(
+            "project", {"action": "create", "name": "HF Project"}
+        )["id"]
+
+    def tearDown(self) -> None:
+        self.app.shutdown()
+        self.tmp.cleanup()
+
+    def _latest_generation(self) -> dict:
+        with self.app.store.transaction() as conn:
+            row = conn.execute(
+                "SELECT key_id FROM sandbox_generations "
+                "ORDER BY created_seq DESC LIMIT 1"
+            ).fetchone()
+        return dict(row)
+
+    def test_hf_token_resolves_from_the_provisioning_user(self) -> None:
+        self.app.store.set_user_hf_token(user_id="u1", token="hf_user_secret")
+        self.app.sandboxes.request(
+            project_id=self.project_id, public_key=_PUBKEY, provisioning_user_id="u1"
+        )
+        self.assertEqual(self.backend.acquired[-1].hf_token, "hf_user_secret")
+
+    def test_no_token_degrades_gracefully_and_env_fallback_is_removed(self) -> None:
+        # A deployment-wide HF_TOKEN in the environment is IGNORED; a user with
+        # no stored token simply provisions with no HF secret (no crash).
+        with mock.patch.dict(os.environ, {"HF_TOKEN": "hf_deployment"}, clear=False):
+            self.app.sandboxes.request(
+                project_id=self.project_id,
+                public_key=_PUBKEY,
+                provisioning_user_id="user-with-no-token",
+            )
+        self.assertEqual(self.backend.acquired[-1].hf_token, "")
+
+    def test_cleared_token_resolves_empty(self) -> None:
+        self.app.store.set_user_hf_token(user_id="u2", token="hf_x")
+        self.app.store.clear_user_hf_token(user_id="u2")
+        self.app.sandboxes.request(
+            project_id=self.project_id, public_key=_PUBKEY, provisioning_user_id="u2"
+        )
+        self.assertEqual(self.backend.acquired[-1].hf_token, "")
+
+    def test_hf_token_is_never_readable_back(self) -> None:
+        self.app.store.set_user_hf_token(user_id="u3", token="hf_secret")
+        # The only reader is the internal resolver; there is no getter that
+        # returns the value to a caller besides provisioning.
+        self.assertEqual(self.app.store.user_hf_token(user_id="u3"), "hf_secret")
+        self.assertFalse(hasattr(self.app.user_settings, "get_token"))
+
+    def test_key_id_attribution_recorded_for_key_provision(self) -> None:
+        self.app.sandboxes.request(
+            project_id=self.project_id,
+            public_key=_PUBKEY,
+            provisioning_key_id="mk_key_1",
+        )
+        self.assertEqual(self._latest_generation()["key_id"], "mk_key_1")
+
+    def test_non_key_provision_leaves_key_id_null(self) -> None:
+        self.app.sandboxes.request(project_id=self.project_id, public_key=_PUBKEY)
+        self.assertIsNone(self._latest_generation()["key_id"])
+
+
+class SandboxRequestToctouGuardTest(unittest.TestCase):
+    """no-dataplane Phase C: concurrent same-experiment requests provision once."""
+
+    def setUp(self) -> None:
+        self.tmp = tempfile.TemporaryDirectory()
+        self.repo = Path(self.tmp.name)
+        self.backend = FakeSandboxBackend()
+        self.app = TestBrain(
+            repo_root=self.repo,
+            db_path=self.repo / ".research_plugin" / "state.sqlite",
+            execution_backend=self.backend,
+        )
+        self.project_id = self.app.call_tool(
+            "project", {"action": "create", "name": "TOCTOU Project"}
+        )["id"]
+
+    def tearDown(self) -> None:
+        self.app.shutdown()
+        self.tmp.cleanup()
+
+    def test_two_concurrent_requests_provision_a_single_sandbox(self) -> None:
+        exp_id = self.app.call_tool(
+            "experiment.create",
+            {"project_id": self.project_id, "name": "race", "intent": "x"},
+        )["id"]
+        # Hold the first provision inside acquire so the second request overlaps
+        # it in the 'provisioning' state — the exact TOCTOU window.
+        self.backend.gate = threading.Event()
+        results: dict[str, dict] = {}
+        errors: list[Exception] = []
+
+        def worker(tag: str) -> None:
+            try:
+                results[tag] = self.app.sandboxes.request(
+                    project_id=self.project_id,
+                    experiment_id=exp_id,
+                    public_key=_PUBKEY,
+                )
+            except Exception as exc:  # noqa: BLE001 — surfaced via the list
+                errors.append(exc)
+
+        first = threading.Thread(target=worker, args=("a",))
+        first.start()
+        deadline = time.monotonic() + 5
+        while not self.backend.acquired and time.monotonic() < deadline:
+            time.sleep(0.01)
+        second = threading.Thread(target=worker, args=("b",))
+        second.start()
+        time.sleep(0.1)  # let the second reach the single-flight join
+        self.backend.gate.set()
+        first.join(timeout=10)
+        second.join(timeout=10)
+
+        self.assertEqual(errors, [])
+        # Exactly ONE provision despite two concurrent requests.
+        self.assertEqual(len(self.backend.acquired), 1)
+        self.assertEqual(results["a"]["sandbox_uid"], results["b"]["sandbox_uid"])
 
 
 if __name__ == "__main__":

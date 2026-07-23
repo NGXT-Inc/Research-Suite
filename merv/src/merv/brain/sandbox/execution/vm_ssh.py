@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-import os
 import shlex
 import subprocess
 from pathlib import PurePosixPath
@@ -174,14 +173,14 @@ def write_secrets_via_mgmt_ssh(
     return result.returncode == 0
 
 
-def sandbox_tokens() -> dict[str, str]:
+def sandbox_tokens(*, hf_token: str = "") -> dict[str, str]:
     tokens: dict[str, str] = {}
-    token = os.environ.get("HF_TOKEN", "")
-    if token:
-        tokens["HF_TOKEN"] = token
-        hub_token = os.environ.get("HUGGING_FACE_HUB_TOKEN", "")
-        if hub_token:
-            tokens["HUGGING_FACE_HUB_TOKEN"] = hub_token
+    # HF is per-user now (no-dataplane Phase C): the facade resolves the
+    # provisioning user's token and passes it here; the deployment-wide HF_TOKEN
+    # env fallback is retired. No token => public models only, no crash.
+    if hf_token:
+        tokens["HF_TOKEN"] = hf_token
+        tokens["HUGGING_FACE_HUB_TOKEN"] = hf_token
     # MLflow credential pair (never the tracking URI — routing still flows
     # through mlflow.context): makes hosted-MLflow auth ambient in every SSH
     # session so agents never put the secret on a command line. Suppressed

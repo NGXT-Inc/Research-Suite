@@ -39,6 +39,7 @@ from .control_runtime import (
     ControlToolCallSink,
 )
 from ..observability import StructuredLogger
+from ..user_settings import UserHfTokenSettings
 from ...kernel.ports.mgmt_keys import MgmtKeyStore
 from ...kernel.ports.blob_store import EvidenceBlobStore
 from .record_core import build_record_core
@@ -218,6 +219,7 @@ class ControlApp:
         self.event_timeline = EventTimelineQuery(
             source=store,
         )
+        self.user_settings = UserHfTokenSettings(store=store)
         control_tool_names = set(CONTROL_PLANE_TOOL_NAMES)
         control_tool_names &= available_tool_names(storage_enabled=storage is not None)
         self.tools = ToolDispatcher(
@@ -268,6 +270,7 @@ class ControlApp:
             tracking_overview=self.mlflow_overview_query,
             tenant_counters=self.tenant_counters_query,
             literature=core.literature,
+            user_settings=self.user_settings,
         )
 
     def shutdown(self) -> None:

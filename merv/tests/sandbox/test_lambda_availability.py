@@ -621,13 +621,17 @@ class LambdaSecretsTest(unittest.TestCase):
         )
         self.assertEqual(runner.commands, [])
 
-    def test_sandbox_secrets_reads_hf_token_from_env(self) -> None:
+    def test_sandbox_secrets_uses_provisioning_user_token_not_env(self) -> None:
         config = LambdaSandboxConfig(cloud=LambdaCloudConfig(api_key="test-key"))
         backend = LambdaLabsSandboxBackend(
             config=config, client=FakeLambdaSandboxClient()
         )
-        with patch.dict(os.environ, {"HF_TOKEN": "hf_x"}, clear=False):
-            self.assertEqual(backend.sandbox_secrets().get("HF_TOKEN"), "hf_x")
+        # Per-user token in (no-dataplane Phase C); the deployment env is ignored.
+        with patch.dict(os.environ, {"HF_TOKEN": "hf_deployment"}, clear=False):
+            self.assertEqual(
+                backend.sandbox_secrets(hf_token="hf_user").get("HF_TOKEN"), "hf_user"
+            )
+            self.assertIsNone(backend.sandbox_secrets().get("HF_TOKEN"))
 
 
 class LambdaMetricsTest(unittest.TestCase):
@@ -758,15 +762,13 @@ class LambdaEnvironmentTest(unittest.TestCase):
         self.assertNotIn("hf_secret_value", user_data)
         self.assertNotIn("hf_hub_value", user_data)
         self.assertNotIn("export HF_TOKEN", user_data)
-        # The secrets ARE the ones write_secrets would deliver post-boot.
-        with patch.dict(
-            os.environ,
-            {"HF_TOKEN": "hf_secret_value", "HUGGING_FACE_HUB_TOKEN": "hf_hub_value"},
-            clear=True,
-        ):
-            secrets = backend.sandbox_secrets()
+        # The secrets ARE the ones write_secrets would deliver post-boot: the
+        # provisioning user's token (no-dataplane Phase C), mirrored into both HF
+        # env names. The deployment env is never read.
+        with patch.dict(os.environ, {"HF_TOKEN": "hf_deployment"}, clear=True):
+            secrets = backend.sandbox_secrets(hf_token="hf_secret_value")
         self.assertEqual(secrets["HF_TOKEN"], "hf_secret_value")
-        self.assertEqual(secrets["HUGGING_FACE_HUB_TOKEN"], "hf_hub_value")
+        self.assertEqual(secrets["HUGGING_FACE_HUB_TOKEN"], "hf_secret_value")
 
     def test_acquire_without_tokens_writes_no_exports(self) -> None:
         backend, client = self._backend()

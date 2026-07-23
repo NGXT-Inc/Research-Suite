@@ -163,9 +163,14 @@ class MultiplexerTest(unittest.TestCase):
         self.assertTrue(health["backends"]["alpha"]["ok"])
 
     def test_environment_and_secrets_merge_across_backends(self) -> None:
-        self.alpha.sandbox_secrets = lambda: {"A": "1"}  # type: ignore[method-assign]
-        self.beta.sandbox_secrets = lambda: {"B": "2"}  # type: ignore[method-assign]
+        # Post-Phase-C the facade threads the provisioning user's HF token; the
+        # multiplexer forwards it to each backend.
+        self.alpha.sandbox_secrets = lambda *, hf_token="": {"A": hf_token or "1"}  # type: ignore[method-assign]
+        self.beta.sandbox_secrets = lambda *, hf_token="": {"B": "2"}  # type: ignore[method-assign]
 
+        self.assertEqual(
+            self.mux.sandbox_secrets(hf_token="hf_x"), {"A": "hf_x", "B": "2"}
+        )
         self.assertEqual(self.mux.sandbox_secrets(), {"A": "1", "B": "2"})
         self.assertEqual(
             self.mux.sandbox_environment(), {"available_tokens": [], "notes": []}

@@ -224,7 +224,7 @@ class ModalSandboxBackend(SandboxBackendBase):
             workdir=workdir,
             sandbox_data_dir=sandbox_data_dir,
         )
-        secrets = self._sandbox_secrets(modal)
+        secrets = self._sandbox_secrets(modal, hf_token=request.hf_token)
         name = _sandbox_name(request.sandbox_uid or request.experiment_id)
         kwargs: dict[str, Any] = {
             "app": app,
@@ -529,20 +529,21 @@ class ModalSandboxBackend(SandboxBackendBase):
         }
         return env
 
-    def _sandbox_secrets(self, modal: Any) -> list[Any]:
-        """Build Modal sandbox secrets from the daemon environment.
+    def _sandbox_secrets(self, modal: Any, *, hf_token: str = "") -> list[Any]:
+        """Build Modal sandbox secrets for the provisioning user.
 
-        The backend has already loaded the configured env file into
-        ``os.environ``. Use Modal's local-environment helper instead of
-        ``Secret.from_dotenv()`` so sandbox creation is independent of the
-        daemon's current working directory.
+        ``hf_token`` is the provisioning user's resolved Hugging Face token
+        (no-dataplane Phase C); the deployment-wide HF_TOKEN env fallback is
+        retired, so no shared secret enters any sandbox. Empty => no HF secret,
+        the sandbox runs with public models only.
         """
         secrets: list[Any] = []
-        keys = ["HF_TOKEN"]
-        if os.environ.get("HUGGING_FACE_HUB_TOKEN"):
-            keys.append("HUGGING_FACE_HUB_TOKEN")
-        if os.environ.get("HF_TOKEN"):
-            secrets.append(modal.Secret.from_local_environ(keys))
+        if hf_token:
+            secrets.append(
+                modal.Secret.from_dict(
+                    {"HF_TOKEN": hf_token, "HUGGING_FACE_HUB_TOKEN": hf_token}
+                )
+            )
         # MLflow credential pair for the authenticated hosted /mlflow route;
         # the brain env holds only the namespaced key, so map it explicitly.
         # Suppressed entirely while MLflow is suspended, so no MLFLOW_TRACKING_*

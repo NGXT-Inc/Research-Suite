@@ -2,10 +2,11 @@
 
 from __future__ import annotations
 
-from contextlib import closing, suppress
+import threading
+from contextlib import closing, contextmanager, suppress
 from datetime import datetime, timedelta
 from pathlib import Path
-from typing import Any, Callable
+from typing import Any, Callable, Iterator
 
 from . import sandbox_views
 from ..kernel.env import env_float
@@ -25,6 +26,28 @@ from .sandbox_support import (
     MAX_TIME_LIMIT_SECONDS,
     RUNS_WAIT_POLL_SECONDS,
     validate_request_inputs,
+)
+
+
+# Default retained outputs pulled when a caller passes no explicit paths
+# (mirrors the sandbox.pull_outputs contract description).
+_DEFAULT_PULL_OUTPUTS = (
+    "results",
+    "figures",
+    "report.md",
+    "graph.json",
+    "metrics.json",
+    "results.json",
+)
+
+# Command template a non-local (key) caller runs itself to pull outputs over
+# SSH/rsync. host/port/user/remote-path are filled from sandbox facts; the
+# caller fills <key_path> (its own private key) and <local-destination>. The
+# brain never runs rsync or touches local files (no-dataplane Phase C).
+_RSYNC_PULL_OUTPUTS_TEMPLATE = (
+    "rsync -az --itemize-changes --no-links --no-devices --no-specials "
+    '-e "ssh -i <key_path> -p {port} -o StrictHostKeyChecking=no '
+    '-o UserKnownHostsFile=/dev/null" {user}@{host}:{remote} <local-destination>'
 )
 
 
@@ -66,6 +89,16 @@ class SandboxFacade:
         self.runs_ledger = runtime.runs
         self.runs_wait_poll_seconds = RUNS_WAIT_POLL_SECONDS
         self._secrets_delivered: set[str] = set()
+        # Per-sandbox HF token resolved at request() from the provisioning user,
+        # held in memory until the VM/SSH post-boot secret delivery reads it (the
+        # delivery often lands on a later sandbox.get, once the box is running).
+        # Never persisted — write-only per no-dataplane Phase C ruling 7.
+        self._provision_hf_tokens: dict[str, str] = {}
+        # Per-experiment lock serializing the reserve/provision DECISION so two
+        # concurrent sandbox.request calls for one experiment cannot each mint a
+        # fresh sandbox_uid and double-provision (the TOCTOU guard, Phase C).
+        self._request_locks: dict[str, threading.Lock] = {}
+        self._request_locks_guard = threading.Lock()
         self.lifecycle = runtime.lifecycle
         self.backend = self.lifecycle.backend
         self.mgmt_keys = self.lifecycle.mgmt_keys
@@ -83,6 +116,7 @@ class SandboxFacade:
             return
         self._deliver_secrets(row=row, experiment_id=experiment_id)
         self._secrets_delivered.add(uid)
+        self._provision_hf_tokens.pop(uid, None)
 
     def _deliver_secrets(self, *, row: dict[str, Any], experiment_id: str) -> None:
         if row.get("status") != "running":
@@ -90,8 +124,11 @@ class SandboxFacade:
         sandbox_id = str(row.get("sandbox_id") or "")
         if not sandbox_id:
             return
+        # The provisioning user's HF token (empty for backends that inject at
+        # provision, like Modal, or when the user set no token).
+        hf_token = self._provision_hf_tokens.get(str(row.get("sandbox_uid") or ""), "")
         try:
-            secrets = self.backend.sandbox_secrets()
+            secrets = self.backend.sandbox_secrets(hf_token=hf_token)
         except Exception:
             secrets = {}
         if not secrets:
@@ -107,6 +144,41 @@ class SandboxFacade:
 
     def _mgmt_key_path(self, *, row: dict[str, Any]) -> Path:
         return self.mgmt_keys.key_path(sandbox_uid=str(row.get("sandbox_uid") or ""))
+
+    @contextmanager
+    def _experiment_request_guard(self, experiment_id: str) -> Iterator[None]:
+        """Serialize the reserve/provision decision for one experiment.
+
+        Two concurrent sandbox.request calls for the same experiment with no
+        active sandbox each read ``existing=None``, mint a DIFFERENT fresh
+        sandbox_uid, and start two provision jobs — a double-provision (double
+        billing). Serializing the decision makes the second caller read the
+        first's just-inserted provisioning row and single-flight onto its uid.
+        Released BEFORE the (up to 45s) provisioning wait, so a second caller
+        blocks only on the brief decision window. Standalone requests (no
+        experiment_id) carry no shared identity to dedup on — not serialized."""
+        if not experiment_id:
+            yield
+            return
+        with self._request_locks_guard:
+            lock = self._request_locks.get(experiment_id)
+            if lock is None:
+                lock = threading.Lock()
+                self._request_locks[experiment_id] = lock
+        with lock:
+            yield
+
+    def _resolve_hf_token(self, *, user_id: str) -> str:
+        """The provisioning user's Hugging Face token, or '' (public models).
+
+        Reads the write-only per-user token store. Best-effort: a lookup
+        failure degrades to no token rather than failing the provision."""
+        if not user_id:
+            return ""
+        try:
+            return self.store.user_hf_token(user_id=user_id)
+        except Exception:
+            return ""
 
     def _agent_result(
         self,
@@ -286,6 +358,8 @@ class SandboxFacade:
         include_data_plane_enrichment: bool = True,
         additional: bool = False,
         sandbox_uid: str | None = None,
+        provisioning_user_id: str = "",
+        provisioning_key_id: str = "",
     ) -> dict[str, Any]:
         experiment_id = (experiment_id or "").strip()
         provider = (provider or "").strip() or None
@@ -303,115 +377,130 @@ class SandboxFacade:
             project_id = self.store.require_project_id(conn=conn, project_id=project_id)
         if experiment_id and self.attachment_check is not None:
             self.attachment_check(attachment_id=experiment_id, project_id=project_id)
-        if experiment_id:
-            try:
-                existing = self.repository.load_row(experiment_id=experiment_id)
-            except NotFoundError:
+        # Serialize the reserve/provision decision per experiment (TOCTOU guard,
+        # Phase C); released before the provisioning wait below.
+        with self._experiment_request_guard(experiment_id):
+            if experiment_id:
+                try:
+                    existing = self.repository.load_row(experiment_id=experiment_id)
+                except NotFoundError:
+                    existing = None
+            else:
                 existing = None
-        else:
-            existing = None
-            additional = False
-        requested_uid = (sandbox_uid or "").strip()
-        sandbox_uid = requested_uid or (
-            self.repository.new_sandbox_uid()
-            if additional
-            else str(
-                (existing or {}).get("sandbox_uid") or self.repository.new_sandbox_uid()
-            )
-        )
-        supplied_public_key = (
-            str(public_key_override).strip()
-            if public_key_override is not None
-            else str(public_key or "").strip()
-        )
-        if not supplied_public_key:
-            raise ValidationError(
-                "sandbox.request requires public_key; generate a caller-owned OpenSSH keypair and pass the single-line .pub contents"
-            )
-        public_key = supplied_public_key
-        public_key_source = "caller"
-        management_public_key = self.mgmt_keys.ensure(sandbox_uid=sandbox_uid)
-        if (
-            not additional
-            and existing
-            and (existing.get("status") in ACTIVE_SANDBOX_STATUSES)
-            and existing.get("sandbox_id")
-            and (
-                self.lifecycle.liveness(sandbox_id=str(existing["sandbox_id"]))
-                is not False
-            )
-        ):
-            self.repository.touch_alive(
-                experiment_id=experiment_id,
-                sandbox_uid=str(existing.get("sandbox_uid") or ""),
-            )
-            row = self.lifecycle.refresh_endpoint(
-                row=self.repository.get_by_uid(
-                    sandbox_uid=str(existing.get("sandbox_uid") or "")
+                additional = False
+            requested_uid = (sandbox_uid or "").strip()
+            sandbox_uid = requested_uid or (
+                self.repository.new_sandbox_uid()
+                if additional
+                else str(
+                    (existing or {}).get("sandbox_uid")
+                    or self.repository.new_sandbox_uid()
                 )
             )
-            self.repository.emit_event(
-                project_id=project_id,
-                event_type="sandbox.reused",
-                experiment_id=experiment_id,
-                payload={
-                    "sandbox_id": existing["sandbox_id"],
-                    "sandbox_uid": existing.get("sandbox_uid", ""),
-                    "active_experiment_ids": self.repository.active_experiment_ids(
+            supplied_public_key = (
+                str(public_key_override).strip()
+                if public_key_override is not None
+                else str(public_key or "").strip()
+            )
+            if not supplied_public_key:
+                raise ValidationError(
+                    "sandbox.request requires public_key; generate a caller-owned OpenSSH keypair and pass the single-line .pub contents"
+                )
+            public_key = supplied_public_key
+            public_key_source = "caller"
+            management_public_key = self.mgmt_keys.ensure(sandbox_uid=sandbox_uid)
+            if (
+                not additional
+                and existing
+                and (existing.get("status") in ACTIVE_SANDBOX_STATUSES)
+                and existing.get("sandbox_id")
+                and (
+                    self.lifecycle.liveness(sandbox_id=str(existing["sandbox_id"]))
+                    is not False
+                )
+            ):
+                self.repository.touch_alive(
+                    experiment_id=experiment_id,
+                    sandbox_uid=str(existing.get("sandbox_uid") or ""),
+                )
+                row = self.lifecycle.refresh_endpoint(
+                    row=self.repository.get_by_uid(
                         sandbox_uid=str(existing.get("sandbox_uid") or "")
+                    )
+                )
+                self.repository.emit_event(
+                    project_id=project_id,
+                    event_type="sandbox.reused",
+                    experiment_id=experiment_id,
+                    payload={
+                        "sandbox_id": existing["sandbox_id"],
+                        "sandbox_uid": existing.get("sandbox_uid", ""),
+                        "active_experiment_ids": self.repository.active_experiment_ids(
+                            sandbox_uid=str(existing.get("sandbox_uid") or "")
+                        ),
+                    },
+                )
+                result = self._agent_result(
+                    row=row,
+                    reused=True,
+                    include_data_plane_enrichment=include_data_plane_enrichment,
+                    use_sandbox_uid_command=True,
+                )
+                result["public_key_source"] = public_key_source
+                return result
+            if caps.requires_hardware_selection and (not instance_type):
+                catalog = self._hardware_catalog(gpu=gpu, region=region)
+                return sandbox_views.needs_selection_view(
+                    experiment_id=experiment_id, project_id=project_id, catalog=catalog
+                )
+            self.quotas.check_admission(
+                request=AdmissionRequest(
+                    tenant_id=self.repository.tenant_for_project(project_id=project_id),
+                    time_limit_seconds=int(time_limit),
+                    price_usd_per_hour=self._price_for_instance(
+                        instance_type=instance_type, region=region, provider=caps.name
                     ),
-                },
+                )
             )
-            result = self._agent_result(
-                row=row,
-                reused=True,
-                include_data_plane_enrichment=include_data_plane_enrichment,
-                use_sandbox_uid_command=True,
+            remote_dir = remote_experiment_dir(
+                experiment_id=sandbox_uid, name=f"sandbox-{sandbox_uid[:12]}"
             )
-            result["public_key_source"] = public_key_source
-            return result
-        if caps.requires_hardware_selection and (not instance_type):
-            catalog = self._hardware_catalog(gpu=gpu, region=region)
-            return sandbox_views.needs_selection_view(
-                experiment_id=experiment_id, project_id=project_id, catalog=catalog
-            )
-        self.quotas.check_admission(
-            request=AdmissionRequest(
-                tenant_id=self.repository.tenant_for_project(project_id=project_id),
-                time_limit_seconds=int(time_limit),
-                price_usd_per_hour=self._price_for_instance(
-                    instance_type=instance_type, region=region, provider=caps.name
+            # Resolve the provisioning user's Hugging Face token (no-dataplane
+            # Phase C): Modal injects it at provision from req.hf_token; VM/SSH
+            # backends read it from the stash at post-boot delivery. Empty =>
+            # public models only. The token value is never persisted on the row.
+            hf_token = self._resolve_hf_token(user_id=provisioning_user_id)
+            if hf_token:
+                self._provision_hf_tokens[sandbox_uid] = hf_token
+            req = SandboxRequest(
+                experiment_id=sandbox_uid,
+                project_id=project_id,
+                public_key=public_key,
+                sandbox_uid=sandbox_uid,
+                management_public_key=management_public_key,
+                management_key_path=str(
+                    self.mgmt_keys.key_path(sandbox_uid=sandbox_uid)
                 ),
+                gpu=gpu,
+                cpu=cpu,
+                memory=memory,
+                time_limit=time_limit,
+                instance_type=instance_type,
+                region=region,
+                provider=provider,
+                remote_workdir=remote_dir,
+                public_key_source=public_key_source,
+                hf_token=hf_token,
+                key_id=str(provisioning_key_id or ""),
             )
-        )
-        remote_dir = remote_experiment_dir(
-            experiment_id=sandbox_uid, name=f"sandbox-{sandbox_uid[:12]}"
-        )
-        req = SandboxRequest(
-            experiment_id=sandbox_uid,
-            project_id=project_id,
-            public_key=public_key,
-            sandbox_uid=sandbox_uid,
-            management_public_key=management_public_key,
-            management_key_path=str(self.mgmt_keys.key_path(sandbox_uid=sandbox_uid)),
-            gpu=gpu,
-            cpu=cpu,
-            memory=memory,
-            time_limit=time_limit,
-            instance_type=instance_type,
-            region=region,
-            provider=provider,
-            remote_workdir=remote_dir,
-            public_key_source=public_key_source,
-        )
-        job = self.provisioner.ensure_job(
-            experiment_id=experiment_id,
-            project_id=project_id,
-            req=req,
-            existing=None if additional else existing,
-            sandbox_uid=sandbox_uid,
-            create_new=additional,
-        )
+            job = self.provisioner.ensure_job(
+                experiment_id=experiment_id,
+                project_id=project_id,
+                req=req,
+                existing=None if additional else existing,
+                sandbox_uid=sandbox_uid,
+                create_new=additional,
+            )
         job.done.wait(timeout=self.request_wait_seconds)
         row = self.repository.get_by_uid(sandbox_uid=sandbox_uid)
         reused = False if row.get("status") == "running" else None
@@ -440,6 +529,7 @@ class SandboxFacade:
         provider: str | None = None,
         additional: bool = False,
         sandbox_uid: str | None = None,
+        provisioning_user_id: str = "",
     ) -> dict[str, Any]:
         return self.request(
             experiment_id=experiment_id,
@@ -455,6 +545,7 @@ class SandboxFacade:
             include_data_plane_enrichment=False,
             additional=additional,
             sandbox_uid=sandbox_uid,
+            provisioning_user_id=provisioning_user_id,
         )
 
     def get(
@@ -787,6 +878,75 @@ class SandboxFacade:
             sandbox_uid=sandbox_uid,
             tail=tail,
             since=since,
+        )
+
+    def pull_outputs_command(
+        self,
+        *,
+        experiment_id: str | None = None,
+        project_id: str | None = None,
+        sandbox_uid: str | None = None,
+        paths: list[str] | None = None,
+    ) -> dict[str, Any]:
+        """Return a filled rsync command a non-local (key) caller runs itself.
+
+        The control plane never touches local files or runs rsync (no-dataplane
+        Phase C): a cloud agent has no local checkout, so it copies outputs off
+        the box with its OWN SSH key. host/port/user/remote-path are filled from
+        the project-scoped sandbox facts; the caller fills <key_path> and
+        <local-destination>. Bytes go agent<->box directly, never through the
+        brain. This is the key-principal counterpart to the proxy's local
+        pull_outputs; the local data-plane path is unchanged."""
+        facts = self.get(
+            experiment_id=experiment_id,
+            project_id=project_id,
+            sandbox_uid=sandbox_uid,
+            include_data_plane_enrichment=False,
+        )
+        ssh = facts.get("ssh") or {}
+        host = str(ssh.get("host") or "")
+        port = int(ssh.get("port") or 0) or 22
+        user = str(ssh.get("user") or "")
+        remote_dir = str(facts.get("experiment_dir") or "").rstrip("/")
+        if facts.get("status") != "running" or not host or not remote_dir:
+            return {
+                "sandbox_uid": facts.get("sandbox_uid"),
+                "experiment_id": facts.get("experiment_id"),
+                "project_id": facts.get("project_id"),
+                "status": facts.get("status"),
+                "rsync": "",
+                "hint": (
+                    "No running sandbox to pull from. Provision or wait for the "
+                    "sandbox to reach status 'running', then re-call."
+                ),
+            }
+        wanted = [str(p).strip() for p in (paths or []) if str(p).strip()] or list(
+            _DEFAULT_PULL_OUTPUTS
+        )
+        remote_spec = " ".join(f"{remote_dir}/{p.lstrip('/')}" for p in wanted)
+        quoted_remote = f"'{remote_spec}'" if len(wanted) > 1 else remote_spec
+        rsync = _RSYNC_PULL_OUTPUTS_TEMPLATE.format(
+            port=port, user=user, host=host, remote=quoted_remote
+        )
+        view = {
+            "sandbox_uid": facts.get("sandbox_uid"),
+            "experiment_id": facts.get("experiment_id"),
+            "project_id": facts.get("project_id"),
+            "status": "running",
+            "experiment_dir": remote_dir,
+            "paths": wanted,
+            "rsync": rsync,
+            "hint": (
+                "Run this rsync locally with your own private key: replace "
+                "<key_path> with the path to the private key whose public key "
+                "you authorized on this sandbox, and <local-destination> with a "
+                "local directory. The brain does not run rsync or hold your key; "
+                "bytes move directly between your machine and the box. Pull what "
+                "you need before sandbox.release."
+            ),
+        }
+        return self._with_runs_nudge(
+            view=view, sandbox_uid=str(facts.get("sandbox_uid") or "")
         )
 
     def runs(

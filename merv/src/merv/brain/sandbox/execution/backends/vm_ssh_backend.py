@@ -178,13 +178,14 @@ class VmSshSandboxBackend(SandboxBackendBase):
             key_path=key_path,
         )
 
-    def sandbox_secrets(self) -> dict[str, str]:
+    def sandbox_secrets(self, *, hf_token: str = "") -> dict[str, str]:
         """The credentials to deliver to a fresh VM post-boot (HF tokens).
 
-        Resolved from the control plane's env / secret store; the control side
-        hands these to write_secrets. Empty when none are configured.
+        ``hf_token`` is the provisioning user's resolved token (no-dataplane
+        Phase C); the control side hands these to write_secrets. Empty when the
+        user set no token — the sandbox simply runs without HF access.
         """
-        return sandbox_tokens()
+        return sandbox_tokens(hf_token=hf_token)
 
     def _wait_for_ssh(self, *, host: str, port: int = 22) -> None:
         deadline = time.monotonic() + self.config.poll_timeout_seconds

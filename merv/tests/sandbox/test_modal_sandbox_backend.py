@@ -350,18 +350,33 @@ class ModalSandboxBackendTest(unittest.TestCase):
         self.assertIn("ln -sf /usr/bin/fdfind /usr/local/bin/fd || true", cuda.commands)
 
     def test_huggingface_token_is_passed_as_secret_env(self) -> None:
-        with mock.patch.dict(os.environ, {"HF_TOKEN": "hf_test_secret"}, clear=False):
-            self.backend.acquire(request=self._request())
-            env_info = self.backend.sandbox_environment()
+        # Per-user (no-dataplane Phase C): the provisioning user's token rides on
+        # the request; the deployment-wide HF_TOKEN env fallback is retired.
+        request = SandboxRequest(
+            experiment_id="exp1",
+            project_id="proj1",
+            public_key="ssh-ed25519 AAAA",
+            gpu="A100",
+            time_limit=1234,
+            hf_token="hf_test_secret",
+        )
+        self.backend.acquire(request=request)
 
         secrets = FakeSandboxClass.created[-1]["kwargs"]["secrets"]
-        self.assertEqual(secrets[0]["local_environ"], ["HF_TOKEN"])
         secret = secrets[0]["secret"]
         self.assertEqual(secret["HF_TOKEN"], "hf_test_secret")
-        self.assertNotIn("HUGGING_FACE_HUB_TOKEN", secret)
+        self.assertEqual(secret["HUGGING_FACE_HUB_TOKEN"], "hf_test_secret")
+        # Never in the plaintext sandbox env dict — only the Modal Secret.
         self.assertNotIn("HF_TOKEN", FakeSandboxClass.created[-1]["kwargs"]["env"])
-        self.assertIn("HF_TOKEN", env_info["available_tokens"])
-        self.assertNotIn("hf_test_secret", str(env_info))
+
+    def test_no_user_token_injects_no_hf_secret(self) -> None:
+        # No token from the provisioning user => public models only, no crash,
+        # and no deployment env is read even when HF_TOKEN is set in the process.
+        with mock.patch.dict(os.environ, {"HF_TOKEN": "hf_deployment"}, clear=False):
+            self.backend.acquire(request=self._request())  # _request carries no hf_token
+        secrets = FakeSandboxClass.created[-1]["kwargs"].get("secrets", [])
+        self.assertNotIn("HF_TOKEN", str(secrets))
+        self.assertNotIn("hf_deployment", str(secrets))
 
     def test_acquire_invokes_phase_and_created_callbacks(self) -> None:
         phases: list[str] = []

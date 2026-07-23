@@ -462,6 +462,7 @@ class SandboxRepository:
         instance_type: str = "",
         gpu: str = "",
         price_usd_per_hour: float = 0.0,
+        key_id: str = "",
     ) -> str:
         """Append a per-generation spend-ledger row (cloud plan Phase 7).
 
@@ -484,9 +485,10 @@ class SandboxRepository:
                 """
                 INSERT INTO sandbox_generations (
                   id, experiment_id, project_id, tenant_id, sandbox_id, provider,
-                  instance_type, gpu, price_usd_per_hour, started_at, created_seq
+                  instance_type, gpu, price_usd_per_hour, key_id, started_at,
+                  created_seq
                 )
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                 """,
                 (
                     generation_id,
@@ -498,6 +500,9 @@ class SandboxRepository:
                     instance_type,
                     gpu,
                     price_usd_per_hour,
+                    # NULL for JWT/rr_sk_/local so the row shape is unchanged for
+                    # every non-key provision; the mk_ key id otherwise.
+                    key_id or None,
                     now,
                     next_created_seq(conn=conn, table="sandbox_generations"),
                 ),

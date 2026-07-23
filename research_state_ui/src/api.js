@@ -383,4 +383,9 @@ export const api = {
     request(`/api/projects/${encodeURIComponent(pid)}/storage/${encodeURIComponent(id)}/renew`, { method: 'POST' }),
   deleteStorage: (pid, id) =>
     request(`/api/projects/${encodeURIComponent(pid)}/storage/${encodeURIComponent(id)}`, { method: 'DELETE' }),
+
+  // Personal Hugging Face token (write-only): sets/clears the token used to
+  // reach gated models inside your sandboxes. The value is never read back.
+  setHfToken: (token) => request('/api/user/hf-token', { method: 'PUT', body: { token } }),
+  clearHfToken: () => request('/api/user/hf-token', { method: 'DELETE' }),
 };

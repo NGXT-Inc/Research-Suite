@@ -15,7 +15,10 @@ GATEWAY = API / "gateway.py"
 class HttpGatewayArchitectureTest(unittest.TestCase):
     def test_factory_is_composition_only(self) -> None:
         source = APP.read_text(encoding="utf-8")
-        self.assertLessEqual(len(source.splitlines()), 125)
+        # +3 for no-dataplane Phase C wiring: the /api/user/hf-token router and
+        # the MCP-catalog clause that advertises the key-sandbox surface. The
+        # serving LOGIC lives in sandbox_control.py, not here.
+        self.assertLessEqual(len(source.splitlines()), 128)
         for seam in (
             "RequestAuthenticator",
             "ProjectAuthorizer",
@@ -51,8 +54,11 @@ class HttpGatewayArchitectureTest(unittest.TestCase):
     def test_gateway_is_smaller_than_the_factory_logic_it_replaced(self) -> None:
         app_loc = len(APP.read_text(encoding="utf-8").splitlines())
         gateway_loc = len(GATEWAY.read_text(encoding="utf-8").splitlines())
-        self.assertLessEqual(gateway_loc, 375)
-        self.assertLessEqual(app_loc + gateway_loc, 500)
+        # +17 for the no-dataplane Phase C key-sandbox control path: only the
+        # import + the dispatch branch land here; the serving logic is factored
+        # into sandbox_control.py so the request-aware gateway stays focused.
+        self.assertLessEqual(gateway_loc, 392)
+        self.assertLessEqual(app_loc + gateway_loc, 520)
 
     def test_project_membership_has_one_transport_lookup(self) -> None:
         package_source = "\n".join(

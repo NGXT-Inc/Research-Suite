@@ -644,6 +644,20 @@ CREATE TABLE IF NOT EXISTS paper_links (
   FOREIGN KEY(project_id) REFERENCES projects(id),
   FOREIGN KEY(paper_id) REFERENCES papers(id)
 );
+
+-- Per-user Hugging Face access token (no-dataplane Phase C). Keyed by the
+-- Supabase auth.users UUID; a member brings their own token so no deployment-
+-- wide HF secret exists. WRITE-ONLY by contract: the value is set/cleared over
+-- the API and read back only internally at sandbox provisioning to inject
+-- HF_TOKEN into the provisioning user's sandbox — no API ever returns it. Cross-
+-- member exposure WITHIN a shared project is accepted (a teammate can read a
+-- sandbox the token was placed in); cross-project exposure is closed because no
+-- shared secret exists. Absence = public-models-only graceful degrade.
+CREATE TABLE IF NOT EXISTS user_hf_tokens (
+  user_id TEXT PRIMARY KEY,
+  token TEXT NOT NULL,
+  updated_at TEXT NOT NULL
+);
 """
 
 
@@ -779,6 +793,11 @@ MIGRATIONS: tuple[tuple[int, str, str], ...] = (
     (28, "add_oauth_clients", ""),
     (29, "add_oauth_authorization_codes", ""),
     (30, "add_oauth_refresh_tokens", ""),
+    # No-dataplane Phase C (July 2026): per-user Hugging Face token. Fresh
+    # schemas create user_hf_tokens above; the handler runs the SCHEMA-extracted
+    # DDL so ledger and SCHEMA cannot drift (32 the feed lane, 33 the storage
+    # lane — reserved elsewhere, never here).
+    (31, "add_user_hf_tokens", ""),
 )
 
 
@@ -951,6 +970,9 @@ class BaseStateStore:
         elif name == "add_oauth_refresh_tokens":
             if not self._has_table(conn=conn, table="oauth_refresh_tokens"):
                 conn.execute(_schema_table_ddl(table="oauth_refresh_tokens"))
+        elif name == "add_user_hf_tokens":
+            if not self._has_table(conn=conn, table="user_hf_tokens"):
+                conn.execute(_schema_table_ddl(table="user_hf_tokens"))
         else:
             conn.execute(statement)
 
@@ -1636,6 +1658,42 @@ class BaseStateStore:
                 "DELETE FROM project_members WHERE project_id = ? AND user_id = ?",
                 (project_id, user_id),
             )
+
+    def set_user_hf_token(self, *, user_id: str, token: str) -> None:
+        """Upsert a user's Hugging Face token (no-dataplane Phase C).
+
+        Write-only by contract: this + ``clear_user_hf_token`` are the only
+        mutators, and no read method returns the value to an API — ``resolve``
+        below is internal-only (sandbox provisioning). Dialect-neutral upsert
+        (``excluded`` works on both SQLite >= 3.24 and Postgres)."""
+        with self.transaction() as conn:
+            conn.execute(
+                """
+                INSERT INTO user_hf_tokens (user_id, token, updated_at)
+                VALUES (?, ?, ?)
+                ON CONFLICT (user_id) DO UPDATE
+                  SET token = excluded.token, updated_at = excluded.updated_at
+                """,
+                (user_id, token, now_iso()),
+            )
+
+    def clear_user_hf_token(self, *, user_id: str) -> None:
+        with self.transaction() as conn:
+            conn.execute(
+                "DELETE FROM user_hf_tokens WHERE user_id = ?", (user_id,)
+            )
+
+    def user_hf_token(self, *, user_id: str) -> str:
+        """Resolve a user's HF token for sandbox provisioning. INTERNAL ONLY —
+        never surface this through an API. Empty when unset/unauthenticated,
+        which the sandbox path treats as public-models-only graceful degrade."""
+        if not user_id:
+            return ""
+        with closing(self.connect()) as conn:
+            row = conn.execute(
+                "SELECT token FROM user_hf_tokens WHERE user_id = ?", (user_id,)
+            ).fetchone()
+        return str(row["token"]) if row and row["token"] else ""
 
     def is_project_member(self, *, project_id: str, user_id: str) -> bool:
         with closing(self.connect()) as conn:

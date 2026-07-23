@@ -104,6 +104,14 @@ class SandboxRequest:
     # Compute provider to serve this request when several are configured
     # (multiplexed deployments); None = the configured default backend.
     provider: str | None = None
+    # Per-user Hugging Face token resolved by the facade from the PROVISIONING
+    # principal (no-dataplane Phase C). Empty = no token = public-models-only.
+    # Modal injects it at provision from here; VM/SSH backends deliver it
+    # post-boot via the facade's secret stash, not from this field.
+    hf_token: str = ""
+    # project_api_keys.id of the mk_ key that provisioned this generation, for
+    # spend attribution (sandbox_generations.key_id). Empty for JWT/rr_sk_/local.
+    key_id: str = ""
 
 
 @dataclass(frozen=True)
@@ -236,8 +244,12 @@ class SandboxBackend(SandboxDriver, Protocol):
         """Optionally find an orphan sandbox by experiment. Unsupported backends return None."""
         ...
 
-    def sandbox_secrets(self) -> dict[str, str]:
-        """Optionally return post-boot secrets for the backend."""
+    def sandbox_secrets(self, *, hf_token: str = "") -> dict[str, str]:
+        """Optionally return post-boot secrets for the backend.
+
+        ``hf_token`` is the provisioning user's resolved Hugging Face token
+        (empty = none); the facade passes it so no deployment-wide HF secret is
+        read from the environment (no-dataplane Phase C)."""
         ...
 
     def shutdown(self) -> None:
@@ -338,8 +350,9 @@ class SandboxBackendBase:
         """Unsupported default: no orphan lookup is available."""
         return None
 
-    def sandbox_secrets(self) -> dict[str, str]:
+    def sandbox_secrets(self, *, hf_token: str = "") -> dict[str, str]:
         """Unsupported default: no post-boot secrets to deliver."""
+        _ = hf_token
         return {}
 
     def write_secrets(

@@ -157,14 +157,17 @@ class ToolContractRegistryTest(unittest.TestCase):
         # agents poll workflow.status_and_next (its review_gate re-reports state).
         self.assertIn("review.status", MCP_HIDDEN_TOOL_NAMES)
         # Enumeration readers embedded in other responses stay REST/UI-only.
+        # sandbox.list is NO LONGER hidden: a project-scoped mk_ key needs it to
+        # enumerate the project's (shared) sandboxes over MCP (no-dataplane
+        # Phase C).
         for reader in (
             "claim.list",
             "experiment.list",
             "reflection.list",
-            "sandbox.list",
             "sandbox.health",
         ):
             self.assertIn(reader, MCP_HIDDEN_TOOL_NAMES, reader)
+        self.assertNotIn("sandbox.list", MCP_HIDDEN_TOOL_NAMES)
         # storage_enabled=True so the hidden storage primitives appear in the
         # catalog (setUp clears the storage provider env var).
         catalog = {tool["name"]: tool for tool in static_tool_catalog(storage_enabled=True)}

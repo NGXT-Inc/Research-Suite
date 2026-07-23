@@ -274,6 +274,9 @@ class SandboxProvisioner:
                     instance_type=provisioned.instance_type or (req.instance_type or ""),
                     gpu=provisioned.gpu or (req.gpu or ""),
                     price_usd_per_hour=provisioned.price_usd_per_hour,
+                    # Spend attribution for mk_ key provisions (no-dataplane
+                    # Phase C); empty for JWT/rr_sk_/local.
+                    key_id=req.key_id,
                 )
             self.repository.emit_event(
                 project_id=project_id,

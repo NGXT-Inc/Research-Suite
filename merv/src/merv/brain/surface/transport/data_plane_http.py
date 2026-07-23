@@ -94,6 +94,11 @@ def register_data_plane_routes(
             provider=payload.get("provider"),
             additional=bool(payload.get("additional")),
             sandbox_uid=payload.get("sandbox_uid"),
+            # Resolve the local-proxy user's own HF token (no-dataplane Phase C);
+            # the deployment-wide HF fallback is gone.
+            provisioning_user_id=str(
+                getattr(getattr(request.state, "principal", None), "user_id", "") or ""
+            ),
         )
 
     @http.post("/api/data-plane/sandboxes/attach")

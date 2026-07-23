@@ -18,7 +18,9 @@ from ....kernel.utils import (
 )
 from ....kernel.version import CLIENT_VERSION_HEADER, MIN_PROXY_VERSION, is_below_floor
 from ...auth import UnauthorizedError
-from ...identity import LOCAL_PRINCIPAL, ProjectKeyScopeError, is_local_principal
+from ...identity import (
+    LOCAL_PRINCIPAL, ProjectKeyScopeError, is_external_key, is_local_principal,
+)
 from ...tools.contracts import TOOL_MANIFEST
 from ...tools.tool_facade import ToolDispatcher
 from ....research_core.facade import ResearchProjects, ResearchReviewDelivery
@@ -26,6 +28,7 @@ from ....sandbox.facade import SandboxFacade
 from ..http_policy import HOSTED_CONTROL_TOOL_POLICIES, HttpSurfacePolicy
 from .shared import is_local_origin
 from . import oauth, project_keys, sdk_auth
+from .sandbox_control import KEY_SANDBOX_CONTROL_TOOLS, serve_key_sandbox
 
 
 @dataclass(frozen=True)
@@ -192,6 +195,18 @@ class ToolInvocationGateway:
                 },
             )
         if contract is not None and contract.plane == "data":
+            # A project-scoped mk_ key reaches sandbox request/attach/pull_outputs
+            # over the control path (project-shared ruling 7): a cloud agent has
+            # no local proxy. Every other data tool (storage/feed/materialize)
+            # still requires the proxy until Phase D.
+            if name in KEY_SANDBOX_CONTROL_TOOLS and is_external_key(principal):
+                return serve_key_sandbox(
+                    sandboxes=self.sandboxes,
+                    projects=self.projects,
+                    name=name,
+                    arguments=arguments,
+                    principal=principal,
+                )
             raise DataPlaneRequiredError(
                 f"{name} requires the local MCP proxy; hosted control mode cannot read "
                 "local files, hold user SSH keys, or run rsync",
