@@ -1,4 +1,11 @@
-"""MCP-shaped HTTP routes shared by local and control HTTP surfaces."""
+"""MCP-shaped HTTP routes shared by local and control HTTP surfaces.
+
+Registers the legacy ``GET /mcp/tools`` + ``POST /mcp/call`` pair and the
+stateless streamable ``POST /mcp`` endpoint. The internal-tool block and
+key-project scope enforcement live downstream (the tool dispatcher and the
+request gateway); these routes only add the shared body cap and the
+``not hidden`` catalog filter so internal tools are never advertised.
+"""
 
 from __future__ import annotations
 
@@ -6,10 +13,15 @@ import json
 from collections.abc import Callable
 from typing import Any
 
-from fastapi import Header, Request
+from fastapi import Header, Request, Response
 from fastapi.concurrency import run_in_threadpool
 
 from ...kernel.utils import ValidationError
+from .mcp_streamable_http import (
+    McpStreamableHttp,
+    RequestBodyTooLarge,
+    read_limited_mcp_body,
+)
 
 ToolCatalog = Callable[[], list[dict[str, Any]]]
 ToolFilter = Callable[[dict[str, Any]], bool]
@@ -32,23 +44,39 @@ def register_mcp_routes(
         if authorize is not None:
             authorize(authorization)
 
+    def catalog() -> list[dict[str, Any]]:
+        tools = list_tools()
+        if allow_tool is not None:
+            tools = [tool for tool in tools if allow_tool(tool)]
+        return [tool for tool in tools if not tool.get("hidden")]
+
     @http.get("/mcp/tools")
     def mcp_tools_list(
         authorization: str | None = Header(default=None),
     ) -> dict[str, Any]:
         check_authorized(authorization)
-        tools = list_tools()
-        if allow_tool is not None:
-            tools = [tool for tool in tools if allow_tool(tool)]
-        return {"tools": tools}
+        return {"tools": catalog()}
 
     @http.post("/mcp/call")
     async def mcp_call(
         request: Request,
         authorization: str | None = Header(default=None),
-    ) -> dict[str, Any]:
+    ) -> Any:
         check_authorized(authorization)
-        raw_body = await request.body()
+        try:
+            raw_body = await read_limited_mcp_body(request)
+        except RequestBodyTooLarge as exc:
+            return Response(
+                content=json.dumps(
+                    {
+                        "detail": str(exc),
+                        "error_code": "request_too_large",
+                        "max_body_bytes": exc.limit,
+                    }
+                ),
+                media_type="application/json",
+                status_code=413,
+            )
         if raw_body:
             try:
                 payload = json.loads(raw_body)
@@ -81,3 +109,10 @@ def register_mcp_routes(
         # loop for every other agent and UI request.
         result = await run_in_threadpool(call_tool, name, arguments, context, request)
         return {"result": result}
+
+    McpStreamableHttp(
+        list_tools=list_tools,
+        call_tool=call_tool,
+        allow_tool=allow_tool,
+        authorize=authorize,
+    ).register(http)
