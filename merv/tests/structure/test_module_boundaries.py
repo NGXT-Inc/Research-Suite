@@ -150,6 +150,8 @@ FILE_LAYERS = {
     "surface/control/control_runtime.py": ADAPTER,
     "surface/project_keys.py": APPLICATION_LAYER,
     "surface/project_key_store.py": ADAPTER,
+    "surface/oauth.py": APPLICATION_LAYER,
+    "surface/oauth_store.py": ADAPTER,
 }
 
 ALLOWED_LAYER_EDGES = (
@@ -183,6 +185,9 @@ TABLE_OWNERS = {
     "projects": KERNEL,
     "project_members": KERNEL,
     "project_api_keys": SURFACE,
+    "oauth_clients": SURFACE,
+    "oauth_authorization_codes": SURFACE,
+    "oauth_refresh_tokens": SURFACE,
     "events": KERNEL,
     "schema_migrations": KERNEL,
     "tenants": KERNEL,

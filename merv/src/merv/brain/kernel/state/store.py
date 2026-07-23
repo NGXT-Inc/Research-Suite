@@ -128,6 +128,58 @@ CREATE TABLE IF NOT EXISTS project_api_keys (
   FOREIGN KEY(parent_key_id) REFERENCES project_api_keys(id)
 );
 
+-- OAuth 2.1 public DCR registrations (agent-anywhere Phase B). Append-only:
+-- a repeated registration mints a fresh client_id, so the Cursor double-DCR
+-- race is safe. Only public clients (token_endpoint_auth_method=none) exist,
+-- so no client secret is stored.
+CREATE TABLE IF NOT EXISTS oauth_clients (
+  client_id TEXT PRIMARY KEY,
+  client_name TEXT NOT NULL,
+  redirect_uris_json TEXT NOT NULL,
+  grant_types_json TEXT NOT NULL,
+  created_at TEXT NOT NULL
+);
+
+-- OAuth authorization codes are opaque one-shot credentials. Only a digest
+-- is stored; every security-relevant request value is bound into the row.
+CREATE TABLE IF NOT EXISTS oauth_authorization_codes (
+  code_digest TEXT PRIMARY KEY,
+  client_id TEXT NOT NULL,
+  redirect_uri TEXT NOT NULL,
+  owner_user_id TEXT NOT NULL,
+  project_id TEXT NOT NULL,
+  code_challenge TEXT NOT NULL,
+  resource TEXT NOT NULL,
+  created_at TEXT NOT NULL,
+  expires_at TEXT NOT NULL,
+  consumed_at TEXT,
+  FOREIGN KEY(client_id) REFERENCES oauth_clients(client_id),
+  FOREIGN KEY(project_id) REFERENCES projects(id)
+);
+
+-- Refresh tokens rotate once. Their opaque value is never persisted, and the
+-- current project-key link makes the existing key revocation path authoritative
+-- for refresh authority as well as direct bearer use.
+CREATE TABLE IF NOT EXISTS oauth_refresh_tokens (
+  id TEXT PRIMARY KEY,
+  family_id TEXT NOT NULL,
+  secret_digest TEXT NOT NULL UNIQUE,
+  client_id TEXT NOT NULL,
+  owner_user_id TEXT NOT NULL,
+  project_id TEXT NOT NULL,
+  resource TEXT NOT NULL,
+  current_key_id TEXT NOT NULL,
+  parent_token_id TEXT,
+  created_at TEXT NOT NULL,
+  expires_at TEXT NOT NULL,
+  consumed_at TEXT,
+  revoked_at TEXT,
+  FOREIGN KEY(client_id) REFERENCES oauth_clients(client_id),
+  FOREIGN KEY(project_id) REFERENCES projects(id),
+  FOREIGN KEY(current_key_id) REFERENCES project_api_keys(id),
+  FOREIGN KEY(parent_token_id) REFERENCES oauth_refresh_tokens(id)
+);
+
 CREATE TABLE IF NOT EXISTS claims (
   id TEXT PRIMARY KEY,
   project_id TEXT NOT NULL,
@@ -715,6 +767,18 @@ MIGRATIONS: tuple[tuple[int, str, str], ...] = (
     # Spend attribution for project-key sandbox generations. Nullable keeps
     # every JWT, rr_sk_, and local write on its historical row shape.
     (27, "add_sandbox_generation_key_id", ""),
+    # Agent-anywhere Phase B (July 2026): the OAuth 2.1 DCR + PKCE + rotating-
+    # refresh state. SCHEMA creates the three tables before this ledger runs;
+    # the handlers execute the SCHEMA-extracted DDL (_schema_table_ddl) so
+    # ledger and SCHEMA cannot drift. Each is guarded on _has_table so an
+    # existing store gains the tables and a fresh store is a no-op. The audience
+    # + oauth_family_id columns these bearers ride live in migration 26's DDL
+    # already, so no separate audience/family migration is needed here. Order:
+    # clients first (codes + refresh tokens FK it; refresh tokens also FK
+    # project_api_keys from migration 26).
+    (28, "add_oauth_clients", ""),
+    (29, "add_oauth_authorization_codes", ""),
+    (30, "add_oauth_refresh_tokens", ""),
 )
 
 
@@ -878,6 +942,15 @@ class BaseStateStore:
                 conn.execute(_schema_table_ddl(table="project_api_keys"))
         elif name == "add_sandbox_generation_key_id":
             self._ensure_sandbox_generation_key_id(conn=conn)
+        elif name == "add_oauth_clients":
+            if not self._has_table(conn=conn, table="oauth_clients"):
+                conn.execute(_schema_table_ddl(table="oauth_clients"))
+        elif name == "add_oauth_authorization_codes":
+            if not self._has_table(conn=conn, table="oauth_authorization_codes"):
+                conn.execute(_schema_table_ddl(table="oauth_authorization_codes"))
+        elif name == "add_oauth_refresh_tokens":
+            if not self._has_table(conn=conn, table="oauth_refresh_tokens"):
+                conn.execute(_schema_table_ddl(table="oauth_refresh_tokens"))
         else:
             conn.execute(statement)
 

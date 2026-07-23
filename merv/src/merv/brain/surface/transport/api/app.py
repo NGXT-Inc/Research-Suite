@@ -12,7 +12,7 @@ from ..data_plane_http import register_data_plane_routes
 from ..feed_http import register_feed_routes
 from ..http_policy import HttpSurfacePolicy
 from ..mcp_http import register_mcp_routes
-from . import artifacts, claims, events, experiments, litreview, meta, projects, reflections, reviews, sandboxes, storage
+from . import artifacts, claims, events, experiments, litreview, meta, oauth, projects, reflections, reviews, sandboxes, storage
 from .context import ApiRouteContext
 from .dependencies import HttpDependencies
 from .gateway import (
@@ -35,25 +35,26 @@ def create_fastapi_app(
     tenant_counters: Any | None = None,
     surface_policy: HttpSurfacePolicy | None = None,
     auth: Any | None = None,
+    oauth_service: Any | None = None,
     ui_base_url: str = "",
     oauth_resource_uri: str = "",
 ) -> FastAPI:
     """Compose transport adapters around an already-built backend."""
     if app is None:
         raise ValueError("provide app")
+    if oauth_service is not None and not oauth_resource_uri:
+        raise ValueError("oauth_resource_uri is required when OAuth is enabled")
     surface = surface_policy or HttpSurfacePolicy.for_surface(
         restrict_cors=False, hosted_control=False
     )
     api = app
     authorizer = ProjectAuthorizer(projects=api.projects)
     gateway = ToolInvocationGateway(
-        tools=api.tools,
-        reviews=api.reviews,
-        sandboxes=api.sandboxes,
-        surface=surface,
-        projects=authorizer,
-    )
-    authenticator = RequestAuthenticator(surface=surface, verifier=auth)
+        tools=api.tools, reviews=api.reviews, sandboxes=api.sandboxes,
+        surface=surface, projects=authorizer)
+    authenticator = RequestAuthenticator(
+        surface=surface, verifier=auth, oauth_enabled=oauth_service is not None,
+        canonical_mcp_resource=oauth_resource_uri)
     http = FastAPI(title="Merv API", version=__version__)
 
     install_request_middleware(http, authenticator=authenticator, authorizer=authorizer)
@@ -63,6 +64,8 @@ def create_fastapi_app(
     install_error_handlers(http)
     install_auth_routes(http, verifier=auth, allowed_origins=allowed_origins,
                         ui_base_url=ui_base_url, owner_key_audience=oauth_resource_uri)
+    oauth.install_routes(http, service=oauth_service, allowed_origins=allowed_origins or [],
+                         ui_base_url=ui_base_url, canonical_mcp_resource=oauth_resource_uri)
 
     ctx = ApiRouteContext(surface=surface, route_call_tool=gateway.call,
                           auth_meta=auth.meta() if auth is not None else None)

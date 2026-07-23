@@ -24,7 +24,7 @@ from ....research_core.facade import ResearchProjects, ResearchReviewDelivery
 from ....sandbox.facade import SandboxFacade
 from ..http_policy import HOSTED_CONTROL_TOOL_POLICIES, HttpSurfacePolicy
 from .shared import is_local_origin
-from . import project_keys, sdk_auth
+from . import oauth, project_keys, sdk_auth
 
 
 @dataclass(frozen=True)
@@ -33,6 +33,9 @@ class RequestAuthenticator:
 
     surface: HttpSurfacePolicy
     verifier: Any | None = None
+    # Phase B: OAuth routes are auth-exempt; audience-bound bearers are /mcp-only.
+    oauth_enabled: bool = False
+    canonical_mcp_resource: str = ""
 
     def authenticate(self, request: Request) -> JSONResponse | None:
         if request.method == "OPTIONS":
@@ -40,8 +43,10 @@ class RequestAuthenticator:
         request.state.principal = LOCAL_PRINCIPAL
         request.state.authenticated = False
         path = request.url.path
-        if path in ("/health", "/api/meta", "/internal/auth/mlflow") or path.startswith(
-            ("/api/sdk/auth/", "/api/artifacts/u/", "/api/artifacts/f/")
+        if (
+            path in ("/health", "/api/meta", "/internal/auth/mlflow")
+            or path.startswith(("/api/sdk/auth/", "/api/artifacts/u/", "/api/artifacts/f/"))
+            or oauth.public_request(request, enabled=self.oauth_enabled)
         ):
             return None
         client_version = request.headers.get(CLIENT_VERSION_HEADER)
@@ -63,21 +68,15 @@ class RequestAuthenticator:
         if self.verifier is None:
             return None
         try:
-            principal = self.verifier.verify_bearer(
-                request.headers.get("Authorization")
-            )
+            principal = self.verifier.verify_bearer(request.headers.get("Authorization"))
         except UnauthorizedError as exc:
-            return JSONResponse(
-                {
-                    "detail": f"{exc.message}; sign in on the web UI or set an API key "
-                    "(merv-client login --api-key rr_sk_...)",
-                    "error_code": "unauthorized",
-                },
-                status_code=401,
-            )
+            return oauth.bearer_denial(request, message=exc.message,
+                                       enabled=self.oauth_enabled, session_denial=None)
         request.state.principal = principal
         request.state.authenticated = True
-        return None
+        # INV-7: audience-bound bearers are valid ONLY on the canonical /mcp path.
+        return oauth.credential_audience_denial(request=request, principal=principal,
+                                                canonical_mcp_resource=self.canonical_mcp_resource)
 
 
 @dataclass(frozen=True)
