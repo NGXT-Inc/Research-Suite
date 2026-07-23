@@ -156,33 +156,47 @@ class ExhibitBuilderTest(unittest.TestCase):
 
 
 class FakeMlflowTracking:
-    """results_metrics-shaped double; runs are appended by the tests."""
+    """results_metrics-shaped double; runs are appended by the tests.
+
+    ``suspended`` mirrors the real adapter's kill-switch contract: capabilities
+    lose readback, context reports unconfigured, and results_metrics returns an
+    explicit suspended-unavailable record.
+    """
 
     def __init__(self) -> None:
         self.tracking_uri = "http://mlflow.test"
         self.server_uri = "http://mlflow.test"
         self.available = True
+        self.suspended = False
         self.runs: list[dict] = []
 
     def context(self, *, project_id: str, experiment_id: str, **_: object) -> MlflowTrackingContext:
         return MlflowTrackingContext(
-            configured=True,
-            mode="external",
-            tracking_uri=self.tracking_uri,
+            configured=not self.suspended,
+            mode="suspended" if self.suspended else "external",
+            tracking_uri="" if self.suspended else self.tracking_uri,
             dashboard_url="",
             experiment_name=f"merv/{project_id}/{experiment_id}",
             env={},
+            note="MLflow is temporarily suspended." if self.suspended else "",
         )
 
     def create_run(self, **_: object) -> dict:
         return {"created": True, "configured": True, "run_id": "run-plugin", "run_name": "plugin", "status": "RUNNING"}
 
     def capabilities(self) -> TrackingCapabilities:
+        if self.suspended:
+            return TrackingCapabilities(logging=False, control=False, readback=False)
         return TrackingCapabilities(logging=True, control=True, readback=True)
 
     def results_metrics(self, *, project_id: str, experiment_id: str) -> dict:
-        if not self.available:
-            return {"experiment_id": experiment_id, "available": False, "source": "mlflow"}
+        if self.suspended or not self.available:
+            return {
+                "experiment_id": experiment_id,
+                "available": False,
+                "suspended": self.suspended,
+                "source": "mlflow",
+            }
         return {
             "experiment_id": experiment_id,
             "available": True,
@@ -400,6 +414,32 @@ class ExhibitFlowTest(unittest.TestCase):
         self.assertEqual(out["status"], "experiment_review")
         self.assertIsNone(self._exhibit_association(exp_id))
         self.assertNotIn("metrics_exhibit", out)
+
+    def test_submit_results_under_suspension_pins_nothing_and_does_not_error(self) -> None:
+        # A running experiment started before suspension carries a plugin-created
+        # mlflow_run_id. Turning the kill-switch on must NOT KeyError/Assert in
+        # the exhibit finalize path (the design-review trap): capabilities lose
+        # readback, so should_pin_exhibit branch-2 cannot fire and no exhibit is
+        # required for the in-flight attempt.
+        exp_id = self._drive_to_running()
+        self._log_run("pre-suspension")  # a run exists, but readback goes dark
+        self.mlflow.suspended = True
+        # No exhibit reference is demanded, since no runs are found while
+        # suspended — a report without the reference must still pass.
+        self._submit_ready(exp_id, report=REPORT_WITHOUT_REFERENCE)
+        out = self.call(
+            "experiment.transition",
+            project_id=self.project_id,
+            experiment_id=exp_id,
+            transition="submit_results",
+        )
+        self.assertEqual(out["status"], "experiment_review")
+        # Nothing pinned, no gate machinery, and the pre-suspension run id is
+        # still threaded through the response.
+        self.assertIsNone(self._exhibit_association(exp_id))
+        self.assertNotIn("metrics_exhibit", out)
+        self.assertEqual(out["mlflow"]["run"]["run_id"], "run-plugin")
+        self.assertFalse(out["mlflow"]["configured"])
 
     def test_mlflow_outage_pins_a_visibly_unavailable_exhibit(self) -> None:
         exp_id = self._drive_to_running()
