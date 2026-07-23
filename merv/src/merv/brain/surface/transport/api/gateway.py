@@ -41,7 +41,7 @@ class RequestAuthenticator:
         request.state.authenticated = False
         path = request.url.path
         if path in ("/health", "/api/meta", "/internal/auth/mlflow") or path.startswith(
-            ("/api/sdk/auth/", "/api/artifacts/u/", "/api/artifacts/f/")
+            ("/api/sdk/auth/", "/api/artifacts/u/", "/api/artifacts/f/", "/api/feed/u/")
         ):
             return None
         client_version = request.headers.get(CLIENT_VERSION_HEADER)
@@ -206,7 +206,8 @@ class ToolInvocationGateway:
         internal_kwargs = None
         if user_id and name in ("project", "project.list"):
             internal_kwargs = {"user_id": user_id}
-        if name == "artifact.submit" and base_url:
+        if name in ("artifact.submit", "feed.post") and base_url:
+            # Both render a token-curl one-liner against the caller-reachable base.
             internal_kwargs = {"base_url": base_url}
         policy = (
             HOSTED_CONTROL_TOOL_POLICIES.get(name)
