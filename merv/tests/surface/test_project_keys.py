@@ -309,6 +309,45 @@ class ProjectKeySurfaceTest(unittest.TestCase):
             "tool_visibility_forbidden",
         )
 
+    def test_key_project_list_returns_only_the_bound_project(self) -> None:
+        # The key's owner (USER_A) belongs to both project_a and project_b, but
+        # one key = one project: project.list must return the bound one only.
+        listed = self.client.get("/api/projects", headers=_bearer(self.key))
+        self.assertEqual(listed.status_code, 200, listed.text)
+        self.assertEqual(
+            {project["id"] for project in listed.json()["projects"]}, {self.project_a}
+        )
+        # The JWT owner still sees every project they belong to.
+        owner = self.client.get("/api/projects", headers=_bearer(self.jwt_a))
+        self.assertEqual(
+            {project["id"] for project in owner.json()["projects"]},
+            {self.project_a, self.project_b},
+        )
+
+    def test_key_cannot_create_projects_over_rest_or_mcp(self) -> None:
+        rest = self.client.post(
+            "/api/projects", json={"name": "sneaky"}, headers=_bearer(self.key)
+        )
+        self.assertEqual(rest.status_code, 403, rest.text)
+        self.assertEqual(rest.json()["error_code"], "project_scope_forbidden")
+        streamable = self.client.post(
+            "/mcp",
+            json={
+                "jsonrpc": "2.0",
+                "id": 9,
+                "method": "tools/call",
+                "params": {
+                    "name": "project",
+                    "arguments": {"action": "create", "name": "sneaky"},
+                },
+            },
+            headers={**_bearer(self.key), "Accept": "application/json"},
+        )
+        self.assertEqual(streamable.status_code, 403, streamable.text)
+        self.assertEqual(
+            streamable.json()["error"]["data"]["error_code"], "project_scope_forbidden"
+        )
+
     def test_project_key_cannot_access_operator_diagnostics(self) -> None:
         for path in (
             f"/api/activity?project_id={self.project_a}",

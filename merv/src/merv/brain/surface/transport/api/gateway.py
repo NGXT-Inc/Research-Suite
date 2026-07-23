@@ -186,10 +186,8 @@ class ToolInvocationGateway:
             raise DataPlaneRequiredError(
                 "repo_root context is local data-plane state; hosted control "
                 "requires the local MCP proxy to resolve and send project_id",
-                details={
-                    "field": "context.repo_root",
-                    "reason": "repo_root_hidden_from_cloud",
-                },
+                details={"field": "context.repo_root",
+                         "reason": "repo_root_hidden_from_cloud"},
             )
         if contract is not None and contract.plane == "data":
             raise DataPlaneRequiredError(
@@ -200,9 +198,15 @@ class ToolInvocationGateway:
         for scope in (arguments.get("project_id"), project_scope):
             self.projects.require_member(project_id=scope, principal=principal)
         user_id = self.projects.user_id(principal)
+        key_project_id = self.projects.key_project_id(principal)
+        if key_project_id and name == "project" and arguments.get("action") == "create":
+            raise ProjectKeyScopeError("project API keys cannot create projects",
+                                       details={"key_project_id": key_project_id})
         internal_kwargs = None
         if user_id and name in ("project", "project.list"):
             internal_kwargs = {"user_id": user_id}
+            if key_project_id and name == "project.list":
+                internal_kwargs["project_id"] = key_project_id  # bound project only
         if name == "artifact.submit" and base_url:
             internal_kwargs = {"base_url": base_url}
         policy = (
@@ -275,11 +279,8 @@ class ToolInvocationGateway:
         )
 
     def call_mcp(
-        self,
-        name: str,
-        arguments: dict[str, Any],
-        context: dict[str, Any],
-        request: Request,
+        self, name: str, arguments: dict[str, Any],
+        context: dict[str, Any], request: Request,
     ) -> dict[str, Any]:
         return self.call(
             name=name,
@@ -310,10 +311,8 @@ def install_request_middleware(
             and not is_local_origin(origin)
         ):
             return JSONResponse(
-                {
-                    "detail": "cross-origin requests to the local HTTP server are not allowed",
-                    "error_code": "forbidden_origin",
-                },
+                {"detail": "cross-origin requests to the local HTTP server are not allowed",
+                 "error_code": "forbidden_origin"},
                 status_code=403,
             )
         return await call_next(request)

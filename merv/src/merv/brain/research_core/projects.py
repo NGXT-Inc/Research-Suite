@@ -144,6 +144,7 @@ class ProjectService:
         tenant_id: str | None = None,
         include_hidden: bool = False,
         user_id: str = "",
+        project_id: str = "",
     ) -> dict[str, Any]:
         with closing(self.store.connect()) as conn:
             if user_id:
@@ -167,6 +168,10 @@ class ProjectService:
             views = [self._project_view(row=row) for row in rows]
             if not include_hidden:
                 views = [v for v in views if not v["settings"].get("hidden")]
+            if project_id:
+                # A project (mk_) key sees ONLY its bound project, never the
+                # owner's whole membership set (one key = one project).
+                views = [v for v in views if v["id"] == project_id]
             return {"projects": views}
 
     def current(self, *, tenant_id: str | None = None) -> dict[str, Any]:
