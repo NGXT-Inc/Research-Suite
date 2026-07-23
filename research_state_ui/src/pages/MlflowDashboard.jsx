@@ -150,7 +150,12 @@ export default function MlflowDashboard() {
         </div>
       )}
 
-      {!data ? null : !mlflow?.configured ? (
+      {!data ? null : mlflow?.suspended ? (
+        <div className="empty-state">
+          <h2>Metrics temporarily suspended</h2>
+          <p>MLflow tracking is paused for now.</p>
+        </div>
+      ) : !mlflow?.configured ? (
         <div className="empty-state">
           <h2>MLflow isn&rsquo;t configured</h2>
           {mlflow?.note && <p>{mlflow.note}</p>}

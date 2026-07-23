@@ -711,6 +711,11 @@ html[data-theme="dark"] .product-tab--active {
   font-variant-numeric: tabular-nums;
 }
 .sidebar-link.active .sidebar-link-count { color: var(--muted); }
+.sidebar-link-note {
+  font-size: 11px;
+  color: var(--faint);
+  font-style: italic;
+}
 .sidebar-section {
   font-size: 10.5px;
   font-weight: 600;

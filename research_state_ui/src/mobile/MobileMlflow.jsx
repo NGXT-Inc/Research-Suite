@@ -144,6 +144,8 @@ export default function MobileMlflow() {
         )}
         {!data ? (
           <Skeleton lines={5} />
+        ) : data.mlflow?.suspended ? (
+          <div className="mquiet">metrics temporarily suspended — MLflow tracking is paused for now</div>
         ) : !data.mlflow?.configured ? (
           <div className="mquiet">MLflow isn't configured{data.mlflow?.note ? ` — ${data.mlflow.note}` : ''}</div>
         ) : mlflowUnreachable && !hasLedger ? null : !hasLedger ? (

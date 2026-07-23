@@ -83,6 +83,25 @@ def env_bool(
     return value.lower() not in FALSE_VALUES
 
 
+MLFLOW_SUSPENDED_ENV_VAR = "MERV_MLFLOW_SUSPENDED"
+
+
+def mlflow_suspended(env: Mapping[str, str] | None = None) -> bool:
+    """Global MLflow kill-switch (no-dataplane transition, owner ruling 3).
+
+    The single authoritative read point for the flag. When set, MLflow is
+    fully but *temporarily* suspended: capability readback reports unconfigured,
+    no ``MLFLOW_TRACKING_*`` credential enters any sandbox env or Modal secret
+    set, the hosted ``/mlflow`` auth gate 403s every principal, and the health/
+    metrics payloads carry ``suspended`` so surfaces render an explicit suspended
+    state rather than an error. The MLflow code itself stays in place — only its
+    behavior is gated — so the switch is reversible by unsetting the variable.
+    Lives in the kernel so both the MLflow adapter and the sandbox backends
+    (which may only reach kernel) read the same flag.
+    """
+    return env_bool(MLFLOW_SUSPENDED_ENV_VAR, default=False, env=env)
+
+
 def env_float(
     name: str,
     override: float | None,

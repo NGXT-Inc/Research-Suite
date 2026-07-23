@@ -8,7 +8,7 @@ import subprocess
 from pathlib import PurePosixPath
 from typing import Any, Callable, Mapping
 
-from ...kernel.env import env_value
+from ...kernel.env import env_value, mlflow_suspended
 from ..sandbox_backend import BackendUnavailableError, TranscriptTail
 
 from ..sandbox_paths import remote_experiment_dir, remote_root_of, remote_sessions_dir
@@ -184,9 +184,11 @@ def sandbox_tokens() -> dict[str, str]:
             tokens["HUGGING_FACE_HUB_TOKEN"] = hub_token
     # MLflow credential pair (never the tracking URI — routing still flows
     # through mlflow.context): makes hosted-MLflow auth ambient in every SSH
-    # session so agents never put the secret on a command line.
+    # session so agents never put the secret on a command line. Suppressed
+    # entirely while MLflow is suspended, so no MLFLOW_TRACKING_* ever reaches a
+    # sandbox env (INV-2 / no-dataplane ruling 3).
     agent_key = env_value("MERV_MLFLOW_AGENT_KEY") or ""
-    if agent_key:
+    if agent_key and not mlflow_suspended():
         tokens["MLFLOW_TRACKING_USERNAME"] = "rp-agent"
         tokens["MLFLOW_TRACKING_PASSWORD"] = agent_key
     return tokens

@@ -20,6 +20,16 @@ export default function ExperimentMetrics({ projectId, experimentId, refreshKey,
     return () => { cancelled = true; };
   }, [projectId, experimentId, refreshKey]);
 
+  // Suspension is an explicit state, not "no runs": say so quietly rather than
+  // rendering nothing. Compute-spend/usage are unaffected and stay as-is.
+  if (data?.suspended) {
+    return (
+      <section className={`results-metrics${dense ? ' results-metrics--dense' : ''}`}>
+        <span className="results-metrics-sub">Metrics temporarily suspended</span>
+      </section>
+    );
+  }
+
   const runs = runsFromMetrics(data);
   if (runs.length === 0) return null;
 

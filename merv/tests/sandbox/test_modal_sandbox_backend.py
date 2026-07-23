@@ -290,6 +290,32 @@ class ModalSandboxBackendTest(unittest.TestCase):
         self.assertEqual(tokens.get("MLFLOW_TRACKING_PASSWORD"), "rr_sk_agent")
         self.assertNotIn("MLFLOW_TRACKING_URI", tokens)
 
+    def test_mlflow_credentials_absent_from_sandbox_env_while_suspended(self) -> None:
+        # INV-2 (suspension era): with the kill-switch on, NO MLFLOW_TRACKING_*
+        # value may enter any sandbox env or Modal secret set, even when the
+        # agent key is configured. The pair is suppressed at the source.
+        from merv.brain.sandbox.execution.vm_ssh import sandbox_tokens
+
+        with unittest.mock.patch.dict(
+            os.environ,
+            {
+                "RESEARCH_PLUGIN_MLFLOW_AGENT_KEY": "rr_sk_agent",
+                "MERV_MLFLOW_SUSPENDED": "1",
+            },
+            clear=False,
+        ):
+            secrets = self.backend._sandbox_secrets(FakeModal)
+            tokens = sandbox_tokens()
+
+        # No Modal secret carries the MLflow pair (HF_TOKEN is unset here, so
+        # the whole secret list is empty).
+        self.assertEqual(secrets, [])
+        for leaked in (secrets, tokens):
+            self.assertNotIn("MLFLOW_TRACKING_USERNAME", repr(leaked))
+            self.assertNotIn("MLFLOW_TRACKING_PASSWORD", repr(leaked))
+        self.assertNotIn("MLFLOW_TRACKING_USERNAME", tokens)
+        self.assertNotIn("MLFLOW_TRACKING_PASSWORD", tokens)
+
     def test_boot_script_has_no_sandbox_mlflow_or_tensorboard_server(self) -> None:
         # The image layering writes the boot script as a heredoc into the
         # image; the embedded module-level BOOT_SCRIPT is the source of truth.

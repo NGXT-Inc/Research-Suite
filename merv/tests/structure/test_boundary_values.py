@@ -228,6 +228,7 @@ SAMPLES: dict[type, object] = {
     TrackingExperimentSnapshot: {"name": "proj_1.exp_1", "runs": [RUN]},
     MetricsSnapshot: {
         "available": True,
+        "suspended": False,
         "experiments": [{"name": "proj_1.exp_1", "runs": []}],
     },
     ProducedObject: {

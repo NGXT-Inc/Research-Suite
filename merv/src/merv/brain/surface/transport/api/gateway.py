@@ -10,6 +10,7 @@ from fastapi import FastAPI, Request
 from fastapi.responses import JSONResponse, Response
 from pydantic import ValidationError as PydanticValidationError
 
+from ....kernel.env import mlflow_suspended
 from ....kernel.utils import (
     DataPlaneRequiredError,
     NotFoundError,
@@ -56,13 +57,12 @@ class RequestAuthenticator:
             and is_below_floor(client_version=client_version, floor=MIN_PROXY_VERSION)
         ):
             return JSONResponse(
-                {
-                    "detail": f"client version {client_version} is below the minimum supported "
-                    f"{MIN_PROXY_VERSION}; upgrade the merv client (pip install -U merv) and reconnect",
-                    "error_code": "client_too_old",
-                    "min_version": MIN_PROXY_VERSION,
-                    "client_version": client_version,
-                },
+                {"detail": f"client version {client_version} is below the minimum "
+                 f"supported {MIN_PROXY_VERSION}; upgrade the merv client "
+                 "(pip install -U merv) and reconnect",
+                 "error_code": "client_too_old",
+                 "min_version": MIN_PROXY_VERSION,
+                 "client_version": client_version},
                 status_code=426,
             )
         if self.verifier is None:
@@ -132,10 +132,8 @@ class ProjectAuthorizer:
             project_id = request.query_params.get("project_id") or ""
             if not project_id:
                 return JSONResponse(
-                    {
-                        "detail": "project_id is required on this endpoint when authenticated",
-                        "error_code": "validation_error",
-                    },
+                    {"detail": "project_id is required on this endpoint when authenticated",
+                     "error_code": "validation_error"},
                     status_code=400,
                 )
         try:
@@ -354,6 +352,10 @@ def install_auth_routes(
 
     @http.get("/internal/auth/mlflow")
     def mlflow_gate(request: Request) -> Response:
+        if mlflow_suspended():  # ruling 3: no principal passes while suspended
+            return JSONResponse(
+                {"detail": "MLflow is temporarily suspended",
+                 "error_code": "mlflow_suspended"}, status_code=403)
         try:
             principal = verifier.verify_basic_or_bearer(
                 request.headers.get("Authorization")

@@ -128,6 +128,9 @@ export default function Sidebar({ onRefresh, onHide }) {
   // The /home payload's `mlflow` health block gates the nav row; the dedicated
   // page (/p/<id>/mlflow) renders the project's runs, curves, and embedded UI.
   const mlflowConfigured = home?.mlflow?.configured;
+  // Suspension is a distinct, explicit state — keep the row visible (muted)
+  // rather than letting MLflow silently vanish from the nav.
+  const mlflowSuspended = home?.mlflow?.suspended;
   const px = useProjectHref();
 
   const dotClass = lastSyncError ? 'sync-dot stale' : (isPolling ? 'sync-dot' : 'sync-dot paused');
@@ -187,9 +190,10 @@ export default function Sidebar({ onRefresh, onHide }) {
         <NavLink to={px('/litreview')} className={({ isActive }) => 'sidebar-link' + (isActive ? ' active' : '')}>
           Lit Review
         </NavLink>
-        {mlflowConfigured && (
+        {(mlflowConfigured || mlflowSuspended) && (
           <NavLink to={px('/mlflow')} className={({ isActive }) => 'sidebar-link' + (isActive ? ' active' : '')}>
-            MLflow
+            <span>MLflow</span>
+            {mlflowSuspended && <span className="sidebar-link-note">suspended</span>}
           </NavLink>
         )}
         {/* The substrate research runs on: files, objects, machines. */}

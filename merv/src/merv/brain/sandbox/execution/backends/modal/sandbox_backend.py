@@ -22,7 +22,7 @@ import threading
 from pathlib import Path, PurePosixPath
 from typing import Any, Callable, Mapping
 
-from .....kernel.env import env_value
+from .....kernel.env import env_value, mlflow_suspended
 from ...bootstrap_tools import (
     BASELINE_APT_PACKAGES,
     ML_PYTHON_PACKAGES,
@@ -545,8 +545,10 @@ class ModalSandboxBackend(SandboxBackendBase):
             secrets.append(modal.Secret.from_local_environ(keys))
         # MLflow credential pair for the authenticated hosted /mlflow route;
         # the brain env holds only the namespaced key, so map it explicitly.
+        # Suppressed entirely while MLflow is suspended, so no MLFLOW_TRACKING_*
+        # ever enters the Modal secret set (INV-2 / no-dataplane ruling 3).
         agent_key = env_value("MERV_MLFLOW_AGENT_KEY") or ""
-        if agent_key:
+        if agent_key and not mlflow_suspended():
             secrets.append(
                 modal.Secret.from_dict(
                     {
