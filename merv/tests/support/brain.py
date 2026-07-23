@@ -185,6 +185,36 @@ class TestBrain:
         response = self._client.put(f"/api/artifacts/{kind}/{token}", content=data)
         return self._response_json(response)
 
+    def post_feed_media(
+        self,
+        *,
+        project_id: str,
+        handle: str,
+        text: str,
+        data: bytes,
+        image_path: str | None = None,
+        html_path: str | None = None,
+        **extra: Any,
+    ) -> dict[str, Any]:
+        """The production media-post flow: feed.post mints a token -> curl PUT."""
+        args: dict[str, Any] = {
+            "project_id": project_id,
+            "handle": handle,
+            "text": text,
+            **extra,
+        }
+        if image_path is not None:
+            args["image_path"] = image_path
+        if html_path is not None:
+            args["html_path"] = html_path
+        pending = self.call_tool("feed.post", args)
+        result = self.upload_feed_bytes(token=upload_token(pending["run"]), data=data)
+        return {**result, "post_id": pending["post_id"]}
+
+    def upload_feed_bytes(self, *, token: str, data: bytes) -> dict[str, Any]:
+        response = self._client.put(f"/api/feed/u/{token}", content=data)
+        return self._response_json(response)
+
     @contextlib.contextmanager
     def _project_scope(self, project_id: Any):
         previous = self._active_project_id

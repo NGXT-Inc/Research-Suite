@@ -1807,6 +1807,11 @@ class UploadTokenRedactionTest(unittest.TestCase):
             redact_upload_tokens("/api/artifacts/f/tok_SECRET"),
             "/api/artifacts/f/<redacted>",
         )
+        # The shared choke-point also covers feed-media upload tokens (INV-12).
+        self.assertEqual(
+            redact_upload_tokens("/api/feed/u/tok_SECRET"),
+            "/api/feed/u/<redacted>",
+        )
         # Non-token routes pass through untouched.
         self.assertEqual(
             redact_upload_tokens("/api/projects/p_1/artifacts/art_1/content"),
