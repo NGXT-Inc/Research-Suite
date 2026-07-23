@@ -11,10 +11,12 @@ from __future__ import annotations
 import base64
 import hashlib
 import json
+import os
 import tempfile
 import time
 import unittest
 from pathlib import Path
+from unittest.mock import patch
 
 import httpx
 import jwt
@@ -525,6 +527,20 @@ class AuthedSurfaceTest(unittest.TestCase):
             "/internal/auth/mlflow", headers={"Authorization": f"Basic {encoded}"}
         )
         self.assertEqual(basic.status_code, 204)
+
+    def test_mlflow_gate_403s_all_principals_while_suspended(self) -> None:
+        encoded = base64.b64encode(f"rp:{KNOWN_KEY}".encode()).decode()
+        with patch.dict(os.environ, {"MERV_MLFLOW_SUSPENDED": "1"}, clear=False):
+            for headers in (
+                None,
+                _bearer(USER_A),
+                {"Authorization": f"Basic {encoded}"},
+            ):
+                response = self.client.get("/internal/auth/mlflow", headers=headers)
+                self.assertEqual(response.status_code, 403, response.text)
+                self.assertEqual(
+                    response.json()["error_code"], "mlflow_suspended"
+                )
 
 
 if __name__ == "__main__":
