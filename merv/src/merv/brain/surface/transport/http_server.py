@@ -86,6 +86,10 @@ def _run_server(*, server: Any, host: str, port: int, label: str) -> int:
         log_level="warning",
         access_log=False,
         lifespan="off",
+        # Honor X-Forwarded-Proto/-For from the fronting proxy: the artifact
+        # upload curls are minted from request.base_url and must say https.
+        proxy_headers=True,
+        forwarded_allow_ips="*",
     )
     uv = uvicorn.Server(config)
     print(f"merv {label} listening on http://{host}:{selected_port}", flush=True)
