@@ -190,6 +190,96 @@ class MlflowTrackingServiceTest(unittest.TestCase):
         with self.assertRaises(ValidationError):
             resolve_mlflow_mode({"RESEARCH_PLUGIN_MLFLOW_MODE": "sandbox"})
 
+    def _suspended_service(self) -> CentralMlflowService:
+        # Fully configured *and* suspended: the flag must win over the URIs.
+        return CentralMlflowService(
+            mode="external",
+            tracking_uri="https://mlflow.example.test",
+            server_uri="http://mlflow:5000",
+            dashboard_url="https://mlflow-ui.example.test",
+            agent_key="rr_sk_agent",
+            suspended=True,
+        )
+
+    def test_from_env_reads_suspension_flag_and_forces_unconfigured(self) -> None:
+        service = CentralMlflowService.from_env(
+            {
+                "MERV_MLFLOW_TRACKING_URI": "https://mlflow.example.test",
+                "MERV_MLFLOW_SUSPENDED": "1",
+            }
+        )
+        self.assertTrue(service.suspended)
+        # configured is False even though a tracking URI is set (the spec's
+        # key assertion): route capabilities through the flag, not bool(uri).
+        capabilities = service.capabilities()
+        self.assertFalse(capabilities.logging)
+        self.assertFalse(capabilities.control)
+        self.assertFalse(capabilities.readback)
+
+    def test_suspension_yields_no_endpoint_or_credentials_in_agent_context(self) -> None:
+        service = self._suspended_service()
+        context = service.context(
+            project_id="p", experiment_id="e", include_credentials=True
+        ).to_dict()
+        project = service.project_context(project_id="p", include_credentials=True)
+
+        for block in (context, project):
+            self.assertFalse(block["configured"])
+            self.assertEqual(block["mode"], "suspended")
+            self.assertEqual(block["tracking_uri"], "")
+            self.assertEqual(block["note"], "MLflow is temporarily suspended.")
+            self.assertNotIn("MLFLOW_TRACKING_URI", block["env"])
+            self.assertNotIn("MLFLOW_TRACKING_USERNAME", block["env"])
+            self.assertNotIn("MLFLOW_TRACKING_PASSWORD", block["env"])
+        # The stable experiment naming still resolves for continuity.
+        self.assertEqual(context["experiment_name"], "merv/p/e")
+
+    def test_suspension_health_and_metrics_advertise_suspended_without_probing(self) -> None:
+        service = self._suspended_service()
+        health = service.health()
+        self.assertTrue(health["suspended"])
+        self.assertFalse(health["configured"])
+        self.assertFalse(health["tracking_configured"])
+        self.assertFalse(health["read_configured"])
+        self.assertEqual(health["mode"], "suspended")
+        self.assertEqual(health["note"], "MLflow is temporarily suspended.")
+
+        # No remote read is attempted while suspended.
+        with patch(
+            "merv.brain.mlflow.tracking.snapshot_mlflow",
+            side_effect=AssertionError("must not read MLflow while suspended"),
+        ), patch(
+            "merv.brain.mlflow.tracking.snapshot_mlflow_project",
+            side_effect=AssertionError("must not read MLflow while suspended"),
+        ):
+            metrics = service.results_metrics(project_id="p", experiment_id="e")
+            snapshots, namespace, hint = service.project_results_snapshot(
+                project_id="p", experiment_ids=("e",)
+            )
+
+        self.assertFalse(metrics["available"])
+        self.assertTrue(metrics["suspended"])
+        self.assertEqual(metrics["hint"], "MLflow is temporarily suspended.")
+        self.assertEqual((snapshots, namespace), ({}, []))
+        self.assertEqual(hint, "MLflow is temporarily suspended.")
+
+    def test_suspension_finalize_and_create_return_clean_notice(self) -> None:
+        service = self._suspended_service()
+        with patch(
+            "merv.brain.mlflow.tracking.httpx.Client",
+            side_effect=AssertionError("must not contact MLflow while suspended"),
+        ):
+            finalize = service.finalize_run(
+                project_id="p", experiment_id="e", run_id="run_pre"
+            )
+            create = service.create_run(project_id="p", experiment_id="e")
+        for result in (finalize, create):
+            self.assertFalse(result["configured"])
+            self.assertFalse(result["control_configured"])
+            self.assertEqual(result["note"], "MLflow is temporarily suspended.")
+        self.assertNotIn("error", finalize)
+        self.assertNotIn("error", create)
+
     def test_health_reports_reachability_separately_from_configuration(self) -> None:
         service = CentralMlflowService(
             mode="external",

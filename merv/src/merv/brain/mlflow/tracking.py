@@ -28,6 +28,7 @@ from .metrics import (
     snapshot_mlflow,
     snapshot_mlflow_project,
 )
+from ..kernel.env import mlflow_suspended
 from .config import (
     MLFLOW_AGENT_USERNAME,
     resolve_mlflow_agent_key,
@@ -36,6 +37,10 @@ from .config import (
     resolve_mlflow_server_uri,
     resolve_mlflow_tracking_uri,
 )
+
+# Operator-facing message shown wherever MLflow is reached while the kill-switch
+# is on. The code stays; only the behavior is gated (no-dataplane ruling 3).
+SUSPENDED_NOTE = "MLflow is temporarily suspended."
 
 
 @dataclass(frozen=True)
@@ -81,6 +86,7 @@ class CentralMlflowService:
         dashboard_url: str = "",
         note: str = "",
         agent_key: str = "",
+        suspended: bool = False,
         health_check: Callable[[], bool] | None = None,
     ) -> None:
         self.mode = mode.strip().lower()
@@ -93,6 +99,10 @@ class CentralMlflowService:
         # serialized into agent-facing env blocks (include_credentials=True);
         # UI-facing views keep the default and never see it.
         self.agent_key = agent_key.strip()
+        # Kill-switch: when suspended every configured/readback derivation reads
+        # False and no endpoint or credential is ever advertised, regardless of
+        # the URIs above (which stay set so the switch is reversible).
+        self.suspended = bool(suspended)
         self._health_check = health_check
         self._last_probe_at = 0.0
         self._last_reachable: bool | None = None
@@ -107,12 +117,29 @@ class CentralMlflowService:
             server_uri=resolve_mlflow_server_uri(env),
             dashboard_url=resolve_mlflow_dashboard_url(env),
             agent_key=resolve_mlflow_agent_key(env),
+            suspended=mlflow_suspended(env),
         )
+
+    def _agent_logging_uri(self) -> str:
+        """Tracking URI handed to execution agents; blank while suspended."""
+        return "" if self.suspended else self.tracking_uri
+
+    def _read_uri(self) -> str:
+        """Backend read/control endpoint for reads; blank while suspended."""
+        return "" if self.suspended else (self.server_uri or self.tracking_uri)
+
+    def _mode(self, *, configured: bool) -> str:
+        """Reported mode: ``suspended`` wins the kill-switch, else config."""
+        if self.suspended:
+            return "suspended"
+        return self.mode or ("external" if configured else "unconfigured")
 
     def _credential_env(self, *, include_credentials: bool) -> dict[str, str]:
         # MLflow's client turns this pair into Basic auth on every tracking
         # and artifact call; the same pair answers the browser's 401 prompt.
-        if not (include_credentials and self.agent_key and self.tracking_uri):
+        if self.suspended or not (
+            include_credentials and self.agent_key and self.tracking_uri
+        ):
             return {}
         return {
             "MLFLOW_TRACKING_USERNAME": MLFLOW_AGENT_USERNAME,
@@ -120,7 +147,14 @@ class CentralMlflowService:
         }
 
     def capabilities(self) -> TrackingCapabilities:
-        """Report logging, backend control, and readback independently."""
+        """Report logging, backend control, and readback independently.
+
+        Under suspension every capability is False even when a tracking URI is
+        configured, so the exhibit path sees ``readback=False`` and never pins a
+        metrics exhibit for an in-flight attempt (INV-2 / no-dataplane ruling 3).
+        """
+        if self.suspended:
+            return capabilities_for_configuration(logging=False, control=False)
         return capabilities_for_configuration(
             logging=bool(self.tracking_uri),
             control=bool(self._control_uri),
@@ -134,15 +168,16 @@ class CentralMlflowService:
         This does not query MLflow. It gives agents the endpoint and namespace
         prefix they need to use MLflow's native APIs directly.
         """
+        logging_uri = self._agent_logging_uri()
         env: dict[str, str] = {"RP_PROJECT_ID": project_id}
-        if self.tracking_uri:
-            env["MLFLOW_TRACKING_URI"] = self.tracking_uri
+        if logging_uri:
+            env["MLFLOW_TRACKING_URI"] = logging_uri
         env.update(self._credential_env(include_credentials=include_credentials))
-        configured = bool(self.tracking_uri)
+        configured = bool(logging_uri)
         result: TrackingContextPayload = {
             "configured": configured,
-            "mode": self.mode or ("external" if configured else "unconfigured"),
-            "tracking_uri": self.tracking_uri,
+            "mode": self._mode(configured=configured),
+            "tracking_uri": logging_uri,
             "dashboard_url": self.dashboard_url,
             "project_id": project_id,
             "experiment_namespace_prefix": f"{_TRACKING_NAMESPACE_PREFIX}/{project_id}/",
@@ -165,13 +200,14 @@ class CentralMlflowService:
         experiment_name = _tracking_experiment_name(
             project_id=project_id, experiment_id=experiment_id
         )
+        logging_uri = self._agent_logging_uri()
         env: dict[str, str] = {
             "MLFLOW_EXPERIMENT_NAME": experiment_name,
             "RP_PROJECT_ID": project_id,
             "RP_EXPERIMENT_ID": experiment_id,
         }
-        if self.tracking_uri:
-            env["MLFLOW_TRACKING_URI"] = self.tracking_uri
+        if logging_uri:
+            env["MLFLOW_TRACKING_URI"] = logging_uri
         env.update(self._credential_env(include_credentials=include_credentials))
         if attempt_id:
             env["RP_ATTEMPT_ID"] = attempt_id
@@ -179,11 +215,11 @@ class CentralMlflowService:
             env["RP_SANDBOX_ID"] = sandbox_id
         if execution_backend:
             env["RP_EXECUTION_BACKEND"] = execution_backend
-        configured = bool(self.tracking_uri)
+        configured = bool(logging_uri)
         return MlflowTrackingContext(
             configured=configured,
-            mode=self.mode or ("external" if configured else "unconfigured"),
-            tracking_uri=self.tracking_uri,
+            mode=self._mode(configured=configured),
+            tracking_uri=logging_uri,
             dashboard_url=self.dashboard_url,
             experiment_name=experiment_name,
             env=env,
@@ -214,7 +250,7 @@ class CentralMlflowService:
         result: CreateRunResult = {
             "created": False,
             "configured": context.configured,
-            "control_configured": bool(self._control_uri),
+            "control_configured": bool(self._control_uri) and not self.suspended,
             "experiment_name": context.experiment_name,
             "run_name": name,
         }
@@ -296,9 +332,10 @@ class CentralMlflowService:
         context = self.context(project_id=project_id, experiment_id=experiment_id)
         run_id = run_id.strip()
         normalized_status = str(status or "").strip().upper()
+        read_uri = self._read_uri()
         result: FinalizeRunResult = {
-            "configured": bool(self.server_uri or self.tracking_uri),
-            "control_configured": bool(self._control_uri),
+            "configured": bool(read_uri),
+            "control_configured": bool(self._control_uri) and not self.suspended,
             "experiment_name": context.experiment_name,
             "run_id": run_id,
             "requested_status": normalized_status or None,
@@ -312,7 +349,6 @@ class CentralMlflowService:
                 + ", ".join(sorted(_TRACKING_TERMINAL_RUN_STATUSES))
             )
             return result
-        read_uri = self.server_uri or self.tracking_uri
         if not read_uri:
             result["note"] = self._unconfigured_note()
             return result
@@ -503,11 +539,25 @@ class CentralMlflowService:
         return ""
 
     def health(self) -> dict[str, object]:
+        if self.suspended:
+            # First-class suspended state so the UI never has to infer it from
+            # an unreachable/empty payload (no-dataplane ruling 3).
+            return {
+                "configured": False,
+                "suspended": True,
+                "tracking_configured": False,
+                "read_configured": False,
+                "mode": "suspended",
+                "tracking_uri": "",
+                "dashboard_url": "",
+                "note": SUSPENDED_NOTE,
+            }
         tracking_configured = bool(self.tracking_uri)
         read_configured = bool(self.server_uri)
         configured = tracking_configured or read_configured
         result: dict[str, object] = {
             "configured": configured,
+            "suspended": False,
             "tracking_configured": tracking_configured,
             "read_configured": read_configured,
             "mode": self.mode or ("external" if configured else "unconfigured"),
@@ -540,10 +590,11 @@ class CentralMlflowService:
     ) -> MetricsSnapshot:
         """Read experiment metrics from the centralized MLflow server."""
         context = self.context(project_id=project_id, experiment_id=experiment_id)
-        read_uri = self.server_uri or context.tracking_uri
+        read_uri = self._read_uri()
         unavailable = {
             "experiment_id": experiment_id,
             "available": False,
+            "suspended": self.suspended,
             "source": "mlflow",
         }
         if not read_uri:
@@ -566,6 +617,7 @@ class CentralMlflowService:
         result: MetricsSnapshot = {
             "experiment_id": experiment_id,
             "available": True,
+            "suspended": False,
             **portable,
         }
         drill_url = self._dashboard_experiment_url(portable, context.experiment_name)
@@ -577,7 +629,7 @@ class CentralMlflowService:
         self, *, project_id: str, experiment_ids: tuple[str, ...]
     ) -> tuple[dict[str, dict[str, object]], list[dict[str, object]], str]:
         """Read one project's overview in a constant number of remote calls."""
-        read_uri = self.server_uri or self.tracking_uri
+        read_uri = self._read_uri()
         if not read_uri:
             return {}, [], self._unconfigured_note()
         expected = {
@@ -663,6 +715,8 @@ class CentralMlflowService:
         return self._last_reachable
 
     def _unconfigured_note(self) -> str:
+        if self.suspended:
+            return SUSPENDED_NOTE
         if self.server_uri:
             return (
                 "Backend MLflow reads are configured through "

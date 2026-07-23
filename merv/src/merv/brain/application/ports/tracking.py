@@ -133,6 +133,7 @@ class TrackingExperimentSnapshot(TypedDict, total=False):
 
 class MetricsSnapshot(TypedDict, total=False):
     available: bool
+    suspended: bool
     experiments: list[TrackingExperimentSnapshot]
 
 
