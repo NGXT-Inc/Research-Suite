@@ -10,8 +10,8 @@ from ...artifacts.ports import AssociatedEvidence
 def artifact_state_record(evidence: AssociatedEvidence) -> dict[str, Any]:
     """Project one submitted artifact into the public Research record shape.
 
-    `id` is the artifact id; the association_* key names are the stable shape
-    state consumers (gates, guidance, UI projections) read."""
+    `id` is the artifact id; these key names are the stable shape state
+    consumers (gates, guidance, UI projections) read."""
     return {
         "id": evidence.artifact_id,
         "project_id": evidence.project_id,
@@ -23,9 +23,9 @@ def artifact_state_record(evidence: AssociatedEvidence) -> dict[str, Any]:
         "created_by": evidence.created_by,
         "created_at": evidence.created_at,
         "updated_at": evidence.updated_at,
-        "association_role": evidence.role,
-        "association_attempt_index": evidence.attempt_index,
-        "association_rowid": evidence.order,
+        "role": evidence.role,
+        "attempt_index": evidence.attempt_index,
+        "submitted_order": evidence.order,
     }
 
 
@@ -39,21 +39,21 @@ def preferred_associated_artifact(
     candidates = [
         artifact
         for artifact in artifacts
-        if artifact.get("association_role") in roles
+        if artifact.get("role") in roles
     ]
     if not candidates:
         return None
     current = [
         artifact
         for artifact in candidates
-        if artifact.get("association_attempt_index") == attempt
+        if artifact.get("attempt_index") == attempt
     ]
     role_rank = {role: index for index, role in enumerate(roles)}
     return min(
         current or candidates,
         key=lambda artifact: (
-            role_rank.get(str(artifact.get("association_role")), len(roles)),
-            -(artifact.get("association_rowid") or 0),
+            role_rank.get(str(artifact.get("role")), len(roles)),
+            -(artifact.get("submitted_order") or 0),
         ),
     )
 

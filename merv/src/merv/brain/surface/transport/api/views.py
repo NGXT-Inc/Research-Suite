@@ -109,19 +109,19 @@ def tool_call_detail(
 
 
 def experiment_view_model(exp: dict[str, Any]) -> dict[str, Any]:
-    current = exp.get("current_attempt_resources", [])
-    plans = [res["id"] for res in current if res.get("association_role") == "plan"]
-    results = [res["id"] for res in current if res.get("association_role") == "result"]
+    current = exp.get("current_attempt_artifacts", [])
+    plans = [res["id"] for res in current if res.get("role") == "plan"]
+    results = [res["id"] for res in current if res.get("role") == "result"]
     claims = [claim["id"] for claim in exp.get("tested_claims", [])]
     return {
         **exp,
         "tests_claims": claims,
-        "input_resources": [
+        "input_artifacts": [
             res["id"]
             for res in current
-            if res.get("association_role") in {"input", "code", "config", "plan"}
+            if res.get("role") in {"input", "code", "config", "plan"}
         ],
-        "output_resources": results,
+        "output_artifacts": results,
         "check": {
             "summary": exp.get("intent", ""),
             "claims": claims,
@@ -131,8 +131,8 @@ def experiment_view_model(exp: dict[str, Any]) -> dict[str, Any]:
         "did": {
             "summary": exp.get("revision_context", ""),
             "runs": [],
-            "input_resources": plans,
-            "output_resources": results,
+            "input_artifacts": plans,
+            "output_artifacts": results,
             "last_run_at": exp.get("updated_at"),
         },
         "learned": {
@@ -149,7 +149,7 @@ def experiments_view(experiments: list[dict[str, Any]]) -> dict[str, Any]:
     return {
         "experiments": [experiment_view_model(exp) for exp in experiments],
         "current": experiments[-1] if experiments else None,
-        "resource_use": [],
+        "artifact_use": [],
         "recent_runs": [],
     }
 

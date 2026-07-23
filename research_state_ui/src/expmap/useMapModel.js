@@ -87,12 +87,12 @@ function projectFetches(pid) {
 // The experiment's plan/report artifact: current attempt first (how
 // ExperimentDetail picks them), else the newest prior attempt's submission.
 function roleArtifact(e, role) {
-  const cur = (e.current_attempt_resources || []).find((r) => r.association_role === role);
+  const cur = (e.current_attempt_artifacts || []).find((r) => r.role === role);
   if (cur) return cur;
   let best = null;
-  for (const r of e.resources || []) {
-    if (r.association_role !== role) continue;
-    if (!best || (r.association_attempt_index ?? 0) > (best.association_attempt_index ?? 0)) best = r;
+  for (const r of e.artifacts || []) {
+    if (r.role !== role) continue;
+    if (!best || (r.attempt_index ?? 0) > (best.attempt_index ?? 0)) best = r;
   }
   return best;
 }

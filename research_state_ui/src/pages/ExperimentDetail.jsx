@@ -115,29 +115,29 @@ export default function ExperimentDetail() {
   const isClosed = ['complete', 'failed', 'abandoned'].includes(experiment.status);
 
   // Partition artifacts by role.
-  const currentRes = (experiment.current_attempt_resources || [])
+  const currentRes = (experiment.current_attempt_artifacts || [])
     .slice()
-    .sort((a, b) => (a.association_role || '').localeCompare(b.association_role || ''));
+    .sort((a, b) => (a.role || '').localeCompare(b.role || ''));
   const currentIds = new Set(currentRes.map(r => r.id));
   // Fallback: if the current attempt has no plan yet (e.g. just bumped to a
   // new attempt), show the newest earlier-attempt plan so PlanSpotlight can
   // still render it.
-  const planRes = currentRes.find(r => r.association_role === 'plan')
-    || (experiment.resources || [])
-      .filter(r => r.association_role === 'plan')
-      .sort((a, b) => (a.association_attempt_index ?? 0) - (b.association_attempt_index ?? 0))
+  const planRes = currentRes.find(r => r.role === 'plan')
+    || (experiment.artifacts || [])
+      .filter(r => r.role === 'plan')
+      .sort((a, b) => (a.attempt_index ?? 0) - (b.attempt_index ?? 0))
       .pop()
     || null;
   // The results report (role 'report') mirrors the plan: current attempt only
   // (a prior attempt's report is history, not the face of this attempt).
-  const reportRes = currentRes.find(r => r.association_role === 'report') || null;
+  const reportRes = currentRes.find(r => r.role === 'report') || null;
   // `result` artifacts are intentionally not surfaced on this page (they feed
   // the metrics exhibit); anything beyond plan/report/graph falls through.
-  const otherRes = currentRes.filter(r => !['plan', 'report', 'graph', 'result'].includes(r.association_role));
+  const otherRes = currentRes.filter(r => !['plan', 'report', 'graph', 'result'].includes(r.role));
 
   // Historical (deduped by id).
-  const historicalRes = (experiment.resources || [])
-    .filter(r => r.association_attempt_index !== currentAttempt)
+  const historicalRes = (experiment.artifacts || [])
+    .filter(r => r.attempt_index !== currentAttempt)
     .filter(r => !currentIds.has(r.id));
 
   // Reviews — split by role, ascending by created_at so the stepper reads
@@ -208,8 +208,8 @@ export default function ExperimentDetail() {
           Newest-first: the executed experiment's output leads the page. The
           report (with its experiment review behind a "Show review" disclosure)
           comes first, then durable metrics. Each piece is simply absent until
-          it exists — the order itself never changes. (Raw `result`-type
-          resources are intentionally not surfaced here.) */}
+          it exists — the order itself never changes. (Raw `result`-role
+          artifacts are intentionally not surfaced here.) */}
       {reportRes && (
         <ReportSpotlight
           projectId={projectId}

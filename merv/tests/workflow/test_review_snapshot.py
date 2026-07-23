@@ -21,7 +21,7 @@ class ReviewSnapshotIdTest(unittest.TestCase):
             "id": "exp_1",
             "status": "running",
             "attempt_index": 2,
-            "current_attempt_resources": [],
+            "current_attempt_artifacts": [],
         }
         # `type|id|status|attempt|tokens`; empty tokens -> trailing empty seg.
         self.assertEqual(
@@ -34,11 +34,11 @@ class ReviewSnapshotIdTest(unittest.TestCase):
             "id": "ref_1",
             "status": "synthesizing",
             "attempt_index": 0,
-            "current_attempt_resources": [
-                {"id": "art_b", "association_role": "reflection_doc",
-                 "association_attempt_index": 0},
-                {"id": "art_a", "association_role": "reflection_doc",
-                 "association_attempt_index": 0},
+            "current_attempt_artifacts": [
+                {"id": "art_b", "role": "reflection_doc",
+                 "attempt_index": 0},
+                {"id": "art_a", "role": "reflection_doc",
+                 "attempt_index": 0},
             ],
         }
         snap = review_snapshot_id(target_type="reflection", target=target)
@@ -58,16 +58,16 @@ class ReviewSnapshotIdTest(unittest.TestCase):
         }
         before = review_snapshot_id(
             target_type="experiment",
-            target={**base, "current_attempt_resources": [
-                {"id": "art_1", "association_role": "report",
-                 "association_attempt_index": 1},
+            target={**base, "current_attempt_artifacts": [
+                {"id": "art_1", "role": "report",
+                 "attempt_index": 1},
             ]},
         )
         after = review_snapshot_id(
             target_type="experiment",
-            target={**base, "current_attempt_resources": [
-                {"id": "art_2", "association_role": "report",
-                 "association_attempt_index": 1},
+            target={**base, "current_attempt_artifacts": [
+                {"id": "art_2", "role": "report",
+                 "attempt_index": 1},
             ]},
         )
         self.assertNotEqual(before, after)
@@ -77,9 +77,9 @@ class ReviewSnapshotIdTest(unittest.TestCase):
             "id": "exp_1",
             "status": "running",
             "attempt_index": 3,
-            "current_attempt_resources": [
-                {"id": "art_9", "association_role": "plan",
-                 "association_attempt_index": 3},
+            "current_attempt_artifacts": [
+                {"id": "art_9", "role": "plan",
+                 "attempt_index": 3},
             ],
         }
         snap = review_snapshot_id(target_type="experiment", target=target)

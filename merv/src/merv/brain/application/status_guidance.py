@@ -33,7 +33,7 @@ from .reflection_guidance import (
 
 _SLIM_ARTIFACT_FIELDS = (
     "id",
-    "association_role",
+    "role",
     "lens_id",
     "path",
     "size_bytes",
@@ -449,7 +449,7 @@ class StatusGuidancePolicy:
     def _reflection_artifact_guidance(self) -> dict[str, Any]:
         return {
             "target_type": "reflection",
-            "association_role": REFLECTION_LENS_DOC_ROLE,
+            "role": REFLECTION_LENS_DOC_ROLE,
             "guidance": (
                 "Fan out one read-only subagent per missing lens. Each subagent "
                 "reads the project through its lens only (tell it which other "
@@ -472,8 +472,8 @@ class StatusGuidancePolicy:
             "revision_context": reflection.get("revision_context"),
             "roster": project_rows(reflection.get("roster", []), ("id", "title", "core")),
             "reflection_coverage": reflection.get("reflection_coverage"),
-            "current_attempt_resources": project_rows(
-                reflection.get("current_attempt_resources", []), _SLIM_ARTIFACT_FIELDS
+            "current_attempt_artifacts": project_rows(
+                reflection.get("current_attempt_artifacts", []), _SLIM_ARTIFACT_FIELDS
             ),
             "reviews": project_rows(reflection.get("reviews", []), _SLIM_REVIEW_FIELDS),
             "allowed_transitions": reflection.get("allowed_transitions", []),
@@ -483,7 +483,7 @@ class StatusGuidancePolicy:
         if key == "project_graph":
             return {
                 "target_type": "reflection",
-                "association_role": PROJECT_GRAPH_ROLE,
+                "role": PROJECT_GRAPH_ROLE,
                 "template": "skills/research-workflow/graph-template.md",
                 "guidance": (
                     "Update the living project logic graph (one JSON file, e.g. "
@@ -502,7 +502,7 @@ class StatusGuidancePolicy:
         if key == "reflection_doc":
             return {
                 "target_type": "reflection",
-                "association_role": "reflection_doc",
+                "role": "reflection_doc",
                 "template": "skills/project-reflection/reflection-artifacts-template.md",
                 "guidance": (
                     "Write the short reflection document as markdown: a critical "
@@ -521,7 +521,7 @@ class StatusGuidancePolicy:
         if key == "change_spec":
             return {
                 "target_type": "reflection",
-                "association_role": "change_spec",
+                "role": "change_spec",
                 "template": "skills/project-reflection/reflection-artifacts-template.md",
                 "guidance": (
                     "Write the change spec as JSON: claim_changes plus a "
@@ -539,7 +539,7 @@ class StatusGuidancePolicy:
     def _plan_artifact_guidance(self, *, folder: str) -> dict[str, Any]:
         return {
             "target_type": "experiment",
-            "association_role": "plan",
+            "role": "plan",
             "template": "skills/research-workflow/plan-template.md",
             "guidance": (
                 f"Write the experiment plan as one markdown file at {folder}plan.md "
@@ -573,7 +573,7 @@ class StatusGuidancePolicy:
         )
         return {
             "target_type": "experiment",
-            "association_role": "result",
+            "role": "result",
             "allowed_roles": sorted(SUBMITTABLE_ROLES),
             "dataset_guidance": (
                 "Prefer CPU-only sandboxes for data inspection and data engineering "
@@ -614,7 +614,7 @@ class StatusGuidancePolicy:
     def _report_artifact_guidance(self, *, folder: str) -> dict[str, Any]:
         return {
             "target_type": "experiment",
-            "association_role": "report",
+            "role": "report",
             "template": "skills/research-workflow/report-template.md",
             "guidance": (
                 "Write a SHORT markdown results report in the experiment folder "
@@ -637,7 +637,7 @@ class StatusGuidancePolicy:
     def _graph_artifact_guidance(self, *, folder: str) -> dict[str, Any]:
         return {
             "target_type": "experiment",
-            "association_role": "graph",
+            "role": "graph",
             "template": "skills/research-workflow/graph-template.md",
             "guidance": (
                 "Write the experiment's logic graph as one JSON file in the "

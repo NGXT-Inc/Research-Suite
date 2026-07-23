@@ -30,7 +30,7 @@ UPSTREAM_ROLES = {"plan", "input", "code", "config", "model"}
 
 # Per-attempt, per-direction cap on individual artifact nodes. Old sandbox syncs
 # could attach hundreds of files to one attempt; past the cap the remainder
-# rolls up into a single `resource_group` node so the canvas stays readable.
+# rolls up into a single `artifact_group` node so the canvas stays readable.
 ARTIFACT_FANOUT_CAP = 6
 
 # Which artifacts survive the cap, most-load-bearing first.
@@ -128,35 +128,35 @@ def build_experiment_figure(
     # the fan-out cap, and roll the rest into one expandable group node.
     buckets: dict[tuple[int, bool], list[dict[str, Any]]] = {}
     seen_assoc: set[tuple[str, int]] = set()
-    for res in experiment.get("resources", []):
-        attempt = clamp_attempt(res.get("association_attempt_index"))
+    for res in experiment.get("artifacts", []):
+        attempt = clamp_attempt(res.get("attempt_index"))
         key = (str(res.get("id")), attempt)
         if key in seen_assoc:
             continue
         seen_assoc.add(key)
-        role = str(res.get("association_role") or "other")
+        role = str(res.get("role") or "other")
         buckets.setdefault((attempt, role in UPSTREAM_ROLES), []).append(res)
 
     for (attempt, upstream), bucket in sorted(buckets.items()):
         bucket.sort(
             key=lambda r: (
-                _ROLE_PRIORITY.get(str(r.get("association_role") or "other"), 9),
+                _ROLE_PRIORITY.get(str(r.get("role") or "other"), 9),
                 str(r.get("path") or ""),
             )
         )
         shown, overflow = bucket[:ARTIFACT_FANOUT_CAP], bucket[ARTIFACT_FANOUT_CAP:]
         for res in shown:
-            role = str(res.get("association_role") or "other")
-            node_id = f"res:{res.get('id')}:a{attempt}"
+            role = str(res.get("role") or "other")
+            node_id = f"artifact:{res.get('id')}:a{attempt}"
             nodes.append(
                 {
                     "id": node_id,
-                    "type": "resource",
+                    "type": "artifact",
                     "label": _artifact_label(res),
                     "sublabel": role,
                     "status": "none",
                     "group": f"attempt:{attempt}",
-                    "ref": {"kind": "resource", "id": res.get("id")},
+                    "ref": {"kind": "artifact", "id": res.get("id")},
                     "meta": {"role": role, "path": res.get("path")},
                 }
             )
@@ -165,21 +165,21 @@ def build_experiment_figure(
             else:
                 add_edge(f"attempt:{attempt}", node_id, "produced")
         if overflow:
-            roles = sorted({str(r.get("association_role") or "other") for r in overflow})
-            node_id = f"resgroup:a{attempt}:{'up' if upstream else 'down'}"
+            roles = sorted({str(r.get("role") or "other") for r in overflow})
+            node_id = f"artifact_group:a{attempt}:{'up' if upstream else 'down'}"
             nodes.append(
                 {
                     "id": node_id,
-                    "type": "resource_group",
+                    "type": "artifact_group",
                     "label": f"{len(overflow)} more files",
                     "sublabel": " · ".join(roles),
                     "status": "none",
                     "group": f"attempt:{attempt}",
-                    "ref": {"kind": "resource_group", "id": None},
+                    "ref": {"kind": "artifact_group", "id": None},
                     "meta": {
                         "count": len(overflow),
                         "roles": roles,
-                        "resource_ids": [str(r.get("id")) for r in overflow],
+                        "artifact_ids": [str(r.get("id")) for r in overflow],
                     },
                 }
             )

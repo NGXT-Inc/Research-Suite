@@ -174,11 +174,11 @@ class ArtifactSubmissionServiceTest(unittest.TestCase):
                 "id": self.experiment_id,
                 "status": "planned",
                 "attempt_index": 1,
-                "current_attempt_resources": [
+                "current_attempt_artifacts": [
                     {
                         "id": item.artifact_id,
-                        "association_role": item.role,
-                        "association_attempt_index": item.attempt_index,
+                        "role": item.role,
+                        "attempt_index": item.attempt_index,
                     }
                     for item in evidence
                 ],

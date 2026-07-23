@@ -113,9 +113,9 @@ export default function ProjectReflectionPanel({ projectId }) {
 
   const reflections = useMemo(() => (wave ? reflectionsByLens(wave) : {}), [wave]);
   const roster = wave?.roster || [];
-  const waveResources = wave?.current_attempt_resources || [];
+  const waveArtifacts = wave?.current_attempt_artifacts || [];
   const reviews = wave?.reviews || [];
-  const reflectionDoc = resolveReflectionDoc(waveResources);
+  const reflectionDoc = resolveReflectionDoc(waveArtifacts);
 
   // The coverage/staleness signal rides in the graph header — empty until a
   // wave has published.
@@ -215,7 +215,7 @@ export default function ProjectReflectionPanel({ projectId }) {
       )}
 
       {/* secondary, quiet: change spec + other docs, then the review */}
-      {wave && secondaryDocs(waveResources).map(({ role, res, label }) => (
+      {wave && secondaryDocs(waveArtifacts).map(({ role, res, label }) => (
         <Collapsible key={role} label={label}>
           <ArtifactContentView
             projectId={projectId}

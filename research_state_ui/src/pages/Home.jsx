@@ -129,7 +129,7 @@ export default function Home() {
         <div className="stat-grid">
           <StatCard label="Claims" value={stats.claims ?? claims.length} sub={countOf(claims, 'status', 'active') + ' active'} />
           <StatCard label="Experiments" value={stats.experiments ?? experiments.length} sub={countOf(experiments, 'status', 'running') + ' running'} />
-          <StatCard label="Artifacts" value={stats.resources ?? 0} />
+          <StatCard label="Artifacts" value={stats.artifacts ?? 0} />
           <StatCard label="Sandboxes" value={runningSandboxes} sub="running" />
           <StatCard label="Open reviews" value={stats.open_reviews ?? stats.reviews ?? 0} />
         </div>

@@ -226,16 +226,16 @@ class ReflectionService:
                 )
             data["roster"] = json.loads(str(data.pop("roster_json", "[]")))
             data["corpus"] = json.loads(str(data.pop("corpus_json", "{}")))
-            data["resources"] = [
+            data["artifacts"] = [
                 artifact_state_record(evidence)
                 for evidence in self.evidence_reader.artifacts_for_target(
                     target_type="reflection", target_id=reflection_id
                 )
             ]
-            data["current_attempt_resources"] = [
+            data["current_attempt_artifacts"] = [
                 res
-                for res in data["resources"]
-                if res.get("association_attempt_index") == data["attempt_index"]
+                for res in data["artifacts"]
+                if res.get("attempt_index") == data["attempt_index"]
             ]
             claim_rows = conn.execute(
                 """
@@ -382,7 +382,7 @@ class ReflectionService:
         if reflection is None:
             return None
         return preferred_associated_artifact(
-            artifacts=reflection.get("resources", []),
+            artifacts=reflection.get("artifacts", []),
             attempt=reflection.get("attempt_index"),
             roles=PROJECT_GRAPH_ROLES,
         )
@@ -542,7 +542,7 @@ class ReflectionService:
                             else {
                                 "path": artifact.get("path"),
                                 "artifact_id": artifact.get("id"),
-                                "association_role": artifact.get("association_role"),
+                                "submitted_role": artifact.get("role"),
                             }
                         ),
                     )
@@ -586,8 +586,8 @@ class ReflectionService:
         missing_lenses = list(coverage.get("missing") or [])
         role_aliases = set(reflection_requirement_roles(role=requirement.role))
         has_association = any(
-            item.get("association_role") in role_aliases
-            for item in reflection.get("current_attempt_resources") or []
+            item.get("role") in role_aliases
+            for item in reflection.get("current_attempt_artifacts") or []
         )
         missing_error = ""
         if missing_lenses:
@@ -635,7 +635,7 @@ class ReflectionService:
                 item.update(
                     path=found.get("path"),
                     artifact_id=found.get("artifact_id"),
-                    association_role=found.get("role"),
+                    submitted_role=found.get("role"),
                 )
             else:
                 item["missing"] = (
@@ -977,7 +977,7 @@ class ReflectionService:
     ) -> str | None:
         """The current project-graph ARTIFACT id, pinned at publish."""
         artifact = preferred_associated_artifact(
-            artifacts=reflection.get("current_attempt_resources") or [],
+            artifacts=reflection.get("current_attempt_artifacts") or [],
             attempt=reflection.get("attempt_index"),
             roles=PROJECT_GRAPH_ROLES,
         )
@@ -992,7 +992,7 @@ class ReflectionService:
         what: str,
     ) -> SubmittedDocument | None:
         artifact = preferred_associated_artifact(
-            artifacts=reflection.get("current_attempt_resources") or [],
+            artifacts=reflection.get("current_attempt_artifacts") or [],
             attempt=reflection.get("attempt_index"),
             roles=roles,
         )

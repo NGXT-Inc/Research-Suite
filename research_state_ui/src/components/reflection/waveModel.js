@@ -27,8 +27,8 @@ function humanizeRole(role) {
 // heuristics. An artifact id pins exact bytes, so no version pinning either.
 export function reflectionsByLens(wave) {
   const byLens = {};
-  for (const r of wave?.current_attempt_resources || []) {
-    if (r.association_role === 'reflection_lens_doc' && r.lens_id) byLens[r.lens_id] = r;
+  for (const r of wave?.current_attempt_artifacts || []) {
+    if (r.role === 'reflection_lens_doc' && r.lens_id) byLens[r.lens_id] = r;
   }
   const map = {};
   for (const lens of wave?.reflection_coverage?.lenses || []) {
@@ -45,11 +45,11 @@ export function reflectionsByLens(wave) {
 // The secondary docs (everything that isn't graph / lens doc / reflection_doc):
 // today just the change_spec, but derived from the artifacts so new roles render
 // automatically. First artifact per role wins.
-export function secondaryDocs(resources) {
+export function secondaryDocs(artifacts) {
   const seen = new Set();
   const docs = [];
-  for (const r of resources) {
-    const role = r.association_role;
+  for (const r of artifacts) {
+    const role = r.role;
     if (!role || PRIMARY_ROLES.has(role) || seen.has(role)) continue;
     seen.add(role);
     const meta = DOC_ROLE_META[role] || {};
@@ -58,6 +58,6 @@ export function secondaryDocs(resources) {
   return docs.sort((a, b) => a.order - b.order || a.role.localeCompare(b.role));
 }
 
-export function resolveReflectionDoc(resources) {
-  return resources.find(r => r.association_role === 'reflection_doc') || null;
+export function resolveReflectionDoc(artifacts) {
+  return artifacts.find(r => r.role === 'reflection_doc') || null;
 }

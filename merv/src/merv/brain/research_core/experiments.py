@@ -392,11 +392,11 @@ class ExperimentService:
     ) -> tuple[dict[str, Any], GateEvaluation]:
         data = dict(experiment)
         data["tested_claims"] = tested_claims
-        data["resources"] = [artifact_state_record(item) for item in evidence]
-        data["current_attempt_resources"] = [
+        data["artifacts"] = [artifact_state_record(item) for item in evidence]
+        data["current_attempt_artifacts"] = [
             artifact
-            for artifact in data["resources"]
-            if artifact.get("association_attempt_index") == data["attempt_index"]
+            for artifact in data["artifacts"]
+            if artifact.get("attempt_index") == data["attempt_index"]
         ]
         data["mlflow_run"] = self._mlflow_run_from_row(experiment=data)
         for review in reviews:
@@ -537,11 +537,11 @@ class ExperimentService:
         """Collect current facts once for enforcement, state, and guidance."""
         status = str(experiment.get("status") or "")
         forward = GATE_TABLE.get(status)
-        artifacts = experiment.get("current_attempt_resources") or []
+        artifacts = experiment.get("current_attempt_artifacts") or []
         present_roles = {
-            str(art.get("association_role"))
+            str(art.get("role"))
             for art in artifacts
-            if art.get("association_role")
+            if art.get("role")
         }
         requirements: list[RequirementEvaluation] = []
         for requirement in () if forward is None else forward.requirements:
@@ -799,7 +799,7 @@ class ExperimentService:
         self, *, experiment: dict[str, Any], role: str, what: str
     ) -> SubmittedDocument:
         artifact = preferred_associated_artifact(
-            artifacts=experiment.get("current_attempt_resources") or [],
+            artifacts=experiment.get("current_attempt_artifacts") or [],
             attempt=experiment.get("attempt_index"),
             roles=(role,),
         )
@@ -869,7 +869,7 @@ class ExperimentService:
             )
 
         exhibit = preferred_associated_artifact(
-            artifacts=experiment.get("current_attempt_resources") or [],
+            artifacts=experiment.get("current_attempt_artifacts") or [],
             attempt=experiment.get("attempt_index"),
             roles=(EXHIBIT_ROLE,),
         )

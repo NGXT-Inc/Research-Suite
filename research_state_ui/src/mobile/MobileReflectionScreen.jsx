@@ -95,12 +95,12 @@ export default function MobileReflectionScreen() {
   const graphAvailable = model.nodes.length > 0;
   const refIndex = graph?.ref_index || {};
 
-  const waveResources = wave?.current_attempt_resources || [];
+  const waveArtifacts = wave?.current_attempt_artifacts || [];
   const reflections = useMemo(() => (wave ? reflectionsByLens(wave) : {}), [wave]);
   const roster = wave?.roster || [];
   const reviews = wave?.reviews || [];
-  const reflectionDoc = resolveReflectionDoc(waveResources);
-  const secondary = secondaryDocs(waveResources);
+  const reflectionDoc = resolveReflectionDoc(waveArtifacts);
+  const secondary = secondaryDocs(waveArtifacts);
 
   const header = (
     <header className="page-header msyn-head">

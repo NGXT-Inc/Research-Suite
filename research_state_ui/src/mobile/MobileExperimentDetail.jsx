@@ -99,16 +99,16 @@ export default function MobileExperimentDetail() {
   const isClosed = TERMINAL_STATUSES.includes(experiment.status);
 
   // ── Artifact partition (same derivation as the desktop detail page) ──
-  const currentRes = (experiment.current_attempt_resources || [])
+  const currentRes = (experiment.current_attempt_artifacts || [])
     .slice()
-    .sort((a, b) => (a.association_role || '').localeCompare(b.association_role || ''));
-  const planRes = currentRes.find(r => r.association_role === 'plan')
-    || (experiment.resources || [])
-      .filter(r => r.association_role === 'plan')
-      .sort((a, b) => (a.association_attempt_index ?? 0) - (b.association_attempt_index ?? 0))
+    .sort((a, b) => (a.role || '').localeCompare(b.role || ''));
+  const planRes = currentRes.find(r => r.role === 'plan')
+    || (experiment.artifacts || [])
+      .filter(r => r.role === 'plan')
+      .sort((a, b) => (a.attempt_index ?? 0) - (b.attempt_index ?? 0))
       .pop()
     || null;
-  const reportRes = currentRes.find(r => r.association_role === 'report') || null;
+  const reportRes = currentRes.find(r => r.role === 'report') || null;
 
   const allReviews = (experiment.reviews || []).slice().sort((a, b) =>
     (a.created_at || '').localeCompare(b.created_at || ''),

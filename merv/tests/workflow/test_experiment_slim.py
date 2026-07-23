@@ -11,9 +11,9 @@ from pathlib import Path
 from tests.support.brain import TestBrain
 from merv.brain.sandbox.execution.backends.fake import FakeSandboxBackend
 
-SLIM_ARTIFACT_KEYS = {"id", "association_role", "path", "lens_id", "size_bytes", "title"}
+SLIM_ARTIFACT_KEYS = {"id", "role", "path", "lens_id", "size_bytes", "title"}
 WASTE_ARTIFACT_KEYS = {"content_sha256", "content_type", "created_by", "created_at",
-                       "updated_at", "project_id", "association_attempt_index", "association_rowid"}
+                       "updated_at", "project_id", "attempt_index", "submitted_order"}
 WASTE_REVIEW_KEYS = {"target_snapshot_id", "request_id", "session_id", "target_id", "target_type", "project_id"}
 
 
@@ -68,9 +68,9 @@ class ExperimentSlimTest(unittest.TestCase):
         slim = self.call("experiment.get_state", project_id=self.project_id, experiment_id=exp_id)
 
         # The duplicate all-attempts `resources` list is gone.
-        self.assertNotIn("resources", slim)
-        self.assertIn("current_attempt_resources", slim)
-        res = slim["current_attempt_resources"][0]
+        self.assertNotIn("artifacts", slim)
+        self.assertIn("current_attempt_artifacts", slim)
+        res = slim["current_attempt_artifacts"][0]
         self.assertEqual(set(res), SLIM_ARTIFACT_KEYS)
         self.assertEqual(WASTE_ARTIFACT_KEYS & set(res), set())
         # Detail that get_state exists for is preserved.
@@ -81,7 +81,7 @@ class ExperimentSlimTest(unittest.TestCase):
         self.assertEqual({"id", "statement", "confidence", "status", "scope"},
                          set(slim["tested_claims"][0]) if slim["tested_claims"] else {"id", "statement", "confidence", "status", "scope"})
         # Single-attempt experiment: no prior-attempt block.
-        self.assertNotIn("prior_attempt_resources", slim)
+        self.assertNotIn("prior_attempt_artifacts", slim)
 
     def test_get_state_review_keeps_findings_drops_bookkeeping(self) -> None:
         exp_id = self._experiment_with_artifacts()
@@ -113,14 +113,14 @@ class ExperimentSlimTest(unittest.TestCase):
     def test_list_tool_is_slim(self) -> None:
         self._experiment_with_artifacts()
         listed = self.call("experiment.list", project_id=self.project_id)["experiments"]
-        self.assertNotIn("resources", listed[0])
-        self.assertEqual(set(listed[0]["current_attempt_resources"][0]), SLIM_ARTIFACT_KEYS)
+        self.assertNotIn("artifacts", listed[0])
+        self.assertEqual(set(listed[0]["current_attempt_artifacts"][0]), SLIM_ARTIFACT_KEYS)
 
     def test_service_method_keeps_full_shape_for_ui(self) -> None:
         exp_id = self._experiment_with_artifacts()
         full = self.app.experiments.get_state(experiment_id=exp_id, project_id=self.project_id)
-        self.assertIn("resources", full)
-        self.assertIn("content_type", full["current_attempt_resources"][0])
+        self.assertIn("artifacts", full)
+        self.assertIn("content_type", full["current_attempt_artifacts"][0])
 
 
 if __name__ == "__main__":

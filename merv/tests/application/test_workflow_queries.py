@@ -513,7 +513,7 @@ class ReflectionHistoryQueryCeilingTest(unittest.TestCase):
                 self.assertEqual(len(many["reflections"]), 25)
                 if prefix == "published":
                     self.assertTrue(
-                        all(item["resources"] for item in many["reflections"])
+                        all(item["artifacts"] for item in many["reflections"])
                     )
                     self.assertTrue(
                         all(

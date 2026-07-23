@@ -206,7 +206,7 @@ class LogicGraphQuery:
         )
         attempt = experiment.get("attempt_index")
         chosen = preferred_associated_artifact(
-            artifacts=experiment.get("resources", []),
+            artifacts=experiment.get("artifacts", []),
             attempt=attempt,
             roles=("graph",),
         )
@@ -273,7 +273,7 @@ class LogicGraphQuery:
         base: Record = {"max_nodes": MAX_GRAPH_NODES, **(extra_base or {})}
         chosen = graph_artifact or (
             preferred_associated_artifact(
-                artifacts=reflection.get("resources", []),
+                artifacts=reflection.get("artifacts", []),
                 attempt=reflection.get("attempt_index"),
                 roles=PROJECT_GRAPH_ROLES,
             )
@@ -331,7 +331,7 @@ class LogicGraphQuery:
             "available": True,
             "artifact_id": chosen.get("id"),
             "path": chosen.get("path"),
-            "association_attempt_index": chosen.get("association_attempt_index"),
+            "attempt_index": chosen.get("attempt_index"),
             "graph": graph,
             "problems": graph_problems(text),
             "ref_index": self._resolve_graph_refs(

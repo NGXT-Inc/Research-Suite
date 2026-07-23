@@ -160,7 +160,7 @@ def current_reflection_requirement_artifact(
     *, reflection: dict[str, Any], role: str
 ) -> dict[str, Any] | None:
     return preferred_associated_artifact(
-        artifacts=reflection.get("current_attempt_resources") or [],
+        artifacts=reflection.get("current_attempt_artifacts") or [],
         attempt=reflection.get("attempt_index"),
         roles=reflection_requirement_roles(role=role),
     )
@@ -170,15 +170,15 @@ def reflection_coverage_for(*, reflection: dict[str, Any]) -> dict[str, Any]:
     # A current-attempt lens doc covers lens L when it was submitted with the
     # explicit lens_id L (artifact.submit requires it for the role).
     by_lens: dict[str, dict[str, Any]] = {}
-    for res in reflection.get("current_attempt_resources", []):
-        if res.get("association_role") not in REFLECTION_LENS_DOC_ROLES:
+    for res in reflection.get("current_attempt_artifacts", []):
+        if res.get("role") not in REFLECTION_LENS_DOC_ROLES:
             continue
         by_lens.setdefault(
             str(res.get("lens_id") or ""),
             {
                 "path": str(res.get("path") or ""),
                 "artifact_id": res.get("id"),
-                "role": res.get("association_role"),
+                "role": res.get("role"),
             },
         )
     lenses = []

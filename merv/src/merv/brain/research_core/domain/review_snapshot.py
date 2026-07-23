@@ -10,13 +10,13 @@ def review_snapshot_id(*, target_type: str, target: dict[str, Any]) -> str:
     """`type|id|status|attempt|sorted-comma-joined-artifact-tokens`.
 
     `target` is a get_state() dict with id/status/attempt_index and
-    current_attempt_resources (artifact-backed records). Each token is
+    current_attempt_artifacts (artifact-backed records). Each token is
     `artifact_id:role:attempt` — resubmitting mints a new artifact id, so the
     snapshot invalidates without any content fingerprint. Field order and
     token format are an equality key — keep byte-identical."""
     artifact_tokens = [
-        f"{res['id']}:{res.get('association_role', '')}:{res.get('association_attempt_index', 0)}"
-        for res in target.get("current_attempt_resources", [])
+        f"{res['id']}:{res.get('role', '')}:{res.get('attempt_index', 0)}"
+        for res in target.get("current_attempt_artifacts", [])
     ]
     return "|".join(
         [

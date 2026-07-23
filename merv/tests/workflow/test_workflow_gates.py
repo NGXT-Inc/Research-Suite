@@ -251,7 +251,7 @@ class WorkflowGateTest(unittest.TestCase):
         self.assertEqual(workflow["current_gate"], "plan_required")
         self.assertEqual(workflow["next_action"], "write_and_submit_plan")
         guidance = workflow["artifact_guidance"]
-        self.assertEqual(guidance["association_role"], "plan")
+        self.assertEqual(guidance["role"], "plan")
         # The guidance names the experiment's actual folder, not a placeholder.
         self.assertIn("experiments/plan-gate/plan.md", guidance["guidance"])
 
@@ -589,7 +589,7 @@ class WorkflowGateTest(unittest.TestCase):
         workflow = wf.get("workflow") or wf
         self.assertEqual(workflow["current_gate"], "results_report_required")
         self.assertEqual(workflow["next_action"], "write_and_submit_results_report")
-        self.assertEqual(workflow["artifact_guidance"]["association_role"], "report")
+        self.assertEqual(workflow["artifact_guidance"]["role"], "report")
         self.assertIn("experiments/exp-1/report.md", workflow["artifact_guidance"]["guidance"])
 
     # ---- logic graph gate ----
@@ -613,8 +613,8 @@ class WorkflowGateTest(unittest.TestCase):
         state = self.call("experiment.get_state", project_id=self.project_id, experiment_id=exp_id)
         submitted = {
             item["path"]
-            for item in state["current_attempt_resources"]
-            if item["association_role"] == "result"
+            for item in state["current_attempt_artifacts"]
+            if item["role"] == "result"
         }
         self.assertIn("results/a.json", submitted)
         self.assertIn("results/b.json", submitted)
@@ -657,7 +657,7 @@ class WorkflowGateTest(unittest.TestCase):
         workflow = wf.get("workflow") or wf
         self.assertEqual(workflow["current_gate"], "logic_graph_required")
         self.assertEqual(workflow["next_action"], "write_and_submit_logic_graph")
-        self.assertEqual(workflow["artifact_guidance"]["association_role"], "graph")
+        self.assertEqual(workflow["artifact_guidance"]["role"], "graph")
         self.assertIn("experiments/exp-1/graph.json", workflow["artifact_guidance"]["guidance"])
 
     def test_missing_graph_guidance_preserves_earlier_invalid_report_error(self) -> None:
@@ -682,7 +682,7 @@ class WorkflowGateTest(unittest.TestCase):
             experiment_id=exp_id,
         )["workflow"]
         self.assertEqual(workflow["current_gate"], "logic_graph_required")
-        self.assertEqual(workflow["artifact_guidance"]["association_role"], "graph")
+        self.assertEqual(workflow["artifact_guidance"]["role"], "graph")
         with self.assertRaises(WorkflowError) as ctx:
             self.call(
                 "experiment.transition",
@@ -713,7 +713,7 @@ class WorkflowGateTest(unittest.TestCase):
         self.assertEqual(workflow["current_gate"], "graph_invalid")
         self.assertEqual(workflow["next_action"], "fix_graph_artifact")
         self.assertTrue(any("17 nodes" in p for p in workflow["missing_evidence"]))
-        self.assertEqual(workflow["artifact_guidance"]["association_role"], "graph")
+        self.assertEqual(workflow["artifact_guidance"]["role"], "graph")
         # Fixing the live file alone changes nothing (the gate lints submitted
         # bytes); re-associating the fix flips the guidance to ready.
         (self.repo / "graph.json").write_text(VALID_GRAPH)

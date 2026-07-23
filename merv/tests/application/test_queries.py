@@ -75,28 +75,28 @@ class GraphResearch:
             "id": "exp_1",
             "status": "running",
             "attempt_index": 2,
-            "resources": [
+            "artifacts": [
                 {
                     "id": "res_old",
                     "path": "old.json",
-                    "association_role": "graph",
-                    "association_attempt_index": 1,
-                    "association_rowid": 1,
+                    "role": "graph",
+                    "attempt_index": 1,
+                    "submitted_order": 1,
                     "association_version_id": "ver_old",
                 },
                 {
                     "id": "res_new",
                     "path": "new.json",
-                    "association_role": "graph",
-                    "association_attempt_index": 2,
-                    "association_rowid": 2,
+                    "role": "graph",
+                    "attempt_index": 2,
+                    "submitted_order": 2,
                     "association_version_id": "ver_new",
                 },
             ],
         }
 
     def reflection_state(self, **_kwargs):
-        return {"id": "syn_1", "attempt_index": 1, "resources": []}
+        return {"id": "syn_1", "attempt_index": 1, "artifacts": []}
 
     def reflection_overview(self, **_kwargs):
         return {"reflections": [{"id": "syn_1"}]}
@@ -497,7 +497,7 @@ class ApplicationQueryTest(unittest.TestCase):
             "intent": "Test",
             "status": "running",
             "attempt_index": 2,
-            "resources": [],
+            "artifacts": [],
             "reviews": [{"id": "review_1", "target_snapshot_id": "snap_1", "verdict": "pass"}],
             "tested_claims": [],
         }

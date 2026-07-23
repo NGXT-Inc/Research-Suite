@@ -13,7 +13,7 @@ class ExperimentPresentationTest(unittest.TestCase):
     def test_rich_projection_replaces_storage_at_its_historical_position(self) -> None:
         state = {
             "id": "exp_1",
-            "current_attempt_resources": [],
+            "current_attempt_artifacts": [],
             "mlflow_run": None,
             "reviews": [],
         }
@@ -26,7 +26,7 @@ class ExperimentPresentationTest(unittest.TestCase):
             list(result),
             [
                 "id",
-                "current_attempt_resources",
+                "current_attempt_artifacts",
                 "storage_objects",
                 "mlflow_run",
                 "reviews",
@@ -60,18 +60,18 @@ class ExperimentPresentationTest(unittest.TestCase):
                     "private": "drop",
                 }
             ],
-            "resources": [
+            "artifacts": [
                 {
                     "id": "art_old",
-                    "association_role": "report",
-                    "association_attempt_index": 1,
+                    "role": "report",
+                    "attempt_index": 1,
                     "path": "old.md",
                     "lens_id": "",
                 },
                 {
                     "id": "art_current",
-                    "association_role": "report",
-                    "association_attempt_index": 2,
+                    "role": "report",
+                    "attempt_index": 2,
                     "path": "report.md",
                     "lens_id": "",
                     "size_bytes": 12,
@@ -112,22 +112,22 @@ class ExperimentPresentationTest(unittest.TestCase):
 
         result = slim_experiment_state(state, storage_objects=objects)
 
-        self.assertEqual(result["current_attempt_resources"], [
+        self.assertEqual(result["current_attempt_artifacts"], [
             {
                 "id": "art_current",
-                "association_role": "report",
+                "role": "report",
                 "path": "report.md",
                 "lens_id": "",
                 "size_bytes": 12,
                 "title": "Report",
             }
         ])
-        self.assertEqual(result["prior_attempt_resources"], [
+        self.assertEqual(result["prior_attempt_artifacts"], [
             {
                 "id": "art_old",
-                "association_role": "report",
+                "role": "report",
                 "path": "old.md",
-                "association_attempt_index": 1,
+                "attempt_index": 1,
             }
         ])
         self.assertEqual(set(result["storage_objects"][0]), {
@@ -141,20 +141,20 @@ class ExperimentPresentationTest(unittest.TestCase):
         state = {
             "id": "exp_1",
             "attempt_index": 1,
-            "resources": [
+            "artifacts": [
                 {
                     "id": "res_1",
-                    "association_attempt_index": 1,
-                    "association_role": "plan",
+                    "attempt_index": 1,
+                    "role": "plan",
                 }
             ],
-            "current_attempt_resources": [],
+            "current_attempt_artifacts": [],
         }
 
         result = slim_experiment_state(state, storage_objects=[])
 
-        self.assertEqual(result["current_attempt_resources"], [])
-        self.assertNotIn("prior_attempt_resources", result)
+        self.assertEqual(result["current_attempt_artifacts"], [])
+        self.assertNotIn("prior_attempt_artifacts", result)
 
 
 if __name__ == "__main__":  # pragma: no cover

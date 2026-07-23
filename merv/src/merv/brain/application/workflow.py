@@ -481,8 +481,8 @@ def _slim_status(full: Record) -> Record:
                 "tested_claim_ids": [
                     claim.get("id") for claim in experiment.get("tested_claims", [])
                 ],
-                "current_attempt_resources": project_rows(
-                    experiment.get("current_attempt_resources", []),
+                "current_attempt_artifacts": project_rows(
+                    experiment.get("current_attempt_artifacts", []),
                     _SLIM_ARTIFACT_FIELDS,
                 ),
                 "reviews": project_rows(
@@ -535,9 +535,9 @@ def _artifact_link(
     attempt = reflection.get("attempt_index")
     candidates = [
         artifact
-        for artifact in reflection.get("resources", [])
-        if artifact.get("association_role") in roles
-        and artifact.get("association_attempt_index") == attempt
+        for artifact in reflection.get("artifacts", [])
+        if artifact.get("role") in roles
+        and artifact.get("attempt_index") == attempt
     ]
     if not candidates:
         return None
@@ -545,8 +545,8 @@ def _artifact_link(
     artifact = min(
         candidates,
         key=lambda item: (
-            rank.get(str(item.get("association_role")), len(roles)),
-            -(item.get("association_rowid") or 0),
+            rank.get(str(item.get("role")), len(roles)),
+            -(item.get("submitted_order") or 0),
         ),
     )
     return {
@@ -558,8 +558,8 @@ def _artifact_link(
         "kind": "artifact",
         "role": canonical_role,
         "legacy_role": (
-            artifact.get("association_role")
-            if artifact.get("association_role") != canonical_role
+            artifact.get("role")
+            if artifact.get("role") != canonical_role
             else None
         ),
         "artifact_id": artifact.get("id"),

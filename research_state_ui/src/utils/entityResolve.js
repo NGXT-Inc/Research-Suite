@@ -125,7 +125,7 @@ function countClaimTests(claimId, home) {
 }
 
 function artifactRole(r) {
-  return r.association_role || r.role || null;
+  return r.role || null;
 }
 
 function headlineMetric(e) {
@@ -180,8 +180,8 @@ export function resolveEntity(id, home) {
   }
 
   if (type === 'artifact') {
-    // The home snapshot's `resources` rows are artifact-shaped (id = art_*).
-    const r = (H.resources || []).find((x) => x.id === id);
+    // The home snapshot's `artifacts` rows carry the ledger fields (id = art_*).
+    const r = (H.artifacts || []).find((x) => x.id === id);
     if (!r) return { ...DEAD(id, type), needsFetch: true };
     return {
       id, type, label: r.title || basename(r.path) || 'artifact', route: ROUTE.artifact(id), navigable: true,

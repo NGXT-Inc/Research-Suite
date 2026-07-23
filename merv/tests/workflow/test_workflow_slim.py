@@ -13,8 +13,8 @@ from merv.brain.sandbox.execution.backends.fake import FakeSandboxBackend
 
 # association_version_id is the submission pin — agents confirm a
 # re-associate took effect by watching it change, so it stays in the slim view.
-SLIM_ARTIFACT_KEYS = {"id", "association_role", "lens_id", "path", "size_bytes"}
-HEAVY_ARTIFACT_KEYS = {"content_sha256", "content_type", "created_by", "created_at", "updated_at", "project_id", "association_rowid"}
+SLIM_ARTIFACT_KEYS = {"id", "role", "lens_id", "path", "size_bytes"}
+HEAVY_ARTIFACT_KEYS = {"content_sha256", "content_type", "created_by", "created_at", "updated_at", "project_id", "submitted_order"}
 
 class WorkflowSlimTest(unittest.TestCase):
     def setUp(self) -> None:
@@ -62,13 +62,13 @@ class WorkflowSlimTest(unittest.TestCase):
         # The agent sees the experiment's identity: its name.
         self.assertEqual(exp["name"], "the-thing")
         # The duplicate all-attempts `resources` list is gone…
-        self.assertNotIn("resources", exp)
-        self.assertIn("current_attempt_resources", exp)
+        self.assertNotIn("artifacts", exp)
+        self.assertIn("current_attempt_artifacts", exp)
         # …and each resource carries only the light fields.
-        res = exp["current_attempt_resources"][0]
+        res = exp["current_attempt_artifacts"][0]
         self.assertEqual(set(res), SLIM_ARTIFACT_KEYS)
         self.assertEqual(HEAVY_ARTIFACT_KEYS & set(res), set())
-        self.assertEqual(res["association_role"], "plan")
+        self.assertEqual(res["role"], "plan")
         # tested_claims collapsed to ids; reviews compacted.
         self.assertIn("tested_claim_ids", exp)
         self.assertNotIn("tested_claims", exp)
@@ -112,8 +112,8 @@ class WorkflowSlimTest(unittest.TestCase):
         full = self.app.workflow.status_and_next(project_id=self.project_id, experiment_id=exp_id)
         # The UI path still gets the rich shape: the all-attempts artifact
         # list with full metadata, and the project-wide experiment list.
-        self.assertIn("resources", full["experiment"])
-        self.assertIn("content_type", full["experiment"]["current_attempt_resources"][0])
+        self.assertIn("artifacts", full["experiment"])
+        self.assertIn("content_type", full["experiment"]["current_attempt_artifacts"][0])
         self.assertIn("active_experiments", full["project"])
 
 

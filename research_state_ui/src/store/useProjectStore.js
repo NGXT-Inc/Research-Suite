@@ -34,7 +34,7 @@ export const useProjectStore = create((set, get) => ({
   compatDismissed: false,
 
   // Live snapshot from GET /home
-  home: null,            // {project, claims, experiments, resources (artifact rows), reviews, recent_events, stats, workflow, active_experiment, active_experiments, active_processes}
+  home: null,            // {project, claims, experiments, artifacts, reviews, recent_events, stats, workflow, active_experiment, active_experiments, active_processes}
   sandboxes: [],         // project-wide sandbox list from GET /sandboxes (one per experiment)
   events: [],            // longer event window from GET /events?limit=500 — powers dashboard sparklines
   lastSyncedAt: null,    // epoch ms of last successful refresh

@@ -17,14 +17,14 @@ export default function ArtifactList({ projectId, artifacts, historical = false 
       {artifacts.map(a => {
         const open = openId === a.id;
         return (
-          <div key={`${a.id}:${a.association_role || ''}:${a.association_attempt_index || 0}`} style={{ borderBottom: '1px solid var(--line-soft)' }}>
+          <div key={`${a.id}:${a.role || ''}:${a.attempt_index || 0}`} style={{ borderBottom: '1px solid var(--line-soft)' }}>
             <div className="list-row" onClick={() => setOpenId(open ? null : a.id)} style={{ cursor: 'pointer' }}>
               <div className="list-row-main">
                 <div className="res-path">{a.title || basename(a.path)}</div>
                 <div className="list-row-sub">
                   <ObjId id={a.id} />
-                  {a.association_role && <> · role: <span className="mono">{a.association_role}</span></>}
-                  {a.association_attempt_index != null && historical && <> · attempt {a.association_attempt_index}</>}
+                  {a.role && <> · role: <span className="mono">{a.role}</span></>}
+                  {a.attempt_index != null && historical && <> · attempt {a.attempt_index}</>}
                   {a.size_bytes != null && <> · {formatBytes(a.size_bytes)}</>}
                 </div>
               </div>

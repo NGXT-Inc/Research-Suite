@@ -1130,8 +1130,8 @@ class ResearchPluginHttpApiTest(unittest.TestCase):
         self.assertEqual(figure["source"], "derived")
         self.assertEqual(figure["attempt_index"], 1)
         self.assertEqual(nodes["attempt:1"]["status"], "pending")
-        self.assertEqual(nodes[f"res:{plan_id}:a1"]["sublabel"], "plan")
-        self.assertIn(f"res:{plan_id}:a1->attempt:1:feeds", edge_ids)
+        self.assertEqual(nodes[f"artifact:{plan_id}:a1"]["sublabel"], "plan")
+        self.assertIn(f"artifact:{plan_id}:a1->attempt:1:feeds", edge_ids)
         self.assertEqual(nodes[f"claim:{claim['id']}"]["type"], "claim")
         self.assertIn(f"attempt:1->claim:{claim['id']}:tests", edge_ids)
 
@@ -1631,7 +1631,7 @@ class ResearchPluginHttpApiTest(unittest.TestCase):
         # The wave detail exposes the pinned artifact id.
         detail = self.request("GET", f"/api/projects/{pid}/reflections/{wave1_id}")
         graph_row = next(
-            r for r in detail["resources"] if r["association_role"] == "project_graph"
+            r for r in detail["artifacts"] if r["role"] == "project_graph"
         )
         self.assertEqual(graph_row["id"], wave1_graph["artifact_id"])
 
@@ -1768,13 +1768,13 @@ class FigureViewTest(unittest.TestCase):
             "conclusion": "",
             "tested_claims": [],
             "reviews": [],
-            "resources": [
+            "artifacts": [
                 {
                     "id": f"art_{i:03d}",
                     "path": f"results/file_{i:03d}.json",
                     "title": "",
-                    "association_role": "result",
-                    "association_attempt_index": 1,
+                    "role": "result",
+                    "attempt_index": 1,
                 }
                 for i in range(20)
             ],
@@ -1785,12 +1785,12 @@ class FigureViewTest(unittest.TestCase):
             open_review_requests=[],
             sandbox=None,
         )
-        artifact_nodes = [n for n in figure["nodes"] if n["type"] == "resource"]
-        group_nodes = [n for n in figure["nodes"] if n["type"] == "resource_group"]
+        artifact_nodes = [n for n in figure["nodes"] if n["type"] == "artifact"]
+        group_nodes = [n for n in figure["nodes"] if n["type"] == "artifact_group"]
         self.assertEqual(len(artifact_nodes), ARTIFACT_FANOUT_CAP)
         self.assertEqual(len(group_nodes), 1)
         self.assertEqual(group_nodes[0]["meta"]["count"], 20 - ARTIFACT_FANOUT_CAP)
-        self.assertIn("attempt:1->resgroup:a1:down:produced", {e["id"] for e in figure["edges"]})
+        self.assertIn("attempt:1->artifact_group:a1:down:produced", {e["id"] for e in figure["edges"]})
         # Live attempt status flows through to the spine node.
         attempt = next(n for n in figure["nodes"] if n["id"] == "attempt:1")
         self.assertEqual(attempt["status"], "active")

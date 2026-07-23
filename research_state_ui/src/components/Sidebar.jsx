@@ -133,7 +133,7 @@ export default function Sidebar({ onRefresh, onHide }) {
   const dotClass = lastSyncError ? 'sync-dot stale' : (isPolling ? 'sync-dot' : 'sync-dot paused');
   const pollLabel = lastSyncError ? 'stale' : (isPolling ? 'live' : 'paused');
 
-  const artifactsCount = stats.resources ?? home?.resources?.length ?? 0;
+  const artifactsCount = stats.artifacts ?? home?.artifacts?.length ?? 0;
   // Live backend version from the /api/meta handshake; fall back to the UI's
   // own build version before the first handshake lands.
   const serverVersion = useProjectStore(s => s.serverMeta?.server_version);

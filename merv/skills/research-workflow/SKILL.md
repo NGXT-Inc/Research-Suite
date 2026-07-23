@@ -522,7 +522,7 @@ To submit a gated document or result file:
 - for markdown with relative image links, the upload response returns one
   follow-up command per figure; run each the same way
 - when `workflow.status_and_next` includes `artifact_guidance`, follow its
-  `association_role`; do not guess plural role names such as `results`,
+  `role`; do not guess plural role names such as `results`,
   `reports`, or `output` (the singular roles are `result`, `report`, and
   `graph`)
 - gates and lints judge the SUBMITTED bytes (pinned at upload), never the live

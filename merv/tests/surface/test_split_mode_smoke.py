@@ -407,8 +407,8 @@ class SplitModeSmokeTest(unittest.TestCase):
             "experiment.get_state", {"experiment_id": exp["id"]}
         )
         roles = {
-            item["association_role"]
-            for item in state["current_attempt_resources"]
+            item["role"]
+            for item in state["current_attempt_artifacts"]
         }
         self.assertIn("plan", roles)
         self.assertTrue(current["exists"])
