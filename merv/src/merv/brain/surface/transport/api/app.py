@@ -12,7 +12,7 @@ from ..data_plane_http import register_data_plane_routes
 from ..feed_http import register_feed_routes
 from ..http_policy import HttpSurfacePolicy
 from ..mcp_http import register_mcp_routes
-from . import artifacts, claims, events, experiments, litreview, meta, projects, reflections, reviews, sandboxes, storage
+from . import artifacts, claims, events, experiments, litreview, meta, projects, reflections, reviews, sandboxes, storage, user_settings
 from .context import ApiRouteContext
 from .dependencies import HttpDependencies
 from .gateway import (
@@ -22,6 +22,7 @@ from .gateway import (
     install_auth_routes,
     install_request_middleware,
 )
+from .sandbox_control import KEY_SANDBOX_CONTROL_TOOLS
 from .middleware import (
     install_activity_middleware,
     install_cors,
@@ -93,6 +94,7 @@ def create_fastapi_app(
         reviews.build_router(ctx, review_delivery=api.reviews),
         sandboxes.build_router(ctx, sandboxes=api.sandboxes, cost_query=api.compute_cost),
         events.build_router(timeline=api.timeline),
+        user_settings.build_router(user_settings=api.user_settings),
     )
     for router in routers:
         http.include_router(router)
@@ -106,7 +108,10 @@ def create_fastapi_app(
         http,
         list_tools=api.tools.list_tools,
         call_tool=gateway.call_mcp,
-        allow_tool=lambda tool: tool.get("plane") != "data",
+        # Data tools stay proxy-only over MCP except the key-sandbox surface an
+        # mk_ key reaches over control (Phase C); the gateway gates who is served.
+        allow_tool=lambda tool: tool.get("plane") != "data"
+        or tool.get("name") in KEY_SANDBOX_CONTROL_TOOLS,
     )
     register_data_plane_routes(
         http,

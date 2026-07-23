@@ -150,6 +150,9 @@ FILE_LAYERS = {
     "surface/control/control_runtime.py": ADAPTER,
     "surface/project_keys.py": APPLICATION_LAYER,
     "surface/project_key_store.py": ADAPTER,
+    # Write-only per-user HF-token facade over the KERNEL-owned user_hf_tokens
+    # store methods (no-dataplane Phase C); the analog of project_keys.py.
+    "surface/user_settings.py": APPLICATION_LAYER,
 }
 
 ALLOWED_LAYER_EDGES = (
@@ -182,6 +185,7 @@ LAYER_EXCEPTIONS: frozenset[tuple[str, str]] = frozenset()
 TABLE_OWNERS = {
     "projects": KERNEL,
     "project_members": KERNEL,
+    "user_hf_tokens": KERNEL,
     "project_api_keys": SURFACE,
     "events": KERNEL,
     "schema_migrations": KERNEL,

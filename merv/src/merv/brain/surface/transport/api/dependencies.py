@@ -21,6 +21,7 @@ from ....application.facade import (
 )
 from ....application.ports.storage import ObjectStorage
 from ....artifacts.facade import ArtifactSubmissions
+from ...user_settings import UserHfTokenSettings
 from ....feed.facade import FeedDelivery
 from ....research_core.facade import (
     ResearchLiterature,
@@ -72,3 +73,4 @@ class HttpDependencies:
     tracking_overview: MlflowOverviewQuery
     tenant_counters: TenantCountersQuery
     literature: ResearchLiterature
+    user_settings: UserHfTokenSettings

@@ -2025,7 +2025,7 @@
       "visibility": "internal"
     },
     {
-      "description": "Procure (reuse or create) a project sandbox, optionally attached to an experiment, and return SSH details plus runtime guidance for the remote work folder, expiry, copy-out, and durable storage. On Thunder Compute or Lambda Labs, omit instance_type to receive a live menu of available machines to pick from. SSH key custody: the sandbox authorizes a caller-side public key. The primary path is bring-your-own-key \u2014 the requesting side generates its own ed25519 keypair (ssh-keygen) under the checkout's state dir: .merv/sandboxes/keys/, or the legacy .research_plugin/sandboxes/keys/ when this checkout already has a .research_plugin/ directory (the legacy dir wins when present). Before writing key material, create the state dir with a .gitignore containing '*' so keys can never be staged. It then passes its single-line OpenSSH PUBLIC key as public_key so it gets authorized on the VM. The response's persisted public_key_source is 'caller' for new requests; legacy 'managed' rows remain readable/releasable. ssh.key_path appears only when a local proxy enrichment knows the private key path.",
+      "description": "Procure (reuse or create) a project sandbox, optionally attached to an experiment, and return SSH details plus runtime guidance for the remote work folder, expiry, copy-out, and durable storage. On Thunder Compute or Lambda Labs, omit instance_type to receive a live menu of available machines to pick from. SSH key custody: the sandbox authorizes a caller-side public key. The primary path is bring-your-own-key \u2014 the requesting agent generates its own ephemeral ed25519 keypair (ssh-keygen), keeps the private key to itself in a location only it can read, and passes only the single-line OpenSSH PUBLIC key as public_key so it gets authorized on the VM. Never send private-key material. The response's persisted public_key_source is 'caller' for new requests; legacy 'managed' rows remain readable/releasable. ssh.key_path appears only when a local proxy enrichment knows the private key path.",
       "executionStrategy": "local-orchestration",
       "featureRequirements": [],
       "handlerIdentity": "local.request_sandbox",
@@ -2382,11 +2382,10 @@
       "visibility": "public"
     },
     {
-      "description": "List sandboxes for the project.",
+      "description": "List this project's sandboxes (project-shared: every sandbox in the key's project, not just ones this caller provisioned).",
       "executionStrategy": "control",
       "featureRequirements": [],
       "handlerIdentity": "sandboxes.list_sandboxes",
-      "hidden": true,
       "inputSchema": {
         "additionalProperties": false,
         "properties": {
@@ -2405,7 +2404,7 @@
       "name": "sandbox.list",
       "plane": "control",
       "scopeStrategy": "linked-project",
-      "visibility": "internal"
+      "visibility": "public"
     },
     {
       "description": "Terminate a sandbox by experiment_id or sandbox_uid (permanently destroys the VM and everything on it) and capture a best-effort metrics snapshot. Two-step by design: the first call WITHOUT confirm_retained does not delete \u2014 it returns a retention checklist asking you to confirm you have everything you need. Retain first with sandbox.pull_outputs for light files and configured durable storage for heavy ones when available, then re-call with confirm_retained=true to actually terminate.",

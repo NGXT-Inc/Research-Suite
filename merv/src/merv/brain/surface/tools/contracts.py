@@ -1432,15 +1432,11 @@ TOOL_MANIFEST: dict[str, ToolManifest] = {
             "On Thunder Compute or Lambda Labs, omit instance_type to "
             "receive a live menu of available machines to pick from. "
             "SSH key custody: the sandbox authorizes a caller-side public key. "
-            "The primary path is bring-your-own-key — the requesting side "
-            "generates its own ed25519 keypair (ssh-keygen) under the "
-            "checkout's state dir: .merv/sandboxes/keys/, or the legacy "
-            ".research_plugin/sandboxes/keys/ when this checkout already has "
-            "a .research_plugin/ directory (the legacy dir wins when "
-            "present). Before writing key material, create the "
-            "state dir with a .gitignore containing '*' so keys can never be "
-            "staged. It then passes its single-line "
-            "OpenSSH PUBLIC key as public_key so it gets authorized on the VM. "
+            "The primary path is bring-your-own-key — the requesting agent "
+            "generates its own ephemeral ed25519 keypair (ssh-keygen), keeps the "
+            "private key to itself in a location only it can read, and passes "
+            "only the single-line OpenSSH PUBLIC key as public_key so it gets "
+            "authorized on the VM. Never send private-key material. "
             "The response's persisted public_key_source is 'caller' for new "
             "requests; legacy 'managed' rows remain readable/releasable. "
             "ssh.key_path appears only when a local proxy enrichment knows the "
@@ -1501,9 +1497,11 @@ TOOL_MANIFEST: dict[str, ToolManifest] = {
     ),
     "sandbox.list": ToolContract(
         handler_identity="sandboxes.list_sandboxes",
-        visibility="internal",
         input_model=SandboxListInput,
-        description="List sandboxes for the project.",
+        description=(
+            "List this project's sandboxes (project-shared: every sandbox in the "
+            "key's project, not just ones this caller provisioned)."
+        ),
     ),
     "sandbox.release": ToolContract(
         handler_identity="sandboxes.release",

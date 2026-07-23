@@ -393,6 +393,42 @@ class ProjectKeySurfaceTest(unittest.TestCase):
             204,
         )
 
+    # ---- per-user Hugging Face token (no-dataplane Phase C) ----
+
+    def test_hf_token_set_and_clear_over_a_browser_session(self) -> None:
+        set_response = self.client.put(
+            "/api/user/hf-token",
+            json={"token": "hf_browser_secret"},
+            headers=_bearer(self.jwt_a),
+        )
+        self.assertEqual(set_response.status_code, 200, set_response.text)
+        self.assertEqual(set_response.json()["status"], "set")
+        # Stored and resolvable ONLY internally (there is no read route).
+        self.assertEqual(self.app.store.user_hf_token(user_id=USER_A), "hf_browser_secret")
+        clear_response = self.client.delete(
+            "/api/user/hf-token", headers=_bearer(self.jwt_a)
+        )
+        self.assertEqual(clear_response.status_code, 200, clear_response.text)
+        self.assertEqual(clear_response.json()["status"], "cleared")
+        self.assertEqual(self.app.store.user_hf_token(user_id=USER_A), "")
+
+    def test_hf_token_write_requires_a_browser_session(self) -> None:
+        # A project (mk_) key and an rr_sk_ key cannot set a personal token.
+        for credential in (self.key, RR_KEY):
+            denied = self.client.put(
+                "/api/user/hf-token", json={"token": "x"}, headers=_bearer(credential)
+            )
+            self.assertEqual(denied.status_code, 403, denied.text)
+            self.assertEqual(denied.json()["error_code"], "human_session_required")
+        # The rejected writes stored nothing.
+        self.assertEqual(self.app.store.user_hf_token(user_id=USER_B), "")
+
+    def test_hf_token_empty_body_is_rejected(self) -> None:
+        response = self.client.put(
+            "/api/user/hf-token", json={"token": "   "}, headers=_bearer(self.jwt_a)
+        )
+        self.assertEqual(response.status_code, 400, response.text)
+
 
 if __name__ == "__main__":
     unittest.main()
