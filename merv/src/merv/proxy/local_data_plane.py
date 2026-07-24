@@ -181,37 +181,6 @@ class LocalDataPlane:
     # PUT /api/feed/u/<token>, so the proxy forwards feed.post to /mcp unchanged
     # and carries no feed media handler.
 
-    def _materialize_experiment_folders(
-        self, *, arguments: dict[str, Any]
-    ) -> dict[str, Any]:
-        from .dataplane.experiment_folders import materialize_experiment_folders
-
-        project_id = self._project_id()
-        experiment_id = str(arguments.get("experiment_id") or "").strip()
-        status = arguments.get("status", "planned")
-        if experiment_id:
-            experiments = [
-                self._control_tool_call(
-                    "experiment.get_state",
-                    {"project_id": project_id, "experiment_id": experiment_id},
-                )
-            ]
-        else:
-            listed = self._control_tool_call(
-                "experiment.list", {"project_id": project_id}
-            )
-            raw_experiments = listed.get("experiments")
-            if not isinstance(raw_experiments, list):
-                raise LocalDataPlaneError("experiment.list returned an invalid payload")
-            experiments = [
-                experiment
-                for experiment in raw_experiments
-                if isinstance(experiment, dict)
-                and (status is None or experiment.get("status") == status)
-            ]
-        return materialize_experiment_folders(
-            repo_root=self.repo_root, experiments=experiments
-        )
 
     def _project_id(self) -> str:
         project_id = self._project_id_resolver()

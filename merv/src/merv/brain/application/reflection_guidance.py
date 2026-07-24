@@ -128,17 +128,13 @@ def post_publish_guidance(*, materialized_experiments: list[Mapping[str, Any]]) 
     noun = "experiment" if count == 1 else "experiments"
     return {
         "summary": (
-            f"Reflection publish created {count} planned {noun}. Materialize "
-            "their local folders before editing files, then call "
-            "workflow.status_and_next for the experiment you start."
+            f"Reflection publish created {count} planned {noun}. Create each "
+            "experiment's working folder yourself (experiments/<name>/) before "
+            "editing files, then call workflow.status_and_next for the one you "
+            "start."
         ),
         "experiments": experiments,
         "recommended_actions": [
-            {
-                "tool": "experiment.materialize_folders",
-                "arguments": {"status": "planned"},
-                "why": "Create local folders for the newly planned experiment wave.",
-            },
             {
                 "tool": "workflow.status_and_next",
                 "arguments": {"experiment_id": experiments[0]["experiment_id"]},

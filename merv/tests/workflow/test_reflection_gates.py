@@ -1005,17 +1005,13 @@ class ReflectionGateTest(unittest.TestCase):
             {exp["folder"] for exp in guidance["experiments"]},
             {"experiments/scale-transfer/", "experiments/data-transfer/"},
         )
+        # D6: folder creation is a skill instruction now, not a recommended
+        # tool call — the guidance tells the agent to scaffold folders itself
+        # and its sole recommended action is to start the first experiment.
+        self.assertIn("experiments/<name>/", guidance["summary"])
         self.assertEqual(
-            guidance["recommended_actions"][0],
-            {
-                "tool": "experiment.materialize_folders",
-                "arguments": {"status": "planned"},
-                "why": "Create local folders for the newly planned experiment wave.",
-            },
-        )
-        self.assertEqual(
-            guidance["recommended_actions"][1]["tool"],
-            "workflow.status_and_next",
+            [action["tool"] for action in guidance["recommended_actions"]],
+            ["workflow.status_and_next"],
         )
         claims = self.call("claim.list", project_id=self.project_id)["claims"]
         by_statement = {claim["statement"]: claim for claim in claims}

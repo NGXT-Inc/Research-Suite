@@ -1,61 +1,6 @@
 {
   "tools": [
     {
-      "description": "Create canonical local experiment folders under experiments/<name>/ for a project. Use after reflection publish or experiment.create when planned experiments exist in state but their local folders do not yet exist.",
-      "inputSchema": {
-        "additionalProperties": false,
-        "properties": {
-          "experiment_id": {
-            "anyOf": [
-              {
-                "type": "string"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "default": null,
-            "description": "Optional experiment id. When provided, materialize only that experiment's folder regardless of status.",
-            "title": "Experiment Id"
-          },
-          "project_id": {
-            "description": "Explicit project scope. Project-local MCP adapters may fill this from hidden repo context before the call reaches core services.",
-            "title": "Project Id",
-            "type": "string"
-          },
-          "status": {
-            "anyOf": [
-              {
-                "enum": [
-                  "planned",
-                  "design_review",
-                  "ready_to_run",
-                  "running",
-                  "experiment_review",
-                  "complete",
-                  "failed",
-                  "abandoned"
-                ],
-                "type": "string"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "default": "planned",
-            "description": "When experiment_id is omitted, materialize experiments with this status. Null materializes every experiment in the project.",
-            "title": "Status"
-          }
-        },
-        "required": [
-          "project_id"
-        ],
-        "type": "object"
-      },
-      "name": "experiment.materialize_folders",
-      "plane": "data"
-    },
-    {
       "description": "Procure (reuse or create) a project sandbox, optionally attached to an experiment, and return SSH details plus runtime guidance for the remote work folder, expiry, copy-out, and durable storage. On Thunder Compute or Lambda Labs, omit instance_type to receive a live menu of available machines to pick from. SSH key custody: the sandbox authorizes a caller-side public key. The primary path is bring-your-own-key \u2014 the requesting agent generates its own ephemeral ed25519 keypair (ssh-keygen), keeps the private key to itself in a location only it can read, and passes only the single-line OpenSSH PUBLIC key as public_key so it gets authorized on the VM. Never send private-key material. The response's persisted public_key_source is 'caller' for new requests; legacy 'managed' rows remain readable/releasable. ssh.key_path appears only when a local proxy enrichment knows the private key path.",
       "inputSchema": {
         "additionalProperties": false,

@@ -531,67 +531,6 @@
       "visibility": "public"
     },
     {
-      "description": "Create canonical local experiment folders under experiments/<name>/ for a project. Use after reflection publish or experiment.create when planned experiments exist in state but their local folders do not yet exist.",
-      "executionStrategy": "local-orchestration",
-      "featureRequirements": [],
-      "handlerIdentity": "local.materialize_experiment_folders",
-      "inputSchema": {
-        "additionalProperties": false,
-        "properties": {
-          "experiment_id": {
-            "anyOf": [
-              {
-                "type": "string"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "default": null,
-            "description": "Optional experiment id. When provided, materialize only that experiment's folder regardless of status.",
-            "title": "Experiment Id"
-          },
-          "project_id": {
-            "description": "Explicit project scope. Project-local MCP adapters may fill this from hidden repo context before the call reaches core services.",
-            "title": "Project Id",
-            "type": "string"
-          },
-          "status": {
-            "anyOf": [
-              {
-                "enum": [
-                  "planned",
-                  "design_review",
-                  "ready_to_run",
-                  "running",
-                  "experiment_review",
-                  "complete",
-                  "failed",
-                  "abandoned"
-                ],
-                "type": "string"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "default": "planned",
-            "description": "When experiment_id is omitted, materialize experiments with this status. Null materializes every experiment in the project.",
-            "title": "Status"
-          }
-        },
-        "required": [
-          "project_id"
-        ],
-        "type": "object"
-      },
-      "localHandlerIdentity": null,
-      "name": "experiment.materialize_folders",
-      "plane": "data",
-      "scopeStrategy": "linked-project",
-      "visibility": "public"
-    },
-    {
       "description": "Apply an allowed experiment transition. See experiment.get_state.allowed_transitions for valid transitions and their preconditions from the current status. When a transition starts the experiment running, the result includes an 'mlflow' connection block for quantitative logging and, when the backend MLflow write URI is configured, a plugin-created run id to resume. Use retry_running only for infrastructure/interruption reruns where the experiment should stay running on the same attempt. At submit_results the system evaluates the attempt's metrics exhibit (up to the newest 50 attempt-window MLflow runs plus eligible pinned result JSON, each entry with provenance). It pins the exhibit when matching runs are found, or when MLflow is unavailable after a plugin-created run; when pinned, report.md must reference it. Runs logged after submit_results remain in MLflow but are outside the finalized attempt exhibit.",
       "executionStrategy": "control",
       "featureRequirements": [],

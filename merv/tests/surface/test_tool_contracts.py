@@ -15,7 +15,6 @@ from merv.brain.surface.tools.contracts import (
     CONTROL_PLANE_TOOL_NAMES,
     DATA_PLANE_TOOL_NAMES,
     MCP_HIDDEN_TOOL_NAMES,
-    ExperimentMaterializeFoldersInput,
     ArtifactFindInput,
     ArtifactSubmitInput,
     MlflowFinalizeRunInput,
@@ -323,15 +322,9 @@ class ToolContractRegistryTest(unittest.TestCase):
         )
         self.assertEqual(tool_plane("sandbox.extend"), "control")
 
-    def test_experiment_materialize_folders_is_data_plane(self) -> None:
-        self.assertIs(
-            TOOL_CONTRACTS["experiment.materialize_folders"].input_model,
-            ExperimentMaterializeFoldersInput,
-        )
-        self.assertEqual(
-            tool_plane("experiment.materialize_folders"),
-            "data",
-        )
+    def test_experiment_materialize_folders_is_deleted(self) -> None:
+        # D6: folder layout is now a skill instruction, not a tool.
+        self.assertNotIn("experiment.materialize_folders", TOOL_CONTRACTS)
 
     def test_review_request_and_start_is_removed(self) -> None:
         # Removed: it started the reviewer session server-side, letting the

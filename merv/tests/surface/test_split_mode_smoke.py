@@ -77,40 +77,6 @@ class ProxyLocalDataPlaneSmokeTest(unittest.TestCase):
         self.assertIn("sandbox.pull_outputs", local_names)
         self.assertNotIn("claim.create", local_names)
 
-    def test_experiment_materialize_folders_uses_linked_project(self) -> None:
-        captured: list[tuple[str, dict]] = []
-
-        def tool_call(name: str, args: dict) -> dict:
-            captured.append((name, args))
-            return {
-                "experiments": [
-                    {"id": "exp_1", "name": "alpha", "status": "planned"},
-                    {"id": "exp_2", "name": "beta", "status": "complete"},
-                ]
-            }
-
-        result = self._plane(tool_call=tool_call).call_tool(
-            name="experiment.materialize_folders",
-            arguments={"status": "planned"},
-        )
-
-        self.assertEqual(
-            captured, [("experiment.list", {"project_id": self.project_id})]
-        )
-        self.assertEqual(
-            result["folders"],
-            [
-                {
-                    "experiment_id": "exp_1",
-                    "name": "alpha",
-                    "status": "planned",
-                    "folder": "experiments/alpha/",
-                    "created": True,
-                }
-            ],
-        )
-        self.assertTrue((self.repo / "experiments" / "alpha").is_dir())
-
     def test_pull_outputs_runs_rsync_helper_with_caller_key_path(self) -> None:
         def tool_call(name: str, args: dict) -> dict:
             self.assertEqual(name, "sandbox.get")

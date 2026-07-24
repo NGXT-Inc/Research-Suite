@@ -200,8 +200,8 @@ class ToolInvocationGateway:
         if contract is not None and contract.plane == "data":
             # A project-scoped mk_ key reaches sandbox request/attach/pull_outputs
             # over the control path (project-shared ruling 7): a cloud agent has
-            # no local proxy. Every other data tool (storage/feed/materialize)
-            # still requires the proxy until Phase D.
+            # no local proxy. The sandbox family is the only data plane left; a
+            # non-key data-plane call still needs the proxy.
             if name in KEY_SANDBOX_CONTROL_TOOLS and is_external_key(principal):
                 return serve_key_sandbox(
                     sandboxes=self.sandboxes,

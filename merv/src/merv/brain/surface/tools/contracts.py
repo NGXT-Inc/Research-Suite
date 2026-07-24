@@ -267,35 +267,6 @@ class ExperimentExhibitInput(ProjectScopedInput):
     experiment_id: str
 
 
-class ExperimentMaterializeFoldersInput(ProjectScopedInput):
-    experiment_id: str | None = Field(
-        default=None,
-        description=(
-            "Optional experiment id. When provided, materialize only that "
-            "experiment's folder regardless of status."
-        ),
-    )
-    status: (
-        Literal[
-            "planned",
-            "design_review",
-            "ready_to_run",
-            "running",
-            "experiment_review",
-            "complete",
-            "failed",
-            "abandoned",
-        ]
-        | None
-    ) = Field(
-        default="planned",
-        description=(
-            "When experiment_id is omitted, materialize experiments with this "
-            "status. Null materializes every experiment in the project."
-        ),
-    )
-
-
 class ExperimentTransitionInput(ProjectScopedInput):
     experiment_id: str
     transition: Literal[
@@ -1146,17 +1117,6 @@ TOOL_MANIFEST: dict[str, ToolManifest] = {
             "'requires' (e.g. a submitted plan artifact, a passing review). "
             "Once running or later, includes the central 'mlflow' context and "
             "any plugin-created 'mlflow_run' identity for quantitative logging."
-        ),
-    ),
-    "experiment.materialize_folders": ToolContract(
-        handler_identity="local.materialize_experiment_folders",
-        execution_strategy="local-orchestration",
-        input_model=ExperimentMaterializeFoldersInput,
-        description=(
-            "Create canonical local experiment folders under experiments/<name>/ "
-            "for a project. Use after reflection publish or experiment.create "
-            "when planned experiments exist in state but their local folders do "
-            "not yet exist."
         ),
     ),
     "experiment.transition": ToolContract(

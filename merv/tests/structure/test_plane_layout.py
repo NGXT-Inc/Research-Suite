@@ -334,14 +334,13 @@ class ToolPlanePartitionTest(unittest.TestCase):
         # The routing table from docs/CONTROL_DATA_PLANE_SPLIT.md. Changing
         # these is changing where a tool is served in split mode — do it in the
         # phase diff that moves the behavior, not casually.
-        # feed.post (Phase D.1) and storage.submit/fetch (Phase D storage) left
-        # this set in the no-dataplane transition: their bytes now travel over
-        # the agent's own curl to a token-bearer route, so they are control
-        # tools like artifact.submit — no longer served through the proxy.
+        # feed.post/storage.submit/storage.fetch (token-curl) and
+        # experiment.materialize_folders (deleted — folder layout is now a skill
+        # instruction) left this set in the no-dataplane transition. Only the
+        # sandbox family remains, and it is key-servable over control.
         self.assertEqual(
             DATA_PLANE_TOOL_NAMES,
             {
-                "experiment.materialize_folders",
                 "sandbox.request",
                 "sandbox.attach",
                 "sandbox.pull_outputs",
