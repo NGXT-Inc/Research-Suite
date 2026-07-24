@@ -21,7 +21,7 @@ agents never send a checkout root. Each client gets a thin adapter on top of the
 | Cursor | `.cursor-plugin/plugin.json` + `mcp.json` | http server → `<base>/mcp` (same header) | `skills/` auto-discovered (Agent Skills standard) | `agents/` auto-discovered |
 | Gemini CLI | `gemini-extension.json` + `GEMINI.md` | http server → `<base>/mcp` (same header) | `skills/` auto-discovered (Agent Skills standard) | `agents/` auto-discovered |
 | OpenCode | `clients/opencode/` (installer + agents + config example) | `opencode.json` `mcp` block → `<base>/mcp` (same header) | symlinked into `~/.config/opencode/skills/` | symlinked into `~/.config/opencode/agents/` |
-| OpenHands | `AGENTS.md` + `clients/openhands/README.md` | local `config.toml` / CLI, or Cloud **Settings → MCP** | root `AGENTS.md`; optional repo copies in `.agents/skills/*.md` | none; second session/agent or inline |
+| OpenHands | `AGENTS.md` + `clients/openhands/README.md` | local `config.toml` / CLI, or Cloud **Settings → MCP** | root `AGENTS.md`; optional repo skill directories at `.agents/skills/<name>/SKILL.md` | none; second session/agent or inline |
 | Replit Agent | `clients/replit/README.md` | account **MCP Servers** settings → `<base>/mcp` | no Merv skills installed by the connection | none; second session/agent or inline |
 
 Shared invariants across all clients:
