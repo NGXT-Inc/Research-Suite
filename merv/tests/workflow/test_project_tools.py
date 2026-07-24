@@ -133,31 +133,35 @@ class ProjectToolTest(unittest.TestCase):
         )
         self.assertIn("experiments", overview)
 
-    def test_brain_reports_current_is_proxy_served(self) -> None:
-        # A valid action=current passes validation but the brain never serves
-        # it — the local proxy does. Reaching the brain means a stale client.
-        with self.assertRaises(ValidationError) as ctx:
-            self.call("project", action="current")
-        self.assertIn("proxy", str(ctx.exception))
+    def test_brain_current_without_a_bound_key_reports_exists_false(self) -> None:
+        # D7: current now resolves against the key's bound project. A caller
+        # with no key (and no proxy folder link) is simply unbound — not an
+        # error and not a stale-client signal.
+        result = self.call("project", action="current")
+        self.assertFalse(result["exists"])
+        self.assertIn("hint", result)
 
-    def test_brain_reports_connect_is_proxy_served(self) -> None:
+    def test_brain_connect_is_rejected_as_inapplicable_to_a_keyed_caller(self) -> None:
         with self.assertRaises(ValidationError) as ctx:
             self.call("project", action="connect", project_id="proj_x")
-        self.assertIn("proxy", str(ctx.exception))
+        self.assertIn("keyed agent", str(ctx.exception))
 
-    def test_current_and_connect_error_over_direct_http_mcp_call(self) -> None:
-        # Same domain error over the wire: a direct HTTP /mcp/call (an old proxy
-        # or a raw caller) gets the actionable "update your client" message.
+    def test_current_and_connect_over_direct_http_mcp_call(self) -> None:
+        # current is served (unbound → 200 exists:false); connect is a domain
+        # error (folder linking does not apply to a keyed caller → 400).
         client = TestClient(self.app.fastapi_app)
-        for action in ("current", "connect"):
-            arguments: dict = {"action": action}
-            if action == "connect":
-                arguments["project_id"] = "proj_x"
-            response = client.post(
-                "/mcp/call", json={"name": "project", "arguments": arguments}
-            )
-            self.assertEqual(response.status_code, 400, response.text)
-            self.assertIn("proxy", response.text)
+        current = client.post(
+            "/mcp/call", json={"name": "project", "arguments": {"action": "current"}}
+        )
+        self.assertEqual(current.status_code, 200, current.text)
+        self.assertFalse(current.json()["result"]["exists"])
+        connect = client.post(
+            "/mcp/call",
+            json={"name": "project",
+                  "arguments": {"action": "connect", "project_id": "proj_x"}},
+        )
+        self.assertEqual(connect.status_code, 400, connect.text)
+        self.assertIn("keyed agent", connect.text)
 
     def test_action_create_forwards_over_direct_http_mcp_call(self) -> None:
         client = TestClient(self.app.fastapi_app)

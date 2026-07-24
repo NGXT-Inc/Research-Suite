@@ -225,8 +225,8 @@ class ToolInvocationGateway:
         internal_kwargs = None
         if user_id and name in ("project", "project.list"):
             internal_kwargs = {"user_id": user_id}
-            if key_project_id and name == "project.list":
-                internal_kwargs["project_id"] = key_project_id  # bound project only
+            if key_project_id:  # list -> scope to bound project; project -> pass through
+                internal_kwargs["project_id" if name == "project.list" else "key_project_id"] = key_project_id
         if name in ("artifact.submit", "feed.post", "storage.submit") and base_url:
             # Each renders a token-curl one-liner against the caller-reachable base.
             internal_kwargs = {"base_url": base_url}

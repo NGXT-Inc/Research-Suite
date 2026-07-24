@@ -79,16 +79,50 @@ class ControlToolOperationsTest(unittest.TestCase):
         self.projects.get.assert_called_once_with(project_id="proj_1")
         self.claims.list_claims.assert_called_once_with(project_id="proj_1")
 
-    def test_proxy_owned_project_actions_keep_the_upgrade_error(self) -> None:
+    def test_project_current_returns_the_keys_bound_project(self) -> None:
+        # D7: a keyed cloud caller reaches the brain (no proxy folder link);
+        # the gateway injects key_project_id and current resolves it.
+        self.projects.get.return_value = {
+            "id": "proj_bound",
+            "name": "Bound",
+            "summary": "S",
+            "extra": "hidden",
+        }
+
+        result = self.operations.project(action="current", key_project_id="proj_bound")
+
+        self.assertEqual(
+            result,
+            {
+                "exists": True,
+                "project": {"id": "proj_bound", "name": "Bound", "summary": "S"},
+            },
+        )
+        self.projects.get.assert_called_once_with(project_id="proj_bound")
+
+    def test_project_current_without_a_bound_project_reports_exists_false(self) -> None:
+        result = self.operations.project(action="current")
+
+        self.assertFalse(result["exists"])
+        self.assertIn("web app", result["hint"])
+        self.projects.get.assert_not_called()
+
+    def test_project_overview_defaults_to_the_bound_project(self) -> None:
+        self.projects.get.return_value = {"id": "proj_bound", "name": "B", "summary": ""}
+        self.claims.list_claims.return_value = {"claims": []}
+        self.experiments.agent.return_value = {"experiments": []}
+
+        result = self.operations.project(action="overview", key_project_id="proj_bound")
+
+        self.assertEqual(result["project"]["id"], "proj_bound")
+        self.projects.get.assert_called_once_with(project_id="proj_bound")
+        self.claims.list_claims.assert_called_once_with(project_id="proj_bound")
+
+    def test_project_connect_is_rejected_for_a_keyed_caller(self) -> None:
         with self.assertRaises(ValidationError) as raised:
             self.operations.project(action="connect", project_id="proj_1")
 
-        self.assertEqual(
-            str(raised.exception),
-            'project action="connect" is served by the local merv proxy, not the '
-            "brain. Seeing this means your Merv client is older than the brain — "
-            "update the plugin (git pull) and restart your MCP client.",
-        )
+        self.assertIn("does not apply to a keyed agent", str(raised.exception))
 
     def test_storage_find_preserves_resolve_and_list_modes(self) -> None:
         self.storage.resolve.return_value = {"object": {"id": "so_1"}}

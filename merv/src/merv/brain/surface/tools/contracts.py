@@ -139,10 +139,10 @@ class ProjectInput(ContractModel):
     @model_validator(mode="after")
     def _check_action(self) -> "ProjectInput":
         if self.action in ("current", "overview"):
-            # Neither carries an agent payload. current is fully proxy-served;
-            # overview is proxy-served too but the proxy injects the resolved
-            # project_id as scope before forwarding, so project_id is the one
-            # field overview tolerates (the agent still never supplies it).
+            # Neither carries an agent payload. A local proxy resolves both from
+            # its folder link; a keyed cloud caller reaches the brain, which
+            # resolves them from the key's bound project. overview tolerates an
+            # explicit project_id (the agent still never supplies it locally).
             forbidden = ["name", "summary", "overwrite"]
             if self.action == "current":
                 forbidden = ["project_id", *forbidden]

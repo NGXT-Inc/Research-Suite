@@ -31,28 +31,52 @@ class ControlToolOperations:
         overwrite: bool = False,
         tenant_id: str | None = None,
         user_id: str = "",
+        key_project_id: str = "",
     ) -> dict[str, Any]:
+        # current/connect reach the brain ONLY for a keyed (cloud) caller: a
+        # local proxy resolves them from its folder link before the wire. The
+        # key carries project identity, so there is no folder to link.
+        if action == "current":
+            if not key_project_id:
+                return {
+                    "exists": False,
+                    "hint": "This MCP key is not bound to a project. Mint a "
+                    "project key from the RapidReview web app (Settings → MCP "
+                    "keys) and reconnect with it.",
+                }
+            project = self.projects.get(project_id=key_project_id)
+            return {
+                "exists": True,
+                "project": {
+                    "id": project["id"],
+                    "name": project["name"],
+                    "summary": project.get("summary", ""),
+                },
+            }
+        if action == "connect":
+            raise ValidationError(
+                'project action="connect" links a local folder to a project, '
+                "which does not apply to a keyed agent: your MCP key already "
+                'carries its project identity. Use action="current" to see it.'
+            )
         if action == "create":
             return self.projects.create(
                 name=name, summary=summary, tenant_id=tenant_id, user_id=user_id
             )
         if action == "overview":
-            project = self.projects.get(project_id=project_id)
+            # A key defaults to its bound project; a caller may still name one.
+            resolved = project_id or key_project_id
+            project = self.projects.get(project_id=resolved)
             return {
                 "project": {
                     "id": project["id"],
                     "name": project["name"],
                     "summary": project.get("summary", ""),
                 },
-                "claims": self.claims.list_claims(project_id=project_id)["claims"],
-                "experiments": self.experiment_list(project_id=project_id)["experiments"],
+                "claims": self.claims.list_claims(project_id=resolved)["claims"],
+                "experiments": self.experiment_list(project_id=resolved)["experiments"],
             }
-        raise ValidationError(
-            f'project action="{action}" is served by the local merv '
-            "proxy, not the brain. Seeing this means your Merv client "
-            "is older than the brain — update the plugin (git pull) and restart "
-            "your MCP client."
-        )
+        raise ValidationError(f'project action="{action}" is not recognized')
 
     def storage_find(
         self,
