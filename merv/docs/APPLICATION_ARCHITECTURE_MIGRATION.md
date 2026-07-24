@@ -31,10 +31,13 @@ password from internal telemetry; public responses remain unchanged.
 It does not turn the modular monolith into distributed services, add a second
 event stream, make reactions asynchronous, or auto-publish feed posts.
 
-The earlier LOC-reduction session's local/remote plane split remains
-inviolable. This is a separate architecture branch, so its prohibition on
-changing module edges does not apply; public behavior, the proxy catalog, and
-the server/local split still do.
+The earlier LOC-reduction session's local/remote plane split was a hard
+constraint for this migration. This is a separate architecture branch, so its
+prohibition on changing module edges did not apply; public behavior, the proxy
+catalog, and the server/local split were preserved unchanged. (That plane split
+and its proxy were later removed entirely in the no-data-plane transition; every
+agent now connects directly to the brain `/mcp` endpoint with a project-scoped
+bearer key, and there is no proxy catalog.)
 
 ## Evidence behind the change
 
@@ -659,8 +662,10 @@ payloads, dispatcher outcomes, or test snapshots.
 - feed failures never break a transition and completion does not publish a post.
 - event names, payloads, counts, and ordering are unchanged.
 - HTTP/MCP response shapes and public credential delivery, tool schemas, route
-  paths, proxy catalog bytes, DB schema, and local/remote plane split are
-  unchanged; internal telemetry gains the explicit password redaction above.
+  paths, DB schema, and — at the time — proxy catalog bytes and the local/remote
+  plane split are unchanged; internal telemetry gains the explicit password
+  redaction above. (The proxy catalog and plane split were later removed in the
+  no-data-plane transition.)
 
 ## Implementation batches
 
@@ -737,9 +742,10 @@ After the subsequent facade, query, and adapter consolidation, the executable
 brain ceiling is **41,700** lines and the Phase 6 candidate remains below it.
 The MLflow compatibility wrapper and policy re-exports are gone;
 `tool_handlers.py` and HTTP views retain their smaller executable ratchets. The
-uncalled `build_local_tool_handlers` factory is gone; live local composition
-uses the Control dispatcher plus proxy-owned `LocalDataPlane`, as its split-mode
-tests prove.
+uncalled `build_local_tool_handlers` factory is gone; at the time, live local
+composition used the Control dispatcher alongside the proxy-owned data plane.
+That local-composition path has since been removed with the proxy — every agent
+now connects directly to the brain `/mcp` endpoint.
 
 ### Tracking follow-up slice
 
@@ -815,14 +821,15 @@ The following compatibility matrix is mandatory, not illustrative:
 | feed failure/dedupe | failure suppressed; a post appearing before the late query suppresses the note |
 | credentials | MCP transition present, REST transition present, ordinary UI GET absent; secret values absent from logs/events/snapshots |
 | shared delivery | REST and MCP invoke the same use-case instance and have equivalent command/ledger effects |
-| catalog | `_tool_catalog.json` remains byte-identical to baseline SHA-256 `45e46fac9ea0a4d97fa12d1fc9b111e1088f862992288ffca01a735b70ee2420` |
+| catalog | at the time, the proxy's `_tool_catalog.json` remained byte-identical to baseline SHA-256 `45e46fac9ea0a4d97fa12d1fc9b111e1088f862992288ffca01a735b70ee2420` (that catalog was later removed with the proxy) |
 
 The follow-on consolidation replaced independently authored plane, hidden,
-feature, and handler registries with `TOOL_MANIFEST`. Its generated private
-proxy projection carries routing metadata without changing the public catalog
-bytes. The stdio proxy now separates pure routing, HTTP transport, credentials,
-and project-link resolution; local enrichment reuses the already-fetched
-control facts rather than issuing a second `sandbox.get`.
+feature, and handler registries with `TOOL_MANIFEST`, the single source of truth
+for tool schemas. At the time this still generated a private proxy projection
+carrying routing metadata alongside the public catalog. The proxy and that
+projection were later removed in the no-data-plane transition; every tool is now
+a control tool served directly by the brain over `/mcp`, and there is no
+separate proxy tool catalog.
 
 Focused tests additionally cover:
 
@@ -850,10 +857,11 @@ merge gate. A skipped Docker test in the ordinary suite does not satisfy this
 gate.
 
 The verification interpreter can be overridden with `MERV_VERIFY_PYTHON`; it
-must have the project test dependencies installed. The plane-layout test itself
-also launches `/usr/bin/python3` to prove that local client/proxy/shared modules
-remain usable below the brain's packaged Python floor; that interpreter does
-not need pytest.
+must have the project test dependencies installed. At the time, a plane-layout
+test also launched `/usr/bin/python3` to prove that the local client/proxy/shared
+modules ran below the brain's packaged Python floor; that interpreter did not
+need pytest. Those proxy and shared modules were later removed in the
+no-data-plane transition, retiring that test.
 
 The complete suite must run outside filesystem/network confinement if tmux or
 loopback tests fail only because of sandbox permissions. `git diff --check`, a
@@ -895,9 +903,11 @@ The follow-on rewrite makes four formerly implicit boundaries executable:
   Research snapshot, pure next-action policy, and Sandbox read facade described
   above.
 - `TOOL_MANIFEST` is the one source for schema, visibility, project scope,
-  execution strategy, features, and handler identity. The stdlib proxy is split
-  into a 79-line composition edge, MCP shell, manifest router/gateway, HTTP
-  transport, credential provider, and project resolver.
+  execution strategy, features, and handler identity. At the time, the stdlib
+  proxy was split into a 79-line composition edge, MCP shell, manifest
+  router/gateway, HTTP transport, credential provider, and project resolver; the
+  proxy has since been removed in the no-data-plane transition, and agents now
+  reach `TOOL_MANIFEST`-defined tools directly through the brain `/mcp` endpoint.
 - HTTP authentication, project authorization, and tool invocation live in an
   explicit gateway; the formatter-clean FastAPI factory is 122 lines and route
   modules remain delivery-only. URL scope is bound after body parsing and a
@@ -918,7 +928,8 @@ port, reducer, and runtime structure that replaced hidden coupling. The new
 41,389 landed checkpoint bounded that phase, while tighter per-hub ratchets cap
 the workflow group at 1,600 lines, the Sandbox facade at 300, its handlers at 1,050,
 the HTTP factory/gateway pair at 500, and the proxy composition/gateway/shell at
-  100/350/120. Later port/query work temporarily consumed that headroom; the
+  100/350/120 (those proxy hubs were later removed in the no-data-plane
+  transition). Later port/query work temporarily consumed that headroom; the
   completed reduction pass closes at **41,624 Brain lines** under the executable
   41,700 ceiling. This avoids rewarding line compression while preventing
   policy from growing back into the delivery facades.
@@ -964,6 +975,7 @@ Final re-review verdict: **GO**. No contradictory or unimplementable
 requirements remained after the revisions above.
 
 Implementation re-review verdict: **GO**. The final tree meets the re-ratified
-LOC and Surface/wrapper ratchets, preserves the proxy catalog, passes the
-fail-closed Postgres gate, and proves equivalent REST/MCP responses plus exact,
-non-recursive start/submit/complete ledger effects.
+LOC and Surface/wrapper ratchets, preserved the proxy catalog (later removed in
+the no-data-plane transition), passes the fail-closed Postgres gate, and proves
+equivalent REST/MCP responses plus exact, non-recursive start/submit/complete
+ledger effects.

@@ -1,8 +1,9 @@
 # Browser HTTP API
 
 The Merv UI talks directly to the brain's `/api/*` HTTP surface. The
-same brain also serves `/mcp/*` to local stdio proxies, but the browser is not an
-agent runtime and has no chat endpoint.
+same brain also serves `/mcp`, the universal MCP transport every agent client
+connects to directly, but the browser is not an agent runtime and has no chat
+endpoint.
 
 The route modules under `src/merv/brain/surface/transport/api/` and the projections in
 `src/merv/brain/surface/transport/api/views.py` are the executable source of truth for this
@@ -12,8 +13,9 @@ document.
 
 - Project scope is explicit in the URL. The UI selects a `project_id` and uses
   `/api/projects/{project_id}/...`; the brain does not infer a current project.
-- The brain never receives a checkout root and never reads a user's checkout.
-  Checkout-local work belongs to the stdio MCP proxy.
+- The brain never receives a checkout root and never reads a user's checkout;
+  agents never send `repo_root`. Any checkout-local work stays on the agent
+  client itself.
 - The supported browser surface does not provision sandboxes, pull sandbox
   outputs, or upload/download storage files. Those operations run through MCP
   tools that hand the agent a one-line command to move bytes over a presigned URL.
@@ -41,20 +43,27 @@ GET /api/meta
 
 ```json
 {
-  "server_version": "0.0011",
-  "min_proxy_version": "0.0011",
+  "version": "0.0013",
+  "min_proxy_version": "0.0013",
+  "catalog_version": "2026-07-24",
   "mode": "local",
+  "auth": "none",
   "capabilities": {
     "hosted_control": false,
-    "local_data_plane_http": false
+    "mcp": true,
+    "token_uploads": true
   }
 }
 ```
 
-Both deployment presets report `local_data_plane_http: false`: browser-local
-file mutation is not part of the current architecture. In control mode, a
-request carrying an `X-RP-Client-Version` below `min_proxy_version` receives
-`426 client_too_old`. A missing version header is currently tolerated.
+The `capabilities` block reports `mcp: true` and `token_uploads: true`: every
+agent client connects over the shared `/mcp` HTTP transport, and bytes move over
+returned presigned token commands rather than through the brain. `catalog_version`
+is a deployment-drift marker for the MCP tool catalog. `min_proxy_version` is the
+retained minimum legacy-client floor: in control mode a request carrying an
+`X-RP-Client-Version` explicitly below it receives `426 client_too_old`, and the
+floor will be retired once telemetry shows no old clients remain. A missing
+version header is currently tolerated.
 
 ## Refresh, caching, and events
 
@@ -97,8 +106,8 @@ GET   /api/projects/{project_id}/home
 GET   /api/projects/{project_id}/status?experiment_id={experiment_id}
 ```
 
-Create projects with `name` and `summary`. Do not send a repo path: checkout to
-project links are machine-local proxy state.
+Create projects with `name` and `summary`. Do not send a repo path: projects are
+never tied to a checkout, and each agent key binds one immutable project.
 
 `/home` is the primary UI bootstrap. It returns `project`, `claims`, the full
 `experiments` list, `artifacts`, `reviews`, `recent_events`, `stats`, `workflow`,
@@ -259,7 +268,8 @@ Repeated reads are coalesced briefly by the transcript and metrics caches.
 
 HTTP sandbox rows omit checkout-local paths and caller private-key details.
 Everything left on a sandbox is destroyed at release or expiry; retained light
-outputs must first be pulled by the proxy and heavy outputs uploaded through
+outputs must first be pulled by the agent (the `sandbox.pull_outputs` tool
+returns an rsync command the agent runs) and heavy outputs uploaded through
 storage tools.
 
 ## Durable heavy storage
@@ -276,8 +286,10 @@ POST   /api/projects/{project_id}/storage/{object_id}/renew
 DELETE /api/projects/{project_id}/storage/{object_id}
 ```
 
-The UI manages object lifecycle and requests short-lived download links. Local
-file upload and download execution belongs to the proxy's storage tools.
+The UI manages object lifecycle and requests short-lived download links. File
+upload and download execution belongs to the agent's storage tools
+(`storage.submit` / `storage.fetch`), which return a presigned curl command the
+agent runs to stream bytes directly to or from the object store.
 
 ## Research feed
 
@@ -291,9 +303,9 @@ GET  /api/projects/{project_id}/feed/{post_id}/embed
 POST /api/projects/{project_id}/feed/track
 ```
 
-Agent posts and local image/embed capture use MCP plus proxy data-plane
-submissions. Browser mutations are limited to researcher reactions, replies,
-and UI telemetry.
+Agent posts and image/embed capture use MCP tools that return a presigned upload
+command the agent runs. Browser mutations are limited to researcher reactions,
+replies, and UI telemetry.
 
 ## Activity and tool-I/O diagnostics
 
@@ -324,6 +336,6 @@ unavailable file bytes return 404; invalid requests and rejected workflow
 operations return 400; a below-floor hosted client returns 426. Local mode also
 rejects browser requests carrying a non-loopback `Origin`.
 
-The `/mcp/*`, `/api/data-plane/*`, and `/api/admin/*` route families are not
-browser UI APIs. They are respectively the proxy control transport,
-proxy-to-brain submissions, and private operator endpoints.
+The `/mcp` and `/api/admin/*` route families are not browser UI APIs. They are
+respectively the universal MCP transport that every agent client connects to and
+the private operator endpoints.

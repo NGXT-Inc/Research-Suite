@@ -4,8 +4,8 @@ Merv gives agentic coding clients (Claude Code, Codex, Cursor,
 Gemini CLI, OpenCode) a shared state machine for machine learning research:
 claims, experiments, submitted artifacts, review gates, reflection waves, and
 sandboxed execution. A brain running locally or as a hosted service owns durable
-research state; a small stdio MCP proxy runs on your machine and does the
-checkout-local file work. The brain never receives the checkout root or reads
+research state; every agent client connects directly to the brain's
+`POST /mcp` HTTP endpoint, authenticated by a project-scoped key. The brain never receives the checkout root or reads
 it directly; gated documents are explicitly uploaded as size-capped
 artifacts.
 
@@ -15,25 +15,29 @@ artifacts.
 git clone https://github.com/NGXT-Inc/Merv.git ~/Merv
 ```
 
-That is the whole Python install — the source-launched `merv-mcp` proxy runs on
-bare `python3` 3.9+,
-with no pip packages. The launcher uses a POSIX shell; sandbox SSH and explicit
-output pulls also use the system OpenSSH client and `rsync`. The `merv-client`
-CLI, `merv-http`, the brain, and backend tests remain Python 3.11+. Then:
+That is the whole install — every agent client connects directly to the brain's
+`/mcp` HTTP endpoint, so nothing runs on your machine to broker it and there are
+no pip packages. Sandbox SSH and agent-run output pulls use the system OpenSSH
+client and `rsync`, and presigned artifact and storage transfers use `curl`. The
+`merv-client` CLI, `merv-http`, the brain, and backend tests run on Python 3.11+.
+Then:
 
 1. Register the plugin in your client — per-client steps in
    [docs/CLIENTS.md](docs/CLIENTS.md).
-2. For the hosted brain, authenticate the machine once with a RapidReview API
-   key — see [docs/HOSTED_CLIENT_QUICKSTART.md](docs/HOSTED_CLIENT_QUICKSTART.md).
+2. For the hosted brain, export your project key as `MERV_MCP_KEY` — see
+   [docs/HOSTED_CLIENT_QUICKSTART.md](docs/HOSTED_CLIENT_QUICKSTART.md).
 3. Open your research repo and start a session:
 
 ```text
 Use Merv. Start with project(action="current"), then workflow.status_and_next.
 ```
 
-The proxy dials the hosted brain by default. On first use the agent asks which
-project this folder belongs to and links it with `project(action="connect")` —
-no terminal setup. Details and the CLI fallback:
+Each client connects straight to the hosted brain's `/mcp` endpoint. The committed
+`.mcp.json` uses `type: "http"` and sends your key as `Authorization: Bearer
+${MERV_MCP_KEY}`, so export `MERV_MCP_KEY` and keep it out of version control — a
+key is bearer-equivalent to full access to its one bound project, so never inline
+it into a committed file. That key binds a single immutable project; the brain
+scopes every call to it, with no per-folder linking or terminal setup. Details:
 [docs/HOSTED_CLIENT_QUICKSTART.md](docs/HOSTED_CLIENT_QUICKSTART.md).
 
 ## How work moves
@@ -95,7 +99,6 @@ off cloud providers.
 - [docs/AUTH.md](docs/AUTH.md) - hosted authentication and project membership
 - [docs/STARTUP_CHEATSHEET.md](docs/STARTUP_CHEATSHEET.md) - local startup flow
 - [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) - backend and mode architecture
-- [docs/CONTROL_DATA_PLANE_SPLIT.md](docs/CONTROL_DATA_PLANE_SPLIT.md) - brain/proxy ownership boundary
 - [docs/MODULE_BOUNDARIES.md](docs/MODULE_BOUNDARIES.md) - enforced backend dependency law
 - [docs/MCP_SERVER_CONTRACT.md](docs/MCP_SERVER_CONTRACT.md) - MCP tools and contracts
 - [docs/WORKFLOW_AND_REVIEW.md](docs/WORKFLOW_AND_REVIEW.md) - workflow gates and reviews

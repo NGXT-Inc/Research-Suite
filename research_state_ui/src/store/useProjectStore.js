@@ -211,8 +211,6 @@ export const selectSandboxes = (s) => s.sandboxes || EMPTY_ARR;
 export const selectEventsAll = (s) => s.events || EMPTY_ARR;
 export const selectProject = (s) => s.home?.project || null;
 export const selectServerCapabilities = (s) => s.serverMeta?.capabilities || EMPTY_OBJ;
-export const selectHasLocalDataPlaneHttp = (s) =>
-  s.serverMeta?.capabilities?.local_data_plane_http !== false;
 export const selectIsHostedControl = (s) =>
   s.serverMeta?.mode === 'control' || s.serverMeta?.capabilities?.hosted_control === true;
 

@@ -1,20 +1,18 @@
 # Local Development Startup
 
 This runbook starts a local brain while keeping the same topology used by the
-hosted service: an agent-launched stdio MCP proxy performs checkout-local data
-work and talks to one brain over HTTP.
+hosted service: every agent client connects directly to one brain over HTTP.
 
 ```text
-Agent client --stdio--> local MCP proxy --HTTP--> localhost brain
-                         |                         |
-                         +-- checkout IO          +-- SQLite / blobs / providers
+Agent client -----HTTP POST /mcp-----> localhost brain
+                                        |
+                                        +-- SQLite / blobs / providers
 
-Browser UI -------------------------------------> localhost brain
+Browser UI ---------------------------> localhost brain
 ```
 
-Hosted users do not need this runbook. The shipped proxy connects to the hosted
-brain by default and still performs all checkout-local work on the user's
-machine.
+Hosted users do not need this runbook. The committed `.mcp.json` points the
+agent client directly at the hosted brain over HTTP.
 
 ## Prerequisites
 
@@ -33,7 +31,7 @@ export RESEARCH_REPO=/path/to/research/repo
 
 ## Install brain dependencies
 
-The stdio proxy needs no packages, but the brain does:
+The brain needs its Python dependencies:
 
 ```bash
 cd "$RESEARCH_PLUGIN"
@@ -50,7 +48,7 @@ export MERV_EXECUTION_BACKEND=fake
 For a real backend, leave the default `lambda_labs` selection or set
 `MERV_EXECUTION_BACKEND` to `thunder_compute` or `modal`, then provide
 the corresponding credentials to the brain process. Caller SSH private keys
-remain on the client/proxy side.
+remain on the client side.
 
 ## Start the brain
 
@@ -76,18 +74,24 @@ curl -s http://127.0.0.1:8787/api/meta
 curl -s http://127.0.0.1:8787/api/projects
 ```
 
-## Point the proxy at localhost
+## Point the agent client at localhost
 
-Machine configuration is the normal local-development path:
+Every agent client connects directly to the brain's `POST /mcp` endpoint,
+authenticated by a project-scoped key. For local development, export the key and
+write a machine configuration pointing at the local brain:
 
 ```bash
+export MERV_MCP_KEY=<project-scoped key>
+
 "$RESEARCH_PLUGIN/bin/merv-client" configure \
   --control-url http://127.0.0.1:8787
 ```
 
-The proxy resolves its URL from `MERV_CONTROL_URL`, then this machine
-configuration, then the hosted default. Use the environment variable only for a
-one-off override.
+`merv-client env` then prints the `.mcp.json` HTTP snippet: a `type:"http"`
+entry whose `url` is `http://127.0.0.1:8787/mcp` and whose
+`headers.Authorization` is `Bearer ${MERV_MCP_KEY}`. The key is read from the
+environment and is never inlined into a committed file — export it in your shell
+and keep it out of version control.
 
 ## Register the plugin
 
@@ -102,22 +106,10 @@ project(action="current")
 workflow.status_and_next()
 ```
 
-If the folder is not linked, use:
-
-```text
-project(action="connect", project_id="proj_...")
-```
-
-or provide `name` and `summary` to create and link a project in one call. The
-link is machine-local; the brain receives only the project id, never the folder
-path.
-
-The terminal fallback is:
-
-```bash
-cd "$RESEARCH_REPO"
-"$RESEARCH_PLUGIN/bin/merv-client" link --project-id proj_...
-```
+The project-scoped key already binds one immutable project, so
+`project(action="current")` resolves it directly. The gateway injects that
+project id into project-scoped calls; the brain receives only the project id,
+never the folder path.
 
 ## Start the UI
 
@@ -150,9 +142,9 @@ brain restarts. They are not repo-local JSONL or SQLite files.
 - The local brain stores SQLite state and submitted blobs under its configured
   brain state root: `~/.merv/brain` on fresh machines, or the legacy
   `~/.research_plugin/brain` layout forever when that state already exists.
-- The proxy stores checkout-to-project links in the machine configuration
-  directory: `~/.merv/project_links.sqlite` fresh, or the legacy
-  `~/.research_plugin/` location when that dir exists.
+- `merv-client configure` writes the machine configuration (the brain base
+  URL) under `~/.merv/` on fresh machines, or the legacy `~/.research_plugin/`
+  location when that dir exists.
 - The research checkout stores experiment folders and retained evidence only;
   it does not contain the brain database.
 

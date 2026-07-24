@@ -142,9 +142,8 @@ durable object storage instead of into the repo.
 4. Follow MCP's `next_action`, allowed actions, blocked actions, and gate state.
 5. Use MCP for all claim, experiment, artifact, review, and workflow mutations.
 6. Do not invent or pass project scope to normal agent-facing tools. Their
-   schemas hide `project_id`: the local proxy injects the project linked to the
-   checkout, while a keyed/cloud caller is bound to the project encoded by its
-   key. The merged `project` tool accepts `action: "connect"` only for local
+   schemas hide `project_id`: the gateway injects the project bound to the
+   caller's key. The merged `project` tool accepts `action: "connect"` only for local
    checkout linking; keyed/cloud agents never call it. `current` and `overview`
    take no agent-supplied scope in either mode.
 7. Edit local files only for implementation, notes, plans, configs, and results.
@@ -296,8 +295,8 @@ loop.
 
 When `status` is `running`, construct the SSH invocation from the returned
 `ssh.host`, `ssh.port`, and `ssh.user` facts plus the caller-owned private key.
-Some local enrichments may also return `ssh.command`, `ssh.raw_command`, or
-`ssh.key_path` conveniences, but the split proxy does not guarantee them.
+Some sandbox responses may also return `ssh.command`, `ssh.raw_command`, or
+`ssh.key_path` conveniences, but the brain/sandbox path does not guarantee them.
 
 **Anything expected to run longer than ~5 minutes goes through `merv_run`** —
 never babysit a long command over a foreground SSH channel or poll the

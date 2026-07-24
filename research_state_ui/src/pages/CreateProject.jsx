@@ -1,6 +1,6 @@
 import { useState, useRef, useEffect } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
-import { useProjectStore, projectPath, selectHasLocalDataPlaneHttp } from '../store/useProjectStore';
+import { useProjectStore, projectPath } from '../store/useProjectStore';
 import LogicGraphHero from '../components/LogicGraphHero';
 
 // Grow a textarea to fit its content so the summary can run to a few lines
@@ -23,10 +23,8 @@ function autoGrow(el) {
 export default function CreateProject({ bootstrap = false }) {
   const navigate = useNavigate();
   const createProject = useProjectStore(s => s.createProject);
-  const hasLocalDataPlane = useProjectStore(selectHasLocalDataPlaneHttp);
   const [name, setName] = useState('');
   const [summary, setSummary] = useState('');
-  const [repoRoot, setRepoRoot] = useState('');
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState(null);
   // Bootstrap is a two-step flow: 0 = name the project, 1 = describe it.
@@ -51,14 +49,13 @@ export default function CreateProject({ bootstrap = false }) {
 
   async function submit(e) {
     e.preventDefault();
-    if (!name.trim() || (hasLocalDataPlane && !repoRoot.trim())) return;
+    if (!name.trim()) return;
     setBusy(true);
     setError(null);
     try {
       const row = await createProject({
         name: name.trim(),
         summary: summary.trim(),
-        repo_root: hasLocalDataPlane ? repoRoot.trim() : '',
       });
       navigate(projectPath(row.id));
     } catch (err) {
@@ -69,7 +66,7 @@ export default function CreateProject({ bootstrap = false }) {
   }
 
   // One create flow for every project — first-run or from inside the app.
-  // Step 0: name it (the hook). Step 1: describe it — directory if local, summary.
+  // Step 0: name it (the hook). Step 1: describe it with a brief summary.
   // Both steps speak the same minimal language: a forming logic graph behind a
   // single underline field and one "→" to proceed.
   return (
@@ -110,16 +107,6 @@ export default function CreateProject({ bootstrap = false }) {
           <button type="button" className="boot-back" onClick={() => setStep(0)} title="Rename">
             <span aria-hidden="true">←</span> {name}
           </button>
-          {hasLocalDataPlane && (
-            <input
-              className="boot-create__input boot-create__input--dir"
-              value={repoRoot}
-              onChange={e => setRepoRoot(e.target.value)}
-              placeholder="/path/to/project directory"
-              autoFocus
-              required
-            />
-          )}
           <div className="boot-create__field boot-create__field--grow">
             <textarea
               ref={summaryRef}
@@ -129,13 +116,13 @@ export default function CreateProject({ bootstrap = false }) {
               onChange={e => { setSummary(e.target.value); autoGrow(e.target); }}
               onKeyDown={e => { if (e.key === 'Enter' && (e.metaKey || e.ctrlKey)) submit(e); }}
               placeholder="Brief summary to set the context."
-              autoFocus={!hasLocalDataPlane}
+              autoFocus
             />
             <button
               type="submit"
               className="boot-create__go"
               aria-label="Create project"
-              disabled={busy || !name.trim() || (hasLocalDataPlane && !repoRoot.trim())}
+              disabled={busy || !name.trim()}
             >
               →
             </button>

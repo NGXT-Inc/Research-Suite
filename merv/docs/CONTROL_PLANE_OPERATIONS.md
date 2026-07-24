@@ -1,8 +1,7 @@
 # Operating the Hosted Brain
 
 This runbook covers the `control` deployment preset served by
-`merv-control`. It is the operational companion to
-`CONTROL_DATA_PLANE_SPLIT.md`; the reference container stack is documented in
+`merv-control`. The reference container stack is documented in
 `../deploy/README.md`.
 
 ## Security boundary
@@ -15,7 +14,7 @@ access is not tenant-isolated.
 Consequences:
 
 - place the brain behind TLS and a trusted network boundary;
-- do not expose `/api/*`, `/mcp/*`, `/api/data-plane/*`, or `/api/admin/*`
+- do not expose `/api/*`, `/mcp/*`, or `/api/admin/*`
   directly to the public internet;
 - treat CORS and `X-RP-Client-Version` as browser/compatibility controls, not
   authentication;
@@ -24,18 +23,24 @@ Consequences:
 
 ## Topology and modes
 
-Both presets use the same component graph: a brain owns records and policy,
-while an agent-launched stdio MCP proxy performs checkout-local work.
+Both presets use the same component graph: a brain owns records and policy, and
+every agent client — local Claude Code, cloud Codex, Replit, browser-driven —
+connects the same way, directly to the brain's `POST /mcp` HTTP endpoint,
+authenticated by a project-scoped key sent as `Authorization: Bearer <key>`.
 
 | `MERV_MODE` | Brain preset | Record/blob defaults | Entrypoint |
 |---|---|---|---|
 | `local` (default) | loopback development brain | SQLite and local-directory blobs | `merv-http` |
 | `control` | hosted private brain | Postgres, S3-compatible blobs, mounted management key | `merv-control` |
 
-The proxy is the data plane in both modes. It reads and validates repo files,
-uses a caller-provided SSH key path for explicit output pulls without minting
-or persisting that key, and stores local checkout-to-project links. The brain
-never receives `repo_root` and never dials a user machine.
+Every tool is a control tool served by the brain. A key binds one immutable
+project, and the gateway injects that `project_id` into project-scoped calls;
+agents never send `repo_root` and the brain never dials a user machine. Bytes
+that must move — `artifact.submit`, `storage.submit`/`storage.fetch`,
+`feed.post`, `sandbox.pull_outputs` — are agent-driven: the tool returns a
+one-line command (a presigned curl `PUT`/`GET`, or `rsync` for sandbox pulls)
+that the agent runs, so bytes stream directly to or from the object store or
+sandbox, never through the brain.
 
 Both brains own sandbox provider lifecycle and the expiry reaper. Neither
 preset automatically copies files out of a sandbox.
@@ -87,7 +92,7 @@ MERV_STORAGE_ACCESS_KEY_ID=...  # falls back to AWS_ACCESS_KEY_ID
 MERV_STORAGE_SECRET_ACCESS_KEY=...
 ```
 
-Presigned upload/download URLs must be reachable from the client-side proxies
+Presigned upload/download URLs must be reachable from the agent clients
 that perform the transfers, not merely from inside the control container.
 
 ## Sandbox provider configuration
@@ -138,10 +143,13 @@ example is in `../deploy/README.md`.
 GET /api/meta
 ```
 
-The response publishes `server_version`, `min_proxy_version`, `mode`, and
-browser capabilities. Proxies and the UI send `X-RP-Client-Version`. In control
-mode, a version below the floor receives `426 client_too_old`; a missing header
-is currently tolerated.
+The response publishes `version`, `min_proxy_version`, `catalog_version`,
+`mode`, `auth`, and a `capabilities` map (`hosted_control`, `mcp`,
+`token_uploads`). The retained `min_proxy_version` is the minimum legacy-client
+version the gateway still accepts — it will be retired later once telemetry
+shows no old clients remain. Clients and the UI send `X-RP-Client-Version`. In
+control mode, a version explicitly below the floor receives `426
+client_too_old`; a missing header is currently tolerated.
 
 The response header `X-RP-Request-Id` identifies each HTTP request for log
 correlation.

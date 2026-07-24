@@ -3,36 +3,38 @@
 The plugin targets five agentic clients from one canonical content tree.
 Everything heavy — state, gates, capability-based reviews, sandbox
 provisioning — lives in the client-neutral brain service (localhost
-`merv-http`, or the hosted brain). The stdio MCP proxy is
-stdlib-only and always does the checkout-local data-plane work: repo reads,
-hashing, validation, output pulls using caller-provided SSH key paths, and
-folder-to-project links. It does not mint or persist caller private keys. Each
-client gets a thin adapter on top of the same `bin/`, `skills/`, and `agents/`
-content:
+`merv-http`, or the hosted brain). Every client — local Claude Code, cloud
+Codex, Cursor, Gemini CLI, OpenCode — connects the same way: an HTTP MCP
+server pointed at the brain's `POST /mcp` endpoint, authenticated by a
+project-scoped key sent as `Authorization: Bearer <key>` (read from the
+`MERV_MCP_KEY` env var). A key binds one immutable project; the gateway
+injects that project_id into project-scoped calls, so agents never send a
+checkout root. Each client gets a thin adapter on top of the same `bin/`,
+`skills/`, and `agents/` content:
 
 | Client | Adapter | MCP registration | Skills | Reviewer subagents |
 |---|---|---|---|---|
-| Claude Code | `.claude-plugin/plugin.json` + `.mcp.json` | `${CLAUDE_PLUGIN_ROOT}` launcher path; cwd = project root | `skills/` auto-discovered | `agents/` auto-discovered (`merv:` namespace) |
-| Codex | `.codex-plugin/plugin.json` + `.mcp.codex.json` | plugin-relative launcher path; cwd = project root | `skills/` via manifest | spawned via review skills |
-| Cursor | `.cursor-plugin/plugin.json` + `mcp.json` | `${workspaceFolder}` env var (cwd is NOT the workspace) | `skills/` auto-discovered (Agent Skills standard) | `agents/` auto-discovered |
-| Gemini CLI | `gemini-extension.json` + `GEMINI.md` | `${extensionPath}` launcher, `${workspacePath}` env var | `skills/` auto-discovered (Agent Skills standard) | `agents/` auto-discovered |
-| OpenCode | `clients/opencode/` (installer + agents + config example) | `opencode.json` `mcp` block; cwd = project root by default | symlinked into `~/.config/opencode/skills/` | symlinked into `~/.config/opencode/agents/` |
+| Claude Code | `.claude-plugin/plugin.json` + `.mcp.json` | http server → `<base>/mcp`, `Authorization: Bearer ${MERV_MCP_KEY}` | `skills/` auto-discovered | `agents/` auto-discovered (`merv:` namespace) |
+| Codex | `.codex-plugin/plugin.json` + `.mcp.codex.json` | http server → `<base>/mcp` (same header) | `skills/` via manifest | spawned via review skills |
+| Cursor | `.cursor-plugin/plugin.json` + `mcp.json` | http server → `<base>/mcp` (same header) | `skills/` auto-discovered (Agent Skills standard) | `agents/` auto-discovered |
+| Gemini CLI | `gemini-extension.json` + `GEMINI.md` | http server → `<base>/mcp` (same header) | `skills/` auto-discovered (Agent Skills standard) | `agents/` auto-discovered |
+| OpenCode | `clients/opencode/` (installer + agents + config example) | `opencode.json` `mcp` block → `<base>/mcp` (same header) | symlinked into `~/.config/opencode/skills/` | symlinked into `~/.config/opencode/agents/` |
 
 Shared invariants across all clients:
 
-- The launcher [bin/merv-mcp](../bin/merv-mcp) resolves
-  the project from `MERV_REPO_ROOT`, defaulting to `$PWD`. Clients
-  that do not spawn stdio servers in the project directory (Cursor) must set
-  the env var explicitly; the others rely on cwd.
-- The source-launched `merv-mcp` proxy needs no pip installs and runs on bare
-  `python3` 3.9+. The
-  tool catalog ships as checked-in JSON (`src/merv/proxy/_tool_catalog.json`) so
-  it is the proxy's sole runtime registry and discovery works without Pydantic
-  or any brain import. The `merv-client` CLI, `merv-http`, and brain remain
-  Python 3.11+; a venv is needed only for those brain/CLI surfaces when the
-  machine does not already provide 3.11+.
-  The launcher expects a POSIX shell, and sandbox SSH/output pulls rely on the
-  machine's OpenSSH client and `rsync`.
+- The project is bound by the key, not by a checkout path: a `MERV_MCP_KEY`
+  binds one immutable project, and the gateway injects that project_id into
+  every project-scoped call. Agents never send a repo root, and no client needs
+  to point Merv at a project directory.
+- The MCP connection is plain HTTP, so a client needs no local Merv runtime to
+  reach the brain — just an HTTP MCP server entry. The brain is the single
+  source of truth for tool schemas (`contracts.py` TOOL_MANIFEST, published as
+  `_tool_manifest.json`); there is no checked-in client-side tool catalog. The
+  `merv-client` onboarding CLI, `merv-http`, and brain remain Python 3.11+; a
+  venv is needed only for those surfaces when the machine does not already
+  provide 3.11+. Agent-run byte transfers — the presigned `curl` for
+  `artifact.submit` / `storage.*` and the `rsync` for `sandbox.pull_outputs` —
+  rely on the machine's `curl`, OpenSSH client, and `rsync`.
 - Skills follow the cross-tool Agent Skills layout (`skills/<name>/SKILL.md`
   with `name` + `description` frontmatter), which Claude Code, Codex, Cursor,
   Gemini CLI, and OpenCode all read natively.
@@ -41,14 +43,15 @@ Shared invariants across all clients:
   them. OpenCode needs `mode`/`permission` frontmatter, so it has its own thin
   agent wrappers in `clients/opencode/agents/` that load the matching review
   skill.
-- The MCP proxy resolves its brain URL as: `MERV_CONTROL_URL` env
-  var > machine config written by `merv-client configure` >
-  the hosted brain `https://experiments.rapidreview.io`. Out of the box every
-  client therefore dials the hosted brain and runs no local brain. For a local
-  deployment, run `merv-client configure --control-url
-  http://127.0.0.1:8787` (or set the env var) and start
-  `bin/merv-http`. Shipped manifests leave the env var empty on
-  purpose — pinning a URL there would shadow the machine config.
+- The committed manifests pin every client to the hosted brain
+  `https://experiments.rapidreview.io/mcp`, so out of the box each client dials
+  the hosted brain and runs no local brain. Run `merv-client env` to print the
+  ready-to-paste `.mcp.json` http snippet and `merv-client configure` to write
+  machine config. For a local deployment, point the `url` at
+  `http://127.0.0.1:8787/mcp` and start `bin/merv-http`. Export `MERV_MCP_KEY`
+  in your shell before launching a client and keep it out of version control —
+  the key is never inlined into a committed manifest, and it is
+  bearer-equivalent to full access to its one bound project.
 
 ## Long runs (merv_run) per client
 
@@ -120,47 +123,32 @@ symlinks whose target is outside `~/.cursor/plugins/local` (you will see
 the Cursor Plugins log). Re-`rsync` after editing the checkout, or keep a
 real directory under `plugins/local` as your working tree.
 
-If the machine's default `python3` is older than 3.11, create a venv in the
-local install so the launcher does not fall through to a broken interpreter:
-`python3.11 -m venv ~/.cursor/plugins/local/merv/.venv`.
+Two Cursor-specific notes:
 
-Three Cursor-specific notes:
-
-1. **Project root.** Cursor does not spawn stdio MCP servers in the workspace
-   directory, so [mcp.json](../mcp.json) passes
-   `"MERV_REPO_ROOT": "${workspaceFolder}"` — never rely on cwd.
-   (If a client ever passes the variable through unexpanded, the launcher now
-   fails loudly instead of silently binding to the spawn cwd.)
-2. **Launcher path.** Cursor requires stdio commands to be on PATH or a full
-   path — there is no plugin-relative resolution and no `${pluginRoot}`
-   variable. The bundled `mcp.json` therefore uses
-   `${userHome}/.cursor/plugins/local/merv/bin/merv-mcp`,
-   which is correct for the documented install location (Cursor interpolates
-   variables in `command`). If you install the plugin anywhere else, register
-   the server manually in the project's `.cursor/mcp.json` with the absolute
-   path:
+1. **MCP server.** Cursor registers Merv as an HTTP MCP server. The bundled
+   [mcp.json](../mcp.json) points at the hosted brain and carries the project
+   key from the environment:
 
 ```json
 {
   "mcpServers": {
     "merv": {
-      "type": "stdio",
-      "command": "/absolute/path/to/merv/bin/merv-mcp",
-      "env": {
-        "MERV_REPO_ROOT": "${workspaceFolder}",
-        "MERV_CONTROL_URL": ""
+      "type": "http",
+      "url": "https://experiments.rapidreview.io/mcp",
+      "headers": {
+        "Authorization": "Bearer ${MERV_MCP_KEY}"
       }
     }
   }
 }
 ```
 
-(Leave `MERV_CONTROL_URL` empty so the machine config from
-`merv-client configure` wins, falling back to the hosted brain.
-Set it explicitly only to force one workspace onto a different brain, e.g.
-`http://127.0.0.1:8787` for a local deployment.)
+   Export `MERV_MCP_KEY` in your environment before launching Cursor; never
+   inline the key into `mcp.json`. To point one workspace at a different brain
+   (e.g. a local `http://127.0.0.1:8787/mcp` deployment), edit the `url` in the
+   project's `.cursor/mcp.json`.
 
-3. **Tool ceiling.** Cursor limits the combined active tools from all MCP
+2. **Tool ceiling.** Cursor limits the combined active tools from all MCP
    servers. Merv hides UI/internal tools such as `project.list` and
    `review.status` from the agent-facing catalog. If tools disappear when
    several MCP servers are enabled, disable servers or tools that are not in
@@ -172,9 +160,10 @@ Cursor's MCP settings may show a naming warning for dotted tools such as
 ## Use with Gemini CLI
 
 The plugin ships a Gemini CLI extension: [gemini-extension.json](../gemini-extension.json)
-bundles the MCP server (launcher via `${extensionPath}`, project root via
-`${workspacePath}`) and loads [GEMINI.md](../GEMINI.md) as always-on context.
-`skills/` and `agents/` are auto-discovered from the extension directory.
+bundles the MCP server (an HTTP server pointed at the brain's `/mcp` endpoint,
+carrying the project key from `MERV_MCP_KEY`) and loads
+[GEMINI.md](../GEMINI.md) as always-on context. `skills/` and `agents/` are
+auto-discovered from the extension directory.
 
 Install from a local checkout (or link for development):
 
@@ -187,8 +176,8 @@ gemini extensions link /path/to/merv
 Notes:
 
 - Reviewer subagents can be given genuinely separate MCP sessions on Gemini:
-  an agent's inline `mcpServers` frontmatter spawns its own proxy process. The
-  shared agent files do not use this (they stay client-common); the
+  an agent's inline `mcpServers` frontmatter opens its own connection to the
+  brain. The shared agent files do not use this (they stay client-common); the
   capability + producer-session checks are the load-bearing independence
   mechanism regardless.
 
@@ -207,8 +196,9 @@ OpenCode reviewer agents into `~/.config/opencode/agents/`, and prints the
 
 Notes:
 
-- OpenCode spawns local MCP servers with cwd = project root, so the launcher
-  needs no extra configuration.
+- The `opencode.json` `mcp` block registers Merv as a remote HTTP MCP server
+  (the brain's `/mcp` endpoint with `Authorization: Bearer ${MERV_MCP_KEY}`),
+  so there is no local process to spawn.
 - The reviewer agents run as subagents (`mode: subagent`) with `edit`/`bash`
   denied; they load the matching review skill via OpenCode's native skill
   tool and submit through `review.start` / `review.submit`. Subagents get

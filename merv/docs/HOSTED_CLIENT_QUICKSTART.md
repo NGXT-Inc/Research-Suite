@@ -9,96 +9,95 @@ access and caller SSH keys local.
 git clone https://github.com/NGXT-Inc/Merv.git ~/Merv
 ```
 
-The source-launched `merv-mcp` stdio proxy runs on bare `python3` 3.9+ and needs
-no pip install. Its
-launcher requires a POSIX shell; sandbox SSH and explicit output pulls use the
-system OpenSSH client and `rsync`. The `merv-client` login CLI used below,
-`merv-http`, the brain, and backend tests remain Python 3.11+; a project
-environment is needed only for those surfaces when 3.11+ is not already
-available.
+Agent clients connect directly to the hosted brain over HTTP, so there is no
+local proxy process to run. Cloning the repo provides the `merv-client`
+onboarding CLI used below. `merv-client`, `merv-http`, the brain, and backend
+tests run on Python 3.11+; a project environment is needed only for those
+surfaces when 3.11+ is not already available. Sandbox SSH and explicit output
+pulls use the system OpenSSH client and `rsync`.
 
-## Authenticate this machine
+## Authenticate with a project key
 
-Hosted Merv uses the same `rr_sk_` API keys as RapidReview. Create one for this
-machine:
+Each agent client authenticates to the hosted brain with a **project-scoped
+key**. A key binds one immutable project: the gateway injects that project's id
+into every project-scoped call, so agents never send a checkout path and the
+brain never receives one. Mint a key in the UI:
 
-1. Open [RapidReview Maps](https://rapidreview.io/map) and sign in.
-2. Open **Account**, then **Settings**.
-3. Open **API Keys**, create a key, and copy it when shown.
+1. Open [RapidReview](https://rapidreview.io/map) and sign in.
+2. Open the project you want this client bound to.
+3. Create a key for that project and copy it when shown.
 
-Save it in Merv's machine-wide client configuration without putting the key in
-shell history:
+A key is bearer-equivalent to full access to its one bound project, so treat it
+like a password. Export it as `MERV_MCP_KEY` rather than storing it in a shared
+config, and keep it out of shell history:
 
 ```bash
-CLI=~/Merv/merv/bin/merv-client
-printf 'Paste the rr_sk_ key: '
-IFS= read -r -s MERV_API_KEY
+printf 'Paste the project key: '
+IFS= read -r -s MERV_MCP_KEY
 printf '\n'
-"$CLI" login --api-key "$MERV_API_KEY"
-unset MERV_API_KEY
+export MERV_MCP_KEY
 ```
 
-This writes the key to the machine client config (`~/.merv/client.json`
-fresh; the legacy `~/.research_plugin/client.json` when that dir exists) with
-`0600` file permissions. The file is local to the OS user, not encrypted, and must never be
-committed or shared. It authenticates every Merv checkout on this machine; the
-folder-to-project links described below remain per checkout. An exported
-`MERV_API_KEY` overrides the stored key.
+Add the `export` to your shell profile (or a `.env` you keep out of git) so
+agent sessions inherit it. Never inline the key into a committed config file,
+and keep any file that holds it listed in `.gitignore`.
 
-Open a new agent session after changing credentials so the MCP process reloads
-them. Browser-session authentication remains available with `"$CLI" login`,
-but API keys avoid session-expiry and refresh-token interruptions for agents.
+Restart the agent session after changing the key so the MCP connection reloads
+it.
 
-## Connect a checkout
+## Connect a client
 
-1. Register the plugin in the client using [CLIENTS.md](CLIENTS.md).
-2. Open the research checkout and start an agent session.
-3. Call the `project` tool with `action: "current"`.
-4. If the folder is unlinked, choose one of these validated paths:
-   - link an existing brain project with `action: "connect"` and its
-     `project_id`; or
-   - create and link a project in one step with `action: "connect"`, a
-     user-confirmed `name`, and a short `summary`.
+Every agent client — local Claude Code, cloud Codex, Replit, browser-driven —
+connects the same way: directly to the brain's `POST /mcp` endpoint with the key
+sent as `Authorization: Bearer ${MERV_MCP_KEY}`. Register the plugin in the
+client using [CLIENTS.md](CLIENTS.md), then print the ready-to-paste http
+snippet for this machine:
 
-`project(action="connect")` checks an existing id with the brain before writing
-the local link. A folder already linked to a different project requires
-`overwrite: true` before it can be relinked.
+```bash
+~/Merv/merv/bin/merv-client env
+```
 
-Repeat this for each checkout. The folder-to-project database and machine
-configuration live under `~/.merv/` by default (an existing legacy
-`~/.research_plugin/` keeps winning), never in the research repo. The proxy sends only the selected project id to the brain; the
-checkout path stays local.
+It emits the committed-config shape used by `.mcp.json` (and its
+`.mcp.codex.json` / `mcp.json` siblings):
 
-An unconfigured proxy uses the hosted brain. To point this machine at another
-brain, write the machine config:
+```json
+{
+  "mcpServers": {
+    "merv": {
+      "type": "http",
+      "url": "https://experiments.rapidreview.io/mcp",
+      "headers": { "Authorization": "Bearer ${MERV_MCP_KEY}" }
+    }
+  }
+}
+```
+
+The key stays in the `MERV_MCP_KEY` env var and is never written into the file,
+so the config is safe to commit while the key is not. Start an agent session
+from any checkout: the gateway resolves the bound project from the key, so the
+same config works from every folder and the checkout path never leaves the
+machine.
+
+The snippet points at the hosted brain by default. To target another brain — a
+localhost dev brain at `http://127.0.0.1:8787/mcp`, or a self-hosted control
+plane — set it once in the machine config so `merv-client env` emits the
+matching `url` (or edit the `url` in the snippet directly):
 
 ```bash
 ~/Merv/merv/bin/merv-client configure \
   --control-url https://your-control-plane.example.com
 ```
 
-Use `http://127.0.0.1:8787` only when a localhost brain is running there. An
-explicit `MERV_CONTROL_URL` in an MCP configuration overrides the
-machine setting; shipped manifests leave it empty so machine configuration can
-take effect.
+## The `merv-client` CLI
 
-## Local link CLI
-
-The CLI can inspect or directly edit the machine-local folder link database:
+The onboarding CLI has exactly two subcommands:
 
 ```bash
 CLI=~/Merv/merv/bin/merv-client
-$CLI link --project-id proj_123   # write/replace this folder's local mapping
-$CLI links                        # list local mappings on this machine
-$CLI route                        # show this folder's stored mapping
-$CLI unlink                       # remove this folder's mapping
-$CLI mcp-env                      # print env vars for a manual MCP config
+$CLI configure   # write machine config (e.g. which brain to target)
+$CLI env         # print the .mcp.json http snippet for this machine
 ```
 
-Run those commands from the checkout or pass `--repo /path/to/checkout`.
-
-`link` accepts a `project_id` rather than a name/summary, writes it locally, and
-replaces any mapping for the same folder. It does **not** contact the brain,
-validate that the id exists, or create a project. Prefer
-`project(action="connect")` for normal setup; use the CLI when the id is already
-known and a local-only mapping operation is intentional.
+The older `login`, `link`, `links`, `route`, and `unlink` subcommands are gone:
+a project-scoped key now carries both authentication and the project binding, so
+there is nothing to log in to, link, or unlink.

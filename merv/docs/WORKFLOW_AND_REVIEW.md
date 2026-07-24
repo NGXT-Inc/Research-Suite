@@ -24,7 +24,7 @@ project-linked MCP session it asks:
 workflow.status_and_next(experiment_id?)
 ```
 
-The proxy supplies the linked `project_id`; brain services and HTTP routes still
+The gateway injects the key's bound `project_id`; brain services and HTTP routes still
 require explicit project scope. The agent should call `project(action="current")`
 and link or create a project before any claim, experiment, artifact, review, or
 sandbox workflow.

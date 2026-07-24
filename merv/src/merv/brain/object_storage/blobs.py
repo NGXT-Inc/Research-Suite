@@ -1,8 +1,8 @@
 """Content-addressed blob storage for gated artifacts and generated objects.
 
-The split storage model from docs/CONTROL_DATA_PLANE_SPLIT.md uses one
-sha256-keyed, namespace-scoped store shared by artifact submissions (gated-role
-bytes pinned at artifact.submit), report figures, and metrics snapshots.
+The storage model uses one sha256-keyed, namespace-scoped store shared by
+artifact submissions (gated-role bytes pinned at artifact.submit), report
+figures, and metrics snapshots.
 The local implementation is a directory under the brain state root; hosted
 control uses the S3-compatible implementation behind the same protocol.
 

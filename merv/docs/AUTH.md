@@ -15,8 +15,8 @@ dispatched by prefix (RapidReview's contract, reimplemented in
 - **Supabase session JWT** — browser sign-in via supabase-js in the UI.
   Verified locally (HS256, `SUPABASE_JWT_SECRET`, audience `authenticated`);
   anonymous sessions are rejected. No Supabase round-trip per request.
-- **`rr_sk_` API key** — everything headless (MCP proxy, agents, MLflow,
-  curl). sha256-hashed and looked up in the shared `api_keys` table over
+- **`rr_sk_` API key** — everything headless (direct `/mcp` clients, agents,
+  MLflow, curl). sha256-hashed and looked up in the shared `api_keys` table over
   PostgREST (`SUPABASE_SERVICE_KEY`), cached 60s. Keys are minted/revoked in
   RapidReview; this repo has no key machinery of its own.
 
@@ -28,12 +28,11 @@ stale clients get "upgrade", not "login". A verified credential becomes
 
 **Project membership** is the authorization layer: `project_members`
 (project_id, user_id) in the research store. Authenticated requests see only
-member projects — enforced at three funnels: the HTTP path gate
+member projects — enforced at two funnels: the HTTP path gate
 (`/api/projects/{id}/...` → 404 for non-members; `/api/activity` +
-`/api/debug/*` additionally require `?project_id=`), the MCP funnel
-(`route_call_tool`, including review tools via their resolved project), and
-the data-plane funnel. Creating a project records the creator as its first
-member. Share/assign via:
+`/api/debug/*` additionally require `?project_id=`) and the MCP funnel
+(`route_call_tool`, including review tools via their resolved project).
+Creating a project records the creator as its first member. Share/assign via:
 
 ```
 POST   /api/projects/{id}/members   {"user_id": "<supabase auth.users uuid>"}
@@ -49,25 +48,21 @@ Any member can manage members (two-trusted-users model; no roles).
   supabase_anon_key}`; the AuthGate then shows sign-in (email/password or
   Google). Nothing is baked into the bundle; local backends advertise
   `required: false` and the UI never loads supabase-js.
-- **MCP plugin**: for durable agent authentication, sign in at
-  [RapidReview Maps](https://rapidreview.io/map), then open **Account →
-  Settings → API Keys** and create an `rr_sk_` key. Run `merv-client login
-  --api-key rr_sk_...` to save it in the machine-wide client config
-  (`~/.merv/client.json`; legacy `~/.research_plugin/` wins when present)
-  with `0600` permissions; see the
-  [hosted client quickstart](HOSTED_CLIENT_QUICKSTART.md) for a command that
-  avoids putting the key in shell history. `MERV_API_KEY` overrides
-  the stored key. The same credential serves every checkout on that machine;
-  project membership still controls authorization.
-- **Browser-session alternative**: `merv-client login` opens the browser
-  (Google or email/password on the hosted UI's `/auth/sdk` page), polls until
-  sign-in completes, and stores the session in the same private client file.
-  The proxy refreshes it silently through `POST /api/sdk/auth/refresh`, so
-  clients never talk to Supabase directly. `--no-browser` prints the URL for
-  SSH sessions. Device-flow routes (`/api/sdk/auth/*`) exist only on
-  auth-enabled deployments. The minted `auth_url` points at
-  `MERV_UI_BASE_URL`, falling back to the first CORS origin and then
-  the API's own origin.
+- **MCP clients** (local Claude Code, cloud Codex, Replit, browser-driven):
+  every agent connects directly to the brain's `POST /mcp` endpoint. Sign in
+  at [RapidReview Maps](https://rapidreview.io/map), open **Account →
+  Settings → API Keys**, mint a project-scoped key, and export it as
+  `MERV_MCP_KEY`. The committed `.mcp.json` uses `type: "http"`,
+  `url: "https://experiments.rapidreview.io/mcp"`, and
+  `headers.Authorization: "Bearer ${MERV_MCP_KEY}"` — the key is read from the
+  env var and is **never** inlined into a committed file (it is
+  bearer-equivalent to full access to its one bound project, so export it in
+  your shell and keep any local key file `.gitignore`d). `merv-client
+  configure` writes the machine config and `merv-client env` prints that
+  `.mcp.json` snippet; see the
+  [hosted client quickstart](HOSTED_CLIENT_QUICKSTART.md) for the full
+  walkthrough. A key binds one immutable project; the gateway injects that
+  project_id and project membership still controls authorization.
 - **Agents / MLflow**: `mlflow.context` env blocks carry
   `MLFLOW_TRACKING_USERNAME/PASSWORD` (the key in the password slot) when
   `MERV_MLFLOW_AGENT_KEY` is set; sandbox provisioning also
@@ -82,17 +77,16 @@ Any member can manage members (two-trusted-users model; no roles).
 2. Set env on the VM: `SUPABASE_URL`, `SUPABASE_JWT_SECRET`,
    `SUPABASE_SERVICE_KEY`, `SUPABASE_ANON_KEY`,
    `MERV_REQUIRE_AUTH=1`,
-   `MERV_UI_BASE_URL=https://rapidreview.io/merv` (where
-   `merv-client login` sends the browser). Restart the brain.
+   `MERV_UI_BASE_URL=https://rapidreview.io/merv`. Restart the brain.
 3. Backfill membership for existing projects (one insert per project):
    ```sql
    INSERT INTO project_members (project_id, user_id, added_at)
    SELECT id, '<founder auth.users uuid>', NOW() FROM projects
    ON CONFLICT DO NOTHING;
    ```
-4. Each user: sign in on the UI; run `merv-client login` on each machine
-   (browser handoff — or `--api-key` with their RapidReview key for headless
-   boxes).
+4. Each user: sign in on the UI; mint a project-scoped key in RapidReview,
+   export it as `MERV_MCP_KEY`, and drop the `.mcp.json` http snippet
+   (`merv-client env`) on each machine.
 5. MLflow gate: mint a dedicated `rr_sk_` key, set
    `MERV_MLFLOW_AGENT_KEY`, then wrap the Caddy `/mlflow*` handles
    (except `/mlflow/health` and the MinIO presigned bucket paths) in:
@@ -104,7 +98,7 @@ Any member can manage members (two-trusted-users model; no roles).
    ```
    The endpoint answers 204/401 (+`WWW-Authenticate: Basic` so browsers
    prompt; any username, the key as password).
-6. Bump `MIN_PROXY_VERSION` once clients have upgraded, so pre-auth proxies
+6. Bump `MIN_PROXY_VERSION` once clients have upgraded, so pre-auth clients
    get the actionable 426 instead of a bare 401.
 7. Assign projects to the second user via the members endpoint above.
 

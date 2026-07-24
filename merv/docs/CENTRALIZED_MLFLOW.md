@@ -92,8 +92,8 @@ workflow gate.
 
 ## Agent contract
 
-The stdio proxy resolves the linked project and injects its `project_id`; agents
-do not pass project scope themselves. Use:
+The gateway resolves the project bound to the request's key and injects its
+`project_id`; agents do not pass project scope themselves. Use:
 
 ```text
 mlflow.context()

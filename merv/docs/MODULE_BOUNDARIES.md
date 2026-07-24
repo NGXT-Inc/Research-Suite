@@ -24,7 +24,7 @@ business authority.
                                 kernel
 ```
 
-The local proxy and pure shared packages sit outside this brain-only law.
+The pure `merv.shared` package sits outside this brain-only law.
 
 ## Component law
 
@@ -136,8 +136,8 @@ Sandbox-owned generation counters and injects the result into admin delivery.
 
 The declarative `TOOL_MANIFEST` owns tool schemas, visibility, scope, execution,
 features, and handler identities. Surface derives its control handlers from
-those identities; the proxy consumes a generated stdlib-only projection, so
-plane/hidden/handler routing is not separately maintained. The transition
+those identities; every tool is a control tool served by the brain, so
+hidden/handler routing is not separately maintained. The transition
 adapter still sets the agent credential audience. Merged project,
 experiment-list and storage decisions live in
 `application/tool_commands.py`.
@@ -216,13 +216,11 @@ Review role/verdict validation is Research domain policy; artifact association
 role/target validation is Artifacts domain policy. Project membership mutation
 is owned by `ProjectService`, not by an HTTP route.
 
-## Cross-plane law
+## Cross-package law
 
-Brain code may import pure `merv.shared` contracts but never `merv.proxy`.
-Proxy code may import only the standard library, `merv.proxy`, and
-`merv.shared`. Shared code imports only the standard library and itself. The
-login client ships in the slim bundle and imports only the standard library and
-`merv.shared`, never `merv.brain`.
+Brain code may import pure `merv.shared` contracts. Shared code imports only the
+standard library and itself. The onboarding client ships in the slim bundle and
+imports only the standard library and `merv.shared`, never `merv.brain`.
 
 ## Executable ratchets
 

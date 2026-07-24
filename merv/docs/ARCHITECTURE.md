@@ -31,16 +31,14 @@ There is one topology for both hosted and local deployments:
 flowchart LR
   User["Researcher"] --> Client["Agent client"]
   Client --> Skills["Plugin skills and reviewer roles"]
-  Client -->|stdio MCP| Proxy["Local MCP proxy"]
-  Proxy -->|repo IO| Repo["Research checkout"]
-  Proxy -->|control calls and validated submissions| Brain["Brain service"]
+  Client -->|HTTP MCP + project key| Brain["Brain service"]
   Browser["Merv UI"] -->|HTTP API and SSE| Brain
   Brain --> State["SQLite or Postgres"]
   Brain --> Blobs["Local or S3-compatible stores"]
   Brain --> MLflow["Central MLflow service"]
   Brain --> Providers["Lambda Labs, Thunder Compute, or Modal"]
   Client -->|SSH commands| Providers
-  Proxy -->|rsync retained outputs| Providers
+  Client -->|presigned PUT/GET| Blobs
 ```
 
 ### Brain service
@@ -54,8 +52,9 @@ The brain is the single authority for research records and policy. It owns:
 - the `/mcp/*`, `/api/*`, and server-sent-event surfaces.
 
 The brain never receives a checkout root and never opens files from a user's
-checkout. Repo-derived facts and size-capped submitted bytes reach it only
-through explicit data-plane submissions from the proxy.
+checkout. Agents submit typed artifacts and other bytes by calling a tool that
+mints a presigned upload and running the returned command; the bytes travel
+directly to object storage over that URL, never through the brain.
 
 `MERV_MODE` selects deployment defaults, not a different component
 graph:
@@ -74,41 +73,32 @@ booting an unauthenticated hosted surface logs an "OPEN" warning — and
 deployment runs with it required. CORS and the client-version floor are still
 not authentication.
 
-### Local MCP proxy
+### Agent client connection
 
-Every client starts `merv-mcp` as a short-lived stdio process. It is
-the local data plane in every deployment and owns:
+Every client connects directly to the brain's `/mcp` endpoint over HTTP,
+authenticated by a project-scoped key (`Authorization: Bearer <key>`). The
+committed `.mcp.json` uses `type:"http"` and reads the key from the
+`MERV_MCP_KEY` environment variable — the key is never inlined, because it is
+bearer-equivalent to full access to its one bound project. There is no local
+proxy and no local data plane: one wire protocol serves a local agent, a cloud
+agent, and a browser-driven agent identically.
 
-- repo-relative path normalization and containment;
-- file observation, hashing, validation, and submitted-byte capture;
-- experiment-folder materialization;
-- caller public-key submission and use of a caller-supplied private-key path for
-  safe rsync pulls; the caller remains the private-key owner;
-- safe rsync pulls from sandboxes into the checkout;
-- local file uploads/downloads for durable storage;
-- feed image and local HTML-embed reads;
-- checkout-to-project links in `project_links.sqlite`.
-
-The source-launched `merv-mcp` proxy, including its data-tool implementations,
-runs on Python 3.9+ using only the standard library. It has no static or dynamic
-imports of `merv.brain`; listing tools and reaching the hosted brain require no
-local package installation. The `merv-client` CLI, `merv-http`, the brain, and
-the distributable wheel retain their Python 3.11+ floor.
+The key binds one immutable project. The gateway injects that project into
+project-scoped calls, so agents never pass `repo_root` and the brain never
+receives a checkout root. Bytes that must move — artifact and storage uploads,
+sandbox output pulls, feed images — travel agent-side over presigned URLs: the
+tool returns a one-line command the agent runs, and the bytes stream directly
+to or from the object store or sandbox, never through the brain or the agent's
+model context.
 
 Pure two-sided contracts live in `merv.shared`: error identities, path naming,
-narrow tool-shape validation, storage
-transfer/guidance, feed-media primitives, artifact roles, and markdown-image
-parsing. Workflow policy, Pydantic models, service composition, and mutation
-authority remain brain-owned.
+narrow tool-shape validation, storage transfer/guidance, feed-media primitives,
+artifact roles, and markdown-image parsing. Workflow policy, Pydantic models,
+service composition, and mutation authority remain brain-owned.
 
-The proxy resolves one brain URL in this order:
-
-1. `MERV_CONTROL_URL`;
-2. machine configuration written by `merv-client configure`;
-3. `https://experiments.rapidreview.io`.
-
-It resolves project scope from the local checkout link and injects an explicit
-`project_id` into project-scoped brain calls. It never forwards `repo_root`.
+The connection URL lives in `.mcp.json` (default
+`https://experiments.rapidreview.io/mcp`); self-hosted deployments regenerate
+the snippet with `merv-client env` pointed at their own brain.
 
 ### Browser UI
 
@@ -118,10 +108,10 @@ and falls back to conditional polling with ETags. It renders desktop and mobile
 surfaces for claims, experiments, reviews, artifacts, reflection waves,
 sandboxes, MLflow, storage, events, and the research feed.
 
-The browser cannot perform checkout-local operations. Folder creation, local
-storage transfer, feed-image capture, and sandbox output pulls must go through
-the local MCP proxy; artifact submission is agent-driven (artifact.submit plus
-the returned upload command).
+The browser cannot perform checkout-local operations. Local storage transfer,
+feed-image capture, and sandbox output pulls are agent-driven through typed
+tools and the upload/download commands they return, as is artifact submission
+(artifact.submit plus the returned upload command).
 
 ## Composition and persistence
 
@@ -142,8 +132,8 @@ root selects adapters and wires the modular monolith:
   Modal remains a separate managed-container/provider-exec driver;
 - MLflow: an explicitly configured centralized tracking service.
 
-Research records live in the brain's selected record store. The only durable
-checkout-specific state owned by the proxy is the machine-local project-link
+Research records live in the brain's selected record store. There is no durable
+checkout-local state: a project is bound by its key, not by a machine-local link
 database; research repos contain experiment files, not the brain database.
 
 Core research-record mutations and workflow milestones append project events in
@@ -161,17 +151,14 @@ checkpoint yet.
 
 ## Tool routing
 
-The brain registry in `src/merv/brain/surface/tools/contracts.py` remains the generator
-and source of truth for tool schemas and plane assignments. The proxy never
-imports it at runtime: its sole runtime registry is the checked-in
-`src/merv/proxy/_tool_catalog.json`, whose byte-for-byte parity is enforced by
-the catalog generator and tests. Since the no-dataplane transition every tool is
-a control tool that runs in the brain. Byte transfers (`storage.submit`,
-`storage.fetch`, `artifact.submit`, `feed.post`) hand back a one-line command the
-agent runs to move bytes over a presigned URL, and sandbox provisioning
-(`sandbox.request`, `sandbox.attach`, `sandbox.pull_outputs`) is served by the
-brain. No tool submits checkout bytes through the proxy; `sandbox.get` is the
-lone control tool the proxy still enriches locally.
+The brain registry in `src/merv/brain/surface/tools/contracts.py` is the single
+generator and source of truth for tool schemas and plane assignments. Since the
+no-dataplane transition every tool is a control tool that runs in the brain.
+Byte transfers (`storage.submit`, `storage.fetch`, `artifact.submit`,
+`feed.post`) hand back a one-line command the agent runs to move bytes over a
+presigned URL, and sandbox provisioning (`sandbox.request`, `sandbox.attach`,
+`sandbox.pull_outputs`) is served by the brain. No tool moves checkout bytes
+through the brain.
 
 The merged `project` tool is special:
 
@@ -181,8 +168,8 @@ The merged `project` tool is special:
 - `action="overview"` reads the brain for the bound (or explicitly given) project;
 - `action="create"` creates a brain project.
 
-The brain never imports `merv.proxy`, and `merv.shared` imports neither plane, so
-the privacy boundary stays enforceable rather than conventional.
+`merv.shared` holds only pure two-sided contracts and imports no brain
+internals, so the privacy boundary stays enforceable rather than conventional.
 
 ## Workflow architecture
 
@@ -279,12 +266,9 @@ shrinking file-pair exception ledger live in
 
 Additional structure tests enforce:
 
-- complete and disjoint control/data tool assignments;
-- no checkout/process dependencies in brain-owned policy modules;
-- provider-neutral sandbox services;
-- a standard-library-only MCP proxy;
-- parity between live tool contracts and the checked-in proxy catalog.
+- every tool is a control tool servable from the brain;
+- no checkout/process/local-IO dependencies in brain-owned policy modules;
+- the record store never learns a `repo_root`;
+- provider-neutral sandbox services.
 
-See [MODULE_BOUNDARIES.md](MODULE_BOUNDARIES.md) for the import law and
-[CONTROL_DATA_PLANE_SPLIT.md](CONTROL_DATA_PLANE_SPLIT.md) for the detailed
-ownership table.
+See [MODULE_BOUNDARIES.md](MODULE_BOUNDARIES.md) for the import law.
