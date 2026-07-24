@@ -30,8 +30,9 @@ CLIENT_VERSION_HEADER = "X-RP-Client-Version"
 SERVER_VERSION = __version__
 
 # Minimum MCP proxy version the control plane will serve.
-# 0.0011 fences pre-merge proxies that route project verbs by the old tool names.
-MIN_PROXY_VERSION = "0.0011"
+# 0.0013 fences pre-key-era proxies (Checkpoint 1): older stdio clients predate
+# the artifact-submit + mk_-key surface and get the clean 426 "upgrade" error.
+MIN_PROXY_VERSION = "0.0013"
 
 
 def _version_tuple(version: str) -> tuple[int, ...]:
