@@ -119,17 +119,10 @@ durable object storage instead of into the repo.
 
 ## Workflow
 
-1. Call `project` with `action: "current"` first. In project-local MCP this
-   returns the project for the current folder, or `exists: false` if the folder
-   does not have a project yet. If `exists` is false, do not invent a
-   placeholder project. Ask the user whether to link an existing project (they
-   give its project id) or start a new one (they give a name and short summary),
-   unless the current user request already provided that information, then call
-   `project` with `action: "connect"` — it validates or creates the project and
-   links this folder to it. A keyed/cloud agent is already bound to the project
-   encoded by its key: it must not call `project` with `action: "connect"`
-   (keyed connect is rejected). If `exists` is true, `current` returns the bound
-   project identity. When you need the full project picture — every claim
+1. Call `project` with `action: "current"` first. Your key binds one immutable
+   project, and `current` returns that bound project and its `project_id`. Learn
+   the `project_id` here once, then pass it explicitly on every subsequent
+   project-scoped tool. When you need the full project picture — every claim
    including settled or abandoned ones, every experiment including terminal
    ones — call `project` with `action: "overview"` rather than expecting an
    `at_a_glance` block from `current` or inferring state from
@@ -141,11 +134,12 @@ durable object storage instead of into the repo.
    the siblings (name the contrast with them, and do not recreate a dead one).
 4. Follow MCP's `next_action`, allowed actions, blocked actions, and gate state.
 5. Use MCP for all claim, experiment, artifact, review, and workflow mutations.
-6. Do not invent or pass project scope to normal agent-facing tools. Their
-   schemas hide `project_id`: the gateway injects the project bound to the
-   caller's key. The merged `project` tool accepts `action: "connect"` only for local
-   checkout linking; keyed/cloud agents never call it. `current` and `overview`
-   take no agent-supplied scope in either mode.
+6. Pass `project_id` explicitly on every project-scoped tool — the value you
+   learned from `project current`. The gateway requires it and enforces that it
+   equals the key's bound project: omitting it raises `project_id is required`,
+   and a mismatched id is rejected. The `project` tool is the exception — its
+   `current` and `overview` actions resolve the bound project from the key and
+   take no `project_id` argument.
 7. Edit local files only for implementation, notes, plans, configs, and results.
 8. Run lightweight commands locally when safe.
 9. For quantitative ML work, follow Quantitative observability whether running
@@ -163,11 +157,9 @@ durable object storage instead of into the repo.
 14. Propose conclusions or claim updates only after required artifacts and reviews exist.
 
 If conversation memory is unclear, call `project` with `action: "current"`
-again. If `exists` is true, ask MCP for `workflow.status_and_next(experiment_id?)`;
-if `exists` is false in project-local MCP, ask the user what project to link or
-create before calling `project` with `action: "connect"` unless they already
-supplied that information. A keyed/cloud caller does not use `connect`; its
-project comes from its key. Do not reconstruct workflow state from memory.
+again to re-learn the bound project and its `project_id`, then ask MCP for
+`workflow.status_and_next(experiment_id?)`. Do not reconstruct workflow state
+from memory.
 
 ## Quantitative observability
 

@@ -8,17 +8,22 @@ implicit local principal exactly as before.
 
 ## How it works
 
-One `Authorization: Bearer <credential>` header, two credential shapes,
+One `Authorization: Bearer <credential>` header, three credential shapes,
 dispatched by prefix (RapidReview's contract, reimplemented in
 `src/merv/brain/surface/auth.py`):
 
 - **Supabase session JWT** — browser sign-in via supabase-js in the UI.
   Verified locally (HS256, `SUPABASE_JWT_SECRET`, audience `authenticated`);
   anonymous sessions are rejected. No Supabase round-trip per request.
-- **`rr_sk_` API key** — everything headless (direct `/mcp` clients, agents,
-  MLflow, curl). sha256-hashed and looked up in the shared `api_keys` table over
-  PostgREST (`SUPABASE_SERVICE_KEY`), cached 60s. Keys are minted/revoked in
-  RapidReview; this repo has no key machinery of its own.
+- **`rr_sk_` API key** — RapidReview-minted, owner-scoped; everything headless
+  (direct `/mcp` clients, agents, MLflow, curl). sha256-hashed and looked up in
+  the shared `api_keys` table over PostgREST (`SUPABASE_SERVICE_KEY`), cached 60s.
+  These keys are minted/revoked in RapidReview.
+- **`mk_` project key** — minted/revoked **in this repo** via the key-mint UI and
+  stored in the `project_api_keys` table. Each key binds one immutable project,
+  and the gateway rejects any request whose `project_id` argument does not equal
+  the key's bound project. OAuth (DCR + PKCE) mints audience-confined `mk_`
+  access tokens (+ `mrt_` refresh) for cloud platforms (Codex, Replit).
 
 Enforcement lives in the `attach_principal` middleware
 (`src/merv/brain/surface/transport/api/app.py`): OPTIONS, `/health`, `/api/meta`, and
@@ -61,8 +66,9 @@ Any member can manage members (two-trusted-users model; no roles).
   configure` writes the machine config and `merv-client env` prints that
   `.mcp.json` snippet; see the
   [hosted client quickstart](HOSTED_CLIENT_QUICKSTART.md) for the full
-  walkthrough. A key binds one immutable project; the gateway injects that
-  project_id and project membership still controls authorization.
+  walkthrough. A key binds one immutable project; the agent passes `project_id`
+  explicitly and the gateway enforces that it equals the key's bound project,
+  while project membership still controls authorization.
 - **Agents / MLflow**: `mlflow.context` env blocks carry
   `MLFLOW_TRACKING_USERNAME/PASSWORD` (the key in the password slot) when
   `MERV_MLFLOW_AGENT_KEY` is set; sandbox provisioning also

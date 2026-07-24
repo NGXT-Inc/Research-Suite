@@ -8,8 +8,9 @@ Codex, Cursor, Gemini CLI, OpenCode — connects the same way: an HTTP MCP
 server pointed at the brain's `POST /mcp` endpoint, authenticated by a
 project-scoped key sent as `Authorization: Bearer <key>` (read from the
 `MERV_MCP_KEY` env var). A key binds one immutable project; the gateway
-injects that project_id into project-scoped calls, so agents never send a
-checkout root. Each client gets a thin adapter on top of the same `bin/`,
+enforces that any project_id an agent passes equals the key-bound project (an
+agent learns it once via `project current`, then passes it explicitly), so
+agents never send a checkout root. Each client gets a thin adapter on top of the same `bin/`,
 `skills/`, and `agents/` content:
 
 | Client | Adapter | MCP registration | Skills | Reviewer subagents |
@@ -23,13 +24,14 @@ checkout root. Each client gets a thin adapter on top of the same `bin/`,
 Shared invariants across all clients:
 
 - The project is bound by the key, not by a checkout path: a `MERV_MCP_KEY`
-  binds one immutable project, and the gateway injects that project_id into
-  every project-scoped call. Agents never send a repo root, and no client needs
-  to point Merv at a project directory.
+  binds one immutable project, and the gateway enforces that the project_id an
+  agent passes matches the key-bound project (learned once via `project current`,
+  then passed explicitly on every project-scoped call). Agents never send a repo
+  root, and no client needs to point Merv at a project directory.
 - The MCP connection is plain HTTP, so a client needs no local Merv runtime to
   reach the brain — just an HTTP MCP server entry. The brain is the single
-  source of truth for tool schemas (`contracts.py` TOOL_MANIFEST, published as
-  `_tool_manifest.json`); there is no checked-in client-side tool catalog. The
+  source of truth for tool schemas (`contracts.py` TOOL_MANIFEST, served via
+  `tools/list`); there is no checked-in client-side tool catalog. The
   `merv-client` onboarding CLI, `merv-http`, and brain remain Python 3.11+; a
   venv is needed only for those surfaces when the machine does not already
   provide 3.11+. Agent-run byte transfers — the presigned `curl` for

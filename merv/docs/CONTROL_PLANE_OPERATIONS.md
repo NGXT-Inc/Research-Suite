@@ -34,8 +34,10 @@ authenticated by a project-scoped key sent as `Authorization: Bearer <key>`.
 | `control` | hosted private brain | Postgres, S3-compatible blobs, mounted management key | `merv-control` |
 
 Every tool is a control tool served by the brain. A key binds one immutable
-project, and the gateway injects that `project_id` into project-scoped calls;
-agents never send `repo_root` and the brain never dials a user machine. Bytes
+project, and the gateway requires each project-scoped call to pass that
+`project_id`, rejecting any call whose `project_id` does not match the key's
+bound project; agents never send `repo_root` and the brain never dials a user
+machine. Bytes
 that must move — `artifact.submit`, `storage.submit`/`storage.fetch`,
 `feed.post`, `sandbox.pull_outputs` — are agent-driven: the tool returns a
 one-line command (a presigned curl `PUT`/`GET`, or `rsync` for sandbox pulls)
@@ -143,7 +145,7 @@ example is in `../deploy/README.md`.
 GET /api/meta
 ```
 
-The response publishes `version`, `min_proxy_version`, `catalog_version`,
+The response publishes `server_version`, `min_proxy_version`, `catalog_version`,
 `mode`, `auth`, and a `capabilities` map (`hosted_control`, `mcp`,
 `token_uploads`). The retained `min_proxy_version` is the minimum legacy-client
 version the gateway still accepts — it will be retired later once telemetry

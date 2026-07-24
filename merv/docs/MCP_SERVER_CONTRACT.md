@@ -16,23 +16,26 @@ committed config files (`.mcp.json`, `.mcp.codex.json`, `mcp.json`) use
 `headers.Authorization:"Bearer ${MERV_MCP_KEY}"`; the key is read from the
 `MERV_MCP_KEY` env var and is never inlined into a committed file.
 
-A key binds one immutable project. The gateway injects that project's id into
-project-scoped calls and hides `project_id` from agent schemas. Agents never send
-`repo_root`; the brain never receives a checkout root.
+A key binds one immutable project. The gateway does not inject or hide
+`project_id`: agents pass `project_id` explicitly on every project-scoped tool,
+and the gateway enforces that it equals the key-bound project — a mismatched
+`project_id` is rejected, and omitting it raises `project_id is required`. Agents
+never send `repo_root`; the brain never receives a checkout root.
 
 The normal session bootstrap is:
 
 ```text
 project(action="current")
-project(action="connect", project_id=... | name=..., summary=...)?
 workflow.status_and_next(experiment_id?)
 ```
 
-`project(action="current")` returns the bound project or `exists: false`.
-`action="connect"` is the only operation where a caller-selected project id is
-authoritative: the brain validates the existing project, or creates one from
-`name` and `summary`. `action="overview"` reads every claim and experiment for
-the bound project. `action="create"` creates a project without selecting it.
+`project(action="current")` is the one tool that resolves the project from the
+key without a `project_id` argument: it returns the bound project and its id.
+Learn that id once, then pass it explicitly on every subsequent project-scoped
+tool. `action="overview"` returns the bound project's full claim and experiment
+history. The action enum is exactly `current | create | overview`;
+`action="create"` is forbidden to a project-bound key, because projects are
+created in the UI before a key is minted.
 
 ## Tool catalog
 
@@ -52,7 +55,7 @@ litreview.cite
 artifact.submit              artifact.find
 storage.find                 storage.object
 review.request               review.start               review.submit
-sandbox.options              sandbox.get
+sandbox.options              sandbox.get                 sandbox.list
 sandbox.release              sandbox.extend
 sandbox.runs                 sandbox.terminal
 feed.register                feed.list
@@ -75,20 +78,22 @@ project.get                  project.update              project.list
 claim.list                   experiment.list             reflection.list
 storage.put_object           storage.complete_upload
 review.status
-sandbox.list                 sandbox.health
+sandbox.health
 ```
 
-The single `_tool_manifest.json` is generated from these same contracts and is the
-sole checked-in catalog. Because every tool is brain-served, `tools/list` is
-unavailable until the brain responds.
+The manifest is built in code as `TOOL_MANIFEST` in
+`src/merv/brain/surface/tools/contracts.py` and exposed via `tools/list`; there is
+no checked-in catalog JSON file. Because every tool is brain-served, `tools/list`
+is unavailable until the brain responds.
 
 ## Project scope
 
 The project is fixed by the bearer key, so a project-scoped call can never target
-another project. Supplying an arbitrary `project_id` to a project-scoped tool does
-not switch projects: the gateway removes it and injects the key-bound id.
+another project. Agents pass the key-bound `project_id` on every project-scoped
+tool; supplying a different `project_id` does not switch projects — the gateway
+rejects it as outside the key's scope.
 
-Core services never infer an active project. Scope injection exists only at the
+Core services never infer an active project. Scope enforcement exists only at the
 gateway.
 
 ## Artifact submissions

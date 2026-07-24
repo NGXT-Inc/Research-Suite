@@ -15,11 +15,11 @@ The reference stack contains:
 | `mlflow` | Central tracking server |
 | `mgmtkey` | Generates a development-only brain management SSH key |
 
-The MCP proxy still runs on each agent machine. It reads the checkout, validates
-and hashes files, uses the caller-provided SSH key path for explicit local
-transfers without minting or persisting that key, and sends
-only explicit metadata or bounded submitted bytes to the brain. The browser UI
-is deployed separately and talks directly to the brain.
+Each agent (local Claude Code, cloud Codex, Replit) connects directly to the
+brain's `POST /mcp` endpoint with an `Authorization: Bearer <key>` project key.
+There is no local MCP proxy on agent machines, and agents never send a checkout
+root; they send only explicit metadata or bounded submitted bytes to the brain.
+The browser UI is deployed separately and talks directly to the brain.
 
 ## Start the reference stack
 
@@ -133,11 +133,14 @@ is exposed under `/mlflow`, set
 `--static-prefix`. Route MLflow's tracking, artifact, UI, and `ajax-api` paths
 consistently. The Python brain itself does not read this variable.
 
-There is currently no end-user authentication or effective tenant isolation on
-the HTTP surface. CORS restrictions and the MCP client-version floor are not
-authentication. Keep the brain, MLflow, storage endpoints, and admin routes on
-a trusted operator network; do not expose the reference compose stack directly
-to the public internet.
+The reference compose stack ships with authentication off by default. Hosted
+control can enforce end-user authentication (set `MERV_REQUIRE_AUTH=1` with
+Supabase configuration), with `project_members` tenant isolation and
+project-scoped `mk_` keys (the gateway enforces that a key can only act on its
+bound project), but the reference stack leaves it disabled. CORS restrictions
+and the MCP client-version floor are not authentication. Keep the auth-off
+reference stack — the brain, MLflow, storage endpoints, and admin routes — on a
+trusted operator network; do not expose it directly to the public internet.
 
 The UI may call control/lifecycle routes, but checkout-local data-plane
 mutations remain private proxy routes. The brain never receives a checkout root

@@ -1,34 +1,33 @@
 # Merv
 
-This extension exposes one Merv MCP surface backed by two components:
+This extension exposes one Merv MCP surface backed by a single brain. The agent
+connects directly to `POST /mcp` with `Authorization: Bearer <key>`, where the
+key is an `mk_` project key bound to one immutable project. The brain owns durable
+research records, workflow policy, reviews, sandbox lifecycle, provider
+credentials, blobs, and optional heavy storage.
 
-- a local stdio proxy that owns checkout-relative file IO, project links, local
-  storage transfer, feed attachments, and sandbox output pulls; and
-- a local or hosted brain that owns durable research records, workflow policy,
-  reviews, sandbox lifecycle, provider credentials, blobs, and optional heavy
-  storage.
-
-The brain never receives the checkout root or reads the checkout directly. The
-proxy submits explicit repo-relative metadata and selected evidence bytes.
+The brain never receives a checkout root and never reads the agent's filesystem.
+The agent submits explicit metadata and selected evidence bytes through MCP.
 
 ## Project scope
 
-Call `project(action="current")` first. If the checkout is unlinked, ask which
-existing project to use or what name and summary to create, then call
-`project(action="connect", ...)`. The proxy stores the folder link locally.
+Call `project(action="current")` once to learn the project the key is bound to
+and its `project_id`. That is the only project the key can ever act on.
 
-For normal project-scoped tools, `project_id` is hidden context: do not use it to
-switch projects. The proxy removes any supplied value and injects the id linked
-to the current checkout. Use `project(action="overview")` for the full claim and
-experiment history.
+Then pass that `project_id` explicitly on every project-scoped tool. The gateway
+requires it and enforces that it equals the key-bound project: a mismatched
+`project_id` is rejected, and omitting it on a project-scoped tool raises
+"project_id is required". There is no linking step and no `connect` action. Use
+`project(action="overview")` for the full claim and experiment history.
 
 ## Operating rules
 
 - Treat the brain state returned through MCP as authoritative. Start or resume
   work with `workflow.status_and_next`, and follow its gate, allowed actions,
   missing evidence, and next action.
-- Local edits are not research state. Use `resource.register` to observe a file
-  and optionally associate its submitted version with a target and role.
+- Local edits are not research state. Use `artifact.submit` to contribute
+  evidence; it returns a presigned upload command for the bytes, and the
+  submitted version can be associated with a target and role.
 - Load `research-workflow` for experiment work and `project-reflection` for a
   five-lens reflection wave.
 - Use a sandbox for long or expensive work; lightweight checks may run locally.
@@ -58,9 +57,9 @@ This is a practical workflow boundary, not cryptographic proof of independence.
 
 The visible sandbox tools are `sandbox.options`, `sandbox.request`, `sandbox.get`,
 `sandbox.attach`, `sandbox.terminal`, `sandbox.runs`, `sandbox.pull_outputs`,
-`sandbox.extend`, and `sandbox.release`. Project scope is injected by the proxy;
-`sandbox.list` and `sandbox.health` are internal/UI tools and are hidden from the
-agent catalog.
+`sandbox.extend`, and `sandbox.release`. Pass the key-bound `project_id` on these
+as with any project-scoped tool; `sandbox.list` and `sandbox.health` are
+internal/UI tools and are hidden from the agent catalog.
 
 The caller generates and owns the SSH keypair. Pass only its public key to
 `sandbox.request`; caller private-key material never enters brain state. Brain

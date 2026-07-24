@@ -83,9 +83,13 @@ bearer-equivalent to full access to its one bound project. There is no local
 proxy and no local data plane: one wire protocol serves a local agent, a cloud
 agent, and a browser-driven agent identically.
 
-The key binds one immutable project. The gateway injects that project into
-project-scoped calls, so agents never pass `repo_root` and the brain never
-receives a checkout root. Bytes that must move — artifact and storage uploads,
+The key binds one immutable project. The gateway does not inject that project:
+it requires the agent to pass `project_id` on project-scoped tools and enforces
+that it equals the key-bound project — a mismatched `project_id` is rejected and
+omitting it is an error — so an agent calls `project` (`action="current"`) once
+to learn its `project_id`, then passes it explicitly on every subsequent
+project-scoped call. Agents never pass `repo_root` and the brain never receives
+a checkout root. Bytes that must move — artifact and storage uploads,
 sandbox output pulls, feed images — travel agent-side over presigned URLs: the
 tool returns a one-line command the agent runs, and the bytes stream directly
 to or from the object store or sandbox, never through the brain or the agent's
@@ -163,10 +167,9 @@ through the brain.
 The merged `project` tool is special:
 
 - `action="current"` returns the project bound to the caller's key;
-- `action="connect"` does not apply to a keyed agent — the key already binds one
-  immutable project;
 - `action="overview"` reads the brain for the bound (or explicitly given) project;
-- `action="create"` creates a brain project.
+- `action="create"` creates a brain project (a UI/owner action; a project-bound
+  key cannot create projects).
 
 `merv.shared` holds only pure two-sided contracts and imports no brain
 internals, so the privacy boundary stays enforceable rather than conventional.

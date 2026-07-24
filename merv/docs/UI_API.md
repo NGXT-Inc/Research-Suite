@@ -43,11 +43,11 @@ GET /api/meta
 
 ```json
 {
-  "version": "0.0013",
+  "server_version": "0.0013",
   "min_proxy_version": "0.0013",
   "catalog_version": "2026-07-24",
   "mode": "local",
-  "auth": "none",
+  "auth": {"required": false},
   "capabilities": {
     "hosted_control": false,
     "mcp": true,
