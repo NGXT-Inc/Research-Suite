@@ -57,14 +57,18 @@ def _checksum_sha256_b64(sha256: str) -> str:
 
 
 def storage_submit_command(
-    *, base_url: str, path: str, presigned_url: str, checksum_b64: str, token: str
+    *, base_url: str, path: str, presigned_url: str, checksum_b64: str,
+    content_type: str, token: str
 ) -> str:
     """Compound one-liner: push the bytes straight to S3, then finalize the
     ledger object through the auth-exempt completion token. Bytes go direct to
-    S3 — never through the brain."""
+    S3 — never through the brain. Both the checksum AND the Content-Type are
+    bound into the presigned PUT's SigV4 signature, so the curl MUST send both
+    headers verbatim or S3 rejects the upload with SignatureDoesNotMatch."""
     base = (base_url or _LOCAL_API_BASE).rstrip("/")
     put = (
         f"curl -sf -X PUT -H 'x-amz-checksum-sha256:{checksum_b64}' "
+        f"-H 'Content-Type: {content_type}' "
         f"-T {_shell_quote(path)} {_shell_quote(presigned_url)}"
     )
     complete = f"curl -sf -X POST '{base}/api/storage/u/{token}/complete'"
@@ -347,6 +351,7 @@ class StorageLedgerService:
             path=str(path),
             presigned_url=str(upload["url"]),
             checksum_b64=_checksum_sha256_b64(sha256),
+            content_type=str(upload.get("content_type") or content_type),
             token=token,
         )
         return {

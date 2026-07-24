@@ -91,6 +91,12 @@ class CapResultTest(unittest.TestCase):
         self.assertEqual(
             scrub_secret_text("/api/artifacts/u/tok_x"), "/api/artifacts/u/<redacted>"
         )
+        # feed.post returns its one-time upload token inside `run`; the value
+        # scrubber must cover /api/feed/u the same as the HTTP-path scrubber, or
+        # the bearer token persists unredacted in tool telemetry (INV-12).
+        self.assertEqual(
+            scrub_secret_text("/api/feed/u/tok_feed"), "/api/feed/u/<redacted>"
+        )
         self.assertEqual(
             scrub_secret_text("/api/projects/p_1/storage"), "/api/projects/p_1/storage"
         )

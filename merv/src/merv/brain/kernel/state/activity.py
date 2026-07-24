@@ -41,17 +41,18 @@ SENSITIVE_KEYS = {
 }
 LOCAL_DATA_PLANE_KEYS = {"repo_root", "local_sync_dir", "local_experiment_dir"}
 
-# Value-level secret scrubbing (INV-12). storage.submit/fetch results carry a
-# presigned S3 URL and an upload-token completion URL inside their `run` command
-# string; the presigned URL is a ~1-hour replayable credential that bypasses
-# brain auth entirely, and the token is a one-time bearer credential. Neither may
-# reach a persisted log even when embedded in a string value, so we drop every
-# SigV4 query param (name and value) and the upload-token path segments.
+# Value-level secret scrubbing (INV-12). storage.submit/fetch AND feed.post
+# results carry a one-time upload-token URL inside their `run` command string
+# (storage also carries a presigned S3 URL — a ~1-hour replayable credential
+# that bypasses brain auth entirely). Neither may reach a persisted log even
+# when embedded in a string value, so we drop every SigV4 query param (name and
+# value) and the upload-token path segments. The path set MUST stay in lockstep
+# with shared._UPLOAD_TOKEN_PATH_RE (the HTTP access-log scrubber).
 _S3_SIGV4_PARAM_RE = re.compile(
     r"(?i)X-Amz-(?:Signature|Credential|Security-Token|Algorithm|Date|Expires|SignedHeaders)=[^&'\"\s]+"
 )
 _UPLOAD_TOKEN_URL_RE = re.compile(
-    r"(/api/(?:artifacts/[uf]|storage/u)/)[^/?'\"\s]+"
+    r"(/api/(?:artifacts/[uf]|feed/u|storage/u)/)[^/?'\"\s]+"
 )
 
 

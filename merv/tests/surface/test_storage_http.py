@@ -115,6 +115,10 @@ class StorageHttpApiTest(unittest.TestCase):
 
         expected_checksum = base64.b64encode(bytes.fromhex(sha)).decode("ascii")
         self.assertIn(f"-H 'x-amz-checksum-sha256:{expected_checksum}'", run)
+        # The presign signs BOTH the checksum and the Content-Type into the
+        # SigV4 signature, so the curl must echo the Content-Type header or a
+        # real S3/R2 target rejects the PUT with SignatureDoesNotMatch.
+        self.assertIn("-H 'Content-Type: ", run)
         self.assertIn("-T 'experiments/storage_demo/run.log'", run)
         self.assertRegex(
             run,
