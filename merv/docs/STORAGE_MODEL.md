@@ -34,14 +34,16 @@ the repo or artifact submission, or expensive to regenerate.
 The brain keeps a **ledger** of named aliases. Each alias points at a physical,
 content-addressed object (`sha256`) living in a bucket. The brain records the
 ledger and mints presigned URLs; it never proxies the object bytes. On the
-agent-facing path, the local MCP proxy computes the checksum and streams a
-checkout file directly to or from the object store.
+agent-facing path the agent computes the checksum, calls the tool, and runs the
+one-line command it returns, which streams the file directly to or from the
+object store.
 
 Nothing is automatic. An object lands in storage only because the agent decided a
-file is worth keeping and called `storage.upload_file`; downloading is equally
+file is worth keeping and called `storage.submit`; downloading is equally
 explicit. Sandbox files must be retained before the sandbox is released or
-expires. The standard `storage.upload_file` helper reads a file from the local
-checkout through the MCP proxy.
+expires. `storage.submit` returns a `run` command the agent executes to PUT the
+bytes straight to storage — they never pass through the brain or the agent's
+context.
 
 ## Core shape
 
@@ -103,25 +105,25 @@ non-available historical rows do not suppress a new version.
 
 ## Operations (`storage.*` MCP tools)
 
-Project-scoped; the local MCP proxy injects the linked project id while brain
-and HTTP calls remain explicitly scoped. Agents see four tools —
-`storage.upload_file`, `storage.download_file`, `storage.find`, and
-`storage.object`. Two lower-level primitives (`storage.put_object`,
-`storage.complete_upload`) stay dispatchable for the manual presign path but are
-hidden from the agent-facing `tools/list` (`MCP_HIDDEN_TOOL_NAMES`);
-`storage.upload_file`'s data plane composes them by tool name.
+Project-scoped; a keyed agent's project is fixed by its key, while brain and HTTP
+calls remain explicitly scoped. Agents see four tools — `storage.submit`,
+`storage.fetch`, `storage.find`, and `storage.object`. Two lower-level primitives
+(`storage.put_object`, `storage.complete_upload`) stay dispatchable for the
+manual presign path but are hidden from the agent-facing `tools/list`
+(`MCP_HIDDEN_TOOL_NAMES`); `storage.submit` composes them server-side to mint the
+returned command.
 
 Agent-facing:
 
-- `storage.upload_file(path, kind, name?, content_type?, producing_experiment_id?, producing_run?, source_uri?, notes?)`
-  — data-plane convenience helper for local agents. Computes sha256 + size,
-  registers the intent, streams the file to the presigned target, and completes
-  the upload. `path` must stay inside the project repo (`..` and absolute paths
-  are rejected); omitted `name` defaults to the repo-relative path.
-- `storage.download_file(path, object_id? | name?, version?, overwrite?)`
-  — data-plane convenience helper. Resolves the object, downloads to a temp
-  file, verifies sha256 + size, then atomically replaces `path` (which must
-  stay inside the project repo).
+- `storage.submit(path, kind, sha256, size_bytes, name?, content_type?, producing_experiment_id?, producing_run?, source_uri?, notes?)`
+  — the agent computes the file's sha256 + size and calls this; the brain
+  registers the intent and returns a one-line `run` command (a presigned
+  `curl -T` PUT followed by a one-time completion callback). The agent runs it
+  verbatim to stream the bytes straight to storage; omitted `name` defaults to
+  the given path. Bytes never transit the brain or the agent context.
+- `storage.fetch(path, object_id? | name?, version?)`
+  — resolves the object and returns a one-line `run` command (a presigned
+  `curl -o`) that downloads the bytes to `path` and verifies the stored sha256.
 - `storage.find(object_id? | name?, version?, include_download?, kind?, status?, include_expired?, limit?, offset?, compact?)`
   — **resolve mode** (pass `object_id` or `name`): resolve one object to its
   ledger row and bump its TTL; with `include_download=true`, also return a
@@ -192,4 +194,4 @@ would leak content existence.
 - Deleting an alias keeps its ledger row (audit) and reclaims bytes only when
   no active (`uploading`, `completing`, or `available`) alias references them.
 - A reaped sandbox does NOT auto-save its outputs — saving is always an explicit
-  `storage.upload_file`. Storage is decoupled from sandbox provisioning.
+  `storage.submit`. Storage is decoupled from sandbox provisioning.

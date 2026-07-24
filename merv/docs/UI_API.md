@@ -14,10 +14,9 @@ document.
   `/api/projects/{project_id}/...`; the brain does not infer a current project.
 - The brain never receives a checkout root and never reads a user's checkout.
   Checkout-local work belongs to the stdio MCP proxy.
-- The supported browser surface does not register or associate repo files,
-  materialize folders, pull sandbox outputs, or upload/download local storage
-  files. Those operations run through proxy-local MCP tools and submit
-  validated facts or bytes to the brain.
+- The supported browser surface does not provision sandboxes, pull sandbox
+  outputs, or upload/download storage files. Those operations run through MCP
+  tools that hand the agent a one-line command to move bytes over a presigned URL.
 - Local and hosted brains expose the same HTTP shape. Local mode normally uses
   SQLite and local blobs; control mode uses operator-configured durable stores.
 - End-user authentication is not implemented. Every request currently runs as

@@ -165,26 +165,24 @@ The brain registry in `src/merv/brain/surface/tools/contracts.py` remains the ge
 and source of truth for tool schemas and plane assignments. The proxy never
 imports it at runtime: its sole runtime registry is the checked-in
 `src/merv/proxy/_tool_catalog.json`, whose byte-for-byte parity is enforced by
-the catalog generator and tests. Control tools run in the brain. These
-checkout-sensitive tools run in the proxy and submit validated facts or bytes
-to the brain:
-
-- `experiment.materialize_folders`;
-- `storage.upload_file` and `storage.download_file`;
-- `sandbox.request`, `sandbox.attach`, and `sandbox.pull_outputs`;
-- `feed.post`.
+the catalog generator and tests. Since the no-dataplane transition every tool is
+a control tool that runs in the brain. Byte transfers (`storage.submit`,
+`storage.fetch`, `artifact.submit`, `feed.post`) hand back a one-line command the
+agent runs to move bytes over a presigned URL, and sandbox provisioning
+(`sandbox.request`, `sandbox.attach`, `sandbox.pull_outputs`) is served by the
+brain. No tool submits checkout bytes through the proxy; `sandbox.get` is the
+lone control tool the proxy still enriches locally.
 
 The merged `project` tool is special:
 
-- `action="current"` reads the local checkout link;
-- `action="connect"` validates or creates a brain project, then writes the local
-  link;
-- `action="overview"` uses the linked project id and reads the brain;
-- `action="create"` creates a brain project without linking the checkout.
+- `action="current"` returns the project bound to the caller's key;
+- `action="connect"` does not apply to a keyed agent — the key already binds one
+  immutable project;
+- `action="overview"` reads the brain for the bound (or explicitly given) project;
+- `action="create"` creates a brain project.
 
-The brain rejects `repo_root` context and direct calls to data-plane tools. This
-keeps the privacy boundary enforceable rather than conventional. Conversely,
-the brain never imports `merv.proxy`, and `merv.shared` imports neither plane.
+The brain never imports `merv.proxy`, and `merv.shared` imports neither plane, so
+the privacy boundary stays enforceable rather than conventional.
 
 ## Workflow architecture
 

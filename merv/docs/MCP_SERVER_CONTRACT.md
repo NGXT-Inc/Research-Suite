@@ -60,14 +60,11 @@ sandbox.runs                 sandbox.terminal
 feed.register                feed.list
 ```
 
-The proxy-local data tools are:
-
-```text
-experiment.materialize_folders
-storage.upload_file          storage.download_file
-sandbox.request              sandbox.attach              sandbox.pull_outputs
-feed.post
-```
+Since the no-dataplane transition there are no proxy-local data tools.
+`storage.submit`, `storage.fetch`, and `feed.post` are control tools that return
+a one-line command the agent runs to move bytes over a presigned URL;
+`sandbox.request`, `sandbox.attach`, and `sandbox.pull_outputs` are served by the
+brain. The proxy only forwards control tools and enriches `sandbox.get` locally.
 
 Storage is optional. When no object store is configured, every `storage.*` tool
 is omitted instead of advertising an unavailable feature.
@@ -259,17 +256,18 @@ or expiry destroys anything not explicitly retained.
 - `mlflow.context(experiment_id?)` returns the centralized tracking endpoint,
   namespace, and environment for direct MLflow clients.
 - `mlflow.finalize_run` closes or refreshes the plugin-associated run.
-- `storage.upload_file` and `storage.download_file` transfer checkout files via
-  the local proxy; `storage.find` and `storage.object` operate on the brain's
-  ledger.
-- `feed.post` runs locally because it may capture a checkout image or HTML embed;
-  feed registration and reads are brain control operations.
+- `storage.submit` and `storage.fetch` return a one-line command the agent runs
+  to transfer bytes over a presigned URL; `storage.find` and `storage.object`
+  operate on the brain's ledger.
+- `feed.post` returns a one-line command to upload any captured image or HTML
+  embed; feed registration and reads are brain control operations.
 
 ## HTTP transport and errors
 
-The brain exposes `/mcp/tools` and `/mcp/call`. It rejects `repo_root` context and
-direct MCP calls to data-plane tools. The proxy uses private `/api/data-plane/*`
-submission routes for validated observations and local-data results.
+The brain exposes `/mcp/tools` and `/mcp/call`, plus the stateless `/mcp`
+endpoint remote agents use. It rejects `repo_root` context. Byte transfers no
+longer ride MCP: a tool returns a command that hits a one-time token endpoint
+(`/api/artifacts/*`, `/api/storage/u/*`, `/api/feed/u/*`) directly.
 
 Tool responses are tool-specific dictionaries; there is no universal mutation
 envelope. Domain validation and workflow failures remain MCP protocol errors.
