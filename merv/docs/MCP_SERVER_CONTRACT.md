@@ -25,12 +25,13 @@ never send `repo_root`; the brain never receives a checkout root.
 The normal session bootstrap is:
 
 ```text
-project(action="current")
-workflow.status_and_next(experiment_id?)
+project(action="current")            # returns the bound project; its id is project.id
+workflow.status_and_next(project_id, experiment_id?)
 ```
 
 `project(action="current")` is the one tool that resolves the project from the
-key without a `project_id` argument: it returns the bound project and its id.
+key without a `project_id` argument: it returns the bound project, whose id is
+the result's `project.id` field.
 Learn that id once, then pass it explicitly on every subsequent project-scoped
 tool. `action="overview"` returns the bound project's full claim and experiment
 history. The action enum is exactly `current | create | overview`;

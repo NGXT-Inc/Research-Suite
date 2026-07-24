@@ -21,10 +21,12 @@ document.
   tools that hand the agent a one-line command to move bytes over a presigned URL.
 - Local and hosted brains expose the same HTTP shape. Local mode normally uses
   SQLite and local blobs; control mode uses operator-configured durable stores.
-- End-user authentication is not implemented. Every request currently runs as
-  the implicit `local` principal, including in control mode. Authorization
-  headers are accepted by CORS but are not an identity or tenant boundary. A
-  hosted brain must remain on a trusted network.
+- Authentication is deployment-conditional. Auth-off deployments (the local
+  default) run every request as the implicit `local` principal, and must remain
+  on a trusted network. Hosted control with auth configured enforces Supabase
+  end-user sessions on `/api/*` — with `project_members` isolation (foreign
+  projects 404) — plus `rr_sk_` API keys and project-scoped `mk_` keys at the
+  gateway. CORS restrictions are not authentication.
 
 ## Server identity and compatibility
 
@@ -326,8 +328,8 @@ These are diagnostic rings, not durable research records:
 The durable research timeline is `GET /api/projects/{project_id}/events`, whose
 rows are committed with accepted state changes.
 
-Because there is no current authentication boundary, the diagnostic and clear
-routes are private-operator surfaces and are not tenant-isolated.
+In auth-off deployments there is no authentication boundary, so the diagnostic
+and clear routes are private-operator surfaces and are not tenant-isolated.
 
 ## Errors
 

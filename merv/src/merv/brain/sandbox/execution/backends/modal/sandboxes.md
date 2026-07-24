@@ -10,7 +10,7 @@ lifecycle shared with the VM drivers.
 ## Architecture and ownership
 
 ```text
-Agent client --stdio--> local MCP proxy --HTTP--> brain / SandboxService
+Agent client --HTTP MCP (Bearer project key)--> brain / SandboxService
       |                       |                         |
       | SSH commands          | rsync retained files   | Modal API
       +-----------------------+-------------------------+--> Modal sandbox
@@ -21,11 +21,11 @@ Agent client --stdio--> local MCP proxy --HTTP--> brain / SandboxService
 - `ModalSandboxBackend` creates the container, exposes SSH, refreshes the
   endpoint, checks liveness, terminates the container, and reads provider-side
   transcript, usage, and run-receipt data.
-- The local proxy owns checkout paths and `sandbox.pull_outputs`. The brain does
-  not receive `repo_root` and never reads the checkout.
-- In project-local MCP sessions, the proxy injects hidden `project_id` scope.
-  Agent calls use `experiment_id` or `sandbox_uid`, not a caller-selected project
-  id.
+- The agent owns checkout paths: `sandbox.pull_outputs` returns a filled rsync
+  command the agent runs itself. The brain does not receive `repo_root` and
+  never reads the checkout.
+- Agents pass the key-bound `project_id` explicitly on sandbox tools, plus
+  `experiment_id` or `sandbox_uid` to select the machine.
 
 There is no agent-facing remote job API. Provisioning may run asynchronously
 inside the brain, while long commands use the provider-neutral `merv_run` receipt

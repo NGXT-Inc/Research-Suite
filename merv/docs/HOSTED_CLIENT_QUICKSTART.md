@@ -19,9 +19,11 @@ pulls use the system OpenSSH client and `rsync`.
 ## Authenticate with a project key
 
 Each agent client authenticates to the hosted brain with a **project-scoped
-key**. A key binds one immutable project: the gateway injects that project's id
-into every project-scoped call, so agents never send a checkout path and the
-brain never receives one. Mint a key in the UI:
+key**. A key binds one immutable project: the agent learns its id once with
+`project(action="current")` and passes it explicitly on every project-scoped
+call — the gateway enforces that it equals the key-bound project — so agents
+never send a checkout path and the brain never receives one. Mint a key in the
+UI:
 
 1. Open [RapidReview](https://rapidreview.io/map) and sign in.
 2. Open the project you want this client bound to.

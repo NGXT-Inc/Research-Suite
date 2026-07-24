@@ -9,7 +9,7 @@ The reference stack contains:
 
 | Service | Responsibility |
 |---|---|
-| `control` | FastAPI brain: research records, workflow gates, reviews, sandbox lifecycle, UI API, and private proxy submission routes |
+| `control` | FastAPI brain: research records, workflow gates, reviews, sandbox lifecycle, UI API, and token-authorized upload routes |
 | `postgres` | Research records and a separate MLflow database |
 | `minio` | Submitted-byte blobs, optional heavy-file storage, and MLflow artifacts |
 | `mlflow` | Central tracking server |
@@ -53,9 +53,9 @@ the control container **record-only**:
 - sandbox provider credentials are empty, so provisioning is unavailable.
 
 Configure both before treating the stack as run-ready. Remote sandboxes must be
-able to reach the MLflow tracking URL. Heavy-storage presigned URLs are used by
-client-side MCP proxies (and the doctor), so they must be reachable from those
-clients; they do not need to be reachable from sandbox execution.
+able to reach the MLflow tracking URL. Heavy-storage presigned URLs are run by
+agent clients (and the doctor), so they must be reachable from those machines;
+they do not need to be reachable from sandbox execution.
 
 Run the active readiness sweep after a deploy or restart:
 
@@ -104,8 +104,8 @@ it differently:
 Set `MERV_REQUIRE_AGENT_MLFLOW=1` to reject startup without an agent
 tracking URL. Set `MERV_REQUIRE_SANDBOX_BACKEND=1` to reject startup
 when the selected provider is unhealthy. Provider credentials and the brain
-management key belong only in the hosted secret store; they are never shipped
-to the MCP proxy.
+management key belong only in the hosted secret store; they are never sent to
+agent clients.
 
 See `.env.example` for the supported variables.
 
@@ -142,9 +142,10 @@ and the MCP client-version floor are not authentication. Keep the auth-off
 reference stack — the brain, MLflow, storage endpoints, and admin routes — on a
 trusted operator network; do not expose it directly to the public internet.
 
-The UI may call control/lifecycle routes, but checkout-local data-plane
-mutations remain private proxy routes. The brain never receives a checkout root
-and cannot serve arbitrary live checkout files.
+The UI may call control/lifecycle routes, but byte transfers — artifact,
+storage, and feed uploads, and sandbox output pulls — run agent-side over
+presigned or token URLs. The brain never receives a checkout root and cannot
+serve arbitrary live checkout files.
 
 ## Operations
 

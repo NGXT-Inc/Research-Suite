@@ -57,9 +57,9 @@ This is a practical workflow boundary, not cryptographic proof of independence.
 
 The visible sandbox tools are `sandbox.options`, `sandbox.request`, `sandbox.get`,
 `sandbox.attach`, `sandbox.terminal`, `sandbox.runs`, `sandbox.pull_outputs`,
-`sandbox.extend`, and `sandbox.release`. Pass the key-bound `project_id` on these
-as with any project-scoped tool; `sandbox.list` and `sandbox.health` are
-internal/UI tools and are hidden from the agent catalog.
+`sandbox.extend`, `sandbox.release`, and `sandbox.list`. Pass the key-bound
+`project_id` on these as with any project-scoped tool; `sandbox.health` is an
+internal/UI tool hidden from the agent catalog.
 
 The caller generates and owns the SSH keypair. Pass only its public key to
 `sandbox.request`; caller private-key material never enters brain state. Brain
@@ -68,8 +68,8 @@ return `provisioning`; poll with `sandbox.get` rather than requesting again. The
 response provides SSH facts, and the agent constructs and runs the SSH command.
 
 Use `merv_run <label> -- <command>` for long commands and inspect receipts with
-`sandbox.runs`. Pull compact retained outputs with `sandbox.pull_outputs`
-(supplying the caller's `key_path`) or upload heavy files with storage tools when
-that optional feature is present. `sandbox.extend` is provider-dependent.
+`sandbox.runs`. Pull compact retained outputs with `sandbox.pull_outputs` — it
+returns a filled rsync command that you run yourself with your own SSH key — or
+upload heavy files with storage tools when that optional feature is present. `sandbox.extend` is provider-dependent.
 `sandbox.release` is two-step: the first call returns a retention checklist;
 only re-call with `confirm_retained=true` after everything valuable is retained.

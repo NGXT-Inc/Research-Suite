@@ -103,13 +103,13 @@ Open the research checkout in the agent client. The first calls should be:
 
 ```text
 project(action="current")
-workflow.status_and_next()
+workflow.status_and_next(project_id)
 ```
 
 The project-scoped key already binds one immutable project, so
-`project(action="current")` resolves it directly. The gateway injects that
-project id into project-scoped calls; the brain receives only the project id,
-never the folder path.
+`project(action="current")` resolves it directly and returns its id. Pass that
+id as `project_id` explicitly on project-scoped calls; the brain receives only
+the project id, never the folder path.
 
 ## Start the UI
 

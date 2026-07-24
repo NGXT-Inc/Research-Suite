@@ -120,14 +120,15 @@ durable object storage instead of into the repo.
 ## Workflow
 
 1. Call `project` with `action: "current"` first. Your key binds one immutable
-   project, and `current` returns that bound project and its `project_id`. Learn
-   the `project_id` here once, then pass it explicitly on every subsequent
-   project-scoped tool. When you need the full project picture — every claim
+   project, and `current` returns that bound project — its id is the `project.id`
+   field of the result. Learn that id here once, then pass it as `project_id`
+   explicitly on every subsequent project-scoped tool. When you need the full project picture — every claim
    including settled or abandoned ones, every experiment including terminal
    ones — call `project` with `action: "overview"` rather than expecting an
    `at_a_glance` block from `current` or inferring state from
    `workflow.status_and_next`'s active-only view.
-2. Ask MCP for `workflow.status_and_next(experiment_id?)` before acting.
+2. Ask MCP for `workflow.status_and_next(project_id, experiment_id?)` before
+   acting.
 3. Identify the claim or experiment being worked on. Before creating a new
    claim, check `project` `action: "overview"` so you do not recreate a
    settled or abandoned one; before creating an experiment, use overview to see
@@ -157,9 +158,9 @@ durable object storage instead of into the repo.
 14. Propose conclusions or claim updates only after required artifacts and reviews exist.
 
 If conversation memory is unclear, call `project` with `action: "current"`
-again to re-learn the bound project and its `project_id`, then ask MCP for
-`workflow.status_and_next(experiment_id?)`. Do not reconstruct workflow state
-from memory.
+again to re-learn the bound project and its id, then ask MCP for
+`workflow.status_and_next(project_id, experiment_id?)`. Do not reconstruct
+workflow state from memory.
 
 ## Quantitative observability
 
@@ -355,11 +356,15 @@ Prefer the minimal MCP shape:
 
 ```json
 {
+  "project_id": "proj_...",
   "name": "lora-rank-sweep",
   "intent": "One concise statement of what the experiment will test.",
   "tested_claim_ids": ["claim_..."]
 }
 ```
+
+`project_id` is the id you learned from `project current` (the result's
+`project.id`); it is required here as on every project-scoped tool.
 
 `name` is **required**: a short, folder-safe name (letters, digits, `.`, `_`,
 `-`; max 48 characters) that becomes the experiment folder

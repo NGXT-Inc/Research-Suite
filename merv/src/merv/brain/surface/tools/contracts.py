@@ -63,8 +63,9 @@ class EmptyInput(ContractModel):
 class ProjectScopedInput(ContractModel):
     project_id: str = Field(
         description=(
-            "Explicit project scope. Project-local MCP adapters may fill this "
-            "from hidden repo context before the call reaches core services."
+            "Explicit project scope. Pass the project id learned from "
+            'project(action="current"); for key-authenticated callers the '
+            "gateway requires it to equal the key's bound project."
         )
     )
 

@@ -118,7 +118,7 @@ The initial layer table is explicit about mixed packages:
 | `application/ports/**` | port |
 | `surface/**` | delivery |
 | `surface/composition/**`, `surface/config.py`, `surface/control/{control_app,record_core}.py` | bootstrap |
-| `surface/control/{control_client,control_runtime}.py` | adapter |
+| `surface/control/control_runtime.py` | adapter |
 | `surface/tools/tool_handlers.py` | delivery |
 
 `Sandbox`, `Feed`, and the other names above are **components**, not claims

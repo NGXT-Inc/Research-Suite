@@ -68,8 +68,8 @@ def bearer_denial(
 ) -> JSONResponse:
     response = session_denial or JSONResponse(
         {
-            "detail": f"{message}; sign in on the web UI or set an API key "
-            "(merv-client login --api-key rr_sk_...)",
+            "detail": f"{message}; sign in on the web UI or authenticate with "
+            "a bearer key (an mk_ project key or rr_sk_ API key)",
             "error_code": "unauthorized",
         },
         status_code=401,

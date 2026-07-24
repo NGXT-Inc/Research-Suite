@@ -17,17 +17,17 @@ planned -> design_review -> ready_to_run -> running -> experiment_review -> comp
 Rejections attach revision context either way. failed / abandoned are terminal exits.
 ```
 
-An agent should not guess the state, the gate, or the next step. In a
-project-linked MCP session it asks:
+An agent should not guess the state, the gate, or the next step. In a keyed
+MCP session it asks:
 
 ```text
-workflow.status_and_next(experiment_id?)
+workflow.status_and_next(project_id, experiment_id?)
 ```
 
-The gateway injects the key's bound `project_id`; brain services and HTTP routes still
-require explicit project scope. The agent should call `project(action="current")`
-and link or create a project before any claim, experiment, artifact, review, or
-sandbox workflow.
+Brain services and HTTP routes require explicit project scope: the agent calls
+`project(action="current")` once to learn the key's bound project id, then
+passes it as `project_id` on every claim, experiment, artifact, review, or
+sandbox call — the gateway enforces that it equals the key-bound project.
 
 The server response is useful to both the agent and the user: current project
 summary, experiment status, active attempt, linked claims, submitted plan and

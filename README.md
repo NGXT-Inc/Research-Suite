@@ -28,30 +28,28 @@ After a set of experiments is complete, the plugin drives a project-wide reflect
 
 <picture>
   <source media="(prefers-color-scheme: dark)" srcset="assets/system-architecture-dark.svg">
-  <img alt="System architecture: agent platforms use a local MCP proxy for checkout IO and a brain for durable records and workflow gates. The frontend supervises the brain. The brain provisions cloud sandboxes; agents run SSH commands and the proxy pulls retained outputs." src="assets/system-architecture-light.svg">
+  <img alt="System architecture: agent platforms connect directly to the brain over HTTP MCP with a project key; the brain owns durable records and workflow gates and provisions cloud sandboxes; agents run SSH commands and pull retained outputs themselves. The frontend supervises the brain." src="assets/system-architecture-light.svg">
 </picture>
 
 Merv has three main pieces:
 
 - **Agent adapters** connect Claude Code, Codex, Cursor, Gemini CLI, OpenCode, and other agentic clients to the same workflow.
-- **Backend** owns the research state: projects, claims, experiments, resources, review gates, reflections, and sandbox orchestration.
+- **Backend** owns the research state: projects, claims, experiments, artifacts, review gates, reflections, and sandbox orchestration.
 - **Frontend** gives humans a visual way to inspect the project: experiments, reviews, artifacts, logic graphs, timelines, and current progress.
 
 By default the plugin connects to the hosted brain; it can also run fully
-locally. In either deployment the checkout root, folder-to-project links, and
-caller SSH private keys stay on the user's machine. The proxy explicitly sends
-project ids, repo-relative resource metadata, and selected submitted bytes; the
-brain never opens the checkout directly. Brain management keys remain separate
-operational credentials.
+locally. In either deployment the checkout root and caller SSH private keys
+stay on the user's machine. Agents send explicit project ids, typed metadata,
+and selected submitted bytes; the brain never opens the checkout directly.
+Brain management keys remain separate operational credentials.
 
 ## Install
 
-The source-launched `merv-mcp` proxy requires `python3` 3.9+ and a POSIX shell;
-no `pip` install or local brain is required, and it talks to the hosted brain by
-default. The `merv-client` CLI, `merv-http`, and brain remain Python 3.11+.
-Sandbox SSH and output-pull workflows additionally use the system OpenSSH
-client and `rsync`. For Codex, Gemini CLI, and OpenCode, see
-[merv/docs/CLIENTS.md](merv/docs/CLIENTS.md).
+There is no local proxy process and no `pip` install: every client connects
+directly to the hosted brain's `/mcp` endpoint over HTTP. The `merv-client`
+CLI, `merv-http`, and brain run on Python 3.11+. Sandbox SSH and output-pull
+workflows additionally use the system OpenSSH client and `rsync`. For Codex,
+Gemini CLI, and OpenCode, see [merv/docs/CLIENTS.md](merv/docs/CLIENTS.md).
 
 ### Claude Code
 
@@ -71,40 +69,37 @@ git clone https://github.com/NGXT-Inc/Merv.git ~/Merv
 mkdir -p ~/.cursor/plugins/local
 rsync -a --delete --exclude '.venv' --exclude '__pycache__' --exclude '*.egg-info' \
   ~/Merv/merv/ ~/.cursor/plugins/local/merv/
-# Optional only for merv-client/merv-http when `python3` is older than 3.11;
-# merv-mcp itself runs on Python 3.9+:
+# Optional, only for merv-client/merv-http when `python3` is older than 3.11:
 python3.11 -m venv ~/.cursor/plugins/local/merv/.venv
 ```
 
 Then enable **merv** on Cursor's Customize page and restart Cursor (or run **Developer: Reload Window**). To update later: `git -C ~/Merv pull`, re-run the `rsync`, and reload.
 
-### Sign in
+### Connect with a project key
 
-The hosted brain requires a RapidReview account. The `merv-client` helper
-ships inside the plugin (it is not added to your PATH). Once per machine, run
-the copy your install created:
+The hosted brain authenticates each agent client with a **project-scoped key**.
+Create the project and mint a key in the UI, then export it:
+
+1. Open [RapidReview](https://rapidreview.io/map), sign in, and open (or
+   create) the project this client should be bound to.
+2. Create a key for that project and copy it when shown — it is displayed once.
+3. Export it where the agent runs:
 
 ```bash
-# Claude Code (marketplace install):
-~/.claude/plugins/cache/rapidreview/merv/*/merv/bin/merv-client login
-
-# Cursor / cloned repo:
-~/Merv/merv/bin/merv-client login
+export MERV_MCP_KEY=mk_...
 ```
 
-This opens the browser to complete sign-in; the session is stored locally and
-shared by every client on the machine. On a headless box, add `--no-browser`
-(prints the URL to open elsewhere) or use `--api-key rr_sk_...`.
-
-For instructions on creating and storing an API key, see
-[Authenticate this machine](merv/docs/HOSTED_CLIENT_QUICKSTART.md#authenticate-this-machine).
+The committed MCP config reads the key from that env var and never inlines it.
+A key is bearer-equivalent to full access to its one bound project, so treat it
+like a password. Details:
+[HOSTED_CLIENT_QUICKSTART.md](merv/docs/HOSTED_CLIENT_QUICKSTART.md).
 
 ### First run
 
 Open the repo you want to research as the workspace, then ask the agent to call
-`project(action="current")`. If the folder is unlinked, connect or create the
-project with `project(action="connect")`; then call
-`workflow.status_and_next()`.
+`project(action="current")` — it returns the key's bound project and its id.
+The agent then passes that id as `project_id` on project-scoped calls, starting
+with `workflow.status_and_next(project_id)`.
 
 ## Migrating from Research Suite (`research-plugin`)
 

@@ -263,7 +263,7 @@ conformance suite applies to every registered implementation.
 
 Sandbox's public facade accepts a composition-owned `SandboxRuntime` rather
 than reconstructing repositories, lifecycle services, provisioners, daemons,
-keys, or task channels. Public calls become typed commands/queries; command,
+or keys. Public calls become typed commands/queries; command,
 query, projection, and maintenance handlers own their respective logic. The
 runtime owns thread start/shutdown and `SandboxRepository` owns SQL. The pure
 lifecycle reducer translates reconcile, reap, and explicit-release observations

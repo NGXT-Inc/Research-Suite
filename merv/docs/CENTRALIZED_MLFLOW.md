@@ -92,12 +92,13 @@ workflow gate.
 
 ## Agent contract
 
-The gateway resolves the project bound to the request's key and injects its
-`project_id`; agents do not pass project scope themselves. Use:
+Pass the key-bound `project_id` explicitly (learned once from
+`project(action="current")`); the gateway enforces that it equals the key's
+bound project. Use:
 
 ```text
-mlflow.context()
-mlflow.context(experiment_id="exp_...")
+mlflow.context(project_id="proj_...")
+mlflow.context(project_id="proj_...", experiment_id="exp_...")
 ```
 
 Project scope returns the tracking URI, dashboard URL, namespace prefix, and a
