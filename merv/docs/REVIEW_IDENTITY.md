@@ -19,7 +19,7 @@ is workflow-level rather than cryptographic identity.
 2. The producer calls:
 
    ```text
-   review.request(target_type, target_id, role, reason?, producer_session_id?)
+   review.request(project_id, target_type, target_id, role, reason?, producer_session_id?)
    ```
 
 3. For `design_reviewer`, `experiment_reviewer`, and `reflection_reviewer`, the

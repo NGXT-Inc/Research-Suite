@@ -35,8 +35,8 @@ current attempt's gates. `reflection_lens_doc` submissions require an explicit
 ## Submit flow
 
 1. Write the document to a local file.
-2. Call `artifact.submit {target_type, target_id, role, path, lens_id?,
-   title?}`. The brain validates legality and workflow-state guards BEFORE any
+2. Call `artifact.submit {project_id, target_type, target_id, role, path,
+   lens_id?, title?}`. The brain validates legality and workflow-state guards BEFORE any
    bytes move, creates a `pending` artifact row with a one-time upload token
    (TTL ~15 min), and returns `{artifact_id, run}` where `run` is a
    ready-to-run line: `curl -sf -T <path> '<base>/api/artifacts/u/<token>'`.

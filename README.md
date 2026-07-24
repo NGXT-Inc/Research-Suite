@@ -46,10 +46,11 @@ Brain management keys remain separate operational credentials.
 ## Install
 
 There is no local proxy process and no `pip` install: every client connects
-directly to the hosted brain's `/mcp` endpoint over HTTP. The `merv-client`
-CLI, `merv-http`, and brain run on Python 3.11+. Sandbox SSH and output-pull
-workflows additionally use the system OpenSSH client and `rsync`. For Codex,
-Gemini CLI, and OpenCode, see [merv/docs/CLIENTS.md](merv/docs/CLIENTS.md).
+directly to the configured brain's `/mcp` endpoint over HTTP (the hosted brain
+by default). The `merv-client` CLI, `merv-http`, and brain run on Python 3.11+.
+Sandbox SSH and output-pull workflows additionally use the system OpenSSH
+client and `rsync`. For Codex, Gemini CLI, and OpenCode, see
+[merv/docs/CLIENTS.md](merv/docs/CLIENTS.md).
 
 ### Claude Code
 

@@ -115,22 +115,22 @@ returned command.
 
 Agent-facing:
 
-- `storage.submit(path, kind, sha256, size_bytes, name?, content_type?, producing_experiment_id?, producing_run?, source_uri?, notes?)`
+- `storage.submit(project_id, path, kind, sha256, size_bytes, name?, content_type?, producing_experiment_id?, producing_run?, source_uri?, notes?)`
   — the agent computes the file's sha256 + size and calls this; the brain
   registers the intent and returns a one-line `run` command (a presigned
   `curl -T` PUT followed by a one-time completion callback). The agent runs it
   verbatim to stream the bytes straight to storage; omitted `name` defaults to
   the given path. Bytes never transit the brain or the agent context.
-- `storage.fetch(path, object_id? | name?, version?)`
+- `storage.fetch(project_id, path, object_id? | name?, version?)`
   — resolves the object and returns a one-line `run` command (a presigned
   `curl -o`) that downloads the bytes to `path` and verifies the stored sha256.
-- `storage.find(object_id? | name?, version?, include_download?, kind?, status?, include_expired?, limit?, offset?, compact?)`
+- `storage.find(project_id, object_id? | name?, version?, include_download?, kind?, status?, include_expired?, limit?, offset?, compact?)`
   — **resolve mode** (pass `object_id` or `name`): resolve one object to its
   ledger row and bump its TTL; with `include_download=true`, also return a
   presigned **download** URL. **List mode** (omit both): browse the ledger, filtered by
   `kind` / `status`, paginated with `limit` / `offset`, `compact=true` for a lean
   projection.
-- `storage.object(object_id, action)` — apply a lifecycle
+- `storage.object(project_id, object_id, action)` — apply a lifecycle
   `action` to one object: `pin` (expiry cleanup keeps it), `unpin` (restore its
   default expiry), `renew` (renew its default expiry window), or `delete` (drop
   the alias, kept for audit; reclaim the physical bytes when no active alias

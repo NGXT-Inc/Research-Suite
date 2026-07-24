@@ -246,7 +246,7 @@ finalized exhibit for that attempt.
 
 If infrastructure fails while the experiment is already `running` and the
 approved plan still stands, call
-`experiment.transition(transition="retry_running", evidence={...})`. This is a
+`experiment.transition(project_id, experiment_id, transition="retry_running", evidence={...})`. This is a
 self-transition: the experiment remains `running`, `attempt_index` is unchanged,
 and `revision_context` records the retry reason so the agent reruns execution
 and retains fresh outputs before `submit_results`. Revise through the review

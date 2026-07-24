@@ -169,8 +169,9 @@ where metrics drive the conclusion — use MLflow for params, metrics, and
 artifacts, and save compact plot/table evidence under the experiment folder.
 Do not require MLflow for qualitative experiments, literature work, code-only
 probes, or planning tasks.
-Before a sandbox or local run, call `mlflow.context` with `experiment_id` or use
-the `mlflow` block returned by `experiment.transition(start_running)`:
+Before a sandbox or local run, call `mlflow.context` with `project_id` and
+`experiment_id`, or use the `mlflow` block returned by
+`experiment.transition(start_running)`:
 
 ```sh
 export MLFLOW_TRACKING_URI="<from mlflow.context.env>"
@@ -270,9 +271,9 @@ Consequences:
 
 Expensive or isolated work can run in a **cloud sandbox** that you drive directly over
 SSH. Once the experiment is `ready_to_run` (or already `running`), generate or
-select a caller-owned SSH keypair and call `sandbox.request(experiment_id?,
-instance_type?, region?, gpu?, cpu?, memory?, time_limit?, public_key,
-additional?)`, passing only the single-line OpenSSH public key. Keep the private
+select a caller-owned SSH keypair and call `sandbox.request(project_id,
+experiment_id?, instance_type?, region?, gpu?, cpu?, memory?, time_limit?,
+public_key, additional?)`, passing only the single-line OpenSSH public key. Keep the private
 key local. Follow the returned `hint`; `sandbox.request`/`sandbox.get` are the
 source of truth for provider selection, polling, expiry, SSH facts, and the
 remote work folder. A sandbox can also be created unattached and addressed by
@@ -305,14 +306,14 @@ carries a compact `runs` line while runs exist. Labels are one-shot — pick a
 new label per launch. Finished-run receipts survive box death, but logs and
 outputs do not: pull what you need before release/expiry.
 
-Use `sandbox.terminal(experiment_id)` to inspect transcript output
+Use `sandbox.terminal(project_id, experiment_id)` to inspect transcript output
 and the structured `last_command` status before re-running anything long. If
 `command_status_stale` is true, the transcript read failed and `last_command` is
 the last successful snapshot, which is still useful for recovery decisions.
 If the sandbox died, expired, or the command was interrupted by infrastructure
 while the approved plan still stands, call
-`experiment.transition(transition="retry_running", evidence={...})` before
-requesting or attaching the replacement sandbox. This keeps the same attempt and
+`experiment.transition(project_id, experiment_id, transition="retry_running", evidence={...})`
+before requesting or attaching the replacement sandbox. This keeps the same attempt and
 records why execution is being rerun; use a planned retry only when the design
 itself needs to change. The transition response carries the MLflow run to use:
 a still-open run is resumed in place, while one you already finalized (for
@@ -517,8 +518,9 @@ To submit a gated document or result file:
 - write the file locally FIRST (if the experiment ran in a sandbox, pull
   retained files off the box with `sandbox.pull_outputs` first; uploads read
   local files and cannot reach remote sandbox paths)
-- call `artifact.submit {target_type, target_id, role, path}` with the file's
-  relative path — pass `lens_id` when the role is `reflection_lens_doc` — and
+- call `artifact.submit {project_id, target_type, target_id, role, path}` with
+  the file's relative path — pass `lens_id` when the role is
+  `reflection_lens_doc` — and
   run the returned one-line upload command **verbatim** (one-time token,
   expires in ~15 min)
 - for markdown with relative image links, the upload response returns one

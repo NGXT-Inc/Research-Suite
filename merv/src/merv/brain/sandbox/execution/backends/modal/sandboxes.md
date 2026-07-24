@@ -56,13 +56,13 @@ distinct duties:
 
 - The caller owns the user SSH keypair and supplies only its OpenSSH public key
   to `sandbox.request`. The corresponding private key stays on the caller's
-  machine and is used for agent SSH and proxy-local rsync pulls.
+  machine and is used for agent SSH and the agent-run rsync pulls.
 - The brain owns separate management and provider credentials for operational
   transcript, metrics, secret-delivery, and lifecycle paths. Those paths never
   depend on the caller's private key, and brain credentials are never returned
   as the caller's key.
 
-The split proxy returns SSH facts (`host`, `port`, `user`), not a registry-owned
+The brain returns SSH facts (`host`, `port`, `user`), not a registry-owned
 private key or guaranteed ready-made command. The agent constructs and runs the
 SSH command with its own key. File-transfer commands bypass the transcript tee
 so rsync/scp protocols remain intact.
@@ -118,12 +118,12 @@ Never print it or write it into retained files.
 | `sandbox.attach` | Attach a running sandbox to another experiment. |
 | `sandbox.terminal` | Read transcript output and command status. |
 | `sandbox.runs` | Read or long-poll durable `merv_run` receipts. |
-| `sandbox.pull_outputs` | Proxy-local rsync of selected compact files into the checkout. |
+| `sandbox.pull_outputs` | Returns a filled rsync command the agent runs to copy selected compact files into the checkout. |
 | `sandbox.extend` | Request a bounded lifetime extension when the provider supports it. |
 | `sandbox.release` | Confirm retention, then terminate the machine. |
 
-`sandbox.list` and `sandbox.health` remain available to HTTP/internal callers but
-are hidden from agent `tools/list`.
+`sandbox.list` is also agent-visible; `sandbox.health` remains an internal/UI
+tool hidden from agent `tools/list`.
 
 ## Review trust boundary
 

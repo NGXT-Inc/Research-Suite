@@ -29,6 +29,11 @@ workflow state. Call `review.start` with exactly the provided
 `caller_session_id` (never the producer session's), and optional
 `declared_agent`, then call `review.submit`.
 
+`review.start` and `review.submit` are capability-addressed and take no
+`project_id`; any other project-scoped read you make (such as
+`reflection.get`) needs the key-bound `project_id` — learn it from
+`project(action="current")` if the handoff did not include it.
+
 ## Your four inputs
 
 1. **The project corpus** — gather what you need through read-only access:

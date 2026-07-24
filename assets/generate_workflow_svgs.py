@@ -215,26 +215,26 @@ def system(s):
         sbox(s["plain"], 48, 84, 472, 56, "Agent platform",
              "Claude Code · Codex · Cursor · Gemini CLI · OpenCode"),
         sbox(s["plain"], 48, 196, 160, 64, "Research repo", "source · retained evidence"),
-        sbox(s["hub"], 360, 196, 160, 64, "MCP proxy", "repo IO · rsync · links"),
         sbox(s["frontend"], 608, 84, 336, 56, "Frontend UI", "supervision · lifecycle controls"),
         sbox(s["brain"], 608, 196, 336, 64, "Brain", "records · gates · providers"),
         sbox(s["infra"], 608, 340, 200, 56, "Cloud sandboxes", "Lambda · Thunder · Modal"),
         sbox(s["infra"], 828, 340, 140, 56, "Data services", "DB · blobs · MLflow"),
-        link(s, "M 440 140 L 440 192", "", 0, 0),
-        link(s, "M 356 228 L 214 228", "", 0, 0),
-        link(s, "M 524 228 L 602 228", "", 0, 0),
+        link(s, "M 128 140 L 128 192", "", 0, 0),
+        link(s, "M 524 112 C 572 112, 572 228, 602 228", "HTTP MCP · project key", 566, 170, "start"),
         link(s, "M 776 140 L 776 192", "", 0, 0),
         link(s, "M 284 140 C 284 328, 430 350, 600 350", "SSH commands", 348, 317, "start"),
-        link(s, "M 440 260 C 440 382, 500 382, 600 382", "rsync pulls", 428, 342, "end"),
+        link(s, "M 400 140 C 400 382, 500 382, 600 382", "rsync pulls", 428, 348, "end"),
+        link(s, "M 484 140 C 484 428, 660 428, 822 388", "presigned uploads", 660, 442, "middle"),
         link(s, "M 700 260 L 700 334", "provisions", 710, 320, "start"),
         link(s, "M 898 260 L 898 334", "", 0, 0),
     ]
     return svg(s, "".join(parts),
-               "System architecture: on your machine, agent platforms talk to the MCP "
-               "proxy, which performs checkout-local IO and submits records or selected "
-               "bytes to the brain. The UI supervises the brain. The brain owns research "
-               "records, data stores, MLflow, and sandbox providers; the agent sends SSH "
-               "commands while the proxy pulls retained outputs with rsync", 420,
+               "System architecture: agent platforms on your machine connect directly to "
+               "the brain over HTTP MCP with a project-scoped key; the brain owns "
+               "research records, workflow gates, data stores, MLflow, and sandbox "
+               "providers. The UI supervises the brain. The agent runs SSH commands on "
+               "cloud sandboxes, pulls retained outputs itself with rsync, and moves "
+               "heavy bytes over presigned URLs", 460,
                legend=False)
 
 

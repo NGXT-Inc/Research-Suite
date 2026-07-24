@@ -99,9 +99,9 @@ gateway.
 
 ## Artifact submissions
 
-`artifact.submit {target_type, target_id, role, path, lens_id?, title?}` is a
-control tool: the brain validates legality and workflow-state guards, mints a
-pending artifact with a one-time upload token, and returns
+`artifact.submit {project_id, target_type, target_id, role, path, lens_id?, title?}`
+is a control tool: the brain validates legality and workflow-state guards, mints
+a pending artifact with a one-time upload token, and returns
 `{artifact_id, run}` where `run` is a ready-to-run
 `curl -sf -T <path> '<base>/api/artifacts/u/<token>'` line the agent executes
 verbatim. The token-bearer PUT enforces the role byte cap, pins the bytes, and
@@ -112,8 +112,9 @@ Workflow lints and reviews read the submitted bytes, never a later live edit.
 There is no background checkout scan. Resubmit a changed file to replace the
 slot (a new artifact id is minted, invalidating review snapshots).
 
-`artifact.find(artifact_id=...)` resolves one artifact; without `artifact_id`,
-it lists the project's complete artifacts filtered by target and role.
+`artifact.find(project_id, artifact_id=...)` resolves one artifact; without
+`artifact_id`, it lists the project's complete artifacts filtered by target and
+role.
 
 ## Experiment workflow
 
@@ -189,10 +190,13 @@ use their matching reviewer roles.
 The current protocol is:
 
 ```text
-review.request(target_type, target_id, role, reason?, producer_session_id?)
+review.request(project_id, target_type, target_id, role, reason?, producer_session_id?)
 review.start(review_request_id, reviewer_capability, caller_session_id, declared_agent?)
 review.submit(review_session_id, verdict, synopsis, return_to?, notes?, findings?, evidence?)
 ```
+
+`review.start` and `review.submit` are capability-addressed and take no
+`project_id`.
 
 For the three workflow reviewer roles, `review.request` validates the active
 gate. `human` and `automated_check` are gate-exempt and may be requested outside
@@ -230,7 +234,9 @@ multiple active sandboxes.
 and authorizes the public key; caller private-key material never enters brain
 state. The response and `sandbox.get` expose SSH facts such as host, port, and
 user. The agent client constructs and runs SSH commands. `sandbox.pull_outputs`
-requires a caller-supplied `key_path` when pulling retained files.
+takes no key argument: it returns a filled rsync command with a `<key_path>`
+placeholder the caller substitutes with its own private-key path when running
+the command.
 
 The sandbox workdir is machine-owned, independent of experiment attachment, and
 defaults under `/workspace`; provider-specific `MERV_*_WORKDIR`
@@ -256,9 +262,10 @@ or expiry destroys anything not explicitly retained.
 
 ## MLflow, storage, and feed
 
-- `mlflow.context(experiment_id?)` returns the centralized tracking endpoint,
-  namespace, and environment for direct MLflow clients.
-- `mlflow.finalize_run` closes or refreshes the plugin-associated run.
+- `mlflow.context(project_id, experiment_id?)` returns the centralized tracking
+  endpoint, namespace, and environment for direct MLflow clients.
+- `mlflow.finalize_run(project_id, experiment_id)` closes or refreshes the
+  plugin-associated run.
 - `storage.submit` and `storage.fetch` return a one-line command the agent runs
   to transfer bytes over a presigned URL; `storage.find` and `storage.object`
   operate on the brain's ledger.

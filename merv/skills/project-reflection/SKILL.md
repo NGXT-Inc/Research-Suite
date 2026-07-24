@@ -37,6 +37,11 @@ before anything is published).
 You are the orchestrator. You own the reflection wave's transitions; you do
 not write the reflections — the subagents do.
 
+Pass the key-bound `project_id` on every project-scoped tool you call
+(`reflection.*`, `review.request`, `artifact.submit`, …) — learn it once from
+`project(action="current")` if you don't already have it. `review.start` and
+`review.submit` are capability-addressed and take none.
+
 ## The workflow at a glance
 
 ```
@@ -211,8 +216,9 @@ Then `reflection.transition(submit_reflection_artifacts)`.
 ## Step 4 — review
 
 Request the review with
-`review.request(target_type='reflection', target_id=<syn_id>,
-role='reflection_reviewer', producer_session_id=<your session>)`. The
+`review.request(project_id=<project_id>, target_type='reflection',
+target_id=<syn_id>, role='reflection_reviewer',
+producer_session_id=<your session>)`. The
 response's `reviewer_handoff.spawn_prompt` is a ready-made prompt for
 spawning the **separate** read-only `project-reflection-review` agent — use
 it rather than assembling the handoff yourself (the producer session cannot

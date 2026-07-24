@@ -126,8 +126,8 @@ returns the exact experiment name and environment variables for a run:
 }
 ```
 
-`experiment.transition(transition="start_running")` returns the same
-experiment-scoped block. When both `TRACKING_URI` and `SERVER_URI` are
+`experiment.transition(project_id, experiment_id, transition="start_running")`
+returns the same experiment-scoped block. When both `TRACKING_URI` and `SERVER_URI` are
 configured, the brain makes a best-effort attempt to create an initial MLflow
 run and persist its identity on the experiment. On success, the response
 includes `mlflow.run.run_id`, and the environment includes `MLFLOW_RUN_ID` and
@@ -159,7 +159,7 @@ attempt.
 After a quantitative command finishes, call:
 
 ```text
-mlflow.finalize_run(experiment_id="exp_...")
+mlflow.finalize_run(project_id="proj_...", experiment_id="exp_...")
 ```
 
 By default the tool uses the plugin-owned run id, requests `FINISHED` through
