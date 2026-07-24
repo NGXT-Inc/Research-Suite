@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import os
+import shlex
 import tempfile
 import threading
 import time
@@ -114,6 +115,48 @@ class SandboxServiceTest(unittest.TestCase):
             "experiment.get_state", project_id=self.project_id, experiment_id=exp_id
         )
         self.assertEqual(state["status"], "ready_to_run")
+
+    def test_pull_outputs_shell_quotes_each_remote_path(self) -> None:
+        exp_id = self._experiment()
+        sandbox = self.call(
+            "sandbox.request", project_id=self.project_id, experiment_id=exp_id
+        )
+        malicious = "results/x; touch /tmp/pwned; #"
+        quoted_name = "results/researcher's chart.txt"
+
+        pulled = self.call(
+            "sandbox.pull_outputs",
+            project_id=self.project_id,
+            experiment_id=exp_id,
+            paths=[malicious, quoted_name, "figures/chart one.png"],
+        )
+
+        tokens = shlex.split(pulled["rsync"])
+        expected_sources = [
+            (
+                f"{sandbox['ssh']['user']}@{sandbox['ssh']['host']}:"
+                f"{sandbox['experiment_dir']}/{path}"
+            )
+            for path in (malicious, quoted_name, "figures/chart one.png")
+        ]
+        self.assertEqual(tokens[-4:-1], expected_sources)
+        self.assertEqual(tokens[-1], "<local-destination>")
+        self.assertNotIn("touch", tokens)
+
+    def test_pull_outputs_rejects_paths_outside_experiment_dir(self) -> None:
+        exp_id = self._experiment()
+        self.call(
+            "sandbox.request", project_id=self.project_id, experiment_id=exp_id
+        )
+
+        for path in ("../escape", "results/../../escape", "/tmp/escape"):
+            with self.subTest(path=path), self.assertRaises(ValidationError):
+                self.call(
+                    "sandbox.pull_outputs",
+                    project_id=self.project_id,
+                    experiment_id=exp_id,
+                    paths=[path],
+                )
 
     def test_request_without_experiment_creates_standalone_sandbox(self) -> None:
         result = self.call("sandbox.request", project_id=self.project_id)

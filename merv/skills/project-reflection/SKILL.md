@@ -227,9 +227,9 @@ graph, all five reflections, and your reflection artifacts — and verdicts rout
 - `pass` → call `reflection.transition(publish)`. The wave pins the graph
   version it published, applies the approved claim changes, and creates the
   approved planned experiments. Read `post_publish_guidance`: it names the new
-  experiment folders and recommends `experiment.materialize_folders` before
-  starting the next wave. The living graph file remains for the next wave to
-  edit.
+  experiment folders; create those directories yourself before writing into
+  them because there is no `experiment.materialize_folders` tool. The living
+  graph file remains for the next wave to edit.
 - `needs_changes` with `return_to: "synthesizing"` → the reflections stand;
   revise the graph, reflection doc, and/or change spec and resubmit.
 - `needs_changes` with `return_to: "reflecting"` → the attempt bumps and

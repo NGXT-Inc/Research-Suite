@@ -230,6 +230,29 @@ class FeedServiceTest(unittest.TestCase):
         self.assertEqual(response.status_code, 413, response.text)
         self.assertEqual(response.json()["error_code"], "payload_too_large")
 
+    def test_chunked_media_rejects_before_buffering_over_cap(self) -> None:
+        import asyncio
+
+        from merv.brain.surface.transport.feed_http import _read_capped
+
+        class _UniterableChunk:
+            def __len__(self) -> int:
+                return 17
+
+            def __iter__(self):
+                raise AssertionError("over-cap chunk was buffered")
+
+        async def _stream():
+            yield _UniterableChunk()
+
+        class _ChunkedRequest:
+            headers: dict[str, str] = {}
+
+            def stream(self):
+                return _stream()
+
+        self.assertIsNone(asyncio.run(_read_capped(_ChunkedRequest(), cap=16)))
+
     def test_media_post_is_absent_until_the_upload_lands(self) -> None:
         # Minting does not create the post: feed.list stays empty until the PUT.
         self.call("feed.register", project_id=self.pid, handle="Nova-7")

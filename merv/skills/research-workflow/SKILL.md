@@ -108,13 +108,14 @@ you can't back with a number).
 ## The experiment folder
 
 Every experiment owns exactly one folder: `experiments/<name>/`
-(announced by `experiment.create`; call `experiment.materialize_folders` if the
-local directory is missing). Everything the experiment is lives there —
-plan.md, scripts, configs, results, report.md, graph.json. Artifact uploads
-read local files. A sandbox is just an ephemeral machine you SSH into: fetch
-code and data on the box, write compact outputs under `$MERV_EXPERIMENT_DIR`, then
-pull retained files back with `sandbox.pull_outputs` before submitting them.
-Heavy artifacts should go to durable object storage instead of into the repo.
+(announced by `experiment.create`). There is no folder-materialization tool:
+create `experiments/<name>/` yourself before the first write. Everything the
+experiment is lives there — plan.md, scripts, configs, results, report.md,
+graph.json. Artifact uploads read local files. A sandbox is just an ephemeral
+machine you SSH into: fetch code and data on the box, write compact outputs
+under `$MERV_EXPERIMENT_DIR`, then pull retained files back with
+`sandbox.pull_outputs` before submitting them. Heavy artifacts should go to
+durable object storage instead of into the repo.
 
 ## Workflow
 
@@ -125,13 +126,14 @@ Heavy artifacts should go to durable object storage instead of into the repo.
    give its project id) or start a new one (they give a name and short summary),
    unless the current user request already provided that information, then call
    `project` with `action: "connect"` — it validates or creates the project and
-   links this folder to it. If
-   `exists` is true, it returns the linked project identity. When you need the
-   full project picture — every claim including settled or abandoned ones,
-   every experiment including terminal ones — call `project` with
-   `action: "overview"` rather than expecting an `at_a_glance` block from
-   `current` or inferring state from `workflow.status_and_next`'s active-only
-   view.
+   links this folder to it. A keyed/cloud agent is already bound to the project
+   encoded by its key: it must not call `project` with `action: "connect"`
+   (keyed connect is rejected). If `exists` is true, `current` returns the bound
+   project identity. When you need the full project picture — every claim
+   including settled or abandoned ones, every experiment including terminal
+   ones — call `project` with `action: "overview"` rather than expecting an
+   `at_a_glance` block from `current` or inferring state from
+   `workflow.status_and_next`'s active-only view.
 2. Ask MCP for `workflow.status_and_next(experiment_id?)` before acting.
 3. Identify the claim or experiment being worked on. Before creating a new
    claim, check `project` `action: "overview"` so you do not recreate a
@@ -140,10 +142,11 @@ Heavy artifacts should go to durable object storage instead of into the repo.
 4. Follow MCP's `next_action`, allowed actions, blocked actions, and gate state.
 5. Use MCP for all claim, experiment, artifact, review, and workflow mutations.
 6. Do not invent or pass project scope to normal agent-facing tools. Their
-   schemas hide `project_id`; the local proxy discards any supplied value and
-   injects the project linked to this checkout. The merged `project` tool is the
-   exception: `action: "connect"` accepts the user-selected existing
-   `project_id`, while `current` and `overview` take no agent-supplied scope.
+   schemas hide `project_id`: the local proxy injects the project linked to the
+   checkout, while a keyed/cloud caller is bound to the project encoded by its
+   key. The merged `project` tool accepts `action: "connect"` only for local
+   checkout linking; keyed/cloud agents never call it. `current` and `overview`
+   take no agent-supplied scope in either mode.
 7. Edit local files only for implementation, notes, plans, configs, and results.
 8. Run lightweight commands locally when safe.
 9. For quantitative ML work, follow Quantitative observability whether running
@@ -162,9 +165,10 @@ Heavy artifacts should go to durable object storage instead of into the repo.
 
 If conversation memory is unclear, call `project` with `action: "current"`
 again. If `exists` is true, ask MCP for `workflow.status_and_next(experiment_id?)`;
-if `exists` is false, ask the user what project to link or create before calling
-`project` with `action: "connect"` unless they already supplied that information.
-Do not reconstruct workflow state from memory.
+if `exists` is false in project-local MCP, ask the user what project to link or
+create before calling `project` with `action: "connect"` unless they already
+supplied that information. A keyed/cloud caller does not use `connect`; its
+project comes from its key. Do not reconstruct workflow state from memory.
 
 ## Quantitative observability
 
@@ -338,15 +342,17 @@ sandbox responses are not the source of truth for tracking configuration. Save
 compact evidence under `$MERV_EXPERIMENT_DIR`.
 
 Before submitting result artifacts, call `sandbox.pull_outputs`
-for light retained files, passing the caller-owned private `key_path` when
-`sandbox.get` did not return an `ssh.key_path` enrichment. Upload heavy artifacts
-with `storage.submit` when durable storage is enabled — it returns a one-line
-`curl` command you run to push the bytes straight to object storage. Artifact
-uploads read local files, so remote sandbox paths cannot be submitted until you
-have pulled the files back locally. Do this before `sandbox.release`; release
-and expiry destroy the VM and anything you did not retain. Release is two-step:
-the first call returns a retention checklist without deleting, and only a second
-call with `confirm_retained: true` terminates the machine.
+for light retained files. Its inputs select the sandbox and optional relative
+`paths`; it takes no `key_path` or `overwrite` arguments. Run the returned rsync
+command yourself, replacing its placeholders with your caller-owned private key
+and local destination. Upload heavy artifacts with `storage.submit` when durable
+storage is enabled — it returns a one-line `curl` command you run to push the
+bytes straight to object storage. Artifact uploads read local files, so remote
+sandbox paths cannot be submitted until you have pulled the files back locally.
+Do this before `sandbox.release`; release and expiry destroy the VM and anything
+you did not retain. Release is two-step: the first call returns a retention
+checklist without deleting, and only a second call with
+`confirm_retained: true` terminates the machine.
 
 Do not embed secrets in commands or retained files. Treat the sandbox as
 ephemeral: durable outputs must be explicitly copied or uploaded and then
@@ -373,10 +379,9 @@ unique within a project: if the name is already taken, creation is rejected and
 you must pick a new one.
 
 The create response announces the folder: it includes `folder` (e.g.
-`experiments/lora-rank-sweep/`). Data-plane actions create the directory on
-demand — call `experiment.materialize_folders` if you want it on disk before
-the first file write. Work inside it from that moment on — starting with
-`plan.md`.
+`experiments/lora-rank-sweep/`). Create that directory yourself before the
+first file write, then work inside it from that moment on — starting with
+`plan.md`. There is no `experiment.materialize_folders` tool.
 
 Pick the name for **navigation**: the project supplies the shared context, so
 the name should carry only the contrast — lead with what distinguishes this

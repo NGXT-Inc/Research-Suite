@@ -2,10 +2,11 @@
 
 from __future__ import annotations
 
+import shlex
 import threading
 from contextlib import closing, contextmanager, suppress
 from datetime import datetime, timedelta
-from pathlib import Path
+from pathlib import Path, PurePosixPath
 from typing import Any, Callable, Iterator
 
 from . import sandbox_views
@@ -47,8 +48,33 @@ _DEFAULT_PULL_OUTPUTS = (
 _RSYNC_PULL_OUTPUTS_TEMPLATE = (
     "rsync -az --itemize-changes --no-links --no-devices --no-specials "
     '-e "ssh -i <key_path> -p {port} -o StrictHostKeyChecking=no '
-    '-o UserKnownHostsFile=/dev/null" {user}@{host}:{remote} <local-destination>'
+    '-o UserKnownHostsFile=/dev/null" {remote_sources} <local-destination>'
 )
+
+
+def _pull_output_sources(
+    *, remote_dir: str, user: str, host: str, paths: list[str]
+) -> list[str]:
+    """Validated, individually shell-quoted rsync remote source arguments."""
+    root = PurePosixPath(remote_dir)
+    sources: list[str] = []
+    for raw_path in paths:
+        path = str(raw_path).strip()
+        relative = PurePosixPath(path)
+        if not path or relative.is_absolute() or ".." in relative.parts:
+            raise ValidationError(
+                "sandbox.pull_outputs paths must be non-empty relative paths "
+                "without '..' components"
+            )
+        resolved = root.joinpath(relative)
+        try:
+            resolved.relative_to(root)
+        except ValueError as exc:
+            raise ValidationError(
+                f"sandbox.pull_outputs path escapes experiment_dir: {path}"
+            ) from exc
+        sources.append(shlex.quote(f"{user}@{host}:{resolved}"))
+    return sources
 
 
 class SandboxFacade:
@@ -920,13 +946,15 @@ class SandboxFacade:
                     "sandbox to reach status 'running', then re-call."
                 ),
             }
-        wanted = [str(p).strip() for p in (paths or []) if str(p).strip()] or list(
-            _DEFAULT_PULL_OUTPUTS
+        wanted = list(paths) if paths else list(_DEFAULT_PULL_OUTPUTS)
+        remote_sources = _pull_output_sources(
+            remote_dir=remote_dir,
+            user=user,
+            host=host,
+            paths=wanted,
         )
-        remote_spec = " ".join(f"{remote_dir}/{p.lstrip('/')}" for p in wanted)
-        quoted_remote = f"'{remote_spec}'" if len(wanted) > 1 else remote_spec
         rsync = _RSYNC_PULL_OUTPUTS_TEMPLATE.format(
-            port=port, user=user, host=host, remote=quoted_remote
+            port=port, remote_sources=" ".join(remote_sources)
         )
         view = {
             "sandbox_uid": facts.get("sandbox_uid"),

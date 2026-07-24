@@ -77,9 +77,11 @@ async def _read_capped(request: Request, *, cap: int) -> bytes | None:
         return None
     data = bytearray()
     async for chunk in request.stream():
-        data.extend(chunk)
-        if len(data) > cap:
+        # INV-6: reject on projected size before extending so one oversized
+        # ASGI chunk is never temporarily buffered past the token's cap.
+        if len(data) + len(chunk) > cap:
             return None
+        data.extend(chunk)
     return bytes(data)
 
 

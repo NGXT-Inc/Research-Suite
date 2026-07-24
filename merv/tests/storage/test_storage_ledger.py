@@ -309,6 +309,42 @@ class StorageLedgerServiceTest(unittest.TestCase):
         )
         self.assertEqual(deleted["total"], 1)
 
+    def test_retry_recovers_crash_after_provider_completion(self) -> None:
+        data = b"crash-window bytes"
+        registered = self.service.put_object(
+            project_id=self.project_id,
+            name="datasets/recover.tar",
+            kind="dataset",
+            sha256=self._sha(data),
+            size_bytes=len(data),
+        )
+        upload_id = registered["upload"]["upload_id"]
+        self._write_upload(registered["upload"], data)
+
+        # Reproduce a process death after provider verification consumed the
+        # upload sidecar but before the separate ledger transaction committed.
+        stat = self.objects.complete_upload(upload_id=upload_id)
+        self.assertEqual(stat.sha256, self._sha(data))
+        with self.store.transaction() as conn:
+            conn.execute(
+                """
+                UPDATE storage_objects
+                SET status = 'completing'
+                WHERE project_id = ? AND upload_id = ?
+                """,
+                (self.project_id, upload_id),
+            )
+
+        recovered = self.service.complete_upload(
+            project_id=self.project_id, upload_id=upload_id
+        )
+
+        self.assertEqual(recovered["status"], "available")
+        self.assertEqual(recovered["size_bytes"], len(data))
+        self.assertIsNotNone(
+            self.objects.stat(namespace=self.project_id, sha256=self._sha(data))
+        )
+
     def test_reclaim_waits_for_durable_delete_record(self) -> None:
         data = b"durable delete"
         obj = self._put_and_complete(name="datasets/durable.tar", kind="dataset", data=data)

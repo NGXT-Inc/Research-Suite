@@ -199,39 +199,72 @@ class StorageLedgerService:
         upload_id: str,
         parts: list[dict[str, Any]] | None = None,
     ) -> dict[str, Any]:
+        recovering = False
         with self.store.transaction() as conn:
             project_id = self.store.require_project_id(conn=conn, project_id=project_id)
-            # Reserve the row before touching bytes so delete cannot orphan a completion.
-            cursor = conn.execute(
-                """
-                UPDATE storage_objects
-                SET status = 'completing', updated_at = ?
-                WHERE project_id = ? AND upload_id = ? AND status = 'uploading'
-                """,
-                (now_iso(), project_id, upload_id),
-            )
-            if int(getattr(cursor, "rowcount", 0)) != 1:
-                raise NotFoundError(
-                    f"upload not found in project {project_id}: {upload_id}"
-                )
             row = self._get_by_upload(
                 conn=conn, project_id=project_id, upload_id=upload_id
             )
-        try:
-            stat = self.objects.complete_upload(upload_id=upload_id, parts=parts)
-        except Exception:
-            with self.store.transaction() as conn:
-                project_id = self.store.require_project_id(
-                    conn=conn, project_id=project_id
-                )
-                conn.execute(
+            status = str(row["status"])
+            if status == "uploading":
+                # Reserve the row before touching bytes so delete cannot orphan
+                # a completion.
+                cursor = conn.execute(
                     """
                     UPDATE storage_objects
-                    SET status = 'uploading', updated_at = ?
-                    WHERE project_id = ? AND upload_id = ? AND status = 'completing'
+                    SET status = 'completing', updated_at = ?
+                    WHERE project_id = ? AND upload_id = ? AND status = 'uploading'
                     """,
                     (now_iso(), project_id, upload_id),
                 )
+                if int(getattr(cursor, "rowcount", 0)) != 1:
+                    raise NotFoundError(
+                        f"upload not found in project {project_id}: {upload_id}"
+                    )
+                row = self._get_by_upload(
+                    conn=conn, project_id=project_id, upload_id=upload_id
+                )
+            elif status == "completing":
+                recovering = True
+            else:
+                raise NotFoundError(
+                    f"upload not found in project {project_id}: {upload_id}"
+                )
+        try:
+            if recovering:
+                # The provider may already have verified the immutable object
+                # and consumed its upload sidecar before a process crash. Re-stat
+                # by ledger identity so a retry can converge without that
+                # single-use sidecar.
+                stat = self.objects.stat(
+                    namespace=str(row["namespace"]),
+                    sha256=str(row["content_sha256"]),
+                )
+                if stat is None:
+                    raise NotFoundError(
+                        f"completed object not found for upload: {upload_id}"
+                    )
+                if int(stat.size_bytes) != int(row["size_bytes"]):
+                    raise ValidationError(
+                        f"completed object size mismatch for upload {upload_id}: "
+                        f"{stat.size_bytes} != {row['size_bytes']} bytes"
+                    )
+            else:
+                stat = self.objects.complete_upload(upload_id=upload_id, parts=parts)
+        except Exception:
+            if not recovering:
+                with self.store.transaction() as conn:
+                    project_id = self.store.require_project_id(
+                        conn=conn, project_id=project_id
+                    )
+                    conn.execute(
+                        """
+                        UPDATE storage_objects
+                        SET status = 'uploading', updated_at = ?
+                        WHERE project_id = ? AND upload_id = ? AND status = 'completing'
+                        """,
+                        (now_iso(), project_id, upload_id),
+                    )
             raise
         if str(stat.namespace) != str(row["namespace"]) or str(stat.sha256) != str(
             row["content_sha256"]
