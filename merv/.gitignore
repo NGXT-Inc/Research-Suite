@@ -5,7 +5,6 @@
 # Local dev artifacts
 .venv/
 .codex/
-AGENTS.md
 serving.txt
 __pycache__/
 *.pyc

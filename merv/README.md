@@ -1,10 +1,10 @@
 # Merv
 
-Merv gives agentic coding clients (Claude Code, Codex, Cursor,
-Gemini CLI, OpenCode) a shared state machine for machine learning research:
-claims, experiments, submitted artifacts, review gates, reflection waves, and
-sandboxed execution. A brain running locally or as a hosted service owns durable
-research state; every agent client connects directly to the brain's
+Merv gives agentic coding clients (Claude Code, Codex, Cursor, Gemini CLI,
+OpenCode, OpenHands, Replit Agent) a shared state machine for machine learning
+research: claims, experiments, submitted artifacts, review gates, reflection
+waves, and sandboxed execution. A brain running locally or as a hosted service
+owns durable research state; every agent client connects directly to the brain's
 `POST /mcp` HTTP endpoint, authenticated by a project-scoped key. The brain never receives the checkout root or reads
 it directly; gated documents are explicitly uploaded as size-capped
 artifacts.
@@ -95,6 +95,7 @@ off cloud providers.
 ## Documentation
 
 - [docs/CLIENTS.md](docs/CLIENTS.md) - per-client install and reviewer handoff
+- [docs/AGENT_ANYWHERE.md](docs/AGENT_ANYWHERE.md) - five-platform setup matrix
 - [docs/HOSTED_CLIENT_QUICKSTART.md](docs/HOSTED_CLIENT_QUICKSTART.md) - hosted setup
 - [docs/AUTH.md](docs/AUTH.md) - hosted authentication and project membership
 - [docs/STARTUP_CHEATSHEET.md](docs/STARTUP_CHEATSHEET.md) - local startup flow

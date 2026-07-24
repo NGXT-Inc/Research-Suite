@@ -1,13 +1,14 @@
 # Client Support
 
-The plugin targets five agentic clients from one canonical content tree.
+The plugin targets seven agentic clients from one canonical content tree.
 Everything heavy — state, gates, capability-based reviews, sandbox
 provisioning — lives in the client-neutral brain service (localhost
 `merv-http`, or the hosted brain). Every client — local Claude Code, cloud
-Codex, Cursor, Gemini CLI, OpenCode — connects the same way: an HTTP MCP
-server pointed at the brain's `POST /mcp` endpoint, authenticated by a
-project-scoped key sent as `Authorization: Bearer <key>` (read from the
-`MERV_MCP_KEY` env var). A key binds one immutable project; the gateway
+Codex, Cursor, Gemini CLI, OpenCode, OpenHands, and Replit Agent — connects
+directly to the brain's `POST /mcp` endpoint. Bundled clients authenticate with
+a project-scoped key sent as `Authorization: Bearer <key>` from
+`MERV_MCP_KEY`; browser-configured clients may instead use the hosted OAuth
+flow or a pasted project key. A key binds one immutable project; the gateway
 enforces that any project_id an agent passes equals the key-bound project (an
 agent learns it once via `project current`, then passes it explicitly), so
 agents never send a checkout root. Each client gets a thin adapter on top of the same `bin/`,
@@ -20,6 +21,8 @@ agents never send a checkout root. Each client gets a thin adapter on top of the
 | Cursor | `.cursor-plugin/plugin.json` + `mcp.json` | http server → `<base>/mcp` (same header) | `skills/` auto-discovered (Agent Skills standard) | `agents/` auto-discovered |
 | Gemini CLI | `gemini-extension.json` + `GEMINI.md` | http server → `<base>/mcp` (same header) | `skills/` auto-discovered (Agent Skills standard) | `agents/` auto-discovered |
 | OpenCode | `clients/opencode/` (installer + agents + config example) | `opencode.json` `mcp` block → `<base>/mcp` (same header) | symlinked into `~/.config/opencode/skills/` | symlinked into `~/.config/opencode/agents/` |
+| OpenHands | `AGENTS.md` + `clients/openhands/README.md` | local `config.toml` / CLI, or Cloud **Settings → MCP** | root `AGENTS.md`; optional repo copies in `.agents/skills/*.md` | none; second session/agent or inline |
+| Replit Agent | `clients/replit/README.md` | account **MCP Servers** settings → `<base>/mcp` | no Merv skills installed by the connection | none; second session/agent or inline |
 
 Shared invariants across all clients:
 
@@ -39,13 +42,15 @@ Shared invariants across all clients:
   rely on the machine's `curl`, OpenSSH client, and `rsync`.
 - Skills follow the cross-tool Agent Skills layout (`skills/<name>/SKILL.md`
   with `name` + `description` frontmatter), which Claude Code, Codex, Cursor,
-  Gemini CLI, and OpenCode all read natively.
+  Gemini CLI, and OpenCode all read natively. OpenHands uses repository files
+  at `.agents/skills/*.md`; copy the relevant canonical skill content into that
+  layout when needed. Replit's account connection does not install Merv skills.
 - Shared agent files in `agents/` keep frontmatter to the common subset
   (`name`, `description`) so Claude Code, Cursor, and Gemini CLI can all load
   them. OpenCode needs `mode`/`permission` frontmatter, so it has its own thin
   agent wrappers in `clients/opencode/agents/` that load the matching review
   skill.
-- The committed manifests pin every client to the hosted brain
+- The committed manifests pin every bundled client to the hosted brain
   `https://experiments.rapidreview.io/mcp`, so out of the box each client dials
   the hosted brain and runs no local brain. Run `merv-client env` to print the
   ready-to-paste `.mcp.json` http snippet and `merv-client configure` to write
@@ -53,7 +58,9 @@ Shared invariants across all clients:
   `http://127.0.0.1:8787/mcp` and start `bin/merv-http`. Export `MERV_MCP_KEY`
   in your shell before launching a client and keep it out of version control —
   the key is never inlined into a committed manifest, and it is
-  bearer-equivalent to full access to its one bound project.
+  bearer-equivalent to full access to its one bound project. OpenHands cannot
+  ship the MCP connection in a repository, and Replit connections are
+  account-scoped; configure those once through their documented setup surface.
 
 ## Long runs (merv_run) per client
 
@@ -99,6 +106,11 @@ agent is spawned with that prompt:
   delegates automatically, or the user forces it with `@experiment-design-review`.
 - **OpenCode**: the main agent delegates via the task tool to the installed
   subagent (or the user @-mentions it, e.g. `@experiment-design-review`).
+- **OpenHands**: no reviewer-subagent auto-discovery; start a second session or
+  agent with the matching review skill and handoff prompt, or follow it inline.
+- **Replit Agent**: no reviewer-subagent auto-discovery; start a second session
+  or agent with the matching review skill and handoff prompt, or follow it
+  inline.
 
 The reviewer begins with `review.start`, passing the request id, capability,
 and its own non-empty `caller_session_id`. That id is required and must differ
@@ -150,11 +162,11 @@ Two Cursor-specific notes:
    (e.g. a local `http://127.0.0.1:8787/mcp` deployment), edit the `url` in the
    project's `.cursor/mcp.json`.
 
-2. **Tool ceiling.** Cursor limits the combined active tools from all MCP
-   servers. Merv hides UI/internal tools such as `project.list` and
-   `review.status` from the agent-facing catalog. If tools disappear when
-   several MCP servers are enabled, disable servers or tools that are not in
-   use.
+2. **Tool ceiling.** Cursor's approximately 40-tool limit applies across all
+   active MCP servers. Merv's 36-tool catalog nearly fills it. Merv hides
+   UI/internal tools such as `project.list` and `review.status` from the
+   agent-facing catalog; if tools disappear when several MCP servers are
+   enabled, disable servers or tools that are not in use.
 
 Cursor's MCP settings may show a naming warning for dotted tools such as
 `experiment.get_state`; the client still calls those tools normally.
@@ -208,3 +220,45 @@ Notes:
   `verified_agent_review` status.
 - OpenCode also reads `.claude/skills/` and `CLAUDE.md` as compatibility
   fallbacks, so repos already set up for Claude Code degrade gracefully.
+
+## Use with OpenHands
+
+OpenHands uses Streamable HTTP. For a local installation, put the server in
+`config.toml`:
+
+```toml
+[mcp]
+shttp_servers = [
+  { url = "https://experiments.rapidreview.io/mcp", api_key = "paste the key" }
+]
+```
+
+The `api_key` value is sent exactly as `Authorization: Bearer <value>`.
+Environment-variable interpolation in that TOML value is unconfirmed, so paste
+the project key minted in the RapidReview UI. `openhands mcp add` is the CLI
+alternative. For OAuth, replace `api_key` with `auth = "oauth"`; the interactive
+browser flow is unsuitable headless, so prefer the project key.
+
+On OpenHands Cloud, **Settings → MCP** is the only setup path. The MCP
+connection cannot be shipped in a repository. Repository-root
+[AGENTS.md](../AGENTS.md) supplies always-on Merv context, and research repos
+may copy canonical skill content into keyword-triggered
+`.agents/skills/*.md`. Full steps:
+[clients/openhands/README.md](../clients/openhands/README.md).
+
+## Use with Replit Agent
+
+Replit's custom remote MCP support is configured under **MCP Servers**:
+select **+ Add MCP server**, enter a display name and
+`https://experiments.rapidreview.io/mcp`, then select **Test & save**. Merv
+advertises OAuth 2.1 dynamic client registration with PKCE through RFC 8414
+discovery and the RFC 9728 protected-resource challenge, so Replit registers it
+and guides the browser sign-in and consent flow.
+
+Advanced settings accept custom header name/value pairs for static keys.
+Replit's documentation demonstrates `X-API-Key`; accepting a literal
+`Authorization: Bearer ...` pair is **unconfirmed**, so OAuth is the primary
+path. Connections are account-scoped across repls and cannot be pre-wired by a
+template or `.replit`. All MCP traffic passes Replit's security scanner; no
+per-tool grants or tool-count ceiling are documented. Full steps:
+[clients/replit/README.md](../clients/replit/README.md).

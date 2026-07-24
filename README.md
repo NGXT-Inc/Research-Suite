@@ -2,7 +2,10 @@
 
 Merv is a plugin for agentic coding platforms that helps agents run machine learning research as gated, reviewable experiment workflows.
 
-It is designed to work with Claude Code, Codex, Cursor, Gemini CLI, OpenCode, and other MCP-capable agent platforms. It includes a frontend for humans to observe agent behavior ranging from macro research strategy to experiment execution specifics.
+It is designed to work with Claude Code, Codex, Cursor, Gemini CLI, OpenCode,
+OpenHands, Replit Agent, and other MCP-capable agent platforms. It includes a
+frontend for humans to observe agent behavior ranging from macro research
+strategy to experiment execution specifics.
 
 The goal is to give research agents enough structure to plan experiments, execute them, review results, and reflect on the project direction to handle open-ended research problems.
 
@@ -33,7 +36,8 @@ After a set of experiments is complete, the plugin drives a project-wide reflect
 
 Merv has three main pieces:
 
-- **Agent adapters** connect Claude Code, Codex, Cursor, Gemini CLI, OpenCode, and other agentic clients to the same workflow.
+- **Agent adapters** connect Claude Code, Codex, Cursor, Gemini CLI, OpenCode,
+  OpenHands, Replit Agent, and other agentic clients to the same workflow.
 - **Backend** owns the research state: projects, claims, experiments, artifacts, review gates, reflections, and sandbox orchestration.
 - **Frontend** gives humans a visual way to inspect the project: experiments, reviews, artifacts, logic graphs, timelines, and current progress.
 
@@ -49,8 +53,9 @@ There is no local proxy process and no `pip` install: every client connects
 directly to the configured brain's `/mcp` endpoint over HTTP (the hosted brain
 by default). The `merv-client` CLI, `merv-http`, and brain run on Python 3.11+.
 Sandbox SSH and output-pull workflows additionally use the system OpenSSH
-client and `rsync`. For Codex, Gemini CLI, and OpenCode, see
-[merv/docs/CLIENTS.md](merv/docs/CLIENTS.md).
+client and `rsync`. For Codex, Gemini CLI, OpenCode, OpenHands, and Replit
+Agent, see [merv/docs/CLIENTS.md](merv/docs/CLIENTS.md) and the
+[cross-platform matrix](merv/docs/AGENT_ANYWHERE.md).
 
 ### Claude Code
 
