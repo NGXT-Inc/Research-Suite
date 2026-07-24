@@ -1,7 +1,7 @@
 {
   "name": "merv",
-  "version": "0.0013+codex.20260711",
-  "description": "Lean Codex research-state workflow with project-local MCP context, resources, reviews, and cloud SSH sandboxes.",
+  "version": "0.0014+codex.20260724",
+  "description": "Lean Codex research-state workflow with hosted MCP research state, typed artifacts, reviews, and cloud SSH sandboxes.",
   "license": "UNLICENSED",
   "keywords": [
     "research",

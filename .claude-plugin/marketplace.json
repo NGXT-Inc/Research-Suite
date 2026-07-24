@@ -5,15 +5,15 @@
     "name": "RapidReview"
   },
   "metadata": {
-    "description": "Research workflow plugins: durable project state, repo-file resources, design and experiment review, cloud SSH sandboxes.",
-    "version": "0.0013"
+    "description": "Research workflow plugins: durable project state, typed artifact submission, design and experiment review, cloud SSH sandboxes.",
+    "version": "0.0014"
   },
   "plugins": [
     {
       "name": "merv",
       "source": "./merv",
-      "description": "Lean research-state workflow with project-local MCP context, resources, reviews, and cloud SSH sandboxes. Skills for the agent loop, subagents for read-only design, experiment, and reflection review.",
-      "version": "0.0013",
+      "description": "Lean research-state workflow with hosted MCP research state, typed artifacts, reviews, and cloud SSH sandboxes. Skills for the agent loop, subagents for read-only design, experiment, and reflection review.",
+      "version": "0.0014",
       "category": "productivity",
       "author": {
         "name": "RapidReview"
