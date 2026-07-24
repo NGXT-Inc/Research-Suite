@@ -220,6 +220,7 @@ TABLE_OWNERS = {
     "posts": FEED,
     "feed_authors": FEED,
     "post_reactions": FEED,
+    "feed_upload_tokens": FEED,
 }
 SQL_TABLE_REF = re.compile(r"\b(?:FROM|JOIN|INTO|UPDATE)\s+([a-z_]+)\b", re.IGNORECASE)
 CREATE_TABLE_REF = re.compile(

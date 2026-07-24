@@ -135,14 +135,15 @@ class FeedServiceTest(unittest.TestCase):
             self.call("feed.post", project_id=self.pid, handle="Nova-7", text="   ")
 
     def test_image_captured_and_served(self) -> None:
+        # feed.post mints a token; the PUT (agent's curl) pushes the bytes and
+        # finalizes the post — the identical blob sink a live post uses.
         self.call("feed.register", project_id=self.pid, handle="Nova-7")
-        (self.repo / "plot.png").write_bytes(_PNG)
-        result = self.call(
-            "feed.post",
+        result = self.app.post_feed_media(
             project_id=self.pid,
             handle="Nova-7",
             text="plot",
             image_path="plot.png",
+            data=_PNG,
         )
         self.assertTrue(result["post"]["has_image"])
         data, ctype = self.app.feed.get_image(
@@ -150,6 +151,31 @@ class FeedServiceTest(unittest.TestCase):
         )
         self.assertEqual(data, _PNG)
         self.assertEqual(ctype, "image/png")
+
+    def test_media_post_mints_single_use_token(self) -> None:
+        # The mint shape: feed.post with a visual returns {post_id, run} (a
+        # /api/feed/u/ curl), NOT {post} — and the token is single-use.
+        self.call("feed.register", project_id=self.pid, handle="Nova-7")
+        pending = self.call(
+            "feed.post",
+            project_id=self.pid,
+            handle="Nova-7",
+            text="plot",
+            image_path="figures/plot.png",
+        )
+        self.assertIn("post_id", pending)
+        self.assertNotIn("post", pending)
+        self.assertIn("/api/feed/u/", pending["run"])
+        self.assertIn("curl -sf -T", pending["run"])
+        # The path label rides into the curl verbatim (the agent runs it as-is).
+        self.assertIn("figures/plot.png", pending["run"])
+        token = pending["run"].rsplit("/", 1)[-1].rstrip("'")
+        first = self.app.upload_feed_bytes(token=token, data=_PNG)
+        self.assertEqual(first["post"]["id"], pending["post_id"])
+        self.assertTrue(first["post"]["has_image"])
+        # Re-running the same curl 404s: the token was consumed at completion.
+        with self.assertRaises(NotFoundError):
+            self.app.upload_feed_bytes(token=token, data=_PNG)
 
     def test_sniff_detects_svg_but_not_arbitrary_text(self) -> None:
         self.assertEqual(sniff_image_type(_P("c.svg"), _SVG), "image/svg+xml")
@@ -170,13 +196,12 @@ class FeedServiceTest(unittest.TestCase):
 
     def test_svg_image_captured_and_served(self) -> None:
         self.call("feed.register", project_id=self.pid, handle="Nova-7")
-        (self.repo / "chart.svg").write_bytes(_SVG)
-        result = self.call(
-            "feed.post",
+        result = self.app.post_feed_media(
             project_id=self.pid,
             handle="Nova-7",
             text="vec",
             image_path="chart.svg",
+            data=_SVG,
         )
         self.assertTrue(result["post"]["has_image"])
         data, ctype = self.app.feed.get_image(
@@ -185,16 +210,50 @@ class FeedServiceTest(unittest.TestCase):
         self.assertEqual(data, _SVG)
         self.assertEqual(ctype, "image/svg+xml")
 
-    def test_feed_service_rejects_unobserved_local_image_path(self) -> None:
+    def test_media_upload_enforces_the_image_byte_cap(self) -> None:
+        # The transport streams against MAX_FEED_IMAGE_BYTES and refuses an
+        # oversized body with 413 before the post is written.
+        from merv.shared.feed_images import MAX_FEED_IMAGE_BYTES
+
         self.call("feed.register", project_id=self.pid, handle="Nova-7")
-        (self.repo / "plot.png").write_bytes(_PNG)
-        with self.assertRaises(ValidationError):
-            self.app.feed.post(
-                project_id=self.pid,
-                handle="Nova-7",
-                text="plot",
-                image_path="plot.png",
-            )
+        pending = self.call(
+            "feed.post",
+            project_id=self.pid,
+            handle="Nova-7",
+            text="huge",
+            image_path="big.png",
+        )
+        token = pending["run"].rsplit("/", 1)[-1].rstrip("'")
+        response = self.app._client.put(
+            f"/api/feed/u/{token}", content=b"x" * (MAX_FEED_IMAGE_BYTES + 1)
+        )
+        self.assertEqual(response.status_code, 413, response.text)
+        self.assertEqual(response.json()["error_code"], "payload_too_large")
+
+    def test_media_post_is_absent_until_the_upload_lands(self) -> None:
+        # Minting does not create the post: feed.list stays empty until the PUT.
+        self.call("feed.register", project_id=self.pid, handle="Nova-7")
+        self.call(
+            "feed.post",
+            project_id=self.pid,
+            handle="Nova-7",
+            text="pending",
+            image_path="plot.png",
+        )
+        self.assertEqual(self.call("feed.list", project_id=self.pid)["posts"], [])
+
+    def test_feed_post_mints_regardless_of_local_file(self) -> None:
+        # The server never reads the path at mint time (the agent's curl does),
+        # so a path that does not exist locally still mints a valid token.
+        self.call("feed.register", project_id=self.pid, handle="Nova-7")
+        pending = self.app.feed.post(
+            project_id=self.pid,
+            handle="Nova-7",
+            text="plot",
+            image_path="does/not/exist.png",
+        )
+        self.assertIn("post_id", pending)
+        self.assertIn("/api/feed/u/", pending["run"])
 
     def test_observed_image_bytes_are_captured_and_served(self) -> None:
         self.call("feed.register", project_id=self.pid, handle="Nova-7")
@@ -211,18 +270,9 @@ class FeedServiceTest(unittest.TestCase):
         self.assertEqual(data, _PNG)
         self.assertEqual(ctype, "image/png")
 
-    def test_missing_image_rejected(self) -> None:
-        self.call("feed.register", project_id=self.pid, handle="Nova-7")
-        with self.assertRaises(ValidationError):
-            self.call(
-                "feed.post",
-                project_id=self.pid,
-                handle="Nova-7",
-                text="x",
-                image_path="nope.png",
-            )
-
-    def test_feed_post_preflights_before_reading_image(self) -> None:
+    def test_feed_post_preflights_handle_before_minting(self) -> None:
+        # The mint validates the handle up front, so an unregistered author is
+        # rejected before any token is minted (the image path is never read).
         with self.assertRaisesRegex(ValidationError, "not registered"):
             self.call(
                 "feed.post",
@@ -327,13 +377,12 @@ class FeedServiceTest(unittest.TestCase):
 
     def test_post_view_does_not_leak_blob_hash(self) -> None:
         self.call("feed.register", project_id=self.pid, handle="Nova-7")
-        (self.repo / "p.png").write_bytes(_PNG)
-        result = self.call(
-            "feed.post",
+        result = self.app.post_feed_media(
             project_id=self.pid,
             handle="Nova-7",
             text="x",
             image_path="p.png",
+            data=_PNG,
         )
         self.assertNotIn("image_sha256", result["post"])
 
@@ -547,14 +596,33 @@ class FeedServiceTest(unittest.TestCase):
                 html_bytes=b"<html><body>x</body></html>",
             )
 
-    def test_feed_post_rejects_unobserved_html_path(self) -> None:
+    def test_html_post_mints_and_upload_serves_wrapped_embed(self) -> None:
+        # An html_path post mints a token; the PUT pushes the embed bytes and
+        # the served document is CSP-wrapped, same as post_observed did.
         self.call("feed.register", project_id=self.pid, handle="Nova-7")
-        with self.assertRaises(ValidationError):
-            self.app.feed.post(
+        result = self.app.post_feed_media(
+            project_id=self.pid,
+            handle="Nova-7",
+            text="chart",
+            html_path="chart.html",
+            data=b"<div>hello</div>",
+        )
+        self.assertTrue(result["post"]["has_embed"])
+        wrapped = self.app.feed.get_embed(
+            project_id=self.pid, post_id=result["post"]["id"]
+        )
+        self.assertIn("<div>hello</div>", wrapped)
+
+    def test_image_and_html_path_together_rejected_at_mint(self) -> None:
+        self.call("feed.register", project_id=self.pid, handle="Nova-7")
+        with self.assertRaisesRegex(ValidationError, "image or an embed"):
+            self.call(
+                "feed.post",
                 project_id=self.pid,
                 handle="Nova-7",
-                text="chart",
-                html_path="chart.html",
+                text="both",
+                image_path="p.png",
+                html_path="c.html",
             )
 
     # -- nudge --------------------------------------------------------------
@@ -716,6 +784,31 @@ class FeedHttpTest(unittest.TestCase):
         self.assertIn("sandbox allow-scripts", csp)
         self.assertIn("default-src 'none'", csp)
         self.assertIn("<script>1</script>", response.text)
+
+    def test_media_upload_token_is_redacted_in_activity_log(self) -> None:
+        # INV-12: the one-time token is a bearer credential in the URL path; the
+        # activity log must persist only the redacted form, never the token.
+        import io
+
+        pending = self.app.call_tool(
+            "feed.post",
+            {
+                "project_id": self.pid,
+                "handle": "Nova-7",
+                "text": "plot",
+                "image_path": "plot.png",
+            },
+        )
+        token = pending["run"].rsplit("/", 1)[-1].rstrip("'")
+        buffer = io.StringIO()
+        logger = self.app.http.structured_log
+        logger.enabled = True
+        logger._stream = buffer
+        response = self.client.put(f"/api/feed/u/{token}", content=_PNG)
+        self.assertEqual(response.status_code, 200, response.text)
+        logged = buffer.getvalue()
+        self.assertIn("/api/feed/u/<redacted>", logged)
+        self.assertNotIn(token, logged)
 
 
 _ARXIV_HTML = b"""

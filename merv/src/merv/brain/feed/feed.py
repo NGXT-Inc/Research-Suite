@@ -16,6 +16,7 @@ from __future__ import annotations
 
 from contextlib import closing, suppress
 import json
+import secrets
 import urllib.parse
 from pathlib import Path
 from typing import Any
@@ -39,7 +40,14 @@ from ..kernel.state.store import (
     row_to_dict,
     rows_to_dicts,
 )
-from ..kernel.utils import NotFoundError, ValidationError, new_id, now_iso, parse_iso
+from ..kernel.utils import (
+    NotFoundError,
+    ValidationError,
+    iso_after,
+    new_id,
+    now_iso,
+    parse_iso,
+)
 from .ports import LinkUnfurlError, LinkUnfurlPort
 
 # Hard cap on post text — "old Twitter, not an essay" (Feed_PRD.md open question,
@@ -67,6 +75,25 @@ MAX_EMBED_BYTES = MAX_FEED_EMBED_BYTES
 RESEARCHER_HANDLE = "Researcher"
 
 _KNOWN_REF_PREFIXES = ("exp_", "claim_", "res_", "rver_", "syn_", "rev_", "lit_", "paper_")
+
+# A minted media-upload token lives ~15 min, matching artifact.submit — long
+# enough to run the returned curl, short enough that a leaked token is stale fast.
+FEED_UPLOAD_TOKEN_TTL_SECONDS = 15 * 60
+# The base the mint one-liner falls back to when the caller-reachable base is
+# unknown (rendered only for direct in-process calls; the HTTP gateway injects
+# the real base_url, exactly as it does for artifact.submit).
+_LOCAL_API_BASE = "http://127.0.0.1:8787"
+
+
+def _shell_quote(value: str) -> str:
+    """POSIX single-quote — the agent runs the returned command verbatim."""
+    return "'" + value.replace("'", "'\\''") + "'"
+
+
+def feed_upload_command(*, base_url: str, path: str, token: str) -> str:
+    """The ready-to-run one-liner the agent executes to push the media bytes."""
+    base = (base_url or _LOCAL_API_BASE).rstrip("/")
+    return f"curl -sf -T {_shell_quote(path)} '{base}/api/feed/u/{token}'"
 
 # The feed owns its schema so it stays a liftable module rather than living in
 # the shared store SCHEMA constant. The DDL is dialect-neutral (only TEXT/INTEGER,
@@ -262,29 +289,169 @@ class FeedService:
         kind: str | None = None,
         in_reply_to: str | None = None,
         project_id: str | None = None,
+        base_url: str = "",
     ) -> dict[str, Any]:
-        """Write a post. ``handle`` must already be registered in this project."""
-        if image_path:
-            raise ValidationError(
-                "image_path must be read by the local data plane before posting"
+        """Write a post. ``handle`` must already be registered in this project.
+
+        A text/link-only post lands immediately (unchanged shape ``{"post": …}``).
+        A post carrying a visual instead mints a one-time upload token and
+        returns ``{"post_id", "run"}``: the agent runs the ``run`` curl to PUT
+        the local file's bytes to ``/api/feed/u/<token>``, which finalizes the
+        post — so the bytes travel over the agent's own curl, never through MCP
+        (the artifact.submit discipline)."""
+        if image_path and html_path:
+            raise ValidationError("a post may carry an image or an embed, not both")
+        media_kind = "image" if image_path else ("embed" if html_path else "")
+        if not media_kind:
+            return self._post(
+                handle=handle,
+                text=text,
+                image_path=None,
+                image_bytes=None,
+                html_path=None,
+                html_bytes=None,
+                url=url,
+                ref=ref,
+                kind=kind,
+                in_reply_to=in_reply_to,
+                project_id=project_id,
             )
-        if html_path:
-            raise ValidationError(
-                "html_path must be read by the local data plane before posting"
-            )
-        return self._post(
+        return self._mint_upload_token(
             handle=handle,
             text=text,
-            image_path=None,
-            image_bytes=None,
-            html_path=None,
-            html_bytes=None,
+            media_kind=media_kind,
+            media_path=str(image_path or html_path or ""),
             url=url,
             ref=ref,
             kind=kind,
             in_reply_to=in_reply_to,
             project_id=project_id,
+            base_url=base_url,
         )
+
+    def _mint_upload_token(
+        self,
+        *,
+        handle: str,
+        text: str,
+        media_kind: str,
+        media_path: str,
+        url: str | None,
+        ref: str | None,
+        kind: str | None,
+        in_reply_to: str | None,
+        project_id: str | None,
+        base_url: str,
+    ) -> dict[str, Any]:
+        """Validate the post metadata, pin a pending token + post_id, return the
+        curl line. The bytes are pushed later by the PUT, which finalizes the
+        post against this token (single-use)."""
+        self._sweep_expired_tokens()
+        intent = self.validate_post_intent(
+            handle=handle,
+            text=text,
+            ref=ref,
+            kind=kind,
+            in_reply_to=in_reply_to,
+            project_id=project_id,
+        )
+        post_id = new_id(prefix="post")
+        token = secrets.token_urlsafe(24)
+        with self.store.transaction() as conn:
+            conn.execute(
+                """
+                INSERT INTO feed_upload_tokens (
+                    token, project_id, post_id, handle, text, media_kind,
+                    media_path, url, ref, kind, in_reply_to, expires_at, created_at
+                )
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                """,
+                (
+                    token,
+                    intent["project_id"],
+                    post_id,
+                    intent["handle"],
+                    intent["text"],
+                    media_kind,
+                    media_path,
+                    str(url or ""),
+                    intent["ref"] or "",
+                    intent["kind"] or "",
+                    intent["in_reply_to"] or "",
+                    iso_after(seconds=FEED_UPLOAD_TOKEN_TTL_SECONDS),
+                    now_iso(),
+                ),
+            )
+        return {
+            "post_id": post_id,
+            "run": feed_upload_command(base_url=base_url, path=media_path, token=token),
+        }
+
+    def pending_upload_cap(self, *, token: str) -> int:
+        """Byte cap for a pending feed upload token; 404s on an unknown token so
+        the transport refuses to buffer a body for anyone without one."""
+        self._sweep_expired_tokens()
+        with closing(self.store.connect()) as conn:
+            row = conn.execute(
+                "SELECT media_kind FROM feed_upload_tokens "
+                "WHERE token = ? AND expires_at >= ?",
+                (token, now_iso()),
+            ).fetchone()
+        if row is None:
+            raise NotFoundError(
+                "unknown, used, or expired feed upload token — call feed.post again"
+            )
+        return (
+            MAX_FEED_IMAGE_BYTES
+            if str(row["media_kind"]) == "image"
+            else MAX_FEED_EMBED_BYTES
+        )
+
+    def complete_post_upload(self, *, token: str, data: bytes) -> dict[str, Any]:
+        """Finalize a media post from the PUT bytes.
+
+        Token-first: an unknown/used/expired token 404s before any work. The
+        carried intent replays the exact post the mint validated; ``_post``
+        captures the bytes through the identical blob sink a live post uses and,
+        inside its insert transaction, atomically consumes the token — so a
+        replayed PUT 404s and the post is written exactly once. A bad-bytes
+        failure raises before the consume, leaving the token retryable."""
+        self._sweep_expired_tokens()
+        with closing(self.store.connect()) as conn:
+            row = conn.execute(
+                "SELECT * FROM feed_upload_tokens "
+                "WHERE token = ? AND expires_at >= ?",
+                (token, now_iso()),
+            ).fetchone()
+        if row is None:
+            raise NotFoundError(
+                "unknown, used, or expired feed upload token — call feed.post again"
+            )
+        intent = row_to_dict(row=row) or {}
+        media_kind = str(intent.get("media_kind") or "")
+        media_path = str(intent.get("media_path") or "")
+        return self.post_observed(
+            project_id=str(intent["project_id"]),
+            handle=str(intent["handle"]),
+            text=str(intent["text"]),
+            image_path=media_path if media_kind == "image" else None,
+            image_bytes=data if media_kind == "image" else None,
+            html_path=media_path if media_kind == "embed" else None,
+            html_bytes=data if media_kind == "embed" else None,
+            url=str(intent.get("url") or "") or None,
+            ref=str(intent.get("ref") or "") or None,
+            kind=str(intent.get("kind") or "") or None,
+            in_reply_to=str(intent.get("in_reply_to") or "") or None,
+            post_id=str(intent["post_id"]),
+            consume_token=token,
+        )
+
+    def _sweep_expired_tokens(self) -> None:
+        """Own transaction so the sweep survives a failing access path."""
+        with self.store.transaction() as conn:
+            conn.execute(
+                "DELETE FROM feed_upload_tokens WHERE expires_at < ?", (now_iso(),)
+            )
 
     def post_observed(
         self,
@@ -300,8 +467,14 @@ class FeedService:
         kind: str | None = None,
         in_reply_to: str | None = None,
         project_id: str | None = None,
+        post_id: str | None = None,
+        consume_token: str | None = None,
     ) -> dict[str, Any]:
-        """Write a post from daemon-submitted local image/embed bytes."""
+        """Write a post from already-read local image/embed bytes.
+
+        ``post_id`` pins a pre-allocated id (a token-mint reserved it); ``consume_
+        token`` is deleted inside the insert transaction so a token PUT lands the
+        post exactly once."""
         return self._post(
             handle=handle,
             text=text,
@@ -314,6 +487,8 @@ class FeedService:
             kind=kind,
             in_reply_to=in_reply_to,
             project_id=project_id,
+            post_id=post_id,
+            consume_token=consume_token,
         )
 
     def validate_post_intent(
@@ -368,6 +543,8 @@ class FeedService:
         kind: str | None,
         in_reply_to: str | None = None,
         project_id: str | None,
+        post_id: str | None = None,
+        consume_token: str | None = None,
     ) -> dict[str, Any]:
         handle, text, ref, kind = self._validate_post_fields(
             handle=handle, text=text, ref=ref, kind=kind
@@ -425,7 +602,25 @@ class FeedService:
             )
 
         with self.store.transaction() as conn:
-            post_id = new_id(prefix="post")
+            # Single-use claim inside the same transaction as the insert: a
+            # concurrent or replayed PUT that already consumed the token finds no
+            # row and 404s, so the post is written exactly once (the pre-minted
+            # post_id it carries is never inserted twice).
+            if consume_token is not None:
+                claimed = conn.execute(
+                    "SELECT 1 FROM feed_upload_tokens "
+                    "WHERE token = ? AND expires_at >= ?",
+                    (consume_token, now_iso()),
+                ).fetchone()
+                if claimed is None:
+                    raise NotFoundError(
+                        "unknown, used, or expired feed upload token — "
+                        "call feed.post again"
+                    )
+                conn.execute(
+                    "DELETE FROM feed_upload_tokens WHERE token = ?", (consume_token,)
+                )
+            post_id = post_id or new_id(prefix="post")
             created_at = now_iso()
             seq = next_created_seq(conn=conn, table="posts")
             conn.execute(

@@ -13,7 +13,7 @@ from __future__ import annotations
 from typing import Any
 
 from fastapi import Body, Query, Request
-from fastapi.responses import Response
+from fastapi.responses import JSONResponse, Response
 
 from ...feed.facade import FeedDelivery
 from ...kernel.utils import ValidationError
@@ -55,6 +55,34 @@ def _image_headers(content_type: str) -> dict[str, str]:
     return _BASE_IMAGE_HEADERS
 
 
+def _too_large(cap: int) -> JSONResponse:
+    return JSONResponse(
+        {
+            "detail": (
+                f"upload exceeds the maximum of {cap} bytes for this feed post — "
+                "slim the file (a feed visual is a single figure, not a dataset) "
+                "and re-run the upload command"
+            ),
+            "error_code": "payload_too_large",
+            "max_bytes": cap,
+        },
+        status_code=413,
+    )
+
+
+async def _read_capped(request: Request, *, cap: int) -> bytes | None:
+    """Body bytes, or None once the cap is exceeded (never buffers past it)."""
+    declared = request.headers.get("content-length", "")
+    if declared.isdigit() and int(declared) > cap:
+        return None
+    data = bytearray()
+    async for chunk in request.stream():
+        data.extend(chunk)
+        if len(data) > cap:
+            return None
+    return bytes(data)
+
+
 def _enrich_post_urls(post: dict[str, Any], project_id: str) -> None:
     """Attach the relative media URLs the UI uses for <img src> (the service
     exposes only presence flags, never blob hashes)."""
@@ -76,6 +104,26 @@ def register_feed_routes(
     activity: ActivityTelemetry,
 ) -> None:
     """Register the feed's `/api/projects/{pid}/feed*` routes onto ``http``."""
+
+    @http.put("/api/feed/u/{token}")
+    async def upload_feed_media(token: str, request: Request) -> Any:
+        # Auth-exempt (see RequestAuthenticator): the one-time token minted by
+        # feed.post is the credential, so the agent's bare `curl -T` works
+        # against both local and hosted brains. Token first (INV-12): an
+        # unknown/used/expired token 404s before any body byte is buffered.
+        cap = feed_api.pending_upload_cap(token=token)
+        data = await _read_capped(request, cap=cap)
+        if data is None:
+            return _too_large(cap)
+        try:
+            return feed_api.complete_post_upload(token=token, data=data)
+        except ValidationError as exc:
+            if "max_bytes" in exc.details:
+                return JSONResponse(
+                    {"detail": exc.message, "error_code": "payload_too_large", **exc.details},
+                    status_code=413,
+                )
+            raise
 
     @http.get("/api/projects/{project_id}/feed")
     def feed(

@@ -32,9 +32,10 @@ UI_CORS_HEADERS = [
 # ETag is not CORS-safelisted; expose it so a cross-origin dev UI can echo it back.
 UI_CORS_EXPOSE_HEADERS = ["ETag"]
 
-# Artifact upload tokens are bearer credentials living in the URL path; the
-# activity log must never persist them.
-_UPLOAD_TOKEN_PATH_RE = re.compile(r"(/api/artifacts/[uf]/)[^/?]+")
+# Upload tokens are bearer credentials living in the URL path; the activity log
+# must never persist them. Shared choke-point across every auth-exempt token PUT
+# (INV-12): artifact document/figure uploads and feed-media uploads today.
+_UPLOAD_TOKEN_PATH_RE = re.compile(r"(/api/(?:artifacts/[uf]|feed/u)/)[^/?]+")
 
 
 def redact_upload_tokens(path: str) -> str:
